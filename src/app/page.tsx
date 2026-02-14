@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import WorldwideText from '@/components/WorldwideText'
+import AnimatedCounter from '@/components/AnimatedCounter'
 import dynamic from 'next/dynamic'
 
 // Globe component with no SSR
@@ -9,35 +10,6 @@ const Globe = dynamic(() => import('@/components/Globe'), {
   ssr: false,
   loading: () => <div className="w-full h-full" />
 })
-
-function AnimatedCounter({ target, duration = 2000 }: { target: number; duration?: number }) {
-  const [count, setCount] = useState(0)
-
-  useEffect(() => {
-    if (target === 0) {
-      setCount(0)
-      return
-    }
-
-    let currentCount = 0
-    const increment = target > 50 ? Math.ceil(target / 50) : 1 // Speed up for large numbers
-    const stepDuration = duration / (target / increment)
-
-    const timer = setInterval(() => {
-      currentCount += increment
-      if (currentCount >= target) {
-        setCount(target)
-        clearInterval(timer)
-      } else {
-      setCount(currentCount)
-      }
-    }, stepDuration)
-    
-    return () => clearInterval(timer)
-  }, [target, duration])
-
-  return <span>{count}</span>
-}
 
 export default function Home() {
   const [email, setEmail] = useState('')
@@ -279,7 +251,7 @@ export default function Home() {
             </div>
 
             <div className="text-gray-600 text-xs mb-4 flex items-center justify-center">
-              <AnimatedCounter target={waitlistCount} />&nbsp;developers waiting
+              <AnimatedCounter value={waitlistCount} duration={2000} formatter={(v) => Math.round(v).toLocaleString()} />&nbsp;developers waiting
               <div className="w-2 h-2 bg-green-500 rounded-full ml-2 animate-pulse"></div>
             </div>
           </div>

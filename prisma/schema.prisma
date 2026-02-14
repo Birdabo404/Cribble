@@ -7,13 +7,16 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// NOTE: auth columns are named twitter_* in the DB for historical reasons
+// (originally Twitter-only OAuth). They now store GitHub data too.
+// A future migration (005_rename_auth_columns.sql) renames them properly.
 model User {
   id                   Int       @id @default(autoincrement())
-  twitterId            String?   @map("twitter_id")
-  twitterUsername      String?   @map("twitter_username")
-  twitterName          String?   @map("twitter_name")
-  twitterProfileImage  String?   @map("twitter_profile_image")
-  twitterAccessToken   String?   @map("twitter_access_token")
+  authProviderId       String?   @map("twitter_id")
+  username             String?   @map("twitter_username")
+  displayName          String?   @map("twitter_name")
+  profileImage         String?   @map("twitter_profile_image")
+  accessToken          String?   @map("twitter_access_token")
   subscriptionTier     String?   @map("subscription_tier")
   userType             String?   @map("user_type")
   status               String?   @map("status")

@@ -375,21 +375,6 @@ export default function Dashboard() {
     }
   }
 
-  // Track dashboard visits for analytics
-  useEffect(() => {
-    if (user) {
-      fetch('/api/analytics/track', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          event: 'dashboard_visit',
-          userId: user.id,
-          timestamp: new Date().toISOString()
-        })
-      }).catch(() => {}) // Silent fail for analytics
-    }
-  }, [user])
-
   // Check for active device when user data loads
   useEffect(() => {
     if (user) {

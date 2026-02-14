@@ -28,7 +28,7 @@ export default function Leaderboard() {
 
   // Season info
   const currentSeason = "01.2025"
-  const resetDate = new Date('2024-12-31T23:59:59')
+  const resetDate = new Date('2025-12-31T23:59:59')
   const asciiHeader = `
  ██████╗ ██╗      ██████╗ ██████╗  █████╗ ██╗         ██╗     ███████╗ █████╗ ██████╗ ███████╗██████╗ ██████╗  ██████╗  █████╗ ██████╗ ██████╗ 
 ██╔════╝ ██║     ██╔═══██╗██╔══██╗██╔══██╗██║         ██║     ██╔════╝██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔═══██╗██╔══██╗██╔══██╗██╔══██╗
@@ -92,7 +92,7 @@ export default function Leaderboard() {
 
   const fetchLeaderboardData = async () => {
     try {
-      const response = await fetch('/api/leaderboard?mock=1', { cache: 'no-store' })
+      const response = await fetch('/api/leaderboard', { cache: 'no-store' })
       if (response.ok) {
         const { data } = await response.json()
         setLeaderboard(data || [])

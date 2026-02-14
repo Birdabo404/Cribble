@@ -58,6 +58,7 @@ export async function GET(request: NextRequest) {
     const now = new Date()
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
     const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    const monthStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
     // Get all events for this user
     const userId = Number(session.user_id) // Ensure it's a number
@@ -95,13 +96,14 @@ export async function GET(request: NextRequest) {
 
       const todayEvents = allEvents.filter(e => e.timestamp >= todayStart)
       const weekEvents = allEvents.filter(e => e.timestamp >= weekStart)
+      const monthEvents = allEvents.filter(e => e.timestamp >= monthStart)
 
       // Calculate scores
       scores = {
         total_score: Math.round(calculateScore(allEvents)),
         today_score: Math.round(calculateScore(todayEvents)),
         week_score: Math.round(calculateScore(weekEvents)),
-        month_score: Math.round(calculateScore(allEvents)), // Use all for month
+        month_score: Math.round(calculateScore(monthEvents)),
         last_calculated_at: now.toISOString()
       }
 
