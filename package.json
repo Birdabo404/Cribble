@@ -1,0 +1,54 @@
+{
+  "name": "cribble-frontend",
+  "version": "0.1.0",
+  "description": "Beautiful landing page for cribble.dev - AI usage leaderboard for developers",
+  "author": "birdabo404",
+  "license": "MIT",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "setup": "node scripts/create-env-example.js",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.19.1",
+    "@supabase/supabase-js": "^2.50.0",
+    "@types/uuid": "^10.0.0",
+    "@vercel/analytics": "^1.5.0",
+    "cobe": "^0.6.4",
+    "next": "14.2.15",
+    "next-auth": "^4.24.11",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "uuid": "^11.1.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.21",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.15",
+    "postcss": "8.4.47",
+    "prisma": "^5.19.1",
+    "tailwindcss": "3.4.17",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Birdabo404/Cribble.git"
+  },
+  "keywords": [
+    "ai",
+    "leaderboard",
+    "developers",
+    "nextjs",
+    "supabase",
+    "typescript"
+  ]
+}

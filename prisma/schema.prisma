@@ -1,0 +1,118 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                   Int       @id @default(autoincrement())
+  twitterId            String?   @map("twitter_id")
+  twitterUsername      String?   @map("twitter_username")
+  twitterName          String?   @map("twitter_name")
+  twitterProfileImage  String?   @map("twitter_profile_image")
+  twitterAccessToken   String?   @map("twitter_access_token")
+  subscriptionTier     String?   @map("subscription_tier")
+  userType             String?   @map("user_type")
+  status               String?   @map("status")
+  activeDeviceUuid     String?   @map("active_device_uuid") @db.Uuid
+  lastExtensionSync    DateTime? @map("last_extension_sync")
+  createdAt            DateTime? @map("created_at")
+  lastLogin            DateTime? @map("last_login")
+
+  devices              UserDevice[]
+  sessions             UserSession[]
+  scores               UserScore?
+  events               EventRaw[]
+
+  @@map("users")
+}
+
+model UserSession {
+  id           Int      @id @default(autoincrement())
+  userId       Int      @map("user_id")
+  sessionToken String   @map("session_token")
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @map("created_at")
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionToken])
+  @@map("user_sessions")
+}
+
+model UserDevice {
+  id            BigInt   @id @default(autoincrement())
+  userId        Int      @map("user_id")
+  deviceUuid    String   @unique @map("device_uuid") @db.Uuid
+  deviceName    String?  @map("device_name")
+  browserInfo   Json?    @map("browser_info")
+  isActive      Boolean  @default(true) @map("is_active")
+  lastSyncAt    DateTime? @map("last_sync_at")
+  createdAt     DateTime? @map("created_at")
+  deactivatedAt DateTime? @map("deactivated_at")
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events        EventRaw[]
+
+  @@map("user_devices")
+}
+
+model EventRaw {
+  id           BigInt    @id @default(autoincrement())
+  userId       Int?      @map("user_id")
+  deviceUuid   String?   @map("device_uuid") @db.Uuid
+  timestamp    DateTime? @map("timestamp")
+  domain       String?
+  activeMs     BigInt?   @map("active_ms")
+  totalMs      BigInt?   @map("total_ms")
+  visits       Int?      @default(0)
+  clientVersion String?  @map("client_version")
+  twitterUserId Int?     @map("twitter_user_id")
+
+  user         User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device       UserDevice? @relation(fields: [deviceUuid], references: [deviceUuid], onDelete: SetNull)
+
+  @@map("events_raw")
+}
+
+model UserScore {
+  userId           Int      @id @map("user_id")
+  totalScore       Int      @default(0) @map("total_score")
+  todayScore       Int      @default(0) @map("today_score")
+  weekScore        Int      @default(0) @map("week_score")
+  monthScore       Int      @default(0) @map("month_score")
+  lastCalculatedAt DateTime @map("last_calculated_at")
+  createdAt        DateTime @map("created_at")
+  updatedAt        DateTime @map("updated_at")
+
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_scores")
+}
+
+model Waitlist {
+  id        BigInt   @id @default(autoincrement())
+  email     String
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("waitlist")
+}
+
+model AdminActivityLog {
+  id           BigInt   @id @default(autoincrement())
+  adminUserId  Int?     @map("admin_user_id")
+  targetUserId Int?     @map("target_user_id")
+  action       String
+  oldValues    Json?    @map("old_values")
+  newValues    Json?    @map("new_values")
+  reason       String?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("admin_activity_log")
+}
+
