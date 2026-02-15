@@ -113,6 +113,7 @@ CREATE OR REPLACE FUNCTION register_user_device(
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 BEGIN
   -- Deactivate all other devices for this user
@@ -143,6 +144,7 @@ CREATE OR REPLACE FUNCTION recalculate_user_score(p_user_id INTEGER)
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
   v_total BIGINT;
@@ -188,6 +190,7 @@ $$;
 CREATE OR REPLACE FUNCTION update_device_last_sync()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 BEGIN
   UPDATE user_devices
