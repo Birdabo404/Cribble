@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
       // Find anomalous events
       const { data: anomalousEvents, error: fetchError } = await supabase
         .from('events_raw')
-        .select('id, twitter_user_id, domain, active_ms, visits, timestamp')
+        .select('id, user_id, domain, active_ms, visits, timestamp')
         .or(`active_ms.gt.${MAX_REASONABLE_ACTIVE_MS},visits.gt.${MAX_REASONABLE_VISITS}`)
       
       if (fetchError) {
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
       // Log the events we're about to delete
       anomalousEvents.forEach(event => {
         const activeHours = (event.active_ms || 0) / (1000 * 60 * 60)
-        console.log(`[Data Cleanup] Deleting anomalous event: ID ${event.id}, User ${event.twitter_user_id}, Domain ${event.domain}, Active: ${activeHours.toFixed(2)}h, Visits: ${event.visits}`)
+        console.log(`[Data Cleanup] Deleting anomalous event: ID ${event.id}, User ${event.user_id}, Domain ${event.domain}, Active: ${activeHours.toFixed(2)}h, Visits: ${event.visits}`)
       })
       
       // Delete anomalous events
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
         cleaned: anomalousEvents.length,
         deletedEvents: anomalousEvents.map(e => ({
           id: e.id,
-          user: e.twitter_user_id,
+          user: e.user_id,
           domain: e.domain,
           activeHours: ((e.active_ms || 0) / (1000 * 60 * 60)).toFixed(2),
           visits: e.visits,

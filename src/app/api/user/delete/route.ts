@@ -49,21 +49,7 @@ export async function DELETE(request: NextRequest) {
       console.error('Failed to delete events:', eventsError)
     }
 
-    // 2. Delete extension data queue for user's devices
-    const { data: devices } = await supabase
-      .from('user_devices')
-      .select('device_uuid')
-      .eq('user_id', userId)
-
-    if (devices && devices.length > 0) {
-      const deviceUuids = devices.map(d => d.device_uuid)
-      await supabase
-        .from('extension_data_queue')
-        .delete()
-        .in('device_uuid', deviceUuids)
-    }
-
-    // 3. Delete user devices
+    // 2. Delete user devices
     await supabase
       .from('user_devices')
       .delete()

@@ -236,7 +236,6 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
   const processedEvents = validEvents.map(event => ({
     device_uuid: deviceUuid,
     user_id: userId,
-    twitter_user_id: userId, // dual write for compatibility
     timestamp: new Date(event.timestamp).toISOString(),
     domain: event.domain?.toLowerCase(),
     active_ms: Math.min(event.duration || 0, MAX_ACTIVE_TIME_MS),
@@ -345,14 +344,14 @@ export async function GET(request: NextRequest) {
     const { data: todayStats } = await supabase
       .from('events_raw')
       .select('active_ms, total_ms, visits, timestamp')
-      .or(`user_id.eq.${userIdNum},twitter_user_id.eq.${userIdNum}`)
+      .eq('user_id', userIdNum)
       .gte('timestamp', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
     
     // Get total stats (all time)
     const { data: totalStats } = await supabase
       .from('events_raw')
       .select('active_ms, total_ms, visits')
-      .or(`user_id.eq.${userIdNum},twitter_user_id.eq.${userIdNum}`)
+      .eq('user_id', userIdNum)
     
     // Calculate scores (basic scoring based on activity only)
     const todayFromEvents = todayStats?.reduce((sum, event) => sum + (event.active_ms || 0) * 0.001 + (event.visits || 0) * 50, 0) || 0

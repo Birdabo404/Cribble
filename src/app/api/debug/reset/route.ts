@@ -73,10 +73,6 @@ export async function POST(request: NextRequest) {
       await supabase.from('events_raw').delete().neq('id', 0)
     })
 
-    await safeExec('extension_data_queue', async () => {
-      await supabase.from('extension_data_queue').delete().neq('id', 0)
-    })
-
     await safeExec('user_devices', async () => {
       await supabase.from('user_devices').delete().neq('id', 0)
     })

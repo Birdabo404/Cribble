@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
     if (device.user_id) {
       const { data: user } = await supabase
         .from('users')
-        .select('id, twitter_user_id, twitter_name, twitter_username')
+        .select('id, twitter_id, twitter_name, twitter_username')
         .eq('id', device.user_id)
         .single()
       userData = user
@@ -102,7 +102,7 @@ export async function GET(request: NextRequest) {
       },
       user: userData ? {
         id: userData.id,
-        twitterUserId: userData.twitter_user_id,
+        authProviderId: userData.twitter_id,
         name: userData.twitter_name,
         username: userData.twitter_username
       } : null

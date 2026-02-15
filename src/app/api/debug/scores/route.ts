@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
       const { data: allEvents } = await supabase
         .from('events_raw')
         .select('active_ms, visits, timestamp, domain')
-        .or(`user_id.eq.${user.id},twitter_user_id.eq.${user.id}`)
+        .eq('user_id', user.id)
         .order('timestamp', { ascending: false })
       
       if (!allEvents || allEvents.length === 0) {
