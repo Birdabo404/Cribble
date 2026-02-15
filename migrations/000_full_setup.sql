@@ -222,8 +222,9 @@ BEGIN
   END IF;
 END $$;
 
--- Drop deprecated risk_openings table
+-- Drop deprecated tables
 DROP TABLE IF EXISTS risk_openings CASCADE;
+DROP TABLE IF EXISTS extension_data_queue CASCADE;
 
 
 -- ============================================================
@@ -245,6 +246,16 @@ CREATE INDEX IF NOT EXISTS idx_user_devices_user ON user_devices(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_devices_active ON user_devices(user_id, is_active);
 
 CREATE INDEX IF NOT EXISTS idx_user_scores_total ON user_scores(total_score DESC);
+
+
+-- ============================================================
+-- PART 4: RLS ON ALL TABLES
+-- ============================================================
+
+ALTER TABLE user_scores ENABLE ROW LEVEL SECURITY;
+ALTER TABLE admin_activity_log ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON user_scores FROM anon;
+REVOKE ALL ON admin_activity_log FROM anon;
 
 
 -- ============================================================
