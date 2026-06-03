@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
+import { isSiteLocked } from '@/lib/siteLock'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -9,6 +10,10 @@ const supabase = createClient(
 
 export async function GET(request: NextRequest) {
   try {
+    if (isSiteLocked()) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+
     const { searchParams } = new URL(request.url)
     const code = searchParams.get('code')
     const state = searchParams.get('state')
@@ -74,7 +79,7 @@ export async function GET(request: NextRequest) {
     const avatar = ghUser.avatar_url || ''
 
     // Reuse existing twitter_* columns to avoid schema changes
-    let { data: existingUser } = await supabase
+    const { data: existingUser } = await supabase
       .from('users')
       .select('*')
       .eq('twitter_id', providerId)
@@ -136,7 +141,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}?error=session_creation_failed`)
     }
 
-    const response = NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/dashboard`)
+    // Land every successful login on /welcome. That page plays the boot
+    // animation, then either runs the onboarding wizard (first-time users)
+    // or bounces straight to the dashboard (returning users).
+    const response = NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/welcome`)
     response.cookies.set('cribble_session', sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',

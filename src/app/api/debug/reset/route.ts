@@ -6,8 +6,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-type ResetAction = 'reset_all'
-
 /**
  * Dangerous reset endpoint - DEVELOPMENT ONLY.
  * Protected by: NODE_ENV check + session auth + confirmation token.
@@ -57,7 +55,7 @@ export async function POST(request: NextRequest) {
     const results: Record<string, string | number> = {}
     const errors: string[] = []
 
-    async function safeExec(label: string, fn: () => Promise<void>) {
+    const safeExec = async (label: string, fn: () => Promise<void>) => {
       try {
         await fn()
         results[label] = 'ok'
