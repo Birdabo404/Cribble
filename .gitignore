@@ -152,3 +152,4 @@ Desktop.ini
 *.temp
 .claude/
 .cursor/mcp.json
+.vercel

@@ -67,10 +67,6 @@ export const env = {
   CRON_SECRET: (isProduction && !isBuildTime)
     ? validateEnvVar('CRON_SECRET', process.env.CRON_SECRET)
     : validateOptionalEnvVar('CRON_SECRET', process.env.CRON_SECRET) || 'dev-cron-secret',
-  
-  // Debug tokens (server-side only, never expose to client)
-  DEBUG_RESET_TOKEN: process.env.DEBUG_RESET_TOKEN,
-  DEBUG_CLEANUP_TOKEN: process.env.DEBUG_CLEANUP_TOKEN,
 
   // Optional
   NEXT_PUBLIC_VERCEL_ANALYTICS_ID: process.env.NEXT_PUBLIC_VERCEL_ANALYTICS_ID,
