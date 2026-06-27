@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
 const mockSingle = vi.fn()
@@ -14,8 +14,6 @@ vi.mock('@supabase/supabase-js', () => ({
 }))
 
 describe('requireDevSession', () => {
-  const originalEnv = process.env.NODE_ENV
-
   beforeEach(() => {
     vi.resetModules()
     mockFrom.mockClear()
@@ -25,32 +23,30 @@ describe('requireDevSession', () => {
     mockSingle.mockClear()
   })
 
-  afterEach(() => {
-    process.env.NODE_ENV = originalEnv
-  })
-
   it('returns 404 outside development', async () => {
-    process.env.NODE_ENV = 'production'
+    vi.stubEnv('NODE_ENV', 'production')
     const { requireDevSession } = await import('./debugAuth')
     const request = new NextRequest('http://localhost/api/debug/scores')
 
     const result = await requireDevSession(request)
 
     expect(result).toEqual({ ok: false, status: 404, error: 'Not found' })
+    vi.unstubAllEnvs()
   })
 
   it('returns 401 when session cookie is missing', async () => {
-    process.env.NODE_ENV = 'development'
+    vi.stubEnv('NODE_ENV', 'development')
     const { requireDevSession } = await import('./debugAuth')
     const request = new NextRequest('http://localhost/api/debug/scores')
 
     const result = await requireDevSession(request)
 
     expect(result).toEqual({ ok: false, status: 401, error: 'Unauthorized' })
+    vi.unstubAllEnvs()
   })
 
   it('returns userId when session is valid', async () => {
-    process.env.NODE_ENV = 'development'
+    vi.stubEnv('NODE_ENV', 'development')
     mockSingle.mockResolvedValue({ data: { user_id: 42 }, error: null })
 
     const { requireDevSession } = await import('./debugAuth')
@@ -62,5 +58,6 @@ describe('requireDevSession', () => {
 
     expect(result).toEqual({ ok: true, userId: 42 })
     expect(mockFrom).toHaveBeenCalledWith('user_sessions')
+    vi.unstubAllEnvs()
   })
 })

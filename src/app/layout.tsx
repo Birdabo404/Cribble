@@ -1,7 +1,6 @@
 import type { Metadata } from 'next'
-import { Inter, Noto_Sans_Arabic, Noto_Sans_JP, Noto_Sans_KR, Noto_Sans_SC, Roboto, Noto_Sans } from 'next/font/google'
+import { Inter, Noto_Sans_Arabic, Noto_Sans_JP, Noto_Sans_KR, Noto_Sans_SC, Roboto } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/react'
-import Script from 'next/script'
 import './globals.css'
 
 const inter = Inter({ subsets: ['latin'] })
