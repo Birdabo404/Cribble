@@ -21,8 +21,11 @@ export function isAllowedDuringLock(pathname: string): boolean {
   if (pathname === '/welcome' || pathname === '/login') return true
   if (pathname.startsWith('/audio/')) return true
   if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) return true
+  if (pathname === '/leaderboard' || pathname.startsWith('/leaderboard/')) return true
   if (/^\/api\/waitlist\/?$/.test(pathname)) return true
   if (pathname.startsWith('/api/auth/')) return true
-  if (/^\/api\/user\/(onboarding|me)\/?$/.test(pathname)) return true
+  if (/^\/api\/user\/(onboarding|me|tools|activity)\/?$/.test(pathname)) return true
+  if (/^\/api\/leaderboard\/?$/.test(pathname)) return true
+  if (pathname.startsWith('/api/extension/')) return true
   return false
 }

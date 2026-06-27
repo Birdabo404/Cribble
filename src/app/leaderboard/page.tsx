@@ -1,725 +1,829 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import SpaceBackdrop from '@/components/SpaceBackdrop'
 
-interface LeaderboardUser {
+type Tier = 'FREE' | 'BASIC' | 'PRO' | 'PREMIUM' | 'PREMIUM+' | 'AFFILIATE'
+
+interface LeaderUser {
+  userId: number
   rank: number
   username: string
-  display_name?: string
-  profile_image: string
+  display_name: string
+  profile_image: string | null
   score: number
   isActive: boolean
-  lastSeen: string
-  tier: 'FREE' | 'BASIC' | 'PRO' | 'PREMIUM' | 'AFFILIATE'
-  isCurrentUser?: boolean
+  lastSeen: string | null
+  tier: Tier
   topTools?: { name: string; visits: number; active_ms: number; percent: number }[]
 }
 
-export default function Leaderboard() {
-  const router = useRouter()
-  const [currentUser, setCurrentUser] = useState<any>(null)
-  const [leaderboard, setLeaderboard] = useState<LeaderboardUser[]>([])
-  const [searchQuery, setSearchQuery] = useState('')
-  const [showSearch, setShowSearch] = useState(false)
-  const [timeLeft, setTimeLeft] = useState('')
-  const [navHidden, setNavHidden] = useState(false)
-  // Removed visibleItems and observerRef for performance
+const SEASON = {
+  name: 'SEASON 01',
+  startISO: '2026-04-01T00:00:00.000Z',
+  endISO: '2026-07-01T00:00:00.000Z'
+}
 
-  // Season info
-  const currentSeason = "01.2025"
-  const resetDate = new Date('2025-12-31T23:59:59')
-  const asciiHeader = `
- ██████╗ ██╗      ██████╗ ██████╗  █████╗ ██╗         ██╗     ███████╗ █████╗ ██████╗ ███████╗██████╗ ██████╗  ██████╗  █████╗ ██████╗ ██████╗ 
+const HACKER_GREEN = '#02fe01'
+
+// "GLOBAL LEADERBOARD" in block characters — same art as v1, kept for the retro touch
+const ASCII_HEADER = String.raw` ██████╗ ██╗      ██████╗ ██████╗  █████╗ ██╗         ██╗     ███████╗ █████╗ ██████╗ ███████╗██████╗ ██████╗  ██████╗  █████╗ ██████╗ ██████╗ 
 ██╔════╝ ██║     ██╔═══██╗██╔══██╗██╔══██╗██║         ██║     ██╔════╝██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔═══██╗██╔══██╗██╔══██╗██╔══██╗
 ██║  ███╗██║     ██║   ██║██████╔╝███████║██║         ██║     █████╗  ███████║██║  ██║█████╗  ██████╔╝██████╔╝██║   ██║███████║██████╔╝██║  ██║
 ██║   ██║██║     ██║   ██║██╔══██╗██╔══██║██║         ██║     ██╔══╝  ██╔══██║██║  ██║██╔══╝  ██╔══██╗██╔══██╗██║   ██║██╔══██║██╔══██╗██║  ██║
 ╚██████╔╝███████╗╚██████╔╝██████╔╝██║  ██║███████╗    ███████╗███████╗██║  ██║██████╔╝███████╗██║  ██║██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝
- ╚═════╝ ╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝    ╚══════╝╚══════╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ 
-`
+ ╚═════╝ ╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝    ╚══════╝╚══════╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ `
 
-  const TitleSVG = () => (
-    <svg viewBox="0 0 1600 220" className="w-full h-auto" preserveAspectRatio="xMidYMid meet">
-      <defs>
-        <filter id="greenGlow" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="3" result="blur"/>
-          <feMerge>
-            <feMergeNode in="blur"/>
-            <feMergeNode in="SourceGraphic"/>
-          </feMerge>
-        </filter>
-      </defs>
-      <rect width="100%" height="100%" fill="transparent" />
-      <text x="50%" y="62%" textAnchor="middle" filter="url(#greenGlow)"
-        fontFamily="'JetBrains Mono','Courier New',monospace" fontWeight="900" fontSize="110"
-        stroke="#1aff1a" strokeWidth="1.5" fill="#02fe01">
-        GLOBAL LEADERBOARD
-      </text>
-    </svg>
-  )
+const formatNumber = (n: number) => n.toLocaleString('en-US')
 
-  // Hide navbar on scroll down, show on scroll up
-  useEffect(() => {
-    let lastY = window.scrollY
-    const onScroll = () => {
-      const y = window.scrollY
-      if (Math.abs(y - lastY) < 8) return
-      setNavHidden(y > lastY && y > 32)
-      lastY = y
-    }
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
+const formatCompact = (n: number) => {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'
+  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'k'
+  return String(n)
+}
 
-  useEffect(() => {
-    fetchCurrentUser()
-    fetchLeaderboardData()
-    const interval = setInterval(() => {
-      fetchLeaderboardData()
-    }, 30000)
-    const onVis = () => {
-      if (document.visibilityState === 'visible') {
-        fetchLeaderboardData()
-        fetchCurrentUser()
-      }
-    }
-    document.addEventListener('visibilitychange', onVis)
-    return () => {
-      clearInterval(interval)
-      document.removeEventListener('visibilitychange', onVis)
-    }
-  }, [])
+const formatRelative = (iso: string | null | undefined) => {
+  if (!iso) return '—'
+  const diff = Date.now() - new Date(iso).getTime()
+  if (diff < 60_000) return 'just now'
+  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}m`
+  if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}h`
+  return `${Math.floor(diff / 86400_000)}d`
+}
 
-  const fetchLeaderboardData = async () => {
-    try {
-      const response = await fetch('/api/leaderboard', { cache: 'no-store' })
-      if (response.ok) {
-        const { data } = await response.json()
-        setLeaderboard(data || [])
-      }
-    } catch (err) {
-      console.error('Error fetching leaderboard data:', err)
-    }
+const tierAccent = (tier: Tier | undefined): string => {
+  switch (tier) {
+    case 'PRO':
+      return 'text-amber-300 border-amber-300/40 bg-amber-300/5'
+    case 'PREMIUM':
+    case 'PREMIUM+':
+      return 'text-zinc-100 border-zinc-300/40 bg-zinc-300/5'
+    case 'AFFILIATE':
+      return 'text-cyan-300 border-cyan-300/40 bg-cyan-300/5'
+    case 'BASIC':
+      return 'text-emerald-300 border-emerald-300/40 bg-emerald-300/5'
+    default:
+      return 'text-zinc-300 border-zinc-700 bg-zinc-900/60'
   }
+}
 
-  // Countdown timer
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const now = new Date().getTime()
-      const distance = resetDate.getTime() - now
+const rankAccent = (rank: number) => {
+  if (rank === 1) return { text: 'text-zinc-100' }
+  if (rank === 2) return { text: 'text-zinc-300' }
+  if (rank === 3) return { text: 'text-zinc-400' }
+  return { text: 'text-zinc-500' }
+}
 
-      if (distance > 0) {
-        const days = Math.floor(distance / (1000 * 60 * 60 * 24))
-        const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
-        const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60))
-        const seconds = Math.floor((distance % (1000 * 60)) / 1000)
+const PAGE_SIZE = 30
 
-        setTimeLeft(`${days}d ${hours}h ${minutes}m ${seconds}s`)
-      } else {
-        setTimeLeft('SEASON ENDED')
+export default function LeaderboardV2() {
+  const [leaderboard, setLeaderboard] = useState<LeaderUser[]>([])
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [query, setQuery] = useState('')
+  const [countdown, setCountdown] = useState<{
+    d: number
+    h: number
+    m: number
+    s: number
+    ended: boolean
+  }>({ d: 0, h: 0, m: 0, s: 0, ended: false })
+  const [page, setPage] = useState(1)
+
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await fetch('/api/leaderboard', { cache: 'no-store' })
+      if (!res.ok) return
+      const data = await res.json()
+      if (data.success) {
+        const rows = Array.isArray(data.data)
+          ? data.data
+          : Array.isArray(data.leaderboard)
+            ? data.leaderboard
+            : []
+        setLeaderboard(rows)
       }
-    }, 1000)
-
-    return () => clearInterval(timer)
+    } catch {}
   }, [])
 
-  const fetchCurrentUser = async () => {
+  const fetchMe = useCallback(async () => {
     try {
-      const response = await fetch('/api/user/me', {
-        credentials: 'include'
+      const res = await fetch('/api/user/me', { credentials: 'include' })
+      if (!res.ok) return
+      const data = await res.json()
+      if (data?.user?.id) setCurrentUserId(Number(data.user.id))
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    Promise.all([fetchData(), fetchMe()]).finally(() => setLoading(false))
+    const id = setInterval(fetchData, 30_000)
+    return () => clearInterval(id)
+  }, [fetchData, fetchMe])
+
+  // Countdown
+  useEffect(() => {
+    const tick = () => {
+      const end = new Date(SEASON.endISO).getTime()
+      const diff = end - Date.now()
+      if (diff <= 0) {
+        setCountdown({ d: 0, h: 0, m: 0, s: 0, ended: true })
+        return
+      }
+      setCountdown({
+        d: Math.floor(diff / 86400_000),
+        h: Math.floor((diff % 86400_000) / 3600_000),
+        m: Math.floor((diff % 3600_000) / 60_000),
+        s: Math.floor((diff % 60_000) / 1000),
+        ended: false
       })
-      if (response.ok) {
-        const userData = await response.json()
-        setCurrentUser(userData)
-      }
-    } catch (error) {
-      console.error('Error fetching user data:', error)
     }
-  }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [])
 
-  const handleLogout = async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' })
-      router.push('/')
-    } catch (error) {
-      console.error('Logout error:', error)
-    }
-  }
+  const totals = useMemo(() => {
+    const totalPlayers = leaderboard.length
+    const activePlayers = leaderboard.filter((u) => u.isActive).length
+    return { totalPlayers, activePlayers }
+  }, [leaderboard])
 
-  const formatScore = (score: number) => {
-    return score.toLocaleString()
-  }
-
-  const hexToRgba = (hex: string, alpha: number) => {
-    const h = hex.replace('#','')
-    const bigint = parseInt(h.length === 3 ? h.split('').map(c=>c+c).join('') : h, 16)
-    const r = (bigint >> 16) & 255
-    const g = (bigint >> 8) & 255
-    const b = bigint & 255
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`
-  }
-
-  const getHighResAvatarUrl = (url?: string | null): string | null => {
-    if (!url) return url as any
-    try {
-      const u = new URL(url)
-      if (u.hostname.includes('pbs.twimg.com')) {
-        // Prefer 400x400
-        if (u.searchParams.has('name')) {
-          u.searchParams.set('name', '400x400')
-          return u.toString()
-        }
-        u.pathname = u.pathname.replace(/_(normal|bigger|mini)\./, '_400x400.')
-        return u.toString()
-      }
-      if (u.hostname.includes('unavatar.io')) {
-        u.searchParams.set('size', '256')
-        return u.toString()
-      }
-      return url
-    } catch {
-      return url
-    }
-  }
-
-  const getProfileAvatar = (user: LeaderboardUser, size: 'small' | 'large' = 'small') => {
-    const sizeClasses = size === 'large' ? 'w-9 h-9 sm:w-10 sm:h-10' : 'w-7 h-7 sm:w-8 sm:h-8'
-    const textSize = size === 'large' ? 'text-sm sm:text-base' : 'text-xs sm:text-sm'
-    
-    const getLetterAvatar = () => {
-      const shapeClass = user.tier === 'PREMIUM' ? 'rounded-md' : user.tier === 'AFFILIATE' ? 'rounded-[6px]' : 'rounded-full'
-      const borderClass = user.tier === 'PREMIUM' 
-        ? 'border border-yellow-400/60' 
-        : user.tier === 'PRO' 
-        ? 'border border-blue-400 shadow-[0_0_12px_2px_rgba(29,78,216,0.30)]' 
-        : user.tier === 'BASIC' ? 'border border-gray-500' 
-        : user.tier === 'AFFILIATE' ? 'border border-[#02fe01] shadow-[0_0_12px_2px_rgba(2,254,1,0.25)]' : 'border border-gray-500'
-      const bgClass = 'bg-gray-900'
-      const textClass = 'text-gray-300'
-      
-      return (
-        <div className={`${sizeClasses} ${bgClass} ${shapeClass} ${borderClass} flex items-center justify-center flex-shrink-0`}>
-          <span className={`${textClass} font-mono ${textSize} font-bold`}>
-            {user.username.charAt(0).toUpperCase()}
-          </span>
-        </div>
-      )
-    }
-    
-    const hasRealImage = user.profile_image && 
-                        !user.profile_image.includes('/api/placeholder') && 
-                        user.profile_image.startsWith('http')
-    
-    if (hasRealImage) {
-      const shapeClass = user.tier === 'PREMIUM' ? 'rounded-md' : user.tier === 'AFFILIATE' ? 'rounded-[6px]' : 'rounded-full'
-      const borderClass = user.tier === 'PREMIUM'
-        ? 'border border-yellow-400/70'
-        : user.tier === 'PRO'
-        ? 'border-2 border-blue-400 shadow-[0_0_14px_3px_rgba(29,78,216,0.35)]'
-        : user.tier === 'BASIC'
-        ? 'border border-gray-500'
-        : user.tier === 'AFFILIATE' ? 'border-2 border-[#02fe01] shadow-[0_0_14px_3px_rgba(2,254,1,0.25)]' : 'border-2 border-gray-500'
-      
-      return (
-        <div className="relative flex-shrink-0">
-          <img 
-            src={getHighResAvatarUrl(user.profile_image) || user.profile_image} 
-            alt={user.username}
-            data-stage="primary"
-            className={`${sizeClasses} ${borderClass} ${shapeClass} object-cover bg-gray-900 block`}
-            onError={(e) => {
-              const target = e.target as HTMLImageElement
-              const stage = target.getAttribute('data-stage')
-              if (stage === 'primary') {
-                // try unavatar as secondary
-                target.src = `https://unavatar.io/twitter/${encodeURIComponent(user.username)}?size=256&fallback=false`
-                target.setAttribute('data-stage','unavatar')
-                return
-              }
-              // final fallback to letter avatar
-              target.style.display = 'none'
-              const fallback = target.nextElementSibling as HTMLElement
-              if (fallback) fallback.classList.remove('hidden')
-            }}
-          />
-          <div className="hidden absolute inset-0">
-            {getLetterAvatar()}
-          </div>
-          {/* Badge by tier next to username is handled outside; this leaves avatar clean */}
-        </div>
-      )
-    }
-    
-    return getLetterAvatar()
-  }
-
-  const getVerificationBadge = (tier: string) => {
-    // Badge images are in public/badges
-    const size = 14
-    const className = 'ml-2 sm:ml-3 inline-block align-middle'
-    if (tier === 'PREMIUM') {
-      return <img src="/badges/GOLDEN_BADGE.svg.png" alt="premium" width={size} height={size} className={className} />
-    }
-    if (tier === 'PRO') {
-      return <img src="/badges/BLUE-BADGE.svg.png" alt="pro" width={size} height={size} className={className} />
-    }
-    if (tier === 'BASIC') {
-      return <img src="/badges/BASIC.svg.png" alt="basic" width={size} height={size} className={className} />
-    }
-    if (tier === 'AFFILIATE') {
-      return (
-        <span className="inline-flex items-center gap-[2px] ml-2 sm:ml-3">
-          <img src="/badges/affiliate.png" alt="affiliate" width={size} height={size} />
-          <span className="inline-flex items-center justify-center w-[14px] h-[14px] border border-gray-600/60 rounded-[3px] bg-black">
-            <img src="/affiliate-badge/affiliate-badge.jpg" alt="affiliate-extra" width={12} height={12} />
-          </span>
-        </span>
-      )
-    }
-    return null
-  }
-
-  const filteredLeaderboard = leaderboard.filter(user =>
-    user.username.toLowerCase().includes(searchQuery.toLowerCase())
+  const me = useMemo(
+    () => leaderboard.find((u) => u.userId === currentUserId) || null,
+    [leaderboard, currentUserId]
   )
 
-  if (!currentUser) {
+  const top3 = useMemo(() => leaderboard.slice(0, 3), [leaderboard])
+
+  // Keep standings comprehensive (including top 3) so small leaderboards
+  // do not appear empty in the table section.
+  const filteredStandings = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return leaderboard
+    return leaderboard.filter(
+      (u) =>
+        u.username.toLowerCase().includes(q) ||
+        (u.display_name || '').toLowerCase().includes(q)
+    )
+  }, [leaderboard, query])
+
+  const totalPages = Math.max(1, Math.ceil(filteredStandings.length / PAGE_SIZE))
+
+  // Reset to page 1 whenever the underlying filtered list or query changes
+  useEffect(() => {
+    setPage(1)
+  }, [query])
+
+  // Clamp page if the data shrank (e.g. after a refetch removes players)
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages])
+
+  const pagedStandings = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE
+    return filteredStandings.slice(start, start + PAGE_SIZE)
+  }, [filteredStandings, page])
+
+  const showingFrom = filteredStandings.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
+  const showingTo = Math.min(page * PAGE_SIZE, filteredStandings.length)
+
+  return (
+    <div className="min-h-screen bg-black text-zinc-100 font-mono selection:bg-[#02fe01]/20">
+      <SpaceBackdrop />
+
+      {/* horizon line */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-x-0 bottom-0 h-px opacity-30 z-0"
+        style={{
+          background:
+            'linear-gradient(90deg, transparent, rgba(2,254,1,0.55), transparent)'
+        }}
+      />
+
+      <div className="relative z-10 max-w-6xl mx-auto px-6 pt-10 pb-16">
+        <Header
+          totalPlayers={totals.totalPlayers}
+          activePlayers={totals.activePlayers}
+        />
+
+        <main className="mt-14">
+          {/* TITLE BLOCK — ASCII art retro header */}
+          <section className="flex flex-col items-center gap-5">
+            <div className="w-full overflow-x-auto py-2">
+              <pre
+                aria-label="GLOBAL LEADERBOARD"
+                className="whitespace-pre leading-[0.9] font-mono text-center mx-auto"
+                style={{
+                  fontSize: 'clamp(4.5px, 0.78vw, 9.5px)',
+                  color: HACKER_GREEN,
+                  textShadow: `0 0 8px ${HACKER_GREEN}55, 0 0 22px ${HACKER_GREEN}26`,
+                  letterSpacing: '-0.02em'
+                }}
+              >
+                {ASCII_HEADER}
+              </pre>
+            </div>
+
+            <p className="text-[11px] tracking-[0.2em] text-zinc-500 text-center">
+              <span style={{ color: `${HACKER_GREEN}cc` }}>{'// '}</span>
+              ranked by season-long score
+              <span className="mx-2 text-zinc-700">·</span>
+              live sync every 30s
+            </p>
+          </section>
+
+          {/* SEASON COUNTDOWN — compact, centered, animated digits */}
+          <section className="mt-10 flex justify-center">
+            <SeasonCountdown
+              seasonName={SEASON.name}
+              countdown={countdown}
+            />
+          </section>
+
+          {/* PODIUM — top 3, restrained and uniform */}
+          {!loading && top3.length > 0 && (
+            <section className="mt-10">
+              <div
+                className="text-[10px] tracking-[0.4em] mb-4"
+                style={{ color: `${HACKER_GREEN}b3` }}
+              >
+                {'// TOP 3'}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {top3.map((u) => (
+                  <PodiumCard
+                    key={u.userId}
+                    user={u}
+                    isYou={u.userId === currentUserId}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* SEARCH + LIST */}
+          <section className="mt-10">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div className="flex items-baseline gap-3">
+                <div
+                  className="text-[10px] tracking-[0.4em]"
+                  style={{ color: `${HACKER_GREEN}b3` }}
+                >
+                  STANDINGS
+                </div>
+                {!loading && filteredStandings.length > 0 && (
+                  <div className="text-[10px] tracking-[0.2em] text-zinc-600 tabular-nums">
+                    {showingFrom}–{showingTo} / {formatNumber(filteredStandings.length)}
+                  </div>
+                )}
+              </div>
+              <SearchBar value={query} onChange={setQuery} />
+            </div>
+
+            <div
+              className="rounded-2xl border bg-zinc-950/80 backdrop-blur-sm overflow-hidden"
+              style={{ borderColor: `${HACKER_GREEN}26` }}
+            >
+              <HeaderRow />
+              <ul className="divide-y divide-zinc-900/80">
+                {loading && (
+                  <li className="py-10 text-center text-xs tracking-[0.3em] text-zinc-600">
+                    LOADING…
+                  </li>
+                )}
+                {!loading && filteredStandings.length === 0 && (
+                  <li className="py-10 text-center text-xs text-zinc-500">
+                    {query ? 'No players match that handle.' : 'Standings will appear here once players are ranked.'}
+                  </li>
+                )}
+                {!loading &&
+                  pagedStandings.map((u) => (
+                    <Row
+                      key={u.userId}
+                      user={u}
+                      isYou={u.userId === currentUserId}
+                    />
+                  ))}
+              </ul>
+            </div>
+
+            {!loading && totalPages > 1 && (
+              <Pagination page={page} totalPages={totalPages} onPage={setPage} />
+            )}
+
+            {/* "You" sticky inline summary if user is far down the list */}
+            {me && me.rank > 13 && (
+              <div
+                className="mt-3 rounded-2xl border backdrop-blur-sm"
+                style={{
+                  borderColor: `${HACKER_GREEN}40`,
+                  background: `${HACKER_GREEN}0a`
+                }}
+              >
+                <Row user={me} isYou compact />
+              </div>
+            )}
+          </section>
+        </main>
+
+        <Footer />
+      </div>
+    </div>
+  )
+}
+
+function Header({
+  totalPlayers,
+  activePlayers
+}: {
+  totalPlayers: number
+  activePlayers: number
+}) {
+  return (
+    <header className="flex items-center justify-between gap-4">
+      <a
+        href="/dashboard"
+        className="text-sm tracking-[0.4em] text-zinc-100 font-semibold hover:opacity-80 transition-opacity"
+        aria-label="Back to dashboard"
+      >
+        CRIBBLE<span style={{ color: HACKER_GREEN }}>.</span>
+      </a>
+
+      <div className="hidden md:flex items-center gap-2 px-2.5 py-1 rounded-full border border-zinc-800 bg-zinc-950/70">
+        <span
+          className="h-1.5 w-1.5 rounded-full"
+          style={{
+            background: HACKER_GREEN,
+            boxShadow: `0 0 8px ${HACKER_GREEN}b0`
+          }}
+        />
+        <span className="text-[10px] tracking-[0.3em] text-zinc-400">LIVE</span>
+        <span className="text-[10px] text-zinc-700">·</span>
+        <span className="text-[10px] tracking-[0.2em] text-zinc-500 tabular-nums">
+          {formatNumber(totalPlayers)} PLAYERS · {formatNumber(activePlayers)} ONLINE
+        </span>
+      </div>
+
+      <a
+        href="/dashboard"
+        className="text-[10px] tracking-[0.3em] px-3 py-1.5 rounded border border-zinc-800 hover:border-zinc-600 text-zinc-300 hover:text-zinc-100 transition-colors"
+      >
+        ← DASHBOARD
+      </a>
+    </header>
+  )
+}
+
+function Footer() {
+  return (
+    <footer className="mt-12 flex items-center justify-between text-[10px] tracking-[0.3em] text-zinc-600">
+      <span>CRIBBLE · {new Date().getFullYear()}</span>
+      <span style={{ color: `${HACKER_GREEN}99` }}>
+        {'// climb. or don\u2019t. we\u2019re keeping score.'}
+      </span>
+    </footer>
+  )
+}
+
+function SeasonCountdown({
+  seasonName,
+  countdown
+}: {
+  seasonName: string
+  countdown: { d: number; h: number; m: number; s: number; ended: boolean }
+}) {
+  if (countdown.ended) {
     return (
-      <div className="min-h-screen bg-black text-white flex items-center justify-center font-mono">
-        <div className="text-green-400 font-mono text-lg animate-pulse">LOADING...</div>
+      <div className="inline-flex items-center gap-3 rounded-lg border border-zinc-800/80 bg-zinc-950/70 backdrop-blur-sm px-4 py-2">
+        <span
+          className="text-[10px] tracking-[0.4em] font-semibold"
+          style={{ color: HACKER_GREEN }}
+        >
+          {seasonName}
+        </span>
+        <span className="h-3 w-px bg-zinc-800" />
+        <span className="text-[11px] tracking-[0.2em] text-rose-300">
+          season ended
+        </span>
       </div>
     )
   }
 
+  const segs: { value: number; suffix: string }[] = [
+    { value: countdown.d, suffix: 'D' },
+    { value: countdown.h, suffix: 'H' },
+    { value: countdown.m, suffix: 'M' },
+    { value: countdown.s, suffix: 'S' }
+  ]
+
   return (
-    <div className="min-h-screen bg-black text-white relative overflow-hidden font-mono">
-      {/* Enhanced CRT Scanlines with Green Theme */}
-      <div className="absolute inset-0 pointer-events-none opacity-20 sm:opacity-30">
-        <div className="h-full w-full" style={{
-          backgroundImage: 'repeating-linear-gradient(0deg, rgba(0,255,0,0.05) 0px, transparent 1px, transparent 3px)',
-        }}></div>
-      </div>
-      
-      {/* Additional scanline texture for depth */}
-      <div className="absolute inset-0 pointer-events-none opacity-5 sm:opacity-10">
-        <div className="h-full w-full" style={{
-          backgroundImage: 'repeating-linear-gradient(90deg, rgba(0,255,0,0.02) 0px, transparent 1px, transparent 4px)',
-        }}></div>
-      </div>
-
-      {/* Sticky Navbar (auto-hide on scroll) */}
-      <header className={`sticky top-0 z-30 border-b border-[#02fe01]/30 bg-black/80 backdrop-blur-sm px-3 sm:px-4 py-2 sm:py-3 transition-transform duration-300 ${navHidden ? '-translate-y-full' : 'translate-y-0'}`}>
-        <div className="max-w-3xl sm:max-w-5xl mx-auto">
-          {/* Mobile Layout */}
-          <div className="sm:hidden flex items-center justify-between">
-            <button 
-              onClick={() => router.push('/dashboard')}
-              className="text-base font-bold text-[#f2ff00] tracking-widest hover:text-yellow-200 transition-colors"
+    <div className="inline-flex items-center gap-3 rounded-lg border border-zinc-800/80 bg-zinc-950/70 backdrop-blur-sm px-4 py-2">
+      <span
+        className="text-[10px] tracking-[0.4em] font-semibold"
+        style={{ color: HACKER_GREEN }}
+      >
+        {seasonName}
+      </span>
+      <span className="h-3 w-px bg-zinc-800" />
+      <span className="text-[10px] tracking-[0.3em] text-zinc-500">
+        ENDS IN
+      </span>
+      <div className="flex items-baseline gap-1.5">
+        {segs.map((seg, i) => (
+          <span key={seg.suffix} className="flex items-baseline">
+            <span
+              key={seg.value}
+              className="countdown-tick tabular-nums text-sm font-semibold text-zinc-100"
             >
-              CRIBBLE.DEV
-            </button>
-            <div className="flex items-center gap-2">
-              <img 
-                src={(currentUser?.user?.twitter_profile_image || currentUser?.twitter_profile_image) || (currentUser?.user?.twitter_username || currentUser?.twitter_username ? `https://unavatar.io/twitter/${(currentUser?.user?.twitter_username || currentUser?.twitter_username)}?size=64` : '/favicon.png')} 
-                alt={(currentUser?.user?.twitter_name || currentUser?.twitter_name) || 'user'}
-                className="w-5 h-5 rounded-full"
-              />
-              <span className="text-[#f2ff00] text-xs font-bold">@{(currentUser?.user?.twitter_username || currentUser?.twitter_username) || 'user'}</span>
-            </div>
-          </div>
+              {seg.value.toString().padStart(2, '0')}
+            </span>
+            <span className="ml-0.5 text-[9px] tracking-[0.3em] text-zinc-500">
+              {seg.suffix}
+            </span>
+            {i < segs.length - 1 && (
+              <span className="mx-1.5 text-zinc-700">:</span>
+            )}
+          </span>
+        ))}
+      </div>
 
-          {/* Desktop Layout */}
-          <div className="hidden sm:flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <button 
-                onClick={() => router.push('/dashboard')}
-                className="text-xl lg:text-2xl font-bold text-[#02fe01] tracking-widest hover:text-yellow-200 transition-colors"
-              >
-                CRIBBLE.DEV
-              </button>
-              {/* Removed redundant LEADERBOARD label on leaderboard page */}
-            </div>
-            
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-3 bg-gray-900/30 px-3 py-2 rounded-md border border-[#02fe01]/30">
-                <img 
-                  src={(currentUser?.user?.twitter_profile_image || currentUser?.twitter_profile_image) || (currentUser?.user?.twitter_username || currentUser?.twitter_username ? `https://unavatar.io/twitter/${(currentUser?.user?.twitter_username || currentUser?.twitter_username)}?size=64` : '/favicon.png')} 
-                  alt={(currentUser?.user?.twitter_name || currentUser?.twitter_name) || 'user'}
-                  className="w-7 h-7 rounded-full"
-                />
-                <div className="text-xs flex items-center gap-2">
-                   <div className="text-[#02fe01]">@{(currentUser?.user?.twitter_username || currentUser?.twitter_username) || 'user'}</div>
-                   <div className="flex items-center gap-2">
-                     <button onClick={() => router.push('/dashboard')} className="px-3 py-1 rounded-md border border-[#02fe01]/60 text-[#02fe01] hover:bg-[#02fe01]/10">DASHBOARD</button>
-                     <button onClick={handleLogout} className="px-3 py-1 rounded-md border border-red-400/60 text-red-400 hover:bg-red-500/10">EXIT</button>
-                   </div>
-                </div>
-              </div>
-              
-              {/* Removed external EXIT per design; we keep the pill inside user card */}
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="relative z-10 max-w-3xl sm:max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
-        
-        {/* Header card */}
-        <div className="relative mb-6">
-          <div className="bg-black border border-[#02fe01] rounded-md overflow-hidden">
-            <div className="border-b border-[#02fe01] px-4 py-4">
-              <div className="flex flex-col items-center gap-2.5">
-                {/* ASCII title on all sizes; ultra-compact on mobile */}
-                <pre className="whitespace-pre overflow-x-auto text-[#02fe01] font-mono leading-[0.9] text-[4px] sm:text-[5px] md:text-[6px] lg:text-[7px] xl:text-[8px] text-center">
-{asciiHeader}
-                </pre>
-
-                {/* Season/Reset centered */}
-                <div className="flex items-center justify-center gap-3">
-                  <div className="text-yellow-200 font-mono text-xs sm:text-sm">SEASON: {currentSeason}</div>
-                  <div className="text-[#02fe01]">■</div>
-                  <div className="text-red-400 font-mono text-xs sm:text-sm">RESET IN: {timeLeft || 'SEASON ENDED'}</div>
-                </div>
-
-                {/* Updated + Search (inline) */}
-                <div className="flex items-center justify-center gap-2.5 flex-wrap">
-                  <div className="text-[#FF5C00] drop-shadow-[0_0_6px_rgba(255,92,0,0.5)] font-mono text-xs sm:text-sm">UPDATED REAL-TIME 🌏 {leaderboard.length} TOTAL USERS</div>
-                  <div className="hidden sm:block w-px h-4 bg-[#02fe01]/30" />
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setShowSearch(!showSearch)}
-                      className="px-3 py-1 border border-[#02fe01] rounded-md text-[#02fe01] font-mono text-xs sm:text-sm font-semibold hover:text-yellow-200 hover:border-yellow-200 transition-all"
-                    >
-                      SEARCH
-                    </button>
-                    {showSearch && (
-                      <>
-                        <input
-                          type="text"
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          placeholder="Search users..."
-                          className="retro-input w-40 sm:w-56 px-2 py-1.5 rounded-md text-xs sm:text-sm placeholder-gray-500 focus:outline-none"
-                        />
-                        <div className="text-[#02fe01] font-mono text-sm px-3 py-1.5 border border-[#02fe01] rounded-md min-w-[3rem] text-center bg-transparent">
-                          {filteredLeaderboard.length}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* divider removed per design cleanup */}
-
-                {/* (moved) */}
-
-                {/* Maximum Score Info */}
-                <div className="mt-2 pt-1 border-t border-[#02fe01]/20 text-[#02fe01] text-[11px] sm:text-xs text-center w-full">
-                  DAILY MAX: <span className="font-semibold">150,000+</span> • SEASON (90 DAYS): <span className="font-semibold">100,000,000+</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Unified Leaderboard - All Users */}
-        {filteredLeaderboard.length > 0 && (
-            <div className="relative">
-              <div className="bg-black border border-[#02fe01] rounded-md overflow-hidden">
-              
-              {/* Table Header - Desktop Only */}
-               <div className="hidden sm:block bg-black border-b border-[#02fe01] px-3 py-2">
-                 <div className="grid grid-cols-12 gap-2 text-[#02fe01] font-mono text-[11px] font-semibold tracking-wider">
-                  <div className="col-span-1">RANK</div>
-                   <div className="col-span-6">PLAYER</div>
-                   <div className="col-span-3">SCORE</div>
-                      <div className="col-span-2 hidden md:block">TOP 3</div>
-                </div>
-              </div>
-
-              {/* Leaderboard Entries */}
-               <div className="divide-y divide-[#02fe01]/25">
-                {filteredLeaderboard.map((user, index) => (
-                 <div 
-                    key={user.rank} 
-                     className={`px-4 py-2.5 hover:bg-[#02fe01]/5 transition-all duration-300 ${
-                      user.isCurrentUser ? 'bg-[#02fe01]/10 border-l-2 border-[#02fe01]' : ''
-                    }`}
-                    data-rank={user.rank}
-                  >
-                    {/* Mobile Layout */}
-                    <div className="flex items-center gap-4 sm:hidden">
-                       <div className={`font-mono font-semibold text-base min-w-[3rem] flex items-center gap-1 ${
-                        user.rank === 1 ? 'text-yellow-300' : user.rank === 2 ? 'text-gray-300' : user.rank === 3 ? 'text-amber-600' : 'text-white'
-                      }`}>
-                        <span>{user.rank === 1 ? '🏆' : user.rank === 2 ? '🥈' : user.rank === 3 ? '🥉' : '#'}</span>
-                        <span>{user.rank > 3 ? user.rank : ''}</span>
-                      </div>
-                      {getProfileAvatar(user, 'large')}
-                        <div className="flex-1 min-w-0">
-                        <div className="text-white font-mono text-sm font-normal flex items-center">
-                          <span className="truncate">{user.display_name || user.username}</span>
-                          {getVerificationBadge(user.tier)}
-                        </div>
-                        <div className="text-gray-500 font-mono text-[11px]">@{user.username.toLowerCase()}</div>
-                        <div className="text-[#02fe01] font-mono text-sm font-semibold mt-1">
-                          {formatScore(user.score)}
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-center">
-                        <div className={`w-2 h-2 rounded-sm ${
-                          user.isActive 
-                            ? 'bg-green-400 retro-status-active' 
-                            : 'bg-gray-600'
-                        }`}></div>
-                      </div>
-                    </div>
-
-                    {/* Desktop Layout */}
-                     <div className={`hidden sm:grid sm:grid-cols-12 gap-2 items-center ${user.rank <= 3 ? 'relative group' : ''}`}>
-                       {user.rank <= 3 && (
-                         <div className="absolute inset-0 rounded-md pointer-events-none transition-opacity duration-200 group-hover:opacity-100" style={{
-                           opacity: 0.9,
-                           background: user.rank === 1
-                             ? 'radial-gradient(120% 80% at 10% 50%, rgba(242,255,0,0.10), rgba(0,0,0,0))'
-                             : user.rank === 2
-                             ? 'radial-gradient(120% 80% at 10% 50%, rgba(200,200,200,0.08), rgba(0,0,0,0))'
-                             : 'radial-gradient(120% 80% at 10% 50%, rgba(205,127,50,0.10), rgba(0,0,0,0))'
-                         }} />
-                       )}
-                      
-                      {/* Rank */}
-                      <div className="col-span-1 pl-1">
-                        <div className={`font-mono font-medium text-base flex items-center gap-2 text-[#02fe01]`}>
-                          <span>{user.rank === 1 ? '🏆' : user.rank === 2 ? '🥈' : user.rank === 3 ? '🥉' : '#'}</span>
-                          <span>{user.rank > 3 ? user.rank : ''}</span>
-                        </div>
-                      </div>
-
-                      {/* Player */}
-                       <div className="col-span-6 flex items-center gap-2">
-                        {getProfileAvatar(user, 'large')}
-                        <div className="min-w-0">
-                          <div className="text-white font-mono text-sm font-normal flex items-center">
-                            <span className="truncate max-w-[200px] sm:max-w-[260px]">{user.display_name || user.username}</span>
-                            {getVerificationBadge(user.tier)}
-                          </div>
-                          <div className="text-gray-500 font-mono text-[11px] truncate">@{user.username.toLowerCase()}</div>
-                          {false && user.topTools}
-                        </div>
-                      </div>
-
-                      {/* Score */}
-                       <div className="col-span-3">
-                        <div className="font-mono text-sm sm:text-base font-medium text-[#FF5C00] drop-shadow-[0_0_6px_rgba(255,92,0,0.4)]">
-                          {formatScore(user.score)}
-                         </div>
-                      </div>
-
-                      {/* Top 3 icons/percent (desktop only) */}
-                      <div className="col-span-2 hidden md:flex items-center justify-end pr-3">
-                        <div className="flex gap-2 items-center">
-                          {(user.topTools && user.topTools.length > 0 ? user.topTools : [
-                            { name: 'ChatGPT' },
-                            { name: 'Claude' },
-                            { name: 'Perplexity' }
-                          ]).slice(0,3).map((t, i) => {
-                            // Render public images from /public/ai-badges/*.png to avoid Next/Image import issues
-                            const name = t.name?.toLowerCase() || ''
-                            // prefer public path under /ai-companies, fallback to /ai-badges
-                            const fileBase = name.includes('openai') || name.includes('chatgpt') ? 'openai.png'
-                              : name.includes('claude') ? 'anthropic.png'
-                              : name.includes('perplexity') ? 'perplexity.png'
-                              : name.includes('google') || name.includes('gemini') ? 'google-ai.png'
-                              : name.includes('deepseek') ? 'deepseek.png'
-                              : name.includes('cohere') ? 'cohere.png'
-                              : name.includes('grok') ? 'GROK.png'
-                              : name.includes('mistral') ? 'mistal.png'
-                              : 'openai.png'
-                            const srcPrimary = `/ai-companies/${fileBase}`
-                            const srcFallback = `/ai-badges/${fileBase}`
-                            const handleError = (e: any) => {
-                              const img = e.currentTarget as HTMLImageElement
-                              const tried = img.dataset.fallback
-                              if (!tried) {
-                                img.src = srcFallback
-                                img.dataset.fallback = '1'
-                              } else if (tried === '1') {
-                                // last resort: unavatar for known brands
-                                const brand = (t.name || 'openai').toLowerCase().replace(/\s+/g,'')
-                                img.src = `https://unavatar.io/${encodeURIComponent(brand)}`
-                                img.dataset.fallback = '2'
-                              }
-                            }
-                            // pill tint by brand
-                            const brandTint = name.includes('openai') || name.includes('chatgpt') ? 'rgba(25, 195, 125, 0.18)'
-                              : name.includes('claude') || name.includes('anthropic') ? 'rgba(82, 109, 255, 0.18)'
-                              : name.includes('perplexity') ? 'rgba(0, 130, 255, 0.18)'
-                              : name.includes('google') || name.includes('gemini') ? 'rgba(66, 133, 244, 0.18)'
-                              : name.includes('deepseek') ? 'rgba(255, 140, 0, 0.18)'
-                              : name.includes('cohere') ? 'rgba(255, 204, 0, 0.18)'
-                              : name.includes('grok') ? 'rgba(255, 0, 0, 0.18)'
-                              : name.includes('mistral') ? 'rgba(255, 102, 0, 0.18)'
-                              : 'rgba(255,255,255,0.12)'
-                            const tierTint = user.tier === 'PREMIUM' ? 'rgba(255,215,0,0.12)'
-                              : user.tier === 'PRO' ? 'rgba(251,59,30,0.12)'
-                              : user.tier === 'BASIC' ? 'rgba(0,120,255,0.12)'
-                              : user.tier === 'AFFILIATE' ? 'rgba(2,254,1,0.12)'
-                              : 'rgba(255,255,255,0.06)'
-                            const borderTint = user.tier === 'PREMIUM' ? 'rgba(255,215,0,0.25)'
-                              : user.tier === 'PRO' ? 'rgba(251,59,30,0.25)'
-                              : user.tier === 'BASIC' ? 'rgba(0,120,255,0.25)'
-                              : user.tier === 'AFFILIATE' ? 'rgba(2,254,1,0.35)'
-                              : 'rgba(255,255,255,0.15)'
-                            return (
-                              <div key={i} className="flex items-center" title={t.name}>
-                                <div className="px-2 py-1 rounded-[8px]" style={{ backgroundColor: brandTint, border: `1px solid ${borderTint}` }}>
-                                  <div className="w-[28px] h-[28px] rounded-[6px] bg-black/80 flex items-center justify-center">
-                                    <img src={srcPrimary} alt={t.name || 'tool'} width={22} height={22} className="object-contain" onError={handleError} />
-                                  </div>
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {filteredLeaderboard.length === 0 && (
-          <div className="relative">
-            <div className="bg-black border border-green-400 rounded-md p-8 text-center backdrop-blur-sm">
-              <div className="text-green-300 font-mono text-lg font-bold mb-2">NO USERS FOUND</div>
-              <div className="text-gray-400 font-mono text-sm">Try a different search term</div>
-            </div>
-          </div>
-        )}
-
-      </main>
-
-      <style jsx>{`
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
-        
-        .glitch-text {
-          font-family: 'JetBrains Mono', 'Courier New', monospace;
-          text-shadow: 
-            0.05em 0 0 #00ff00,
-            -0.05em -0.025em 0 #00aa00,
-            0.025em 0.05em 0 #ffffff;
-          animation: glitch 1.5s infinite;
-        }
-        
-        @keyframes glitch {
-          0%, 100% { 
-            text-shadow: 0.05em 0 0 #00ff00, -0.05em -0.025em 0 #00aa00, 0.025em 0.05em 0 #ffffff; 
-            transform: translate(0);
-          }
-          15% { 
-            text-shadow: 0.025em 0 0 #00ff00, -0.025em -0.05em 0 #00aa00, 0.05em 0.025em 0 #ffffff; 
-            transform: translate(-0.5px, 0.5px);
-          }
-          30% { 
-            text-shadow: 0.075em 0 0 #00ff00, -0.075em -0.025em 0 #00aa00, 0.025em 0.075em 0 #ffffff; 
-            transform: translate(0.5px, -0.5px);
-          }
-          85% { 
-            text-shadow: 0.025em 0 0 #00ff00, -0.025em -0.05em 0 #00aa00, 0.05em 0.025em 0 #ffffff; 
-            transform: translate(-0.5px, 0);
-          }
-        }
-
-        /* Optimized animations with hardware acceleration */
-        @keyframes fade-in {
+      <style jsx global>{`
+        @keyframes countdown-tick {
           0% {
-            opacity: 0;
-            transform: translate3d(0, 20px, 0);
+            opacity: 0.35;
+            transform: translateY(-3px);
           }
           100% {
             opacity: 1;
-            transform: translate3d(0, 0, 0);
+            transform: translateY(0);
           }
         }
-
-        @keyframes slide-up {
-          0% {
-            opacity: 0;
-            transform: translate3d(0, 30px, 0) scale(0.98);
+        .countdown-tick {
+          animation: countdown-tick 0.45s ease-out;
+          display: inline-block;
+          min-width: 1.5ch;
+          text-align: center;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .countdown-tick {
+            animation: none;
           }
-          100% {
-            opacity: 1;
-            transform: translate3d(0, 0, 0) scale(1);
-          }
-        }
-
-        @keyframes slide-in-left {
-          0% {
-            opacity: 0;
-            transform: translate3d(-20px, 0, 0);
-          }
-          100% {
-            opacity: 1;
-            transform: translate3d(0, 0, 0);
-          }
-        }
-
-        /* Smooth animation classes with better easing */
-        .animate-fade-in {
-          opacity: 0;
-          animation: fade-in 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-          will-change: opacity, transform;
-        }
-
-        .animate-slide-up {
-          opacity: 0;
-          animation: slide-up 0.9s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-          will-change: opacity, transform;
-        }
-
-        .animate-slide-in-left {
-          opacity: 0;
-          animation: slide-in-left 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-          will-change: opacity, transform;
-        }
-        
-        * {
-          font-family: 'JetBrains Mono', 'Courier New', monospace !important;
-        }
-
-        /* Performance optimizations */
-        * {
-          backface-visibility: hidden;
-          -webkit-backface-visibility: hidden;
-        }
-
-        /* Mobile scroll optimization */
-        @media (max-width: 640px) {
-          body {
-            -webkit-overflow-scrolling: touch;
-          }
-          
-          /* Reduce motion for better mobile performance */
-          @media (prefers-reduced-motion: reduce) {
-            .animate-fade-in,
-            .animate-slide-up,
-            .animate-slide-in-left {
-              animation: none;
-              opacity: 1;
-              transform: none;
-            }
-          }
-        }
-
-        /* Smooth scrolling for the entire page */
-        html {
-          scroll-behavior: smooth;
         }
       `}</style>
+    </div>
+  )
+}
+
+function Pagination({
+  page,
+  totalPages,
+  onPage
+}: {
+  page: number
+  totalPages: number
+  onPage: (p: number) => void
+}) {
+  if (totalPages <= 1) return null
+
+  // Build a windowed page list with ellipses: 1 … (page-2)…(page+2) … last
+  const pages: (number | '…')[] = []
+  const window = 2
+  const start = Math.max(2, page - window)
+  const end = Math.min(totalPages - 1, page + window)
+
+  pages.push(1)
+  if (start > 2) pages.push('…')
+  for (let i = start; i <= end; i++) pages.push(i)
+  if (end < totalPages - 1) pages.push('…')
+  if (totalPages > 1) pages.push(totalPages)
+
+  const baseBtn =
+    'px-2.5 py-1.5 rounded-md border text-[11px] tracking-[0.15em] tabular-nums transition-colors'
+  const idleBtn =
+    'border-zinc-800/80 text-zinc-400 hover:border-zinc-600 hover:text-zinc-100'
+  const disabledBtn =
+    'border-zinc-900/80 text-zinc-700 cursor-not-allowed opacity-60'
+
+  const atFirst = page === 1
+  const atLast = page === totalPages
+
+  return (
+    <nav
+      aria-label="Standings pagination"
+      className="mt-4 flex flex-wrap items-center justify-center gap-1.5"
+    >
+      <button
+        type="button"
+        onClick={() => !atFirst && onPage(page - 1)}
+        disabled={atFirst}
+        className={`${baseBtn} ${atFirst ? disabledBtn : idleBtn}`}
+      >
+        ← PREV
+      </button>
+
+      {pages.map((p, i) =>
+        p === '…' ? (
+          <span
+            key={`gap-${i}`}
+            className="px-1 text-[11px] text-zinc-700 select-none"
+          >
+            …
+          </span>
+        ) : (
+          <button
+            key={p}
+            type="button"
+            onClick={() => onPage(p)}
+            className={`${baseBtn} ${
+              p === page ? '' : idleBtn
+            }`}
+            style={
+              p === page
+                ? {
+                    borderColor: `${HACKER_GREEN}80`,
+                    color: HACKER_GREEN,
+                    background: `${HACKER_GREEN}12`
+                  }
+                : undefined
+            }
+            aria-current={p === page ? 'page' : undefined}
+          >
+            {p}
+          </button>
+        )
+      )}
+
+      <button
+        type="button"
+        onClick={() => !atLast && onPage(page + 1)}
+        disabled={atLast}
+        className={`${baseBtn} ${atLast ? disabledBtn : idleBtn}`}
+      >
+        NEXT →
+      </button>
+
+      <span className="mx-1 h-4 w-px bg-zinc-800/80" />
+
+      <button
+        type="button"
+        onClick={() => !atLast && onPage(totalPages)}
+        disabled={atLast}
+        className={`${baseBtn} ${atLast ? disabledBtn : idleBtn}`}
+        title={`Jump to page ${totalPages}`}
+      >
+        LAST ⇥
+      </button>
+    </nav>
+  )
+}
+
+function PodiumCard({
+  user,
+  isYou
+}: {
+  user: LeaderUser
+  isYou: boolean
+}) {
+  const isFirst = user.rank === 1
+  const topTool = user.topTools?.[0]
+  const rankLabel = user.rank.toString().padStart(2, '0')
+  const accentColor = isFirst ? HACKER_GREEN : '#3f3f46'
+
+  return (
+    <div
+      className="relative rounded-xl border border-zinc-800/80 bg-zinc-950/80 backdrop-blur-sm overflow-hidden transition-colors hover:border-zinc-700"
+    >
+      <div
+        aria-hidden
+        className="absolute left-0 top-0 h-full w-px"
+        style={{ background: accentColor, opacity: isFirst ? 0.9 : 0.4 }}
+      />
+
+      <div className="relative p-4">
+        <div className="flex items-center justify-between">
+          <div
+            className="text-[11px] tracking-[0.3em] tabular-nums"
+            style={{ color: isFirst ? HACKER_GREEN : '#a1a1aa' }}
+          >
+            {rankLabel}
+          </div>
+          <span
+            className={`shrink-0 text-[9px] tracking-[0.3em] px-1.5 py-0.5 rounded border ${tierAccent(user.tier)}`}
+          >
+            {user.tier}
+          </span>
+        </div>
+
+        <div className="mt-3 flex items-center gap-3">
+          <div className="relative shrink-0">
+            {user.profile_image ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={user.profile_image}
+                alt={user.username}
+                className="h-10 w-10 rounded-full border border-zinc-800 object-cover"
+              />
+            ) : (
+              <div className="h-10 w-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-sm text-zinc-400">
+                {user.username[0]?.toUpperCase()}
+              </div>
+            )}
+            {user.isActive && (
+              <span
+                className="absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full border-2 border-zinc-950"
+                style={{
+                  background: HACKER_GREEN,
+                  boxShadow: `0 0 5px ${HACKER_GREEN}aa`
+                }}
+                title="Active in last 24h"
+              />
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="truncate text-sm text-zinc-100">
+                @{user.username}
+              </span>
+              {isYou && (
+                <span
+                  className="text-[9px] tracking-[0.2em]"
+                  style={{ color: HACKER_GREEN }}
+                >
+                  YOU
+                </span>
+              )}
+            </div>
+            <div className="text-[10px] text-zinc-500 truncate mt-0.5">
+              {user.isActive
+                ? 'online now'
+                : `last seen ${formatRelative(user.lastSeen)} ago`}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-end justify-between gap-3 border-t border-zinc-900 pt-3">
+          <div>
+            <div className="text-[9px] tracking-[0.3em] text-zinc-600">SCORE</div>
+            <div className="text-xl font-semibold tracking-tight text-zinc-50 tabular-nums">
+              {formatCompact(user.score)}
+            </div>
+          </div>
+          {topTool && (
+            <div className="text-right min-w-0">
+              <div className="text-[9px] tracking-[0.3em] text-zinc-600">TOP</div>
+              <div className="text-[11px] text-zinc-300 truncate">
+                {topTool.name}
+                <span className="text-zinc-600"> · {topTool.percent}%</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function HeaderRow() {
+  return (
+    <div className="grid grid-cols-[3rem_1fr_auto_auto] md:grid-cols-[3rem_1fr_8rem_8rem_auto] items-center gap-3 px-4 md:px-5 py-3 border-b border-zinc-900 text-[10px] tracking-[0.3em] text-zinc-500">
+      <div>RANK</div>
+      <div>PLAYER</div>
+      <div className="hidden md:block">TOP TOOL</div>
+      <div className="text-right">SCORE</div>
+      <div className="text-right">ACT</div>
+    </div>
+  )
+}
+
+function Row({
+  user,
+  isYou,
+  compact
+}: {
+  user: LeaderUser
+  isYou?: boolean
+  compact?: boolean
+}) {
+  const accent = rankAccent(user.rank)
+  const topTool = user.topTools?.[0]
+  return (
+    <li
+      className="grid grid-cols-[3rem_1fr_auto_auto] md:grid-cols-[3rem_1fr_8rem_8rem_auto] items-center gap-3 px-4 md:px-5 py-3 transition-colors hover:bg-zinc-900/30"
+      style={{
+        background: isYou && !compact ? `${HACKER_GREEN}0d` : undefined,
+        borderLeft: isYou && !compact ? `2px solid ${HACKER_GREEN}` : undefined,
+        marginLeft: isYou && !compact ? '-2px' : undefined
+      }}
+    >
+      <div className={`text-sm tabular-nums ${accent.text}`}>#{user.rank}</div>
+
+      <div className="flex items-center gap-3 min-w-0">
+        {user.profile_image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={user.profile_image}
+            alt={user.username}
+            className="h-7 w-7 rounded-full border border-zinc-800 object-cover flex-shrink-0"
+          />
+        ) : (
+          <div className="h-7 w-7 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-[11px] text-zinc-400 flex-shrink-0">
+            {user.username[0]?.toUpperCase()}
+          </div>
+        )}
+        <div className="min-w-0 flex items-center gap-2">
+          <span
+            className="text-sm truncate"
+            style={{ color: isYou ? HACKER_GREEN : '#fafafa' }}
+          >
+            @{user.username}
+          </span>
+          {isYou && (
+            <span
+              className="text-[9px] tracking-[0.3em]"
+              style={{ color: HACKER_GREEN }}
+            >
+              YOU
+            </span>
+          )}
+          <span
+            className={`hidden md:inline text-[9px] tracking-[0.3em] px-1.5 py-0.5 rounded border ${tierAccent(user.tier)}`}
+          >
+            {user.tier}
+          </span>
+        </div>
+      </div>
+
+      <div className="hidden md:block min-w-0 text-xs text-zinc-400 truncate">
+        {topTool ? (
+          <span>
+            <span className="text-zinc-200">{topTool.name}</span>{' '}
+            <span className="text-zinc-600">· {topTool.percent}%</span>
+          </span>
+        ) : (
+          <span className="text-zinc-700">—</span>
+        )}
+      </div>
+
+      <div className="text-right text-sm text-zinc-100 tabular-nums">
+        {formatNumber(user.score)}
+      </div>
+
+      <div className="text-right">
+        {user.isActive ? (
+          <span
+            className="inline-flex items-center justify-center h-1.5 w-1.5 rounded-full"
+            style={{
+              background: HACKER_GREEN,
+              boxShadow: `0 0 6px ${HACKER_GREEN}99`
+            }}
+            title="Active in last 24h"
+          />
+        ) : (
+          <span
+            className="inline-block h-1.5 w-1.5 rounded-full bg-zinc-700"
+            title={`Last seen ${formatRelative(user.lastSeen)} ago`}
+          />
+        )}
+      </div>
+    </li>
+  )
+}
+
+function SearchBar({
+  value,
+  onChange
+}: {
+  value: string
+  onChange: (v: string) => void
+}) {
+  return (
+    <div
+      className="flex items-center w-full max-w-xs border border-zinc-800 rounded-md bg-zinc-950/80 overflow-hidden transition-colors"
+      style={{ ['--hg' as string]: HACKER_GREEN }}
+    >
+      <span
+        className="pl-3 pr-1 text-xs select-none"
+        style={{ color: `${HACKER_GREEN}80` }}
+      >
+        ▸
+      </span>
+      <input
+        type="text"
+        placeholder="search players…"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="flex-1 bg-transparent px-2 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+      />
+      {value && (
+        <button
+          onClick={() => onChange('')}
+          className="text-[10px] tracking-[0.2em] text-zinc-500 hover:text-zinc-200 px-3 border-l border-zinc-800"
+        >
+          CLEAR
+        </button>
+      )}
     </div>
   )
 }

@@ -19,6 +19,12 @@ body {
   }
   
   /* International font classes */
+  .font-english {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 600;
+    letter-spacing: -0.018em;
+  }
+
   .font-arabic {
     font-family: var(--font-arabic), system-ui, sans-serif;
   }

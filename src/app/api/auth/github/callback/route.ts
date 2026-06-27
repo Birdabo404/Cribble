@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
+import { resolveAppUrl, resolveGithubRedirectUri } from '@/lib/appUrl'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,6 +11,8 @@ const supabase = createClient(
 )
 
 export async function GET(request: NextRequest) {
+  const appUrl = resolveAppUrl(request)
+
   try {
     const { searchParams } = new URL(request.url)
     const code = searchParams.get('code')
@@ -18,20 +21,19 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('GitHub OAuth error:', error)
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}?error=github_oauth_denied`)
+      return NextResponse.redirect(`${appUrl}?error=github_oauth_denied`)
     }
     if (!code) {
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}?error=github_missing_code`)
+      return NextResponse.redirect(`${appUrl}?error=github_missing_code`)
     }
 
     const storedState = request.cookies.get('github_oauth_state')?.value
     if (!storedState || storedState !== state) {
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}?error=github_invalid_state`)
+      return NextResponse.redirect(`${appUrl}?error=github_invalid_state`)
     }
 
     // Exchange code for token
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-    const redirectUri = process.env.GITHUB_REDIRECT_URI || `${appUrl}/api/auth/github/callback`
+    const redirectUri = resolveGithubRedirectUri(request, appUrl)
 
     const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
@@ -50,13 +52,13 @@ export async function GET(request: NextRequest) {
     if (!tokenRes.ok) {
       const text = await tokenRes.text()
       console.error('GitHub token exchange failed:', text)
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}?error=github_token_failed`)
+      return NextResponse.redirect(`${appUrl}?error=github_token_failed`)
     }
 
     const tokenData = await tokenRes.json()
     const accessToken = tokenData.access_token
     if (!accessToken) {
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}?error=github_no_token`)
+      return NextResponse.redirect(`${appUrl}?error=github_no_token`)
     }
 
     // Fetch user profile
@@ -66,7 +68,7 @@ export async function GET(request: NextRequest) {
     if (!userRes.ok) {
       const text = await userRes.text()
       console.error('GitHub user fetch failed:', text)
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}?error=github_user_failed`)
+      return NextResponse.redirect(`${appUrl}?error=github_user_failed`)
     }
     const ghUser = await userRes.json()
 
@@ -98,7 +100,7 @@ export async function GET(request: NextRequest) {
         .single()
       if (updateError) {
         console.error('Failed to update GitHub user:', updateError)
-        return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}?error=github_user_update_failed`)
+        return NextResponse.redirect(`${appUrl}?error=github_user_update_failed`)
       }
       user = updated
     } else {
@@ -117,7 +119,7 @@ export async function GET(request: NextRequest) {
         .single()
       if (insertError) {
         console.error('Failed to create GitHub user:', insertError)
-        return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}?error=github_user_create_failed`)
+        return NextResponse.redirect(`${appUrl}?error=github_user_create_failed`)
       }
       user = created
     }
@@ -135,13 +137,13 @@ export async function GET(request: NextRequest) {
 
     if (sessionError) {
       console.error('Failed to create session (github):', sessionError)
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}?error=session_creation_failed`)
+      return NextResponse.redirect(`${appUrl}?error=session_creation_failed`)
     }
 
     // Land every successful login on /welcome. That page plays the boot
     // animation, then either runs the onboarding wizard (first-time users)
     // or bounces straight to the dashboard (returning users).
-    const response = NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/welcome`)
+    const response = NextResponse.redirect(`${appUrl}/welcome`)
     response.cookies.set('cribble_session', sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -152,6 +154,6 @@ export async function GET(request: NextRequest) {
     return response
   } catch (err) {
     console.error('GitHub OAuth callback error:', err)
-    return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}?error=github_callback_failed`)
+    return NextResponse.redirect(`${appUrl}?error=github_callback_failed`)
   }
 }

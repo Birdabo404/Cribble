@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { applyEventsUserEq } from '@/lib/eventsIdentity'
+import { eventScore } from '@/lib/scoring'
+import { getSessionUserId } from '@/lib/sessionAuth'
 
 export const dynamic = 'force-dynamic'
 
@@ -8,58 +11,52 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+const ONE_DAY_MS = 24 * 60 * 60 * 1000
+
+function toDateKeyUtc(date: Date) {
+  return date.toISOString().split('T')[0]
+}
+
+function utcDayStart(date: Date) {
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+  )
+}
+
 export async function GET(request: NextRequest) {
   try {
-    // Get session token from cookie
-    const sessionToken = request.cookies.get('cribble_session')?.value
-    
-    if (!sessionToken) {
+    const session = await getSessionUserId(request)
+    if (!session.ok) {
       return NextResponse.json(
-        { success: false, error: 'No session found' },
-        { status: 401 }
-      )
-    }
-    
-    // Find active session
-    const { data: session, error: sessionError } = await supabase
-      .from('user_sessions')
-      .select('user_id, expires_at')
-      .eq('session_token', sessionToken)
-      .gt('expires_at', new Date().toISOString())
-      .single()
-    
-    if (sessionError || !session) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid or expired session' },
-        { status: 401 }
+        { success: false, error: session.error },
+        { status: session.status }
       )
     }
 
-    const userId = session.user_id
-
-    // Get the days parameter (default 84 for 12 weeks)
     const { searchParams } = new URL(request.url)
-    const days = Math.min(365, Math.max(1, parseInt(searchParams.get('days') || '84', 10) || 84))
-    
-    // Calculate date range
-    const endDate = new Date()
-    const startDate = new Date()
-    startDate.setDate(startDate.getDate() - days)
-    
-    console.log(`[Activity API] Fetching activity for user ${userId} from ${startDate.toISOString()} to ${endDate.toISOString()}`)
+    const days = Math.min(
+      365,
+      Math.max(1, parseInt(searchParams.get('days') || '84', 10) || 84)
+    )
 
-    // Fetch events grouped by day - use user_id filter only (integer column)
-    const { data: events, error: eventsError } = await supabase
+    const endDate = utcDayStart(new Date())
+    const startDate = new Date(endDate.getTime() - (days - 1) * ONE_DAY_MS)
+
+    let eventsQuery = supabase
       .from('events_raw')
-      .select('timestamp, active_ms, visits')
-      .eq('user_id', userId)
+      .select('timestamp, active_ms, total_ms, visits, domain')
       .gte('timestamp', startDate.toISOString())
-      .lte('timestamp', endDate.toISOString())
+      .lt('timestamp', new Date(endDate.getTime() + ONE_DAY_MS).toISOString())
       .order('timestamp', { ascending: true })
+
+    const { query: scopedEventsQuery, column: eventsUserColumn } =
+      await applyEventsUserEq(supabase, eventsQuery, session.userId)
+    eventsQuery = scopedEventsQuery
+
+    const { data: events, error: eventsError } = await eventsQuery
 
     if (eventsError) {
       console.error('[Activity API] Error fetching events:', eventsError)
-      // Return empty data instead of error to avoid breaking the UI
       return NextResponse.json({
         success: true,
         activity: [],
@@ -67,38 +64,31 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    console.log(`[Activity API] Found ${events?.length || 0} events`)
-
-    // Group events by day and calculate daily scores
-    const dailyScores: Record<string, number> = {}
-    
-    // Initialize all days with 0
-    for (let i = 0; i < days; i++) {
-      const date = new Date(endDate)
-      date.setDate(date.getDate() - i)
-      const dateKey = date.toISOString().split('T')[0]
-      dailyScores[dateKey] = 0
+    if (!eventsUserColumn) {
+      console.warn('[Activity API] No compatible events_raw user column found')
     }
 
-    // Calculate scores for days with events
+    const dailyScores: Record<string, number> = {}
+    for (let i = 0; i < days; i++) {
+      const date = new Date(endDate.getTime() - i * ONE_DAY_MS)
+      dailyScores[toDateKeyUtc(date)] = 0
+    }
+
     if (events && events.length > 0) {
       for (const event of events) {
-        const dateKey = new Date(event.timestamp).toISOString().split('T')[0]
-        // Score calculation: active_ms * 0.001 + visits * 50
-        const eventScore = (event.active_ms || 0) * 0.001 + (event.visits || 0) * 50
-        dailyScores[dateKey] = (dailyScores[dateKey] || 0) + eventScore
+        const dateKey = toDateKeyUtc(new Date(event.timestamp))
+        dailyScores[dateKey] = (dailyScores[dateKey] || 0) + eventScore(event)
       }
     }
 
-    // Convert to array format sorted by date
     const activityData = Object.entries(dailyScores)
       .map(([date, score]) => ({ date, score: Math.round(score) }))
       .sort((a, b) => a.date.localeCompare(b.date))
 
-    // Calculate some summary stats
     const totalScore = activityData.reduce((sum, d) => sum + d.score, 0)
-    const daysWithActivity = activityData.filter(d => d.score > 0).length
-    const averageScore = daysWithActivity > 0 ? Math.round(totalScore / daysWithActivity) : 0
+    const daysWithActivity = activityData.filter((d) => d.score > 0).length
+    const averageScore =
+      daysWithActivity > 0 ? Math.round(totalScore / daysWithActivity) : 0
 
     return NextResponse.json({
       success: true,
@@ -110,7 +100,6 @@ export async function GET(request: NextRequest) {
         totalDays: days
       }
     })
-    
   } catch (error) {
     console.error('[Activity API] Error:', error)
     return NextResponse.json(

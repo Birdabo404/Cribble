@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
+import { resolveAppUrl, resolveGithubRedirectUri } from '@/lib/appUrl'
 
 export const dynamic = 'force-dynamic'
 
@@ -7,8 +8,8 @@ export async function GET(request: NextRequest) {
   try {
     const state = crypto.randomUUID()
     const clientId = process.env.GITHUB_CLIENT_ID!
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-    const redirectUri = process.env.GITHUB_REDIRECT_URI || `${appUrl}/api/auth/github/callback`
+    const appUrl = resolveAppUrl(request)
+    const redirectUri = resolveGithubRedirectUri(request, appUrl)
 
     const authUrl = `https://github.com/login/oauth/authorize?` + new URLSearchParams({
       client_id: clientId,

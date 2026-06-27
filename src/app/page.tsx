@@ -1,546 +1,821 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import WorldwideText from '@/components/WorldwideText'
-import AnimatedCounter from '@/components/AnimatedCounter'
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
+import WorldwideText from '@/components/WorldwideText'
 
-// Globe component with no SSR
 const Globe = dynamic(() => import('@/components/Globe'), {
   ssr: false,
   loading: () => <div className="w-full h-full" />
 })
 
-export default function Home() {
+type Status = 'idle' | 'submitting' | 'success' | 'error'
+
+const HACKER_GREEN = '#02fe01'
+const IS_PUBLIC_SITE_LOCKED = process.env.NEXT_PUBLIC_SITE_LOCKED === 'true'
+
+export default function HomeV2() {
   const [email, setEmail] = useState('')
-  const [isSubmitted, setIsSubmitted] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
-  const [waitlistCount, setWaitlistCount] = useState(0)
-  const [showVCContact, setShowVCContact] = useState(false)
-  const [showEarlyAccess, setShowEarlyAccess] = useState(false)
-  const [isClosingModal, setIsClosingModal] = useState(false)
-  const [scrollY, setScrollY] = useState(0)
+  const [status, setStatus] = useState<Status>('idle')
+  const [errorMsg, setErrorMsg] = useState('')
+  const [count, setCount] = useState<number | null>(null)
+  const [displayCount, setDisplayCount] = useState<number>(0)
+  const [showForm, setShowForm] = useState(false)
+  const [showRegister, setShowRegister] = useState(false)
 
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      setMousePosition({
-        x: e.clientX,
-        y: e.clientY
+    fetch('/api/waitlist')
+      .then((r) => r.json())
+      .then((d) => {
+        if (typeof d?.count === 'number') setCount(d.count)
       })
-    }
+      .catch(() => {})
+  }, [])
 
-    const handleScroll = () => {
-      // Update mouse position on scroll to maintain glow effect
-      setMousePosition(prev => ({ ...prev }))
-      setScrollY(window.scrollY)
+  // Count-up animation: every time `count` changes (incl. first load), tween
+  // displayCount towards it. On first paint this gives a satisfying scroll.
+  const tweenRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (count == null) return
+    const start = displayCount
+    const end = count
+    if (start === end) return
+    const duration = start === 0 ? 1400 : 600
+    const startedAt = performance.now()
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - startedAt) / duration)
+      // easeOutExpo for a snappy-then-settle feel
+      const eased = t === 1 ? 1 : 1 - Math.pow(2, -10 * t)
+      const value = Math.round(start + (end - start) * eased)
+      setDisplayCount(value)
+      if (t < 1) tweenRef.current = requestAnimationFrame(tick)
     }
-
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('scroll', handleScroll, { passive: true })
+    tweenRef.current = requestAnimationFrame(tick)
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('scroll', handleScroll)
+      if (tweenRef.current != null) cancelAnimationFrame(tweenRef.current)
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [count])
 
-  useEffect(() => {
-    const fetchWaitlistCount = async () => {
-      try {
-        const response = await fetch('/api/waitlist')
-        const data = await response.json()
-        if (response.ok) {
-          setWaitlistCount(data.count || 0)
-        }
-      } catch (err) {
-        console.error('Failed to fetch waitlist count:', err)
-      }
-    }
-
-    fetchWaitlistCount()
-  }, [])
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault()
-    setIsLoading(true)
-    setError('')
-
+    if (status === 'submitting') return
+    setStatus('submitting')
+    setErrorMsg('')
     try {
-      const response = await fetch('/api/waitlist', {
+      const res = await fetch('/api/waitlist', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
       })
-
-      const data = await response.json()
-
-      if (response.ok) {
-        setIsSubmitted(true)
-        setWaitlistCount(prev => prev + 1)
-      } else {
-        setError(data.error || 'Failed to join waitlist')
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setStatus('error')
+        setErrorMsg(data?.error || 'Something went wrong')
+        return
       }
-    } catch (err) {
-      setError('Network error. Please try again.')
-    } finally {
-      setIsLoading(false)
+      setStatus('success')
+      if (typeof count === 'number') setCount(count + 1)
+    } catch {
+      setStatus('error')
+      setErrorMsg('Network error. Try again.')
     }
   }
 
-  const handleCloseEarlyAccess = () => {
-    setIsClosingModal(true)
-    setTimeout(() => {
-      setShowEarlyAccess(false)
-      setIsClosingModal(false)
-    }, 300) // Match the transition duration
-  }
-
-  const backgroundStyle = {
-    backgroundImage: `
-      radial-gradient(circle at ${mousePosition.x}px ${mousePosition.y + scrollY}px, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 200px, transparent 300px),
-      radial-gradient(circle at ${mousePosition.x}px ${mousePosition.y + scrollY}px, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 150px, transparent 250px)
-    `,
-    backgroundSize: '100% 100%, 100% 100%',
-    backgroundAttachment: 'local'
-  }
-
-
-
-
-
-  if (isSubmitted) {
-    return (
-      <main className="min-h-screen bg-black flex flex-col items-center justify-center px-4 relative">
-        <div className="relative z-10">
-        <div className="max-w-lg w-full text-center">
-          <h1 className="text-3xl md:text-4xl font-normal text-white mb-4">
-            You&apos;re on the waitlist! 🎉
-          </h1>
-          <p className="text-gray-400 text-base mb-6">
-            We&apos;ll let you know when we&apos;re ready to launch.
-          </p>
-          
-          <div className="relative overflow-hidden rounded-lg border border-gray-800 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-sm p-6 mb-6">
-            <div className="absolute inset-0 opacity-10" style={{
-              backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px)',
-              backgroundSize: '16px 16px'
-            }}></div>
-            
-            <div className="relative z-10">
-              <p className="text-gray-300 text-sm mb-4 leading-relaxed">
-                Help us get this platform to everyone,<br />
-                <span className="text-white font-medium">star the GitHub repo.</span>
-              </p>
-              
-              <a 
-                href="https://github.com/Birdabo404/Cribble" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="star-button group inline-flex items-center gap-3 bg-gray-800/80 hover:bg-gray-700/80 border border-gray-600 hover:border-gray-500 text-white px-5 py-3 rounded-md font-medium transition-all duration-300 text-sm backdrop-blur-sm"
-              >
-                <div className="relative">
-                  <svg className="w-4 h-4 transition-transform group-hover:scale-110" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.237 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.30.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                  </svg>
-                  <div className="absolute inset-0 w-4 h-4 bg-white/20 rounded-full blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                </div>
-                <span className="group-hover:text-gray-100 transition-colors">Star on GitHub</span>
-                <svg className="w-3 h-3 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
-              </a>
-            </div>
-          </div>
-        </div>
-        
-        <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 text-center">
-          <p className="text-gray-600 text-xs mb-2">backed by no one.</p>
-          <div className="flex items-center justify-center space-x-4 text-gray-500">
-            <a 
-              href="https://x.com/birdabo404" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-gray-600 hover:text-gray-400 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-              </svg>
-            </a>
-            <a 
-              href="https://github.com/birdabo404" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-gray-600 hover:text-gray-400 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.237 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-              </svg>
-            </a>
-          </div>
-        </div>
-        </div>
-      </main>
-    )
-  }
+  const prettyCount = useMemo(
+    () => (count != null ? displayCount.toLocaleString('en-US') : null),
+    [count, displayCount]
+  )
 
   return (
-    <>
-      <main className="min-h-screen bg-black px-4 flex flex-col pb-20 relative overflow-hidden">
-        
-        {/* Globe Background */}
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ zIndex: 50 }}>
-          <div className="hidden md:block">
-            <Globe size={380} className="opacity-50" />
-          </div>
-          <div className="block md:hidden">
-            <Globe size={280} className="opacity-8" />
-          </div>
-        </div>
-        
-        {/* Top section with centered waitlist */}
-        <div className="flex-1 flex flex-col items-center justify-center relative" style={{ zIndex: 100 }}>
-          <div className="max-w-2xl w-full text-center">
-            <h1 className="text-3xl sm:text-4xl md:text-5xl font-normal text-white mb-4 leading-tight">
-              {/* First line: a + worldwide */}
-              <div className="flex items-baseline justify-center mb-2">
-                <span className="mr-3">a</span>
-                <WorldwideText />
-              </div>
-              {/* Second line: leaderboard for developers */}
-              <div>
-                leaderboard for developers.
-              </div>
-            </h1>
-            
-            <div className="text-sm mb-6 max-w-lg mx-auto">
-              <p className="text-gray-400 inline">
-                Join developers worldwide. Track your AI usage across platforms and climb the global leaderboard.
-              </p>
-              <span className="text-white font-bold font-mono ml-2 text-xs">
-                COMING SOON
-              </span>
-            </div>
+    <div className="min-h-screen bg-black text-zinc-100 font-mono selection:bg-[#02fe01]/20 flex flex-col relative overflow-hidden">
+      {/* faint hacker-green wash on the right side — sits behind the globe */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute top-1/2 -translate-y-1/2 right-[-12%] h-[640px] w-[640px] rounded-full opacity-[0.12] blur-3xl"
+        style={{
+          background: `radial-gradient(circle, ${HACKER_GREEN}, transparent 70%)`
+        }}
+      />
+      {/* thin horizon line — single retro accent */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-px opacity-30"
+        style={{
+          background: `linear-gradient(90deg, transparent, ${HACKER_GREEN}55, transparent)`
+        }}
+      />
+      {/* minimalist white asteroids — occasional fly-by */}
+      <AsteroidField />
 
-            <div className="max-w-sm mx-auto mb-4 space-y-4">
-              <form onSubmit={handleSubmit}>
-              <div className="flex items-center bg-gray-900 border border-gray-700 rounded-md overflow-hidden">
-                <input
-                  type="email"
-                  placeholder="hello@email.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  disabled={isLoading}
-                  className="flex-1 px-4 py-3 bg-transparent text-white placeholder-gray-500 focus:outline-none text-sm disabled:opacity-50"
+      <div className="relative z-10 max-w-6xl w-full mx-auto px-6 flex-1 flex flex-col">
+        <Header />
+
+        <main className="flex-1 flex items-center py-8">
+          <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_1fr] gap-10 lg:gap-16 items-center w-full">
+            {/* LEFT — hero copy */}
+            <div className="order-2 lg:order-1">
+              <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-zinc-800 bg-zinc-950 text-[10px] tracking-[0.3em] text-zinc-400">
+                <span
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{
+                    background: HACKER_GREEN,
+                    boxShadow: `0 0 8px ${HACKER_GREEN}b0`
+                  }}
                 />
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="bg-white text-black px-4 py-3 font-medium hover:bg-gray-200 transition-colors text-sm disabled:opacity-50"
-                >
-                  {isLoading ? '...' : 'Join'}
-                </button>
+                PRIVATE BETA · INVITE-ONLY
+              </span>
+
+              <h1 className="mt-6 font-semibold tracking-tight leading-[1.02] text-zinc-50 text-5xl md:text-6xl lg:text-[5.25rem]">
+                cribble.
+              </h1>
+              <div className="mt-4 text-3xl md:text-4xl lg:text-5xl font-normal leading-tight">
+                <div className="text-zinc-400">ranking AI users,</div>
+                <div className="worldwide-anchor mt-3 md:mt-4">
+                  <WorldwideText />
+                </div>
               </div>
-              {error && (
-                <p className="text-red-400 text-xs mt-2">{error}</p>
-              )}
-            </form>
-            </div>
 
-            <div className="text-gray-600 text-xs mb-4 flex items-center justify-center">
-              <AnimatedCounter value={waitlistCount} duration={2000} formatter={(v) => Math.round(v).toLocaleString()} />&nbsp;developers waiting
-              <div className="w-2 h-2 bg-green-500 rounded-full ml-2 animate-pulse"></div>
-            </div>
-          </div>
-        </div>
-
-        {/* Bottom section with logos and options - always visible */}
-        <div className="pb-1">
-          <div className="max-w-2xl mx-auto text-center">
-            {/* LLM Brands Floating Section */}
-            <div className="mb-2">
-              <p className="text-gray-500 text-xs font-mono mb-2 text-center">
-                Track your AI usage across platforms
+              <p className="mt-7 max-w-md text-sm leading-relaxed text-zinc-400">
+                The worldwide leaderboard for AI users. Tracks{' '}
+                <span className="text-zinc-200">ChatGPT</span>,{' '}
+                <span className="text-zinc-200">Claude</span>,{' '}
+                <span className="text-zinc-200">Cursor</span>, and 30+ more.
+                Build a streak. Climb the board. Or just lurk — the extension
+                is silent.
               </p>
-              
-              <div className="relative overflow-hidden h-24 mask-gradient">
-                <div className="flex items-center gap-8 animate-scroll-infinite whitespace-nowrap">
-                  {/* OpenAI */}
-                  <div className="flex items-center gap-2 text-green-400">
-                    <img src="/ai-companies/openai.png" alt="OpenAI" className="w-8 h-8 object-contain" style={{
-                      background: 'white',
-                      borderRadius: '4px',
-                      padding: '1px'
-                    }} />
-                    <span className="font-mono text-sm">OpenAI</span>
-                  </div>
 
-                  {/* Anthropic */}
-                  <div className="flex items-center gap-2 text-orange-400">
-                    <img src="/ai-companies/anthropic.png" alt="Anthropic" className="w-8 h-8 object-contain rounded-sm" />
-                    <span className="font-mono text-sm">Anthropic</span>
-                  </div>
-
-                  {/* DeepSeek */}
-                  <div className="flex items-center gap-2 text-blue-400">
-                    <img src="/ai-companies/deepseek.png" alt="DeepSeek" className="w-8 h-8 object-contain rounded-sm" />
-                    <span className="font-mono text-sm">DeepSeek</span>
-                  </div>
-
-                  {/* Google AI */}
-                  <div className="flex items-center gap-2 text-purple-400">
-                    <img src="/ai-companies/google-ai.png" alt="Google AI" className="w-8 h-8 object-contain" />
-                    <span className="font-mono text-sm">Google AI</span>
-                  </div>
-
-                  {/* Mistral - Fixed filename and larger size */}
-                  <div className="flex items-center gap-2 text-red-400">
-                    <img src="/ai-companies/mistral.png" alt="Mistral" className="w-8 h-8 object-contain" />
-                    <span className="font-mono text-sm">Mistral</span>
-                  </div>
-
-                  {/* Cohere */}
-                  <div className="flex items-center gap-2 text-yellow-400">
-                    <img src="/ai-companies/cohere.png" alt="Cohere" className="w-8 h-8 object-contain" />
-                    <span className="font-mono text-sm">Cohere</span>
-                  </div>
-
-                  {/* Perplexity - Fixed path and larger size */}
-                  <div className="flex items-center gap-2 text-cyan-400">
-                    <img src="/ai-companies/perplexity.png" alt="Perplexity" className="w-8 h-8 object-contain" />
-                    <span className="font-mono text-sm">Perplexity</span>
-                  </div>
-
-                  {/* xAI (Grok) - Normal size */}
-                  <div className="flex items-center gap-2 text-gray-400">
-                    <img src="/ai-companies/xai.png" alt="xAI (Grok)" className="w-8 h-8 object-contain rounded-sm" style={{
-                      background: 'white',
-                      borderRadius: '4px',
-                      padding: '1px'
-                    }} />
-                    <span className="font-mono text-sm">Grok</span>
-                  </div>
-
-                  {/* Repeat for seamless loop */}
-                  <div className="flex items-center gap-2 text-green-400">
-                    <img src="/ai-companies/openai.png" alt="OpenAI" className="w-8 h-8 object-contain" style={{
-                      background: 'white',
-                      borderRadius: '4px',
-                      padding: '1px'
-                    }} />
-                    <span className="font-mono text-sm">OpenAI</span>
-                  </div>
-
-                  <div className="flex items-center gap-2 text-orange-400">
-                    <img src="/ai-companies/anthropic.png" alt="Anthropic" className="w-8 h-8 object-contain rounded-sm" />
-                    <span className="font-mono text-sm">Anthropic</span>
-                  </div>
-
-                  <div className="flex items-center gap-2 text-blue-400">
-                    <img src="/ai-companies/deepseek.png" alt="DeepSeek" className="w-8 h-8 object-contain rounded-sm" />
-                    <span className="font-mono text-sm">DeepSeek</span>
-                  </div>
-
-                  <div className="flex items-center gap-2 text-purple-400">
-                    <img src="/ai-companies/google-ai.png" alt="Google AI" className="w-8 h-8 object-contain" />
-                    <span className="font-mono text-sm">Google AI</span>
-                  </div>
-
-                  {/* Mistral - Repeated for seamless loop */}
-                  <div className="flex items-center gap-2 text-red-400">
-                    <img src="/ai-companies/mistral.png" alt="Mistral" className="w-8 h-8 object-contain" />
-                    <span className="font-mono text-sm">Mistral</span>
-                  </div>
-
-                  <div className="flex items-center gap-2 text-yellow-400">
-                    <img src="/ai-companies/cohere.png" alt="Cohere" className="w-8 h-8 object-contain" />
-                    <span className="font-mono text-sm">Cohere</span>
-                  </div>
-
-                  {/* Perplexity - Repeated for seamless loop */}
-                  <div className="flex items-center gap-2 text-cyan-400">
-                    <img src="/ai-companies/perplexity.png" alt="Perplexity" className="w-8 h-8 object-contain" />
-                    <span className="font-mono text-sm">Perplexity</span>
-                  </div>
-
-                  {/* xAI - Repeated for seamless loop - Normal size */}
-                  <div className="flex items-center gap-2 text-gray-400">
-                    <img src="/ai-companies/xai.png" alt="xAI (Grok)" className="w-8 h-8 object-contain rounded-sm" style={{
-                      background: 'white',
-                      borderRadius: '4px',
-                      padding: '1px'
-                    }} />
-                    <span className="font-mono text-sm">Grok</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="text-center mb-1">
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                <button
-                  onClick={() => setShowEarlyAccess(true)}
-                  className="group relative inline-flex items-center gap-2 bg-transparent hover:bg-[#02fe01]/10 border border-[#02fe01] hover:border-[#02fe01]/80 text-[#F8F1D4] hover:text-[#F8F1D4]/90 px-6 py-2 rounded-md font-light transition-all duration-300 text-sm backdrop-blur-sm"
-                >
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-                  </svg>
-                  <span>Early Access</span>
-                </button>
-
-                <button
-                  onClick={() => setShowVCContact(true)}
-                  className="group inline-flex items-center gap-2 bg-transparent hover:bg-gray-600/20 border border-gray-400 hover:border-gray-300 text-gray-300 hover:text-white px-6 py-2 rounded-md font-light transition-all duration-300 text-sm backdrop-blur-sm"
-                >
-                  <svg className="w-4 h-4 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                  <span>Partner With Cribble</span>
-                </button>
-
-
-              </div>
-            </div>
-          </div>
-        </div>
-      </main>
-
-
-
-      {showEarlyAccess && (
-        <div className={`fixed inset-0 bg-black/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 transition-all duration-300 ${isClosingModal ? 'opacity-0' : 'opacity-100'}`}>
-          <div className={`bg-black border border-[#02fe01] rounded-lg p-6 max-w-md w-full backdrop-blur-sm transition-all duration-300 ${isClosingModal ? 'scale-95 opacity-0' : 'scale-100 opacity-100'}`}>
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-semibold text-[#F8F1D4]">Early Access</h2>
-              <button 
-                onClick={handleCloseEarlyAccess}
-                className="text-gray-400 hover:text-white hover:rotate-90 transition-all duration-200 text-lg"
-              >
-                ✕
-              </button>
-            </div>
-            
-            <div className="space-y-6">
-              <div className="text-center">
-                <p className="text-gray-300 text-sm leading-relaxed mb-2">
-                  Cribble is coming soon! Get ready for the Global leaderboard that nobody asked for!
-                </p>
-                <p className="text-gray-400 text-xs mb-4">
-                  The flood gates shall open soon.
-                </p>
-                <div className="inline-flex items-center gap-2 px-3 py-1 bg-yellow-500/10 border border-yellow-500/30 rounded-full">
-                  <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
-                  <span className="text-yellow-500 text-xs font-medium">IN DEVELOPMENT</span>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <div className="p-4 bg-gray-800/40 border border-gray-600/60 rounded-lg hover:bg-gray-800/60 hover:border-gray-500/80 transition-all duration-300 cursor-pointer hover:scale-[1.02] hover:shadow-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-gray-300 font-medium text-sm hover:text-white transition-colors duration-300">FREE TIER</h3>
-                    <span className="text-gray-400 text-xs">$0</span>
-                  </div>
-                </div>
-
-                <div className="p-4 bg-gray-800/40 border border-[#F8F1D4]/20 rounded-lg hover:bg-gray-800/60 hover:border-[#F8F1D4]/40 transition-all duration-300 cursor-pointer hover:scale-[1.02] hover:shadow-lg hover:shadow-[#F8F1D4]/10">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-[#F8F1D4]/60 font-medium text-sm hover:text-[#F8F1D4]/80 transition-colors duration-300">EARLY ACCESS</h3>
-                    <div className="flex items-center gap-2">
-                      <span className="text-gray-500 text-xs line-through">$20</span>
-                      <span className="text-[#F8F1D4]/70 text-sm font-semibold hover:text-[#F8F1D4]/90 transition-colors duration-300">$6.66</span>
-                    </div>
-                  </div>
-                  <p className="text-gray-400 text-xs">Premium features at launch price</p>
-                </div>
-              </div>
-
-              <div className="text-center">
-                <p className="text-gray-500 text-xs mb-3">Stay updated on my progress</p>
-                <a
-                  href="https://x.com/birdabo404"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-600 hover:border-gray-500 text-white rounded-md text-sm transition-all duration-200"
-                >
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-                  </svg>
-                  Follow @birdabo404
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showVCContact && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
-          <div className="bg-black border border-[#02fe01] rounded-xl p-6 max-w-sm w-full backdrop-blur-sm">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-white">Get in Touch</h3>
-              <button 
-                onClick={() => setShowVCContact(false)}
-                className="text-gray-400 hover:text-white transition-colors"
-              >
-                ✕
-              </button>
-            </div>
-            
-            <div className="space-y-4">
-              <div className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
-                <svg className="w-5 h-5 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
-                </svg>
-                <div>
-                  <p className="text-xs text-gray-400 uppercase tracking-wider">Email</p>
-                  <a
-                    href={`mailto:${process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? 'Birdabo.dev@gmail.com'}?subject=Investment Inquiry - Cribble.dev`}
-                    className="text-white hover:text-blue-400 transition-colors font-medium"
+              <div className="mt-8 flex flex-wrap items-center gap-3">
+                {!IS_PUBLIC_SITE_LOCKED ? (
+                  <button
+                    onClick={() => setShowRegister(true)}
+                    className="group inline-flex items-center gap-2.5 bg-white text-black text-sm font-medium px-5 py-2.5 rounded-md hover:bg-zinc-200 transition-colors"
                   >
-                    {process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? 'Birdabo.dev@gmail.com'}
+                    <span>Register</span>
+                    <span className="text-zinc-500 group-hover:translate-x-0.5 transition-transform">
+                      →
+                    </span>
+                  </button>
+                ) : (
+                  <a
+                    href="/login"
+                    className="inline-flex items-center gap-2 rounded-md border border-[#02fe01]/70 bg-[#02fe01]/10 px-4 py-2 text-xs tracking-[0.18em] text-[#02fe01] shadow-[0_0_18px_rgba(2,254,1,0.18)] transition-colors hover:bg-[#02fe01]/15"
+                  >
+                    SIGN IN
                   </a>
-                </div>
-              </div>
-            </div>
-            
-            <p className="text-xs text-gray-500 mt-4 text-center">
-              Open to discussing investment opportunities
-            </p>
-          </div>
-        </div>
-      )}
+                )}
 
-      {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 w-full text-center py-2 bg-black/40 backdrop-blur-sm">
-        <div className="flex flex-col items-center gap-1">
-          <p className="text-gray-500 text-xs font-mono">backed by no one.</p>
-          <div className="flex items-center gap-4">
-            <a 
-              href="https://x.com/birdabo404" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-gray-600 hover:text-gray-400 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-              </svg>
-            </a>
-            <a 
-              href="https://github.com/birdabo404" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-gray-600 hover:text-gray-400 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.237 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-              </svg>
-            </a>
+                {!showForm && status !== 'success' && (
+                  <button
+                    onClick={() => setShowForm(true)}
+                    className="text-xs tracking-[0.2em] text-zinc-400 hover:text-[color:var(--hg)] transition-colors"
+                    style={{ ['--hg' as string]: HACKER_GREEN }}
+                  >
+                    join the waitlist →
+                  </button>
+                )}
+              </div>
+
+              {/* Waitlist form (inline reveal) */}
+              {showForm && status !== 'success' && (
+                <form onSubmit={submit} className="mt-5 max-w-md" noValidate>
+                  <div
+                    className="flex items-stretch border rounded-md bg-zinc-950/80 overflow-hidden transition-colors"
+                    style={{ borderColor: '#27272a' }}
+                  >
+                    <span className="pl-3 pr-1 flex items-center text-zinc-600 text-xs select-none">
+                      ▸
+                    </span>
+                    <input
+                      type="email"
+                      required
+                      autoFocus
+                      placeholder="you@somewhere.dev"
+                      value={email}
+                      onChange={(e) => {
+                        setEmail(e.target.value)
+                        if (status === 'error') setStatus('idle')
+                      }}
+                      className="flex-1 bg-transparent px-2 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+                    />
+                    <button
+                      type="submit"
+                      disabled={status === 'submitting' || !email}
+                      className="text-[11px] tracking-[0.2em] px-4 border-l border-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      style={{
+                        color: HACKER_GREEN,
+                        background: 'rgba(2,254,1,0.10)'
+                      }}
+                    >
+                      {status === 'submitting' ? 'SENDING…' : 'JOIN'}
+                    </button>
+                  </div>
+                  {status === 'error' && (
+                    <p className="mt-2 text-[11px] text-rose-300">{errorMsg}</p>
+                  )}
+                  {status === 'idle' && (
+                    <p className="mt-2 text-[10px] tracking-wider text-zinc-600">
+                      No spam. One email when the gates open.
+                    </p>
+                  )}
+                </form>
+              )}
+
+              {status === 'success' && (
+                <div
+                  className="mt-6 max-w-md rounded-md border px-4 py-3 text-xs"
+                  style={{
+                    borderColor: `${HACKER_GREEN}55`,
+                    background: `${HACKER_GREEN}0d`,
+                    color: HACKER_GREEN
+                  }}
+                >
+                  <span className="tracking-[0.2em]">▸ ON THE LIST.</span>{' '}
+                  <span className="text-zinc-300">
+                    We&apos;ll ping {email} when your slot opens.
+                  </span>
+                </div>
+              )}
+
+              {prettyCount != null && status !== 'success' && (
+                <div className="mt-6 flex items-center gap-3 text-[10px] tracking-[0.3em] text-zinc-600">
+                  <span>
+                    <span className="text-zinc-300">{prettyCount}</span> ON THE LIST
+                  </span>
+                  <span>·</span>
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className="h-1.5 w-1.5 rounded-full"
+                      style={{
+                        background: HACKER_GREEN,
+                        boxShadow: `0 0 6px ${HACKER_GREEN}99`
+                      }}
+                    />
+                    LIVE
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* RIGHT — globe */}
+            <div className="order-1 lg:order-2">
+              <GlobeStage />
+            </div>
           </div>
+        </main>
+
+        <Footer />
+      </div>
+
+      {!IS_PUBLIC_SITE_LOCKED && showRegister && (
+        <RegisterModal onClose={() => setShowRegister(false)} />
+      )}
+    </div>
+  )
+}
+
+function Header() {
+  return (
+    <header className="pt-8 flex items-center justify-between">
+      <div className="text-sm tracking-[0.4em] text-zinc-100 font-semibold">
+        CRIBBLE
+        <span style={{ color: HACKER_GREEN }}>.</span>
+      </div>
+      <nav className="flex items-center gap-1">
+        <a
+          href="https://twitter.com/cribbledotdev"
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Twitter"
+          className="p-2 text-zinc-500 hover:text-zinc-200 transition-colors"
+        >
+          <TwitterMark />
+        </a>
+        <a
+          href="https://github.com/Birdabo404/Cribble"
+          target="_blank"
+          rel="noreferrer"
+          aria-label="GitHub"
+          className="p-2 text-zinc-500 hover:text-zinc-200 transition-colors"
+        >
+          <GithubMark />
+        </a>
+      </nav>
+    </header>
+  )
+}
+
+function Footer() {
+  return (
+    <footer className="pb-6 pt-10 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-[10px] tracking-[0.3em] text-zinc-600">
+      <span>CRIBBLE · 2025</span>
+
+      <a
+        href="https://cursor.com"
+        target="_blank"
+        rel="noreferrer"
+        aria-label="Powered by Cursor"
+        className="inline-flex items-center gap-2 text-zinc-600 hover:text-zinc-300 transition-colors"
+      >
+        <span>POWERED BY</span>
+        <CursorMark />
+        <span className="tracking-[0.25em]">CURSOR</span>
+      </a>
+
+      <span style={{ color: `${HACKER_GREEN}99` }}>
+        {'// backed by no one'}
+      </span>
+    </footer>
+  )
+}
+
+function CursorMark({ size = 11 }: { size?: number }) {
+  // Cursor's tri-facet geometric mark, monochrome via currentColor.
+  return (
+    <svg
+      width={size}
+      height={Math.round(size * (25 / 22))}
+      viewBox="0 0 22 25"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      <path
+        d="M22 6.245 11 0 0 6.245v12.5L11 25l11-6.255V6.245Z"
+        fill="currentColor"
+        fillOpacity="0.22"
+      />
+      <path
+        d="M11 0 0 6.245 11 12.491l11-6.246L11 0Z"
+        fill="currentColor"
+        fillOpacity="0.55"
+      />
+      <path
+        d="M11 12.491V25l11-6.255V6.245L11 12.491Z"
+        fill="currentColor"
+      />
+    </svg>
+  )
+}
+
+function GlobeStage() {
+  // The orbit ring + satellite share these dimensions so the satellite
+  // always traces exactly the visible dashed circle.
+  const ORBIT_SIZE = 'min(470px, 92vw)'
+
+  return (
+    <div className="relative w-full flex items-center justify-center">
+      {/* outer thin orbit ring */}
+      <div
+        aria-hidden
+        className="absolute inset-0 m-auto rounded-full pointer-events-none"
+        style={{
+          width: ORBIT_SIZE,
+          height: ORBIT_SIZE,
+          border: '1px dashed rgba(255,255,255,0.06)'
+        }}
+      />
+
+      {/* inner glow */}
+      <div
+        aria-hidden
+        className="absolute inset-0 m-auto rounded-full blur-3xl opacity-30 pointer-events-none"
+        style={{
+          width: 'min(360px, 80vw)',
+          height: 'min(360px, 80vw)',
+          background: `radial-gradient(circle, ${HACKER_GREEN}26, transparent 70%)`
+        }}
+      />
+
+      {/* SATELLITE — sits on the top of the orbit ring; wrapper rotates */}
+      <div
+        aria-hidden
+        className="absolute inset-0 m-auto pointer-events-none"
+        style={{
+          width: ORBIT_SIZE,
+          height: ORBIT_SIZE,
+          animation: 'cribble-orbit 32s linear infinite'
+        }}
+      >
+        {/* faint leading "spark" arc just ahead of the satellite */}
+        <div
+          className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 h-px w-10"
+          style={{
+            background:
+              'linear-gradient(to right, transparent, rgba(255,255,255,0.45))',
+            transform: 'translate(-50%, -50%) rotate(0deg) translateX(-12px)'
+          }}
+        />
+        {/* satellite body */}
+        <div
+          className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full bg-white"
+          style={{
+            boxShadow:
+              '0 0 6px rgba(255,255,255,0.9), 0 0 14px rgba(255,255,255,0.35)'
+          }}
+        />
+      </div>
+
+      <div className="relative">
+        <Globe size={400} />
+      </div>
+
+      {/* tiny corner annotation */}
+      <div className="absolute bottom-2 right-2 text-[9px] tracking-[0.3em] text-zinc-700 pointer-events-none">
+        {'// 10 ai hubs'}
+      </div>
+
+      <style jsx global>{`
+        @keyframes cribble-orbit {
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          [style*='cribble-orbit'] {
+            animation: none !important;
+          }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+function AsteroidField() {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-0 overflow-hidden z-0"
+    >
+      {/* 4 asteroids from each corner — staggered so fly-bys are occasional */}
+      <span className="home-asteroid home-asteroid-1" />
+      <span className="home-asteroid home-asteroid-2" />
+      <span className="home-asteroid home-asteroid-3" />
+      <span className="home-asteroid home-asteroid-4" />
+
+      <style jsx global>{`
+        /* Anchor the rotating WorldwideText to the left edge so the layout
+           reads as a clean width change rather than a jiggling reflow. */
+        .worldwide-anchor {
+          display: inline-block;
+          padding-bottom: 4px;
+          line-height: 1.15;
+        }
+
+        .home-asteroid {
+          position: absolute;
+          width: 110px;
+          height: 1px;
+          background: linear-gradient(
+            90deg,
+            transparent 0%,
+            rgba(255, 255, 255, 0.05) 30%,
+            rgba(255, 255, 255, 0.55) 80%,
+            rgba(255, 255, 255, 0.92) 100%
+          );
+          opacity: 0;
+          will-change: transform, opacity;
+        }
+        .home-asteroid::after {
+          content: '';
+          position: absolute;
+          right: 0;
+          top: -1.5px;
+          width: 4px;
+          height: 4px;
+          background: #ffffff;
+          border-radius: 9999px;
+          box-shadow: 0 0 6px rgba(255, 255, 255, 0.85);
+        }
+
+        /* Each corner has its own streak: starts off-screen, fades on
+           briefly while crossing at a constant velocity, then fades off. */
+
+        /* 1) top-left → bottom-right */
+        .home-asteroid-1 {
+          top: 12%;
+          left: -140px;
+          animation: home-streak-1 24s linear 3s infinite;
+        }
+        @keyframes home-streak-1 {
+          0%,
+          80% {
+            opacity: 0;
+            transform: translate(0, 0) rotate(20deg);
+          }
+          81% {
+            opacity: 0;
+            transform: translate(0, 0) rotate(20deg);
+          }
+          82% {
+            opacity: 1;
+            transform: translate(4vw, 2vh) rotate(20deg);
+          }
+          96% {
+            opacity: 1;
+            transform: translate(110vw, 58vh) rotate(20deg);
+          }
+          100% {
+            opacity: 0;
+            transform: translate(125vw, 65vh) rotate(20deg);
+          }
+        }
+
+        /* 2) top-right → bottom-left */
+        .home-asteroid-2 {
+          top: 22%;
+          right: -140px;
+          animation: home-streak-2 32s linear 11s infinite;
+        }
+        @keyframes home-streak-2 {
+          0%,
+          80% {
+            opacity: 0;
+            transform: translate(0, 0) rotate(160deg);
+          }
+          82% {
+            opacity: 1;
+            transform: translate(-4vw, 2vh) rotate(160deg);
+          }
+          96% {
+            opacity: 1;
+            transform: translate(-110vw, 58vh) rotate(160deg);
+          }
+          100% {
+            opacity: 0;
+            transform: translate(-125vw, 65vh) rotate(160deg);
+          }
+        }
+
+        /* 3) bottom-left → top-right */
+        .home-asteroid-3 {
+          bottom: 18%;
+          left: -140px;
+          animation: home-streak-3 38s linear 19s infinite;
+        }
+        @keyframes home-streak-3 {
+          0%,
+          80% {
+            opacity: 0;
+            transform: translate(0, 0) rotate(-22deg);
+          }
+          82% {
+            opacity: 1;
+            transform: translate(4vw, -2vh) rotate(-22deg);
+          }
+          96% {
+            opacity: 1;
+            transform: translate(110vw, -55vh) rotate(-22deg);
+          }
+          100% {
+            opacity: 0;
+            transform: translate(125vw, -62vh) rotate(-22deg);
+          }
+        }
+
+        /* 4) bottom-right → top-left */
+        .home-asteroid-4 {
+          bottom: 30%;
+          right: -140px;
+          animation: home-streak-4 28s linear 7s infinite;
+        }
+        @keyframes home-streak-4 {
+          0%,
+          80% {
+            opacity: 0;
+            transform: translate(0, 0) rotate(202deg);
+          }
+          82% {
+            opacity: 1;
+            transform: translate(-4vw, -2vh) rotate(202deg);
+          }
+          96% {
+            opacity: 1;
+            transform: translate(-110vw, -55vh) rotate(202deg);
+          }
+          100% {
+            opacity: 0;
+            transform: translate(-125vw, -62vh) rotate(202deg);
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .home-asteroid {
+            display: none;
+          }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+function RegisterModal({ onClose }: { onClose: () => void }) {
+  // Close on ESC.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="register-title"
+    >
+      {/* backdrop */}
+      <button
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm reg-fade"
+      />
+
+      <div
+        className="relative w-full max-w-md rounded-xl border border-white/10 p-7 reg-pop"
+        style={{
+          background:
+            'linear-gradient(180deg, #0b0b0b 0%, #060606 100%)',
+          boxShadow:
+            '0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.02), 0 0 60px rgba(2,254,1,0.04)',
+        }}
+      >
+        <div className="flex items-center justify-between">
+          <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-zinc-800 bg-zinc-950 text-[10px] tracking-[0.3em] text-zinc-400">
+            <span
+              className="h-1.5 w-1.5 rounded-full"
+              style={{
+                background: HACKER_GREEN,
+                boxShadow: `0 0 8px ${HACKER_GREEN}b0`,
+              }}
+            />
+            REGISTER
+          </span>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="text-zinc-500 hover:text-zinc-200 transition-colors text-lg leading-none"
+          >
+            ×
+          </button>
         </div>
-      </footer>
-    </>
+
+        <div className="mt-5 space-y-1.5">
+          <h2
+            id="register-title"
+            className="text-2xl font-semibold tracking-tight text-zinc-50"
+          >
+            Join cribble.
+          </h2>
+          <p className="text-sm text-zinc-400">
+            Pick a provider to create your account.
+          </p>
+        </div>
+
+        <div className="mt-6 space-y-2.5">
+          <a
+            href="/api/auth/github"
+            className="group flex items-center justify-center gap-3 w-full bg-white text-black text-sm font-medium px-4 py-3 rounded-md hover:bg-zinc-200 transition-colors"
+          >
+            <GithubMark />
+            <span>Continue with GitHub</span>
+            <span className="text-zinc-500 group-hover:translate-x-0.5 transition-transform">
+              →
+            </span>
+          </a>
+
+          <DisabledProvider
+            label="Continue with X"
+            icon={<TwitterMark />}
+            note="soon"
+          />
+          <DisabledProvider
+            label="Continue with Google"
+            icon={<GoogleMark />}
+            note="soon"
+          />
+        </div>
+
+        <p className="mt-5 text-center text-[10px] tracking-[0.25em] text-zinc-600">
+          PRIVATE BETA · GITHUB ONLY FOR NOW
+        </p>
+      </div>
+
+      <style jsx>{`
+        .reg-fade {
+          animation: reg-fade-in 200ms ease-out both;
+        }
+        .reg-pop {
+          animation: reg-pop-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+        @keyframes reg-fade-in {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+        @keyframes reg-pop-in {
+          from {
+            opacity: 0;
+            transform: translateY(6px) scale(0.985);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+function DisabledProvider({
+  label,
+  icon,
+  note,
+}: {
+  label: string
+  icon: React.ReactNode
+  note?: string
+}) {
+  return (
+    <div
+      aria-disabled
+      title={note ? `Coming ${note}` : 'Unavailable'}
+      className="flex items-center justify-center gap-3 w-full bg-zinc-900/50 text-zinc-500 text-sm font-medium px-4 py-3 rounded-md border border-zinc-800/80 cursor-not-allowed select-none"
+    >
+      <span className="opacity-60">{icon}</span>
+      <span className="opacity-80">{label}</span>
+      {note && (
+        <span className="ml-1 text-[10px] tracking-[0.25em] text-zinc-600">
+          {note.toUpperCase()}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function GoogleMark() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 48 48"
+      aria-hidden
+    >
+      <path
+        fill="#FFC107"
+        d="M43.6 20.5H42V20H24v8h11.3C33.7 32.4 29.3 35.5 24 35.5c-6.4 0-11.5-5.1-11.5-11.5S17.6 12.5 24 12.5c2.9 0 5.6 1.1 7.6 2.9l5.7-5.7C33.6 6.5 29 4.5 24 4.5 13.2 4.5 4.5 13.2 4.5 24S13.2 43.5 24 43.5c10.7 0 19.5-8.7 19.5-19.5 0-1.2-.1-2.3-.4-3.5z"
+      />
+      <path
+        fill="#FF3D00"
+        d="M6.3 14.7l6.6 4.8C14.7 15.7 19 12.5 24 12.5c2.9 0 5.6 1.1 7.6 2.9l5.7-5.7C33.6 6.5 29 4.5 24 4.5 16.3 4.5 9.7 8.9 6.3 14.7z"
+      />
+      <path
+        fill="#4CAF50"
+        d="M24 43.5c5 0 9.5-1.9 12.9-5l-6-4.9c-2 1.5-4.5 2.4-6.9 2.4-5.3 0-9.7-3.1-11.3-7.5l-6.5 5C9.6 39 16.2 43.5 24 43.5z"
+      />
+      <path
+        fill="#1976D2"
+        d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.3 4-4.3 5.1l6 4.9C40.7 35.7 44 30.4 44 24c0-1.2-.1-2.3-.4-3.5z"
+      />
+    </svg>
+  )
+}
+
+function GithubMark() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+    >
+      <path d="M12 .5C5.73.5.92 5.31.92 11.58c0 4.88 3.16 9.01 7.55 10.47.55.1.75-.24.75-.53 0-.26-.01-.95-.02-1.86-3.07.67-3.72-1.48-3.72-1.48-.5-1.27-1.23-1.6-1.23-1.6-1-.69.08-.67.08-.67 1.11.08 1.7 1.14 1.7 1.14.99 1.69 2.6 1.2 3.23.92.1-.72.39-1.2.7-1.48-2.45-.28-5.03-1.23-5.03-5.48 0-1.21.43-2.2 1.14-2.97-.11-.28-.5-1.42.11-2.96 0 0 .93-.3 3.05 1.13a10.6 10.6 0 0 1 2.78-.37c.94 0 1.89.13 2.78.37 2.12-1.43 3.05-1.13 3.05-1.13.61 1.54.22 2.68.11 2.96.71.77 1.14 1.76 1.14 2.97 0 4.26-2.58 5.19-5.04 5.46.4.34.76 1.02.76 2.06 0 1.49-.01 2.69-.01 3.06 0 .29.2.64.76.53 4.38-1.46 7.54-5.59 7.54-10.47C23.08 5.31 18.27.5 12 .5Z" />
+    </svg>
+  )
+}
+
+function TwitterMark() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+    >
+      <path d="M18.244 2H21l-6.52 7.45L22 22h-6.835l-4.79-6.272L4.8 22H2l6.99-7.99L2 2h7.012l4.33 5.741L18.244 2Zm-2.397 18.3h1.66L7.27 3.6H5.49l10.357 16.7Z" />
+    </svg>
   )
 }
