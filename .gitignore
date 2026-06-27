@@ -149,4 +149,6 @@ Desktop.ini
 
 # Temporary files
 *.tmp
-*.temp.claude/
+*.temp
+.claude/
+.cursor/mcp.json

@@ -22,7 +22,7 @@ export async function GET() {
         user_scores(total_score),
         user_devices(is_active, last_sync_at)
       `)
-      .order('id', { ascending: true })
+      .order('total_score', { ascending: false, referencedTable: 'user_scores', nullsFirst: false })
       .limit(100)
 
     if (usersError) {

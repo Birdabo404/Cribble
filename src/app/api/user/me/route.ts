@@ -10,16 +10,14 @@ export async function GET(request: NextRequest) {
   try {
     // Get session token from cookie
     const sessionToken = request.cookies.get('cribble_session')?.value
-    console.log('[API] /user/me - Session token present:', !!sessionToken)
-    
+
     if (!sessionToken) {
-      console.log('[API] /user/me - No session token found in cookies')
       return NextResponse.json(
         { error: 'No session found' },
         { status: 401 }
       )
     }
-    
+
     // Find active session
     const { data: session, error: sessionError } = await supabase
       .from('user_sessions')
@@ -27,13 +25,10 @@ export async function GET(request: NextRequest) {
       .eq('session_token', sessionToken)
       .gt('expires_at', new Date().toISOString())
       .single()
-    
-    console.log('[API] /user/me - Session query result:', { session, sessionError })
-    
+
     if (sessionError || !session) {
-      console.log('[API] /user/me - Session validation failed:', sessionError?.message)
       return NextResponse.json(
-        { error: 'Invalid or expired session', details: sessionError?.message },
+        { error: 'Invalid or expired session' },
         { status: 401 }
       )
     }
@@ -53,16 +48,13 @@ export async function GET(request: NextRequest) {
     }
 
     // Calculate scores and stats directly from events_raw for reliability
-    console.log('[API] /user/me - Calculating scores from events_raw...')
-    
     const now = new Date()
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
     const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
     const monthStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
     // Get all events for this user
-    const userId = Number(session.user_id) // Ensure it's a number
-    console.log('[API] /user/me - Querying events for user_id:', userId, typeof userId)
+    const userId = Number(session.user_id)
     
     // Try direct query - the leaderboard route uses the same pattern
     const { data: allEvents, error: eventsError } = await supabase
@@ -128,23 +120,15 @@ export async function GET(request: NextRequest) {
         efficiency
       }
 
-      console.log('[API] /user/me - Calculated from events:', { 
-        eventCount: allEvents.length,
-        todayEventCount: todayEvents.length,
-        scores, 
-        stats 
-      })
-    } else {
-      console.log('[API] /user/me - No events found for user')
     }
 
-    // Get user's active device info
+    // Get user's active device info (.maybeSingle returns null on 0 rows, no error)
     const { data: activeDevice } = await supabase
       .from('user_devices')
       .select('*')
       .eq('user_id', session.user_id)
       .eq('is_active', true)
-      .single()
+      .maybeSingle()
 
     return NextResponse.json({
       user,

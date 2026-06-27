@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
 
     // Get the days parameter (default 84 for 12 weeks)
     const { searchParams } = new URL(request.url)
-    const days = parseInt(searchParams.get('days') || '84', 10)
+    const days = Math.min(365, Math.max(1, parseInt(searchParams.get('days') || '84', 10) || 84))
     
     // Calculate date range
     const endDate = new Date()

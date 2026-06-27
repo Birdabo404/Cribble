@@ -6,6 +6,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+type ResetAction = 'reset_all'
+
 /**
  * Dangerous reset endpoint - DEVELOPMENT ONLY.
  * Protected by: NODE_ENV check + session auth + confirmation token.

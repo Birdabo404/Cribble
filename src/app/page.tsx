@@ -496,11 +496,11 @@ export default function Home() {
                 </svg>
                 <div>
                   <p className="text-xs text-gray-400 uppercase tracking-wider">Email</p>
-                  <a 
-                    href="mailto:Birdabo.dev@gmail.com?subject=Investment Inquiry - Cribble.dev"
+                  <a
+                    href={`mailto:${process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? 'Birdabo.dev@gmail.com'}?subject=Investment Inquiry - Cribble.dev`}
                     className="text-white hover:text-blue-400 transition-colors font-medium"
                   >
-                    Birdabo.dev@gmail.com
+                    {process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? 'Birdabo.dev@gmail.com'}
                   </a>
                 </div>
               </div>

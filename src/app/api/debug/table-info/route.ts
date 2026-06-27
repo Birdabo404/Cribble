@@ -21,12 +21,11 @@ export async function GET(request: NextRequest) {
       .limit(1)
     
     // Also try to get actual table info
-    let schemaData: unknown = null
-    let schemaError: { message: string } | null = null
+    let schemaData: any = null, schemaError: any = null
     try {
-      const rpcResult = await supabase.rpc('get_table_info', { table_name: 'events_raw' })
-      schemaData = rpcResult.data
-      schemaError = rpcResult.error ? { message: rpcResult.error.message } : null
+      const result = await supabase.rpc('get_table_info', { table_name: 'events_raw' })
+      schemaData = result.data
+      schemaError = result.error
     } catch {
       schemaError = { message: 'RPC not found' }
     }

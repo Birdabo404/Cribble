@@ -17,11 +17,15 @@ export default function TwitterLoginButton({
 
   const handleLogin = async () => {
     setIsLoading(true)
+    // window.location.href rarely throws — use a timeout fallback to clear
+    // the loading state if the redirect doesn't happen (e.g. OAuth config error)
+    const timeout = setTimeout(() => setIsLoading(false), 5000)
     try {
       // Redirect to our Twitter OAuth endpoint
       window.location.href = '/api/auth/twitter'
     } catch (error) {
       console.error('Twitter login error:', error)
+      clearTimeout(timeout)
       setIsLoading(false)
     }
   }

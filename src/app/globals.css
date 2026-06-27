@@ -345,3 +345,55 @@ body {
 .retro-input::placeholder {
   color: rgba(0, 255, 0, 0.4);
 }
+
+/* Dashboard panel primitives */
+.db-panel {
+  background: #080808;
+  border: 1px solid rgba(2, 254, 1, 0.15);
+  border-radius: 8px;
+  padding: 20px;
+  position: relative;
+}
+
+.db-panel-sm {
+  background: #080808;
+  border: 1px solid rgba(2, 254, 1, 0.12);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.db-stat-label {
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.db-stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.cribble-title-glow {
+  text-shadow: 0 0 20px rgba(2, 254, 1, 0.4), 0 0 40px rgba(2, 254, 1, 0.1);
+}
+
+.cribble-score-glow {
+  text-shadow: 0 0 30px rgba(2, 254, 1, 0.3), 0 0 60px rgba(2, 254, 1, 0.1);
+}
+
+@keyframes toastSlideIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.toast-slide-in {
+  animation: toastSlideIn 0.3s ease-out forwards;
+}
+
+/* Radar ring expand — used by RadarDisplay component */
+@keyframes radar-ring-expand {
+  0%   { transform: scale(0.4); opacity: 0.6; }
+  100% { transform: scale(1.6); opacity: 0; }
+}

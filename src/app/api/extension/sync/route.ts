@@ -196,24 +196,17 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
   
   // Validation constants
   const MAX_ACTIVE_TIME_MS = 30 * 60 * 1000 // 30 minutes max per event
-  const MAX_VISITS_PER_EVENT = 50 // reasonable limit
-  
+
   // Filter and validate events
   const validEvents = events.filter(event => {
     const duration = event.duration || 0
-    const visits = event.type === 'visit' ? 1 : 0
-    
+
     // Log suspicious events
     if (duration > MAX_ACTIVE_TIME_MS) {
       console.warn(`[Extension Sync] Rejecting event with excessive duration: ${duration}ms (${duration/1000/60} minutes) on ${event.domain}`)
       return false
     }
-    
-    if (visits > MAX_VISITS_PER_EVENT) {
-      console.warn(`[Extension Sync] Rejecting event with excessive visits: ${visits} on ${event.domain}`)
-      return false
-    }
-    
+
     // Ensure reasonable timestamp
     const eventTime = new Date(event.timestamp).getTime()
     const now = Date.now()
@@ -330,7 +323,13 @@ export async function GET(request: NextRequest) {
     }
     
     const userIdNum = parseInt(userId)
-    
+    if (isNaN(userIdNum) || userIdNum <= 0) {
+      return NextResponse.json({
+        success: false,
+        error: 'Invalid user ID'
+      }, { status: 400 })
+    }
+
     // Validate device
     const isValidDevice = await validateDevice(userIdNum, deviceUuid)
     if (!isValidDevice) {

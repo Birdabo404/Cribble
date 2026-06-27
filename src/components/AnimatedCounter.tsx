@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface AnimatedCounterProps {
   value: number
@@ -7,43 +7,59 @@ interface AnimatedCounterProps {
   className?: string
 }
 
-export default function AnimatedCounter({ 
-  value, 
-  duration = 1000, 
+export default function AnimatedCounter({
+  value,
+  duration = 1000,
   formatter = (val) => val.toString(),
   className = ""
 }: AnimatedCounterProps) {
-  const [displayValue, setDisplayValue] = useState(0)
-  const [isAnimating, setIsAnimating] = useState(false)
+  const [displayValue, setDisplayValue] = useState(value)
+  const fromRef = useRef(value)
+  const rafRef = useRef<number | null>(null)
 
   useEffect(() => {
-    if (value === displayValue) return
+    // Cancel any in-flight animation
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current)
+    }
 
-    setIsAnimating(true)
-    const startValue = displayValue
+    const startValue = fromRef.current
     const difference = value - startValue
+
+    // No change — skip animation
+    if (difference === 0) return
+
     const startTime = Date.now()
 
     const animate = () => {
       const elapsed = Date.now() - startTime
       const progress = Math.min(elapsed / duration, 1)
-      
-      // Use easeOutCubic for smooth animation
-      const easeOutCubic = 1 - Math.pow(1 - progress, 3)
-      const currentValue = startValue + (difference * easeOutCubic)
-      
-      setDisplayValue(currentValue)
+
+      // easeOutCubic
+      const eased = 1 - Math.pow(1 - progress, 3)
+      const current = startValue + difference * eased
+
+      setDisplayValue(current)
 
       if (progress < 1) {
-        requestAnimationFrame(animate)
+        rafRef.current = requestAnimationFrame(animate)
       } else {
         setDisplayValue(value)
-        setIsAnimating(false)
+        fromRef.current = value
+        rafRef.current = null
       }
     }
 
-    requestAnimationFrame(animate)
-  }, [value, duration, displayValue])
+    rafRef.current = requestAnimationFrame(animate)
+
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current)
+      }
+      // Remember where we stopped so next animation starts from here
+      fromRef.current = value
+    }
+  }, [value, duration]) // ← displayValue intentionally NOT in deps
 
   return (
     <span className={className}>

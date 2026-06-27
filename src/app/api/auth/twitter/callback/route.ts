@@ -83,7 +83,13 @@ export async function GET(request: NextRequest) {
       .select('*')
       .eq('twitter_id', twitterUser.id)
       .single()
-    
+
+    // PGRST116 = "no rows found" which is the expected case for new users
+    if (fetchError && fetchError.code !== 'PGRST116') {
+      console.error('Failed to look up user:', fetchError)
+      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}?error=db_error`)
+    }
+
     let user
     if (existingUser) {
       // Update existing user
