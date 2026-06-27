@@ -7,15 +7,32 @@ interface GlobeProps {
   size?: number
 }
 
+type GlobeInstance = {
+  destroy: () => void
+}
+
+type GlobeRenderState = {
+  phi: number
+  width: number
+  height: number
+}
+
+type CreateGlobe = (
+  canvas: HTMLCanvasElement,
+  options: Record<string, unknown> & {
+    onRender: (state: GlobeRenderState) => void
+  }
+) => GlobeInstance
+
 export default function Globe({ className = '', size = 400 }: GlobeProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const globeRef = useRef<any>(null)
-  const [createGlobe, setCreateGlobe] = useState<any>(null)
+  const globeRef = useRef<GlobeInstance | null>(null)
+  const [createGlobe, setCreateGlobe] = useState<CreateGlobe | null>(null)
 
   useEffect(() => {
     // Dynamically import COBE only on client side
     import('cobe').then((module) => {
-      setCreateGlobe(() => module.default)
+      setCreateGlobe(() => module.default as unknown as CreateGlobe)
     }).catch((error) => {
       console.error('Failed to load COBE:', error)
     })
@@ -58,7 +75,7 @@ export default function Globe({ className = '', size = 400 }: GlobeProps) {
           { location: [-33.8688, 151.2093], size: 0.03 }, // Sydney
           { location: [52.5200, 13.4050], size: 0.03 }, // Berlin
         ],
-        onRender: (state: any) => {
+        onRender: (state: GlobeRenderState) => {
           state.phi = phi
           phi += 0.002 // Much slower rotation
           state.width = width * 2

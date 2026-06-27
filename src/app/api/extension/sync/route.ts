@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { v4 as uuidv4 } from 'uuid'
 import { z } from 'zod'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
 
@@ -23,15 +22,7 @@ interface ExtensionEvent {
   timestamp: number
   duration?: number
   score?: number
-  metadata?: any
-}
-
-interface SyncRequest {
-  deviceUuid: string
-  userId?: number
-  events: ExtensionEvent[]
-  batchId: string
-  deviceInfo: DeviceInfo
+  metadata?: unknown
 }
 
 const extensionEventSchema = z.object({
@@ -40,7 +31,7 @@ const extensionEventSchema = z.object({
   timestamp: z.number().int().nonnegative(),
   duration: z.number().int().nonnegative().optional(),
   score: z.number().int().optional(),
-  metadata: z.any().optional()
+  metadata: z.unknown().optional()
 })
 
 const syncRequestSchema = z.object({
@@ -80,7 +71,7 @@ async function registerDevice(userId: number, deviceUuid: string, deviceInfo: De
 
     // Use RPC function to handle device registration atomically
     // This prevents race conditions by ensuring only one device is active per user
-    const { data: result, error } = await supabase.rpc('register_user_device', {
+    const { error } = await supabase.rpc('register_user_device', {
       p_user_id: userId,
       p_device_uuid: deviceUuid,
       p_device_name: deviceInfo.deviceName,
@@ -192,7 +183,7 @@ async function validateDevice(userId: number, deviceUuid: string) {
 async function processEvents(userId: number, deviceUuid: string, events: ExtensionEvent[], batchId: string) {
   if (!events || events.length === 0) return { processed: 0, errors: [] }
   
-  console.log(`[Extension Sync] Processing ${events.length} events for device ${deviceUuid}`)
+  console.log(`[Extension Sync] Processing ${events.length} events for device ${deviceUuid} (batch ${batchId})`)
   
   // Validation constants
   const MAX_ACTIVE_TIME_MS = 30 * 60 * 1000 // 30 minutes max per event
@@ -361,7 +352,6 @@ export async function GET(request: NextRequest) {
     // Calculate time stats
     const todayActiveTime = todayStats?.reduce((sum, event) => sum + (event.active_ms || 0), 0) || 0
     const todayTotalTime = todayStats?.reduce((sum, event) => sum + (event.total_ms || 0), 0) || 0
-    const totalActiveTime = totalStats?.reduce((sum, event) => sum + (event.active_ms || 0), 0) || 0
     const totalTime = totalStats?.reduce((sum, event) => sum + (event.total_ms || 0), 0) || 0
     
     // Calculate visits

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isAllowedDuringLock, isSiteLocked } from '@/lib/siteLock'
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   // Create response
   const response = NextResponse.next()
   const pathname = request.nextUrl.pathname
@@ -70,4 +70,4 @@ export const config = {
      */
     '/((?!_next/static|_next/image|favicon.ico|favicon.png|site.webmanifest|robots.txt|sitemap.xml).*)',
   ],
-} 
+}

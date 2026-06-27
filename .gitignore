@@ -11,6 +11,7 @@ playwright-report/
 # Next.js
 .next/
 out/
+.vercel/
 
 # Production
 build/

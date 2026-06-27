@@ -35,7 +35,7 @@ export const checkDatabaseHealth = async () => {
   if (!supabaseAdmin) return false
   
   try {
-    const { data, error } = await supabaseAdmin
+    const { error } = await supabaseAdmin
       .from('users')
       .select('id')
       .limit(1)

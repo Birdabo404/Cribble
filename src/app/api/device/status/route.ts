@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
 
     // Connected = device exists and is active (do not expose internal user id)
     return NextResponse.json({ connected: !!device.is_active })
-  } catch (error) {
+  } catch {
     return NextResponse.json({ connected: false, error: 'Internal server error' }, { status: 500 })
   }
 }

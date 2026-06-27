@@ -8,7 +8,7 @@ const supabase = createClient(
 )
 
 // OPTIONS - Handle CORS preflight requests (middleware handles CORS)
-export async function OPTIONS(request: NextRequest) {
+export async function OPTIONS() {
   return new NextResponse(null, { status: 200 })
 }
 

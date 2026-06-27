@@ -275,7 +275,7 @@ export default function SetupWizardModal({
                   </div>
                   <div className="flex gap-3">
                     <span className="text-[#02fe01]/60">03</span>
-                    <span>Enable "Developer mode" → Load unpacked</span>
+                    <span>Enable &quot;Developer mode&quot; → Load unpacked</span>
                   </div>
                   <div className="flex gap-3">
                     <span className="text-[#02fe01]/60">04</span>

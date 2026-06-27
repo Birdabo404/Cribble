@@ -4,6 +4,18 @@ import { applyEventsUsersIn } from '@/lib/eventsIdentity'
 
 export const dynamic = 'force-dynamic'
 
+type LeaderboardUser = {
+  id: number
+  twitter_username: string | null
+  twitter_name: string | null
+  twitter_profile_image: string | null
+  created_at: string | null
+  last_extension_sync: string | null
+  subscription_tier: string | null
+  user_scores?: { total_score?: number | null } | null
+  user_devices?: Array<{ is_active?: boolean | null; last_sync_at?: string | null }> | null
+}
+
 export async function GET() {
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -86,7 +98,7 @@ export async function GET() {
     }
 
     // Build leaderboard data — no more per-user DB calls
-    const leaderboardData = users.map((user: any) => {
+    const leaderboardData = (users as LeaderboardUser[]).map((user) => {
       // Score from joined user_scores
       const score = Math.round(user.user_scores?.total_score || 0)
 
@@ -141,7 +153,7 @@ export async function GET() {
         'Expires': '0'
       }
     })
-  } catch (err: any) {
+  } catch (err) {
     console.error('[Leaderboard] Unexpected error:', err)
     return NextResponse.json({ success: false, error: 'Unexpected error' }, { status: 500 })
   }
