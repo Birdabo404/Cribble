@@ -212,7 +212,10 @@ export default function WelcomePage() {
   }, [stage])
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 font-mono relative overflow-hidden selection:bg-[#02fe01]/20">
+    <div className="min-h-screen bg-black text-zinc-100 font-mono relative overflow-x-hidden selection:bg-[#02fe01]/20">
+      <a href="#welcome-main" className="skip-link">
+        Skip to main content
+      </a>
       <SpaceBackdrop />
 
       {/* horizon line */}
@@ -233,7 +236,7 @@ export default function WelcomePage() {
           />
         )}
 
-        <main className="flex-1 flex items-center justify-center px-6 py-10">
+        <main id="welcome-main" className="flex-1 flex items-center justify-center px-6 py-10 min-w-0">
           {stage === 'boot' && <BootStage />}
           {stage === 'privacy' && <PrivacyStage onNext={advance} />}
           {stage === 'role' && (
@@ -282,15 +285,24 @@ function TopBar({
             STEP {stepNumber}/{totalSteps}
           </div>
           <button
+            type="button"
             onClick={onSkip}
-            className="text-[10px] tracking-[0.3em] px-3 py-1.5 rounded border border-zinc-800 hover:border-zinc-600 text-zinc-500 hover:text-zinc-200 transition-colors"
+            aria-label="Skip onboarding and go to dashboard"
+            className="text-[10px] tracking-[0.3em] px-3 py-1.5 rounded border border-zinc-800 hover:border-zinc-600 text-zinc-500 hover:text-zinc-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02fe01]/50"
           >
             SKIP →
           </button>
         </div>
       </div>
       <div className="mt-4 max-w-3xl mx-auto">
-        <div className="h-px w-full bg-zinc-900 overflow-hidden">
+        <div
+          className="h-px w-full bg-zinc-900 overflow-hidden"
+          role="progressbar"
+          aria-valuenow={pct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={`Onboarding progress, step ${stepNumber} of ${totalSteps}`}
+        >
           <div
             className="h-full transition-all duration-500 ease-out"
             style={{
@@ -699,7 +711,7 @@ function ToolsStage({
 
       <StageActions>
         <PrimaryButton onClick={onSubmit} disabled={saving}>
-          {saving ? 'SAVING…' : 'FINISH BOOT →'}
+          <span aria-live="polite">{saving ? 'SAVING…' : 'FINISH BOOT →'}</span>
         </PrimaryButton>
       </StageActions>
     </StageShell>
@@ -806,7 +818,7 @@ function PrimaryButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="text-[11px] tracking-[0.3em] px-5 py-2.5 rounded-md border transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+      className="text-[11px] tracking-[0.3em] px-5 py-2.5 rounded-md border transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02fe01]/50"
       style={
         disabled
           ? {
@@ -845,9 +857,9 @@ function ChoiceCard({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`text-left rounded-xl border bg-zinc-950/80 backdrop-blur-sm transition-all ${
+      className={`text-left rounded-xl border bg-zinc-950/80 backdrop-blur-sm transition-colors ${
         wide ? 'p-5' : 'p-4'
-      } ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+      } ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02fe01]/50`}
       style={{
         borderColor: selected ? `${HACKER_GREEN}80` : '#27272a',
         background: selected ? `${HACKER_GREEN}0d` : undefined,

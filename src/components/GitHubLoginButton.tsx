@@ -42,14 +42,16 @@ export default function GitHubLoginButton({
 
   return (
     <button
+      type="button"
       onClick={handleLogin}
       disabled={isLoading}
       className={`
         group inline-flex items-center gap-3
         ${variantClasses[variant]}
         rounded-md font-medium 
-        transition-all duration-300 backdrop-blur-sm
+        transition-colors duration-300 backdrop-blur-sm
         disabled:opacity-50 disabled:cursor-not-allowed
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50
         ${sizeClasses[size]}
         ${className}
       `}

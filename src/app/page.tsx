@@ -88,7 +88,10 @@ export default function HomeV2() {
   )
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 font-mono selection:bg-[#02fe01]/20 flex flex-col relative overflow-hidden">
+    <div className="min-h-screen bg-black text-zinc-100 font-mono selection:bg-[#02fe01]/20 flex flex-col relative overflow-x-hidden">
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
       {/* faint hacker-green wash on the right side — sits behind the globe */}
       <div
         aria-hidden
@@ -111,7 +114,7 @@ export default function HomeV2() {
       <div className="relative z-10 max-w-6xl w-full mx-auto px-6 flex-1 flex flex-col">
         <Header />
 
-        <main className="flex-1 flex items-center py-8">
+        <main id="main-content" className="flex-1 flex items-center py-8">
           <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_1fr] gap-10 lg:gap-16 items-center w-full">
             {/* LEFT — hero copy */}
             <div className="order-2 lg:order-1">
@@ -178,30 +181,36 @@ export default function HomeV2() {
 
               {/* Waitlist form (inline reveal) */}
               {showForm && status !== 'success' && (
-                <form onSubmit={submit} className="mt-5 max-w-md" noValidate>
+                <form onSubmit={submit} className="mt-5 max-w-md min-w-0" noValidate>
+                  <label htmlFor="waitlist-email" className="sr-only">
+                    Email address for waitlist
+                  </label>
                   <div
                     className="flex items-stretch border rounded-md bg-zinc-950/80 overflow-hidden transition-colors"
                     style={{ borderColor: '#27272a' }}
                   >
-                    <span className="pl-3 pr-1 flex items-center text-zinc-600 text-xs select-none">
+                    <span className="pl-3 pr-1 flex items-center text-zinc-600 text-xs select-none" aria-hidden="true">
                       ▸
                     </span>
                     <input
+                      id="waitlist-email"
+                      name="email"
                       type="email"
                       required
-                      autoFocus
-                      placeholder="you@somewhere.dev"
+                      autoComplete="email"
+                      spellCheck={false}
+                      placeholder="you@somewhere.dev…"
                       value={email}
                       onChange={(e) => {
                         setEmail(e.target.value)
                         if (status === 'error') setStatus('idle')
                       }}
-                      className="flex-1 bg-transparent px-2 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+                      className="flex-1 min-w-0 bg-transparent px-2 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02fe01]/50"
                     />
                     <button
                       type="submit"
                       disabled={status === 'submitting' || !email}
-                      className="text-[11px] tracking-[0.2em] px-4 border-l border-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      className="text-[11px] tracking-[0.2em] px-4 border-l border-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02fe01]/50"
                       style={{
                         color: HACKER_GREEN,
                         background: 'rgba(2,254,1,0.10)'
@@ -211,7 +220,9 @@ export default function HomeV2() {
                     </button>
                   </div>
                   {status === 'error' && (
-                    <p className="mt-2 text-[11px] text-rose-300">{errorMsg}</p>
+                    <p className="mt-2 text-[11px] text-rose-300" role="alert" aria-live="polite">
+                      {errorMsg}
+                    </p>
                   )}
                   {status === 'idle' && (
                     <p className="mt-2 text-[10px] tracking-wider text-zinc-600">
