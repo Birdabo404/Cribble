@@ -17,10 +17,14 @@ export default function GitHubLoginButton({
 
   const handleLogin = async () => {
     setIsLoading(true)
+    // window.location.href rarely throws — use a timeout fallback to clear
+    // the loading state if the redirect doesn't happen (e.g. OAuth config error)
+    const timeout = setTimeout(() => setIsLoading(false), 5000)
     try {
       window.location.href = '/api/auth/github'
     } catch (error) {
       console.error('GitHub login error:', error)
+      clearTimeout(timeout)
       setIsLoading(false)
     }
   }

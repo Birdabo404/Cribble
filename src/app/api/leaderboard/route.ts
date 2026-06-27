@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { applyEventsUsersIn } from '@/lib/eventsIdentity'
+
+export const dynamic = 'force-dynamic'
 
 export async function GET() {
   const supabase = createClient(
@@ -22,7 +25,7 @@ export async function GET() {
         user_scores(total_score),
         user_devices(is_active, last_sync_at)
       `)
-      .order('id', { ascending: true })
+      .order('total_score', { ascending: false, referencedTable: 'user_scores', nullsFirst: false })
       .limit(100)
 
     if (usersError) {
@@ -35,22 +38,31 @@ export async function GET() {
     }
 
     // Batch query 2: Get ALL events for all users at once (instead of 1 query per user)
-    const userIds = users.map(u => u.id)
-    const { data: allEvents, error: eventsError } = await supabase
+    const userIds = users.map((u) => u.id)
+    let eventsQuery = supabase
       .from('events_raw')
-      .select('user_id, domain, visits, active_ms')
-      .in('user_id', userIds)
+      .select('user_id, twitter_user_id, domain, visits, active_ms')
+    const { query: scopedEventsQuery, column: eventsUserColumn } =
+      await applyEventsUsersIn(supabase, eventsQuery, userIds)
+    eventsQuery = scopedEventsQuery
+
+    const { data: allEvents, error: eventsError } = await eventsQuery
 
     if (eventsError) {
       console.error('[Leaderboard] Events query error:', eventsError)
     }
 
-    // Group events by user_id in memory
-    const eventsByUser: Record<number, typeof allEvents> = {}
+    // Group events by user id in memory (respect legacy twitter_user_id column)
+    const eventsByUser: Record<number, NonNullable<typeof allEvents>> = {}
     for (const event of allEvents || []) {
-      if (!event.user_id) continue
-      if (!eventsByUser[event.user_id]) eventsByUser[event.user_id] = []
-      eventsByUser[event.user_id]!.push(event)
+      const ownerRaw =
+        eventsUserColumn === 'twitter_user_id'
+          ? event.twitter_user_id
+          : event.user_id
+      if (ownerRaw == null) continue
+      const ownerId = Number(ownerRaw)
+      if (!eventsByUser[ownerId]) eventsByUser[ownerId] = []
+      eventsByUser[ownerId]!.push(event)
     }
 
     // Domain name mapping for AI tools

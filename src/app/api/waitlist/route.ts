@@ -137,7 +137,11 @@ export async function POST(request: NextRequest) {
       .gte('created_at', today)
       .limit(1)
 
-    if (existingIpEntry && existingIpEntry.length > 0) {
+    if (ipCheckError) {
+      console.error('Waitlist IP check error:', ipCheckError)
+    }
+
+    if (!ipCheckError && existingIpEntry && existingIpEntry.length > 0) {
       return NextResponse.json(
         { error: 'Only one signup per IP address allowed per day' },
         { status: 429 }

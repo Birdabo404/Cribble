@@ -6,35 +6,43 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+async function getSessionUserId(request: NextRequest): Promise<number | null> {
+  const sessionToken = request.cookies.get('cribble_session')?.value
+  if (!sessionToken) return null
+
+  const { data: session } = await supabase
+    .from('user_sessions')
+    .select('user_id')
+    .eq('session_token', sessionToken)
+    .gt('expires_at', new Date().toISOString())
+    .single()
+
+  return session?.user_id ?? null
+}
+
 // GET - Return user's devices
 export async function GET(request: NextRequest) {
   try {
-    const userId = request.headers.get('X-User-ID')
-    
+    const userId = await getSessionUserId(request)
     if (!userId) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Missing user ID' 
-      }, { status: 400 })
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
-    
-    const userIdNum = parseInt(userId)
-    
+
     // Get all devices for this user
     const { data: devices, error } = await supabase
       .from('user_devices')
       .select('*')
-      .eq('user_id', userIdNum)
+      .eq('user_id', userId)
       .order('last_sync_at', { ascending: false })
-    
+
     if (error) {
       console.error('[Extension Devices] Database error:', error)
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Database query failed' 
+      return NextResponse.json({
+        success: false,
+        error: 'Database query failed'
       }, { status: 500 })
     }
-    
+
     // Format devices for dashboard
     const formattedDevices = (devices || []).map(device => ({
       id: device.id,
@@ -46,19 +54,17 @@ export async function GET(request: NextRequest) {
       createdAt: device.created_at,
       deactivatedAt: device.deactivated_at
     }))
-    
-    console.log(`[Extension Devices] Found ${formattedDevices.length} devices for user ${userIdNum}`)
-    
+
     return NextResponse.json({
       success: true,
       devices: formattedDevices
     })
-    
+
   } catch (error) {
     console.error('[Extension Devices] GET error:', error)
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Internal server error' 
+    return NextResponse.json({
+      success: false,
+      error: 'Internal server error'
     }, { status: 500 })
   }
 }
@@ -66,24 +72,32 @@ export async function GET(request: NextRequest) {
 // POST - Register new device (alternative to sync route)
 export async function POST(request: NextRequest) {
   try {
-    const { deviceUuid, userId, deviceInfo } = await request.json()
-    
-    if (!deviceUuid || !userId) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Missing required fields' 
+    const userId = await getSessionUserId(request)
+    if (!userId) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { deviceUuid, deviceInfo } = await request.json()
+
+    if (!deviceUuid) {
+      return NextResponse.json({
+        success: false,
+        error: 'Missing required fields'
       }, { status: 400 })
     }
-    
+
     // Check if device already exists
     const { data: existingDevice } = await supabase
       .from('user_devices')
-      .select('*')
+      .select('user_id')
       .eq('device_uuid', deviceUuid)
       .single()
-    
+
     if (existingDevice) {
-      // Update existing device
+      // Only allow updating a device that belongs to this user
+      if (existingDevice.user_id !== userId) {
+        return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
+      }
       const { error } = await supabase
         .from('user_devices')
         .update({
@@ -94,11 +108,11 @@ export async function POST(request: NextRequest) {
           deactivated_at: null
         })
         .eq('device_uuid', deviceUuid)
-      
+
       if (error) throw error
       console.log(`[Extension Devices] Updated existing device ${deviceUuid}`)
     } else {
-      // Create new device (trigger will deactivate old ones)
+      // Create new device under the authenticated user
       const { error } = await supabase
         .from('user_devices')
         .insert({
@@ -109,11 +123,11 @@ export async function POST(request: NextRequest) {
           is_active: true,
           last_sync_at: new Date().toISOString()
         })
-      
+
       if (error) throw error
       console.log(`[Extension Devices] Created new device ${deviceUuid}`)
     }
-    
+
     // Update user's active device
     await supabase
       .from('users')
@@ -122,17 +136,17 @@ export async function POST(request: NextRequest) {
         last_extension_sync: new Date().toISOString()
       })
       .eq('id', userId)
-    
+
     return NextResponse.json({
       success: true,
       message: 'Device registered successfully'
     })
-    
+
   } catch (error) {
     console.error('[Extension Devices] POST error:', error)
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Internal server error' 
+    return NextResponse.json({
+      success: false,
+      error: 'Internal server error'
     }, { status: 500 })
   }
 }
@@ -140,15 +154,34 @@ export async function POST(request: NextRequest) {
 // DELETE - Deactivate device or purge if requested
 export async function DELETE(request: NextRequest) {
   try {
+    const userId = await getSessionUserId(request)
+    if (!userId) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    }
+
     const { deviceUuid, purge } = await request.json()
-    
+
     if (!deviceUuid) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Missing device UUID' 
+      return NextResponse.json({
+        success: false,
+        error: 'Missing device UUID'
       }, { status: 400 })
     }
-    
+
+    // Verify the device belongs to the authenticated user
+    const { data: device } = await supabase
+      .from('user_devices')
+      .select('user_id')
+      .eq('device_uuid', deviceUuid)
+      .single()
+
+    if (!device) {
+      return NextResponse.json({ success: false, error: 'Device not found' }, { status: 404 })
+    }
+    if (device.user_id !== userId) {
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
+    }
+
     if (purge) {
       // Permanently delete the device record
       const { error } = await supabase
@@ -162,9 +195,9 @@ export async function DELETE(request: NextRequest) {
       // Deactivate device
       const { error } = await supabase
         .from('user_devices')
-        .update({ 
-          is_active: false, 
-          deactivated_at: new Date().toISOString() 
+        .update({
+          is_active: false,
+          deactivated_at: new Date().toISOString()
         })
         .eq('device_uuid', deviceUuid)
       if (error) throw error
@@ -173,9 +206,9 @@ export async function DELETE(request: NextRequest) {
     }
   } catch (error) {
     console.error('[Extension Devices] DELETE error:', error)
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Internal server error' 
+    return NextResponse.json({
+      success: false,
+      error: 'Internal server error'
     }, { status: 500 })
   }
-} 
+}

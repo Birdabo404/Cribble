@@ -1,25 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { isAllowedDuringLock, isSiteLocked } from '@/lib/siteLock'
 
 export function middleware(request: NextRequest) {
   // Create response
   const response = NextResponse.next()
+  const pathname = request.nextUrl.pathname
+  const isApiRoute = pathname.startsWith('/api/')
 
-  // ----- temporary site lock (hide unfinished routes) -----
-  const locked = process.env.NEXT_PUBLIC_SITE_LOCKED === 'true'
-  const p = request.nextUrl.pathname
-  if (
-    locked &&
-    (p.startsWith('/dashboard') || p.startsWith('/leaderboard'))
-  ) {
-    return NextResponse.redirect(new URL('/', request.url))
-  }
-  
   // Security Headers
   response.headers.set('X-Frame-Options', 'DENY')
   response.headers.set('X-Content-Type-Options', 'nosniff')
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
   response.headers.set('X-XSS-Protection', '1; mode=block')
-  
+
   // CSP Header (Content Security Policy)
   const csp = [
     "default-src 'self'",
@@ -34,11 +27,11 @@ export function middleware(request: NextRequest) {
     "form-action 'self'",
     "frame-ancestors 'none'"
   ].join('; ')
-  
+
   response.headers.set('Content-Security-Policy', csp)
 
   // CORS for API routes
-  if (request.nextUrl.pathname.startsWith('/api/')) {
+  if (isApiRoute) {
     const allowedOrigin = process.env.NODE_ENV === 'production'
       ? (process.env.NEXT_PUBLIC_DOMAIN || 'https://cribble.dev')
       : 'http://localhost:3000'
@@ -46,6 +39,17 @@ export function middleware(request: NextRequest) {
     response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS')
     response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-cron-secret')
     response.headers.set('Access-Control-Max-Age', '86400')
+  }
+
+  const locked = isSiteLocked()
+  const allowedDuringLock = isAllowedDuringLock(pathname)
+
+  if (locked && !allowedDuringLock) {
+    if (isApiRoute) {
+      return new NextResponse('Not found', { status: 404, headers: response.headers })
+    }
+
+    return NextResponse.redirect(new URL('/', request.url))
   }
 
   // Handle preflight requests
@@ -62,8 +66,8 @@ export const config = {
      * Match all request paths except for the ones starting with:
      * - _next/static (static files)
      * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
+     * - favicon assets / manifest / robots / sitemap
      */
-    '/((?!_next/static|_next/image|favicon.ico).*)',
+    '/((?!_next/static|_next/image|favicon.ico|favicon.png|site.webmanifest|robots.txt|sitemap.xml).*)',
   ],
 } 

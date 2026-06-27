@@ -21,9 +21,14 @@ export async function GET(request: NextRequest) {
       .limit(1)
     
     // Also try to get actual table info
-    const { data: schemaData, error: schemaError } = await supabase
-      .rpc('get_table_info', { table_name: 'events_raw' })
-      .catch(() => ({ data: null, error: { message: 'RPC not found' } })) as any
+    let schemaData: any = null, schemaError: any = null
+    try {
+      const result = await supabase.rpc('get_table_info', { table_name: 'events_raw' })
+      schemaData = result.data
+      schemaError = result.error
+    } catch {
+      schemaError = { message: 'RPC not found' }
+    }
 
     // Try simple count
     const { count, error: countError } = await supabase

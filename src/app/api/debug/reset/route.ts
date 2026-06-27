@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     const results: Record<string, string | number> = {}
     const errors: string[] = []
 
-    async function safeExec(label: string, fn: () => Promise<void>) {
+    const safeExec = async (label: string, fn: () => Promise<void>) => {
       try {
         await fn()
         results[label] = 'ok'

@@ -24,17 +24,18 @@ interface VerificationState {
   maxAttempts: number
 }
 
-export default function SetupWizardModal({ 
-  isOpen, 
-  onClose, 
-  userId, 
-  onSetupComplete 
+export default function SetupWizardModal({
+  isOpen,
+  onClose,
+  userId,
+  onSetupComplete
 }: SetupWizardModalProps) {
   const [currentStep, setCurrentStep] = useState<WizardStep>('install')
   const [deviceUuid, setDeviceUuid] = useState('')
   const [manualDeviceId, setManualDeviceId] = useState('')
   const [isConnecting, setIsConnecting] = useState(false)
   const [connectionError, setConnectionError] = useState('')
+  const [glitching, setGlitching] = useState(false)
   const [verificationState, setVerificationState] = useState<VerificationState>({
     status: 'pending',
     attempt: 0,
@@ -54,17 +55,26 @@ export default function SetupWizardModal({
     }
   }, [isOpen])
 
+  // Random glitch trigger
+  useEffect(() => {
+    if (!isOpen) return
+    const glitchInterval = setInterval(() => {
+      if (Math.random() > 0.7) {
+        setGlitching(true)
+        setTimeout(() => setGlitching(false), 120)
+      }
+    }, 2800)
+    return () => clearInterval(glitchInterval)
+  }, [isOpen])
+
   const parseUserAgent = (userAgent: string): DeviceInfo => {
     const browserRegex = /(Chrome|Firefox|Safari|Edge)\/(\d+\.\d+)/i
     const osRegex = /(Windows|Mac|Linux|Android|iOS)/i
-    
     const browserMatch = userAgent.match(browserRegex)
     const osMatch = userAgent.match(osRegex)
-    
     const browserName = browserMatch ? browserMatch[1] : 'Unknown'
     const browserVersion = browserMatch ? browserMatch[2] : '0.0'
     const os = osMatch ? osMatch[1] : 'Unknown'
-    
     return {
       userAgent,
       browserName,
@@ -77,17 +87,17 @@ export default function SetupWizardModal({
   const handleConnectExtension = async () => {
     setIsConnecting(true)
     setConnectionError('')
-    
+
     if (!manualDeviceId.trim()) {
-      setConnectionError('Please enter a device ID')
+      setConnectionError('Device ID required')
       setIsConnecting(false)
       return
     }
-    
+
     try {
       const deviceInfo = parseUserAgent(navigator.userAgent)
       const finalDeviceUuid = manualDeviceId.trim()
-      
+
       const response = await fetch('/api/extension/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -108,329 +118,354 @@ export default function SetupWizardModal({
           userId: userId,
           success: true
         }, window.location.origin)
-        
+
         setCurrentStep('verify')
-        setTimeout(() => verifyConnection(), 3000)
+        setTimeout(() => verifyConnection(finalDeviceUuid), 5000)
       } else {
         const error = await response.json()
-        setConnectionError(error.error || 'Failed to connect device')
+        setConnectionError(error.error || 'Connection failed')
       }
-    } catch (error) {
-      setConnectionError('Network error occurred')
+    } catch {
+      setConnectionError('Network error')
     } finally {
       setIsConnecting(false)
     }
   }
 
-  const verifyConnection = async () => {
+  const verifyConnection = async (uuidOverride?: string) => {
+    const targetUuid = uuidOverride ?? deviceUuid
+
+    if (!targetUuid || targetUuid.trim() === '') {
+      setVerificationState(prev => ({ ...prev, status: 'failed', attempt: prev.attempt + 1 }))
+      setConnectionError('Device UUID required')
+      return
+    }
+
+    setVerificationState(prev => ({ ...prev, attempt: prev.attempt + 1 }))
+
     try {
-      const currentAttempt = verificationState.attempt + 1
-      setVerificationState(prev => ({ ...prev, attempt: currentAttempt }))
-      
-      if (!deviceUuid || deviceUuid.trim() === '') {
-        setVerificationState({ status: 'failed', attempt: currentAttempt, maxAttempts: 3 })
-        setConnectionError('Device UUID is required')
-        return
-      }
-      
-      const response = await fetch(`/api/device/verify?deviceUuid=${encodeURIComponent(deviceUuid)}`, {
+      const response = await fetch(`/api/device/verify?deviceUuid=${encodeURIComponent(targetUuid)}`, {
         method: 'GET',
         headers: { 'Accept': 'application/json' }
       })
 
       if (response.ok) {
         const result = await response.json()
-        
+
         if (result.verified || result.isActive) {
-          setVerificationState({ status: 'success', attempt: currentAttempt, maxAttempts: 3 })
+          setVerificationState(prev => ({ ...prev, status: 'success' }))
           setTimeout(() => {
             setCurrentStep('complete')
             setTimeout(() => {
-              onSetupComplete(deviceUuid)
+              onSetupComplete(targetUuid)
               onClose()
             }, 2000)
           }, 1000)
         } else {
-          setVerificationState({ status: 'failed', attempt: currentAttempt, maxAttempts: 3 })
-          setConnectionError(result.message || 'Device not active')
+          setVerificationState(prev => {
+            if (prev.attempt < 2) {
+              setTimeout(() => verifyConnection(targetUuid), 3000)
+              return { ...prev, status: 'pending' }
+            }
+            return { ...prev, status: 'failed' }
+          })
+          if (verificationState.attempt >= 2) {
+            setConnectionError(result.message || 'Device not active')
+          }
         }
       } else {
-        const error = await response.json()
-        setVerificationState({ status: 'failed', attempt: currentAttempt, maxAttempts: 3 })
-        setConnectionError(error.error || 'Device verification failed')
+        const error = await response.json().catch(() => ({}))
+        setVerificationState(prev => ({ ...prev, status: 'failed' }))
+        setConnectionError(error.error || 'Verification failed')
       }
-    } catch (error) {
-      const currentAttempt = verificationState.attempt + 1
-      setVerificationState({ status: 'failed', attempt: currentAttempt, maxAttempts: 3 })
-      setConnectionError('Verification network error')
+    } catch {
+      setVerificationState(prev => ({ ...prev, status: 'failed' }))
+      setConnectionError('Network error')
     }
   }
 
   if (!isOpen) return null
 
-  return (
-    <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
-      {/* CRT Scanlines */}
-      <div className="absolute inset-0 pointer-events-none opacity-30">
-        <div className="h-full w-full" style={{
-          backgroundImage: 'repeating-linear-gradient(0deg, rgba(0,255,255,0.03) 0px, transparent 1px, transparent 3px)',
-        }}></div>
-      </div>
+  const stepLabels = ['INSTALL', 'CONNECT', 'VERIFY', 'DONE']
 
-      <div className="relative w-full max-w-lg">
-        {/* Glow effect */}
-        <div className="absolute -inset-1 bg-gradient-to-r from-cyan-500/20 via-purple-500/20 to-cyan-500/20 rounded-2xl blur-xl"></div>
-        
-        <div className="relative bg-black border border-cyan-400/40 rounded-xl overflow-hidden">
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/95">
+      {/* Scanlines */}
+      <div className="absolute inset-0 pointer-events-none" style={{
+        backgroundImage: 'repeating-linear-gradient(0deg, rgba(2,254,1,0.015) 0px, transparent 1px, transparent 4px)',
+      }} />
+
+      <div className={`relative w-full max-w-md transition-all ${glitching ? 'translate-x-[1px] opacity-95' : ''}`}>
+        {/* Green outer glow */}
+        <div className="absolute -inset-px rounded-lg bg-[#02fe01]/20 blur-md pointer-events-none" />
+        <div className="absolute -inset-[2px] rounded-lg bg-[#02fe01]/5 blur-xl pointer-events-none" />
+
+        <div className="relative bg-[#080808] border border-[#02fe01]/40 rounded-lg overflow-hidden">
+
           {/* Header */}
-          <div className="relative border-b border-cyan-400/30 bg-gradient-to-r from-gray-900 via-gray-900 to-gray-900">
-            <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/5 via-purple-500/5 to-cyan-500/5"></div>
-            <div className="relative flex items-center justify-between px-6 py-4">
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-lg border flex items-center justify-center ${
-                  currentStep === 'complete' 
-                    ? 'bg-green-500/20 border-green-400/40' 
-                    : 'bg-gradient-to-br from-cyan-500/20 to-purple-500/20 border-cyan-400/40'
-                }`}>
-                  <div className={`w-3 h-3 rounded-full ${
-                    currentStep === 'complete' ? 'bg-green-400' : 'bg-cyan-400'
-                  } ${currentStep === 'verify' ? 'animate-pulse' : ''}`}></div>
-                </div>
-                <div>
-                  <h2 className="text-lg font-mono font-bold text-cyan-300 tracking-wider">
-                    {currentStep === 'install' && 'INSTALL'}
-                    {currentStep === 'connect' && 'CONNECT'}
-                    {currentStep === 'verify' && 'VERIFYING'}
-                    {currentStep === 'complete' && 'COMPLETE'}
-                  </h2>
-                  <p className="text-[10px] font-mono text-gray-500">SETUP WIZARD</p>
-                </div>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-[#02fe01]/20">
+            <div className="flex items-center gap-3">
+              {/* Blinking dot */}
+              <div className="relative w-2 h-2">
+                <div className="absolute inset-0 rounded-full bg-[#02fe01] animate-ping opacity-60" />
+                <div className="relative w-2 h-2 rounded-full bg-[#02fe01]" />
               </div>
-              {currentStep !== 'complete' && (
-                <button
-                  onClick={onClose}
-                  className="w-8 h-8 rounded-lg border border-gray-700 text-gray-500 hover:text-white hover:border-gray-500 transition-all flex items-center justify-center"
-                >
-                  ✕
-                </button>
-              )}
+              <span className="font-mono text-sm font-bold text-[#02fe01] tracking-[0.2em] uppercase">
+                {currentStep === 'install' && 'Install Extension'}
+                {currentStep === 'connect' && 'Connect Device'}
+                {currentStep === 'verify' && 'Verifying...'}
+                {currentStep === 'complete' && 'Setup Complete'}
+              </span>
             </div>
+            {currentStep !== 'complete' && (
+              <button
+                onClick={onClose}
+                className="w-6 h-6 flex items-center justify-center text-gray-600 hover:text-[#02fe01] transition-colors font-mono text-xs"
+              >
+                ✕
+              </button>
+            )}
           </div>
 
-          {/* Progress Steps */}
-          <div className="px-6 py-4 bg-gray-900/50 border-b border-gray-800/50">
-            <div className="flex items-center justify-between">
-              {steps.map((step, idx) => (
-                <div key={step} className="flex items-center">
-                  <div className={`
-                    w-8 h-8 rounded-full border-2 flex items-center justify-center font-mono text-sm font-bold transition-all
-                    ${idx < currentStepIndex 
-                      ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300' 
-                      : idx === currentStepIndex 
-                        ? 'bg-purple-500/20 border-purple-400 text-purple-300 animate-pulse' 
-                        : 'bg-gray-800/50 border-gray-700 text-gray-600'}
-                  `}>
-                    {idx < currentStepIndex ? '✓' : idx + 1}
-                  </div>
-                  {idx < steps.length - 1 && (
-                    <div className={`w-12 sm:w-16 h-0.5 mx-2 transition-all ${
-                      idx < currentStepIndex ? 'bg-cyan-400/60' : 'bg-gray-700'
-                    }`}></div>
-                  )}
-                </div>
-              ))}
-            </div>
+          {/* Step indicator — minimal dots */}
+          <div className="flex items-center gap-0 border-b border-[#02fe01]/10">
+            {steps.map((step, idx) => (
+              <div key={step} className="flex-1 relative">
+                <div className={`h-[2px] transition-all duration-500 ${
+                  idx <= currentStepIndex ? 'bg-[#02fe01]' : 'bg-[#02fe01]/10'
+                }`} />
+                <div className={`absolute right-0 top-1/2 -translate-y-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full transition-all ${
+                  idx < currentStepIndex ? 'bg-[#02fe01]' :
+                  idx === currentStepIndex ? 'bg-[#02fe01] shadow-[0_0_6px_#02fe01]' :
+                  'bg-[#02fe01]/20'
+                }`} />
+              </div>
+            ))}
+          </div>
+
+          {/* Step label row */}
+          <div className="flex border-b border-[#02fe01]/10">
+            {steps.map((step, idx) => (
+              <div key={step} className={`flex-1 text-center py-1.5 font-mono text-[9px] tracking-widest transition-colors ${
+                idx === currentStepIndex ? 'text-[#02fe01]' : 'text-[#02fe01]/25'
+              }`}>
+                {stepLabels[idx]}
+              </div>
+            ))}
           </div>
 
           {/* Content */}
           <div className="p-6">
-            {/* Install Step */}
+
+            {/* INSTALL */}
             {currentStep === 'install' && (
-              <div className="space-y-6">
-                <div className="text-center">
-                  <div className="w-16 h-16 mx-auto rounded-xl bg-gradient-to-br from-cyan-500/10 to-purple-500/10 border border-cyan-400/30 flex items-center justify-center mb-4">
-                    <div className="w-6 h-6 rounded-full bg-cyan-400/20 border border-cyan-400/40"></div>
+              <div className="space-y-5">
+                <p className="text-gray-400 font-mono text-xs leading-relaxed">
+                  Download and install the browser extension to start tracking your AI usage across platforms.
+                </p>
+
+                <div className="space-y-1.5 text-[11px] font-mono text-gray-500">
+                  <div className="flex gap-3">
+                    <span className="text-[#02fe01]/60">01</span>
+                    <span>Download and unzip from GitHub</span>
                   </div>
-                  <p className="text-gray-400 font-mono text-sm">
-                    Install the Cribble extension to start tracking your AI usage.
-                  </p>
+                  <div className="flex gap-3">
+                    <span className="text-[#02fe01]/60">02</span>
+                    <span>Open <span className="text-[#02fe01]/70">chrome://extensions</span></span>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="text-[#02fe01]/60">03</span>
+                    <span>Enable "Developer mode" → Load unpacked</span>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="text-[#02fe01]/60">04</span>
+                    <span>Select the <span className="text-[#02fe01]/70">cribble-extension</span> folder</span>
+                  </div>
                 </div>
-                
+
                 <a
                   href="https://github.com/Birdabo404/Cribble"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-3 w-full bg-gradient-to-r from-gray-800 to-gray-900 hover:from-gray-700 hover:to-gray-800 border border-gray-700 hover:border-gray-600 text-white px-6 py-4 rounded-xl font-mono transition-all group"
+                  className="flex items-center justify-between w-full border border-[#02fe01]/30 hover:border-[#02fe01]/70 hover:bg-[#02fe01]/5 px-4 py-3 rounded font-mono text-sm text-[#02fe01] transition-all group"
                 >
-                  <span className="font-bold">Download from GitHub</span>
-                  <span className="text-gray-500 group-hover:text-gray-400 transition-colors">→</span>
+                  <span>github.com/Birdabo404/Cribble</span>
+                  <span className="text-[#02fe01]/40 group-hover:text-[#02fe01] transition-colors">↗</span>
                 </a>
-
-                <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl p-4">
-                  <div className="text-xs font-mono text-cyan-300/80 space-y-1">
-                    <p>1. Download and unzip the extension</p>
-                    <p>2. Open chrome://extensions in your browser</p>
-                    <p>3. Enable "Developer mode" and click "Load unpacked"</p>
-                    <p>4. Select the cribble-extension folder</p>
-                  </div>
-                </div>
 
                 <button
                   onClick={() => setCurrentStep('connect')}
-                  className="w-full bg-gradient-to-r from-cyan-500/20 to-purple-500/20 hover:from-cyan-500/30 hover:to-purple-500/30 border border-cyan-400/50 text-cyan-300 px-6 py-4 rounded-xl font-mono font-bold transition-all"
+                  className="w-full bg-[#02fe01] hover:bg-[#02fe01]/90 text-black px-4 py-3 rounded font-mono text-sm font-bold tracking-widest transition-all active:scale-[0.98]"
                 >
-                  EXTENSION INSTALLED
+                  INSTALLED → NEXT
                 </button>
               </div>
             )}
 
-            {/* Connect Step */}
+            {/* CONNECT */}
             {currentStep === 'connect' && (
-              <div className="space-y-6">
-                <div className="text-center">
-                  <div className="w-16 h-16 mx-auto rounded-xl bg-gradient-to-br from-purple-500/10 to-pink-500/10 border border-purple-400/30 flex items-center justify-center mb-4">
-                    <div className="w-6 h-6 rounded-full bg-purple-400/20 border border-purple-400/40"></div>
+              <div className="space-y-5">
+                <p className="text-gray-400 font-mono text-xs leading-relaxed">
+                  Open the Cribble extension popup, copy your Device ID, and paste it below.
+                </p>
+
+                <div className="space-y-1.5 text-[11px] font-mono text-gray-500">
+                  <div className="flex gap-3">
+                    <span className="text-[#02fe01]/60">01</span>
+                    <span>Click the Cribble extension icon in toolbar</span>
                   </div>
-                  <p className="text-gray-400 font-mono text-sm">
-                    Copy your Device ID from the extension and paste it below.
-                  </p>
+                  <div className="flex gap-3">
+                    <span className="text-[#02fe01]/60">02</span>
+                    <span>Find and copy your Device ID</span>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="text-[#02fe01]/60">03</span>
+                    <span>Paste it in the field below</span>
+                  </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-gray-500 mb-2 uppercase tracking-wider">
+                  <label className="block text-[10px] font-mono text-[#02fe01]/50 mb-1.5 tracking-widest uppercase">
                     Device ID
                   </label>
                   <input
                     type="text"
                     value={manualDeviceId}
                     onChange={(e) => setManualDeviceId(e.target.value)}
-                    placeholder="e.g., a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-                    className="w-full bg-gray-900/50 border border-gray-700 focus:border-cyan-400/60 rounded-xl px-4 py-4 text-cyan-300 font-mono text-sm placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-cyan-400/30 transition-all"
+                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                    className="w-full bg-black border border-[#02fe01]/25 focus:border-[#02fe01]/70 rounded px-3 py-3 text-[#02fe01] font-mono text-xs placeholder-gray-700 focus:outline-none transition-all"
+                    style={{ letterSpacing: '0.05em' }}
                   />
                 </div>
 
-                <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-4">
-                  <div className="text-xs font-mono text-purple-300/80 space-y-1">
-                    <p>1. Click the Cribble extension icon</p>
-                    <p>2. Find the "Device ID" field</p>
-                    <p>3. Click "Copy" and paste it above</p>
-                  </div>
-                </div>
-
                 {connectionError && (
-                  <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
-                    <span className="text-red-300 font-mono text-sm">{connectionError}</span>
+                  <div className="border border-red-500/30 bg-red-500/5 rounded px-3 py-2">
+                    <span className="text-red-400 font-mono text-xs">{connectionError}</span>
                   </div>
                 )}
 
-                <button
-                  onClick={handleConnectExtension}
-                  disabled={isConnecting || !manualDeviceId.trim()}
-                  className="w-full bg-gradient-to-r from-purple-500/20 to-pink-500/20 hover:from-purple-500/30 hover:to-pink-500/30 border border-purple-400/50 text-purple-300 px-6 py-4 rounded-xl font-mono font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {isConnecting ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin"></div>
-                      <span>CONNECTING</span>
-                    </>
-                  ) : (
-                    <span>CONNECT DEVICE</span>
-                  )}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setCurrentStep('install')}
+                    className="px-4 py-3 border border-[#02fe01]/20 text-[#02fe01]/50 hover:text-[#02fe01]/80 hover:border-[#02fe01]/40 rounded font-mono text-xs transition-all"
+                  >
+                    ← BACK
+                  </button>
+                  <button
+                    onClick={handleConnectExtension}
+                    disabled={isConnecting || !manualDeviceId.trim()}
+                    className="flex-1 bg-[#02fe01] hover:bg-[#02fe01]/90 disabled:bg-[#02fe01]/20 disabled:text-black/40 text-black px-4 py-3 rounded font-mono text-sm font-bold tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                  >
+                    {isConnecting ? (
+                      <>
+                        <div className="w-3 h-3 border border-black/30 border-t-black rounded-full animate-spin" />
+                        CONNECTING
+                      </>
+                    ) : 'CONNECT'}
+                  </button>
+                </div>
               </div>
             )}
 
-            {/* Verify Step */}
+            {/* VERIFY */}
             {currentStep === 'verify' && (
               <div className="space-y-6">
-                <div className="text-center">
-                  <div className={`w-16 h-16 mx-auto rounded-xl border flex items-center justify-center mb-4 transition-all ${
-                    verificationState.status === 'success' 
-                      ? 'bg-green-500/10 border-green-400/30' 
+                <div className="flex flex-col items-center gap-4 py-4">
+                  {/* Status orb */}
+                  <div className={`relative w-16 h-16 rounded-full border flex items-center justify-center transition-all ${
+                    verificationState.status === 'success'
+                      ? 'border-[#02fe01]/60 bg-[#02fe01]/10'
                       : verificationState.status === 'failed'
-                        ? 'bg-red-500/10 border-red-400/30'
-                        : 'bg-yellow-500/10 border-yellow-400/30'
+                        ? 'border-red-500/50 bg-red-500/5'
+                        : 'border-[#02fe01]/30 bg-[#02fe01]/5'
                   }`}>
-                    <div className={`w-4 h-4 rounded-full ${
-                      verificationState.status === 'success' ? 'bg-green-400' :
-                      verificationState.status === 'failed' ? 'bg-red-400' : 'bg-yellow-400 animate-pulse'
-                    }`}></div>
+                    {verificationState.status === 'pending' && (
+                      <>
+                        <div className="absolute inset-0 rounded-full border border-[#02fe01]/20 animate-ping" />
+                        <div className="w-3 h-3 rounded-full bg-[#02fe01]/60 animate-pulse" />
+                      </>
+                    )}
+                    {verificationState.status === 'success' && (
+                      <div className="w-4 h-4 rounded-full bg-[#02fe01] shadow-[0_0_16px_#02fe01]" />
+                    )}
+                    {verificationState.status === 'failed' && (
+                      <div className="w-4 h-4 rounded-full bg-red-500" />
+                    )}
                   </div>
-                  <p className={`font-mono text-sm ${
-                    verificationState.status === 'success' ? 'text-green-400' :
-                    verificationState.status === 'failed' ? 'text-red-400' : 'text-yellow-400'
-                  }`}>
-                    {verificationState.status === 'success' ? 'Connection verified' :
-                     verificationState.status === 'failed' ? 'Verification failed' : 'Verifying connection...'}
-                  </p>
-                </div>
 
-                {verificationState.status === 'pending' && (
-                  <div className="flex justify-center">
+                  <div className={`font-mono text-sm font-bold tracking-wider ${
+                    verificationState.status === 'success' ? 'text-[#02fe01]' :
+                    verificationState.status === 'failed' ? 'text-red-400' :
+                    'text-[#02fe01]/60'
+                  }`}>
+                    {verificationState.status === 'success' ? 'VERIFIED' :
+                     verificationState.status === 'failed' ? 'FAILED' :
+                     'CHECKING CONNECTION'}
+                  </div>
+
+                  {verificationState.status === 'pending' && (
                     <div className="flex gap-1">
                       {[0, 1, 2].map(i => (
-                        <div 
+                        <div
                           key={i}
-                          className="w-2 h-2 rounded-full bg-cyan-400 animate-bounce"
-                          style={{ animationDelay: `${i * 0.15}s` }}
-                        ></div>
+                          className="w-1 h-1 rounded-full bg-[#02fe01]/50"
+                          style={{ animation: `bounce 1s ${i * 0.2}s infinite` }}
+                        />
                       ))}
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 {verificationState.status === 'failed' && connectionError && (
-                  <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
-                    <div className="text-red-300 font-mono text-sm text-center">{connectionError}</div>
-                    {verificationState.attempt < verificationState.maxAttempts && (
-                      <div className="text-gray-500 font-mono text-xs text-center mt-2">
-                        Attempt {verificationState.attempt} of {verificationState.maxAttempts}
-                      </div>
-                    )}
+                  <div className="border border-red-500/20 bg-red-500/5 rounded px-3 py-2 text-center">
+                    <span className="text-red-400 font-mono text-xs">{connectionError}</span>
                   </div>
                 )}
 
                 {verificationState.status === 'failed' && (
-                  <button
-                    onClick={verifyConnection}
-                    className="w-full bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-400/40 text-yellow-300 px-6 py-4 rounded-xl font-mono font-bold transition-all"
-                  >
-                    RETRY
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setCurrentStep('connect')
+                        setConnectionError('')
+                        setVerificationState({ status: 'pending', attempt: 0, maxAttempts: 3 })
+                      }}
+                      className="px-4 py-3 border border-[#02fe01]/20 text-[#02fe01]/50 hover:text-[#02fe01]/80 rounded font-mono text-xs transition-all"
+                    >
+                      ← BACK
+                    </button>
+                    <button
+                      onClick={() => verifyConnection(deviceUuid)}
+                      className="flex-1 border border-[#02fe01]/40 hover:border-[#02fe01]/70 hover:bg-[#02fe01]/5 text-[#02fe01] px-4 py-3 rounded font-mono text-sm font-bold tracking-widest transition-all"
+                    >
+                      RETRY
+                    </button>
+                  </div>
                 )}
               </div>
             )}
 
-            {/* Complete Step */}
+            {/* COMPLETE */}
             {currentStep === 'complete' && (
-              <div className="space-y-6">
-                <div className="text-center">
-                  <div className="w-16 h-16 mx-auto rounded-xl bg-gradient-to-br from-green-500/20 to-cyan-500/20 border border-green-400/40 flex items-center justify-center mb-4">
-                    <div className="w-6 h-6 rounded-full bg-green-400"></div>
+              <div className="space-y-5 py-2">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="w-14 h-14 rounded-full border border-[#02fe01]/60 bg-[#02fe01]/10 flex items-center justify-center shadow-[0_0_24px_rgba(2,254,1,0.2)]">
+                    <div className="w-5 h-5 rounded-full bg-[#02fe01] shadow-[0_0_12px_#02fe01]" />
                   </div>
-                  <h3 className="text-lg font-mono font-bold text-green-400 mb-2 tracking-wider">SETUP COMPLETE</h3>
-                  <p className="text-gray-400 font-mono text-sm">
-                    Your extension is now connected and tracking AI usage.
-                  </p>
+                  <div className="text-[#02fe01] font-mono text-sm font-bold tracking-widest">CONNECTED</div>
                 </div>
 
-                <div className="bg-green-500/5 border border-green-500/20 rounded-xl p-4 space-y-2">
-                  <div className="flex items-center gap-3 text-green-400 font-mono text-sm">
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-400"></div>
-                    <span>Device registered</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-green-400 font-mono text-sm">
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-400"></div>
-                    <span>Connection verified</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-green-400 font-mono text-sm">
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-400"></div>
-                    <span>Ready to track</span>
-                  </div>
+                <div className="space-y-1.5">
+                  {['Device registered', 'Connection verified', 'Tracking active'].map((item) => (
+                    <div key={item} className="flex items-center gap-3 text-[11px] font-mono text-gray-400">
+                      <div className="w-1 h-1 rounded-full bg-[#02fe01]" />
+                      <span>{item}</span>
+                    </div>
+                  ))}
                 </div>
 
-                <div className="text-center text-gray-500 font-mono text-xs">
-                  Closing automatically...
+                <div className="text-center text-[10px] font-mono text-gray-600 pt-2">
+                  Closing in a moment...
                 </div>
               </div>
             )}
@@ -440,8 +475,8 @@ export default function SetupWizardModal({
 
       <style jsx>{`
         @keyframes bounce {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-8px); }
+          0%, 100% { transform: translateY(0); opacity: 0.5; }
+          50% { transform: translateY(-4px); opacity: 1; }
         }
       `}</style>
     </div>
