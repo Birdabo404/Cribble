@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireDevSession } from '@/lib/debugAuth'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,8 +9,9 @@ const supabase = createClient(
 
 export async function GET(request: NextRequest) {
   try {
-    if (process.env.NODE_ENV !== 'development') {
-      return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 })
+    const auth = await requireDevSession(request)
+    if (!auth.ok) {
+      return NextResponse.json({ success: false, error: auth.error }, { status: auth.status })
     }
 
     console.log('=== DEBUGGING SCORE CALCULATIONS ===')

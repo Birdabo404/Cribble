@@ -11,7 +11,9 @@
     "lint": "next lint",
     "setup": "node scripts/create-env-example.js",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@prisma/client": "^5.19.1",

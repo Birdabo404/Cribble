@@ -1,0 +1,9 @@
+{
+  "hooks": [
+    {
+      "event": "afterFileEdit",
+      "script": "check-types.sh",
+      "pattern": "**/*.{ts,tsx}"
+    }
+  ]
+}
