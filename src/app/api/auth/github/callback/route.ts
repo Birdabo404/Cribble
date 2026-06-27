@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
-import { isSiteLocked } from '@/lib/siteLock'
+
+export const dynamic = 'force-dynamic'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,10 +11,6 @@ const supabase = createClient(
 
 export async function GET(request: NextRequest) {
   try {
-    if (isSiteLocked()) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    }
-
     const { searchParams } = new URL(request.url)
     const code = searchParams.get('code')
     const state = searchParams.get('state')
@@ -158,4 +155,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}?error=github_callback_failed`)
   }
 }
-

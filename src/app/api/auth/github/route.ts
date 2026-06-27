@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest) {
   try {
     const state = crypto.randomUUID()
@@ -28,4 +30,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to start GitHub login' }, { status: 500 })
   }
 }
-

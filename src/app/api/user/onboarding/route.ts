@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getSessionUserId } from '@/lib/sessionAuth'
-import { isSiteLocked } from '@/lib/siteLock'
+
+export const dynamic = 'force-dynamic'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -56,10 +57,6 @@ const sanitizeString = (v: unknown, max = 80) => {
 }
 
 export async function GET(req: NextRequest) {
-  if (isSiteLocked()) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  }
-
   const auth = await getSessionUserId(req)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
@@ -84,10 +81,6 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (isSiteLocked()) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  }
-
   const auth = await getSessionUserId(req)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })

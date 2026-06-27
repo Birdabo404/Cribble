@@ -42,7 +42,7 @@ const TOOLS: { id: string; label: string }[] = [
 ]
 
 const WIZARD_STAGES: Stage[] = ['privacy', 'role', 'goal', 'tools']
-const AMBIENCE_AUDIO_PATH = '/audio/ambience/deeper-into-it.mp3'
+const AMBIENCE_AUDIO_PATH = '/audio/deeper-into-it.mp3'
 const INTRO_AUDIO_PATH = '/audio/intro/welcome-to-cribble.mp3'
 
 export default function WelcomePage() {
@@ -120,9 +120,18 @@ export default function WelcomePage() {
   useEffect(() => {
     let cancelled = false
     fetch('/api/user/onboarding', { credentials: 'include' })
-      .then(async (r) => (r.ok ? r.json() : null))
+      .then(async (r) => {
+        if (r.status === 401 || r.status === 403) {
+          return { unauthenticated: true }
+        }
+        return r.ok ? r.json() : null
+      })
       .then((data) => {
         if (cancelled) return
+        if (data?.unauthenticated) {
+          router.replace('/login')
+          return
+        }
         if (data?.onboarded) setAlreadyOnboarded(true)
         setStatusKnown(true)
       })
@@ -132,7 +141,7 @@ export default function WelcomePage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [router])
 
   // After the boot finishes, branch on whether the user is already onboarded.
   useEffect(() => {
