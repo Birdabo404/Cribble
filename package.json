@@ -28,6 +28,8 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@emnapi/core": "^1.11.1",
+    "@emnapi/runtime": "^1.11.1",
     "@playwright/test": "^1.61.1",
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.0",
