@@ -42,7 +42,7 @@ const TOOLS: { id: string; label: string }[] = [
 ]
 
 const WIZARD_STAGES: Stage[] = ['privacy', 'role', 'goal', 'tools']
-const AMBIENCE_AUDIO_PATH = '/audio/deeper-into-it.mp3'
+const AMBIENCE_AUDIO_PATH = '/audio/ambience/deeper-into-it.mp3'
 const INTRO_AUDIO_PATH = '/audio/intro/welcome-to-cribble.mp3'
 
 export default function WelcomePage() {
