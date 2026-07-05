@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import WorldwideText from '@/components/WorldwideText'
+import { AuthStatusModal, AuthStatusPill } from '@/components/AuthStatus'
 
 const Globe = dynamic(() => import('@/components/Globe'), {
   ssr: false,
@@ -21,7 +22,7 @@ export default function HomeV2() {
   const [count, setCount] = useState<number | null>(null)
   const [displayCount, setDisplayCount] = useState<number>(0)
   const [showForm, setShowForm] = useState(false)
-  const [showRegister, setShowRegister] = useState(false)
+  const [showAuthStatus, setShowAuthStatus] = useState(false)
 
   useEffect(() => {
     fetch('/api/waitlist')
@@ -148,7 +149,7 @@ export default function HomeV2() {
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 {!IS_PUBLIC_SITE_LOCKED ? (
                   <button
-                    onClick={() => setShowRegister(true)}
+                    onClick={() => setShowAuthStatus(true)}
                     className="group inline-flex items-center gap-2.5 bg-white text-black text-sm font-medium px-5 py-2.5 rounded-md hover:bg-zinc-200 transition-colors"
                   >
                     <span>Register</span>
@@ -157,12 +158,12 @@ export default function HomeV2() {
                     </span>
                   </button>
                 ) : (
-                  <a
-                    href="/login"
+                  <button
+                    onClick={() => setShowAuthStatus(true)}
                     className="inline-flex items-center gap-2 rounded-md border border-[#02fe01]/70 bg-[#02fe01]/10 px-4 py-2 text-xs tracking-[0.18em] text-[#02fe01] shadow-[0_0_18px_rgba(2,254,1,0.18)] transition-colors hover:bg-[#02fe01]/15"
                   >
                     SIGN IN
-                  </a>
+                  </button>
                 )}
 
                 {!showForm && status !== 'success' && (
@@ -174,6 +175,10 @@ export default function HomeV2() {
                     join the waitlist →
                   </button>
                 )}
+              </div>
+
+              <div className="mt-4">
+                <AuthStatusPill onClick={() => setShowAuthStatus(true)} />
               </div>
 
               {/* Waitlist form (inline reveal) */}
@@ -267,8 +272,14 @@ export default function HomeV2() {
         <Footer />
       </div>
 
-      {!IS_PUBLIC_SITE_LOCKED && showRegister && (
-        <RegisterModal onClose={() => setShowRegister(false)} />
+      {showAuthStatus && (
+        <AuthStatusModal
+          onClose={() => setShowAuthStatus(false)}
+          onJoinWaitlist={() => {
+            setShowAuthStatus(false)
+            setShowForm(true)
+          }}
+        />
       )}
     </div>
   )
@@ -608,185 +619,6 @@ function AsteroidField() {
         }
       `}</style>
     </div>
-  )
-}
-
-function RegisterModal({ onClose }: { onClose: () => void }) {
-  // Close on ESC.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="register-title"
-    >
-      {/* backdrop */}
-      <button
-        aria-label="Close"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm reg-fade"
-      />
-
-      <div
-        className="relative w-full max-w-md rounded-xl border border-white/10 p-7 reg-pop"
-        style={{
-          background:
-            'linear-gradient(180deg, #0b0b0b 0%, #060606 100%)',
-          boxShadow:
-            '0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.02), 0 0 60px rgba(2,254,1,0.04)',
-        }}
-      >
-        <div className="flex items-center justify-between">
-          <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-zinc-800 bg-zinc-950 text-[10px] tracking-[0.3em] text-zinc-400">
-            <span
-              className="h-1.5 w-1.5 rounded-full"
-              style={{
-                background: HACKER_GREEN,
-                boxShadow: `0 0 8px ${HACKER_GREEN}b0`,
-              }}
-            />
-            REGISTER
-          </span>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="text-zinc-500 hover:text-zinc-200 transition-colors text-lg leading-none"
-          >
-            ×
-          </button>
-        </div>
-
-        <div className="mt-5 space-y-1.5">
-          <h2
-            id="register-title"
-            className="text-2xl font-semibold tracking-tight text-zinc-50"
-          >
-            Join cribble.
-          </h2>
-          <p className="text-sm text-zinc-400">
-            Pick a provider to create your account.
-          </p>
-        </div>
-
-        <div className="mt-6 space-y-2.5">
-          <a
-            href="/api/auth/github"
-            className="group flex items-center justify-center gap-3 w-full bg-white text-black text-sm font-medium px-4 py-3 rounded-md hover:bg-zinc-200 transition-colors"
-          >
-            <GithubMark />
-            <span>Continue with GitHub</span>
-            <span className="text-zinc-500 group-hover:translate-x-0.5 transition-transform">
-              →
-            </span>
-          </a>
-
-          <DisabledProvider
-            label="Continue with X"
-            icon={<TwitterMark />}
-            note="soon"
-          />
-          <DisabledProvider
-            label="Continue with Google"
-            icon={<GoogleMark />}
-            note="soon"
-          />
-        </div>
-
-        <p className="mt-5 text-center text-[10px] tracking-[0.25em] text-zinc-600">
-          PRIVATE BETA · GITHUB ONLY FOR NOW
-        </p>
-      </div>
-
-      <style jsx>{`
-        .reg-fade {
-          animation: reg-fade-in 200ms ease-out both;
-        }
-        .reg-pop {
-          animation: reg-pop-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
-        }
-        @keyframes reg-fade-in {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
-        }
-        @keyframes reg-pop-in {
-          from {
-            opacity: 0;
-            transform: translateY(6px) scale(0.985);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-        }
-      `}</style>
-    </div>
-  )
-}
-
-function DisabledProvider({
-  label,
-  icon,
-  note,
-}: {
-  label: string
-  icon: React.ReactNode
-  note?: string
-}) {
-  return (
-    <div
-      aria-disabled
-      title={note ? `Coming ${note}` : 'Unavailable'}
-      className="flex items-center justify-center gap-3 w-full bg-zinc-900/50 text-zinc-500 text-sm font-medium px-4 py-3 rounded-md border border-zinc-800/80 cursor-not-allowed select-none"
-    >
-      <span className="opacity-60">{icon}</span>
-      <span className="opacity-80">{label}</span>
-      {note && (
-        <span className="ml-1 text-[10px] tracking-[0.25em] text-zinc-600">
-          {note.toUpperCase()}
-        </span>
-      )}
-    </div>
-  )
-}
-
-function GoogleMark() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="16"
-      height="16"
-      viewBox="0 0 48 48"
-      aria-hidden
-    >
-      <path
-        fill="#FFC107"
-        d="M43.6 20.5H42V20H24v8h11.3C33.7 32.4 29.3 35.5 24 35.5c-6.4 0-11.5-5.1-11.5-11.5S17.6 12.5 24 12.5c2.9 0 5.6 1.1 7.6 2.9l5.7-5.7C33.6 6.5 29 4.5 24 4.5 13.2 4.5 4.5 13.2 4.5 24S13.2 43.5 24 43.5c10.7 0 19.5-8.7 19.5-19.5 0-1.2-.1-2.3-.4-3.5z"
-      />
-      <path
-        fill="#FF3D00"
-        d="M6.3 14.7l6.6 4.8C14.7 15.7 19 12.5 24 12.5c2.9 0 5.6 1.1 7.6 2.9l5.7-5.7C33.6 6.5 29 4.5 24 4.5 16.3 4.5 9.7 8.9 6.3 14.7z"
-      />
-      <path
-        fill="#4CAF50"
-        d="M24 43.5c5 0 9.5-1.9 12.9-5l-6-4.9c-2 1.5-4.5 2.4-6.9 2.4-5.3 0-9.7-3.1-11.3-7.5l-6.5 5C9.6 39 16.2 43.5 24 43.5z"
-      />
-      <path
-        fill="#1976D2"
-        d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.3 4-4.3 5.1l6 4.9C40.7 35.7 44 30.4 44 24c0-1.2-.1-2.3-.4-3.5z"
-      />
-    </svg>
   )
 }
 
