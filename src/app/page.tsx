@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { FormEvent, useState } from 'react'
 import dynamic from 'next/dynamic'
 import WorldwideText from '@/components/WorldwideText'
 import { AuthStatusModal, AuthStatusPill } from '@/components/AuthStatus'
@@ -19,44 +19,8 @@ export default function HomeV2() {
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState<Status>('idle')
   const [errorMsg, setErrorMsg] = useState('')
-  const [count, setCount] = useState<number | null>(null)
-  const [displayCount, setDisplayCount] = useState<number>(0)
   const [showForm, setShowForm] = useState(false)
   const [showAuthStatus, setShowAuthStatus] = useState(false)
-
-  useEffect(() => {
-    fetch('/api/waitlist')
-      .then((r) => r.json())
-      .then((d) => {
-        if (typeof d?.count === 'number') setCount(d.count)
-      })
-      .catch(() => {})
-  }, [])
-
-  // Count-up animation: every time `count` changes (incl. first load), tween
-  // displayCount towards it. On first paint this gives a satisfying scroll.
-  const tweenRef = useRef<number | null>(null)
-  useEffect(() => {
-    if (count == null) return
-    const start = displayCount
-    const end = count
-    if (start === end) return
-    const duration = start === 0 ? 1400 : 600
-    const startedAt = performance.now()
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - startedAt) / duration)
-      // easeOutExpo for a snappy-then-settle feel
-      const eased = t === 1 ? 1 : 1 - Math.pow(2, -10 * t)
-      const value = Math.round(start + (end - start) * eased)
-      setDisplayCount(value)
-      if (t < 1) tweenRef.current = requestAnimationFrame(tick)
-    }
-    tweenRef.current = requestAnimationFrame(tick)
-    return () => {
-      if (tweenRef.current != null) cancelAnimationFrame(tweenRef.current)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [count])
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -76,17 +40,11 @@ export default function HomeV2() {
         return
       }
       setStatus('success')
-      if (typeof count === 'number') setCount(count + 1)
     } catch {
       setStatus('error')
       setErrorMsg('Network error. Try again.')
     }
   }
-
-  const prettyCount = useMemo(
-    () => (count != null ? displayCount.toLocaleString('en-US') : null),
-    [count, displayCount]
-  )
 
   return (
     <div className="min-h-screen bg-black text-zinc-100 font-mono selection:bg-[#02fe01]/20 flex flex-col relative overflow-hidden">
@@ -238,25 +196,6 @@ export default function HomeV2() {
                   <span className="tracking-[0.2em]">▸ ON THE LIST.</span>{' '}
                   <span className="text-zinc-300">
                     We&apos;ll ping {email} when your slot opens.
-                  </span>
-                </div>
-              )}
-
-              {prettyCount != null && status !== 'success' && (
-                <div className="mt-6 flex items-center gap-3 text-[10px] tracking-[0.3em] text-zinc-600">
-                  <span>
-                    <span className="text-zinc-300">{prettyCount}</span> ON THE LIST
-                  </span>
-                  <span>·</span>
-                  <span className="flex items-center gap-1.5">
-                    <span
-                      className="h-1.5 w-1.5 rounded-full"
-                      style={{
-                        background: HACKER_GREEN,
-                        boxShadow: `0 0 6px ${HACKER_GREEN}99`
-                      }}
-                    />
-                    LIVE
                   </span>
                 </div>
               )}
