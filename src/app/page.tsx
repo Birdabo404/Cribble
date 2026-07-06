@@ -398,8 +398,9 @@ function GlobeStage() {
 }
 
 // Number of streaks that can be in flight at once. Each one re-launches on
-// its own randomized schedule, so the sky never feels metronomic.
-const ASTEROID_COUNT = 6
+// its own randomized schedule, so the sky never feels metronomic. Kept low
+// (with long idle gaps) so a fly-by reads as a rare event, not a swarm.
+const ASTEROID_COUNT = 3
 
 function AsteroidField() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -473,19 +474,21 @@ function AsteroidField() {
       anim.onfinish = () => {
         anims.delete(anim)
         if (disposed) return
-        // Idle gap before this streak flies again — this is what makes passes
-        // occasional and de-synced, while each pass itself stays fast.
-        const gap = rand(700, 4200)
+        // Long, randomized idle gap before this streak flies again — this is
+        // what keeps passes rare and de-synced, while each pass itself stays
+        // fast. Big spread so they don't cluster into a swarm.
+        const gap = rand(6000, 16000)
         const t = window.setTimeout(() => launch(el), gap)
         timers.add(t)
       }
     }
 
-    // Stagger the first launch of each streak so they don't all fire at once.
+    // Widely stagger the first launch of each streak so they don't all fire
+    // at once (and don't immediately re-cluster after the first cycle).
     streaks.forEach((el, i) => {
       const t = window.setTimeout(
         () => launch(el),
-        rand(200, 1200) + i * rand(500, 1400)
+        rand(400, 2000) + i * rand(2500, 5000)
       )
       timers.add(t)
     })
