@@ -1,6 +1,7 @@
 'use client'
 
 import GitHubLoginButton from '@/components/GitHubLoginButton'
+import { AuthStatusBoard } from '@/components/AuthStatus'
 
 export default function LoginPage() {
   return (
@@ -13,16 +14,28 @@ export default function LoginPage() {
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">Sign in to continue</h1>
           <p className="text-sm text-gray-400">
-            GitHub is the only live auth path during private beta.
+            Public sign-in isn&apos;t open yet — cribble is in private beta.
           </p>
         </div>
 
-        <div>
+        <AuthStatusBoard />
+
+        <div className="space-y-3 border-t border-white/5 pt-5">
+          <p className="text-center text-[10px] tracking-[0.25em] text-zinc-600">
+            HAVE A BETA INVITE?
+          </p>
           <GitHubLoginButton className="w-full justify-center" variant="primary" />
         </div>
 
         <p className="text-center text-xs text-gray-500">
-          New pilots continue through welcome before the dashboard opens.
+          No invite yet?{' '}
+          <a
+            href="/"
+            className="text-[#02fe01]/80 underline-offset-2 transition-colors hover:text-[#02fe01]"
+          >
+            join the waitlist
+          </a>
+          .
         </p>
       </div>
     </main>
