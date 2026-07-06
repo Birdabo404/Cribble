@@ -1,8 +1,9 @@
 'use client'
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import WorldwideText from '@/components/WorldwideText'
+import { AuthStatusModal, AuthStatusPill } from '@/components/AuthStatus'
 
 const Globe = dynamic(() => import('@/components/Globe'), {
   ssr: false,
@@ -18,44 +19,8 @@ export default function HomeV2() {
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState<Status>('idle')
   const [errorMsg, setErrorMsg] = useState('')
-  const [count, setCount] = useState<number | null>(null)
-  const [displayCount, setDisplayCount] = useState<number>(0)
   const [showForm, setShowForm] = useState(false)
-  const [showRegister, setShowRegister] = useState(false)
-
-  useEffect(() => {
-    fetch('/api/waitlist')
-      .then((r) => r.json())
-      .then((d) => {
-        if (typeof d?.count === 'number') setCount(d.count)
-      })
-      .catch(() => {})
-  }, [])
-
-  // Count-up animation: every time `count` changes (incl. first load), tween
-  // displayCount towards it. On first paint this gives a satisfying scroll.
-  const tweenRef = useRef<number | null>(null)
-  useEffect(() => {
-    if (count == null) return
-    const start = displayCount
-    const end = count
-    if (start === end) return
-    const duration = start === 0 ? 1400 : 600
-    const startedAt = performance.now()
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - startedAt) / duration)
-      // easeOutExpo for a snappy-then-settle feel
-      const eased = t === 1 ? 1 : 1 - Math.pow(2, -10 * t)
-      const value = Math.round(start + (end - start) * eased)
-      setDisplayCount(value)
-      if (t < 1) tweenRef.current = requestAnimationFrame(tick)
-    }
-    tweenRef.current = requestAnimationFrame(tick)
-    return () => {
-      if (tweenRef.current != null) cancelAnimationFrame(tweenRef.current)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [count])
+  const [showAuthStatus, setShowAuthStatus] = useState(false)
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -75,17 +40,11 @@ export default function HomeV2() {
         return
       }
       setStatus('success')
-      if (typeof count === 'number') setCount(count + 1)
     } catch {
       setStatus('error')
       setErrorMsg('Network error. Try again.')
     }
   }
-
-  const prettyCount = useMemo(
-    () => (count != null ? displayCount.toLocaleString('en-US') : null),
-    [count, displayCount]
-  )
 
   return (
     <div className="min-h-screen bg-black text-zinc-100 font-mono selection:bg-[#02fe01]/20 flex flex-col relative overflow-hidden">
@@ -148,7 +107,7 @@ export default function HomeV2() {
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 {!IS_PUBLIC_SITE_LOCKED ? (
                   <button
-                    onClick={() => setShowRegister(true)}
+                    onClick={() => setShowAuthStatus(true)}
                     className="group inline-flex items-center gap-2.5 bg-white text-black text-sm font-medium px-5 py-2.5 rounded-md hover:bg-zinc-200 transition-colors"
                   >
                     <span>Register</span>
@@ -157,12 +116,12 @@ export default function HomeV2() {
                     </span>
                   </button>
                 ) : (
-                  <a
-                    href="/login"
+                  <button
+                    onClick={() => setShowAuthStatus(true)}
                     className="inline-flex items-center gap-2 rounded-md border border-[#02fe01]/70 bg-[#02fe01]/10 px-4 py-2 text-xs tracking-[0.18em] text-[#02fe01] shadow-[0_0_18px_rgba(2,254,1,0.18)] transition-colors hover:bg-[#02fe01]/15"
                   >
                     SIGN IN
-                  </a>
+                  </button>
                 )}
 
                 {!showForm && status !== 'success' && (
@@ -174,6 +133,10 @@ export default function HomeV2() {
                     join the waitlist →
                   </button>
                 )}
+              </div>
+
+              <div className="mt-4">
+                <AuthStatusPill onClick={() => setShowAuthStatus(true)} />
               </div>
 
               {/* Waitlist form (inline reveal) */}
@@ -236,25 +199,6 @@ export default function HomeV2() {
                   </span>
                 </div>
               )}
-
-              {prettyCount != null && status !== 'success' && (
-                <div className="mt-6 flex items-center gap-3 text-[10px] tracking-[0.3em] text-zinc-600">
-                  <span>
-                    <span className="text-zinc-300">{prettyCount}</span> ON THE LIST
-                  </span>
-                  <span>·</span>
-                  <span className="flex items-center gap-1.5">
-                    <span
-                      className="h-1.5 w-1.5 rounded-full"
-                      style={{
-                        background: HACKER_GREEN,
-                        boxShadow: `0 0 6px ${HACKER_GREEN}99`
-                      }}
-                    />
-                    LIVE
-                  </span>
-                </div>
-              )}
             </div>
 
             {/* RIGHT — globe */}
@@ -267,8 +211,14 @@ export default function HomeV2() {
         <Footer />
       </div>
 
-      {!IS_PUBLIC_SITE_LOCKED && showRegister && (
-        <RegisterModal onClose={() => setShowRegister(false)} />
+      {showAuthStatus && (
+        <AuthStatusModal
+          onClose={() => setShowAuthStatus(false)}
+          onJoinWaitlist={() => {
+            setShowAuthStatus(false)
+            setShowForm(true)
+          }}
+        />
       )}
     </div>
   )
@@ -389,11 +339,10 @@ function GlobeStage() {
       {/* SATELLITE — sits on the top of the orbit ring; wrapper rotates */}
       <div
         aria-hidden
-        className="absolute inset-0 m-auto pointer-events-none"
+        className="cribble-satellite absolute inset-0 m-auto pointer-events-none"
         style={{
           width: ORBIT_SIZE,
-          height: ORBIT_SIZE,
-          animation: 'cribble-orbit 32s linear infinite'
+          height: ORBIT_SIZE
         }}
       >
         {/* faint leading "spark" arc just ahead of the satellite */}
@@ -425,6 +374,11 @@ function GlobeStage() {
       </div>
 
       <style jsx global>{`
+        .cribble-satellite {
+          transform-origin: 50% 50%;
+          will-change: transform;
+          animation: cribble-orbit 32s linear infinite;
+        }
         @keyframes cribble-orbit {
           from {
             transform: rotate(0deg);
@@ -434,7 +388,7 @@ function GlobeStage() {
           }
         }
         @media (prefers-reduced-motion: reduce) {
-          [style*='cribble-orbit'] {
+          .cribble-satellite {
             animation: none !important;
           }
         }
@@ -443,17 +397,120 @@ function GlobeStage() {
   )
 }
 
+// Number of streaks that can be in flight at once. Each one re-launches on
+// its own randomized schedule, so the sky never feels metronomic. Kept low
+// (with long idle gaps) so a fly-by reads as a rare event, not a swarm.
+const ASTEROID_COUNT = 3
+
 function AsteroidField() {
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    if (
+      typeof window === 'undefined' ||
+      typeof window.matchMedia === 'undefined'
+    )
+      return
+
+    const reduceMotion = window.matchMedia(
+      '(prefers-reduced-motion: reduce)'
+    )
+    if (reduceMotion.matches) return
+
+    const streaks = Array.from(
+      container.querySelectorAll<HTMLSpanElement>('.home-asteroid')
+    )
+    const timers = new Set<number>()
+    const anims = new Set<Animation>()
+    let disposed = false
+
+    const rand = (min: number, max: number) => min + Math.random() * (max - min)
+
+    const launch = (el: HTMLSpanElement) => {
+      if (disposed) return
+      const w = window.innerWidth
+      const h = window.innerHeight
+      const margin = 180
+
+      // Travel direction: a shallow-to-medium diagonal, either way across the
+      // screen. Head (bright end) leads, so rotation == travel angle.
+      const goRight = Math.random() < 0.5
+      const goDown = Math.random() < 0.62
+      const tilt = rand(10, 42) * (Math.PI / 180)
+      const ux = (goRight ? 1 : -1) * Math.cos(tilt)
+      const uy = (goDown ? 1 : -1) * Math.sin(tilt)
+      const rotDeg = (Math.atan2(uy, ux) * 180) / Math.PI
+
+      // A single straight pass fully across the viewport (plus offscreen run-up
+      // and run-out so it enters and exits cleanly).
+      const dist = Math.hypot(w, h) + margin * 2
+      const startX = goRight ? -margin : w + margin
+      const bandY = goDown ? rand(-0.15 * h, 0.7 * h) : rand(0.3 * h, 1.05 * h)
+      const startY = bandY
+      const endX = startX + ux * dist
+      const endY = startY + uy * dist
+
+      // Physics: speed is randomized but always fast — a fly-by, never a drift.
+      // Duration is derived from distance / speed so long paths still zip.
+      const speed = rand(1250, 2850) // px per second
+      const duration = (dist / speed) * 1000
+
+      const from = `translate(${startX}px, ${startY}px) rotate(${rotDeg}deg)`
+      const to = `translate(${endX}px, ${endY}px) rotate(${rotDeg}deg)`
+
+      const anim = el.animate(
+        [
+          { transform: from, opacity: 0, offset: 0 },
+          { opacity: 1, offset: 0.06 },
+          { opacity: 1, offset: 0.9 },
+          { transform: to, opacity: 0, offset: 1 }
+        ],
+        { duration, easing: 'linear', fill: 'forwards' }
+      )
+      anims.add(anim)
+
+      anim.onfinish = () => {
+        anims.delete(anim)
+        if (disposed) return
+        // Long, randomized idle gap before this streak flies again — this is
+        // what keeps passes rare and de-synced, while each pass itself stays
+        // fast. Big spread so they don't cluster into a swarm.
+        const gap = rand(6000, 16000)
+        const t = window.setTimeout(() => launch(el), gap)
+        timers.add(t)
+      }
+    }
+
+    // Widely stagger the first launch of each streak so they don't all fire
+    // at once (and don't immediately re-cluster after the first cycle).
+    streaks.forEach((el, i) => {
+      const t = window.setTimeout(
+        () => launch(el),
+        rand(400, 2000) + i * rand(2500, 5000)
+      )
+      timers.add(t)
+    })
+
+    return () => {
+      disposed = true
+      timers.forEach((t) => window.clearTimeout(t))
+      timers.clear()
+      anims.forEach((a) => a.cancel())
+      anims.clear()
+    }
+  }, [])
+
   return (
     <div
+      ref={containerRef}
       aria-hidden
       className="pointer-events-none absolute inset-0 overflow-hidden z-0"
     >
-      {/* 4 asteroids from each corner — staggered so fly-bys are occasional */}
-      <span className="home-asteroid home-asteroid-1" />
-      <span className="home-asteroid home-asteroid-2" />
-      <span className="home-asteroid home-asteroid-3" />
-      <span className="home-asteroid home-asteroid-4" />
+      {Array.from({ length: ASTEROID_COUNT }).map((_, i) => (
+        <span key={i} className="home-asteroid" />
+      ))}
 
       <style jsx global>{`
         /* Anchor the rotating WorldwideText to the left edge so the layout
@@ -466,7 +523,9 @@ function AsteroidField() {
 
         .home-asteroid {
           position: absolute;
-          width: 110px;
+          top: 0;
+          left: 0;
+          width: 120px;
           height: 1px;
           background: linear-gradient(
             90deg,
@@ -477,6 +536,7 @@ function AsteroidField() {
           );
           opacity: 0;
           will-change: transform, opacity;
+          transform-origin: right center;
         }
         .home-asteroid::after {
           content: '';
@@ -490,117 +550,6 @@ function AsteroidField() {
           box-shadow: 0 0 6px rgba(255, 255, 255, 0.85);
         }
 
-        /* Each corner has its own streak: starts off-screen, fades on
-           briefly while crossing at a constant velocity, then fades off. */
-
-        /* 1) top-left → bottom-right */
-        .home-asteroid-1 {
-          top: 12%;
-          left: -140px;
-          animation: home-streak-1 24s linear 3s infinite;
-        }
-        @keyframes home-streak-1 {
-          0%,
-          80% {
-            opacity: 0;
-            transform: translate(0, 0) rotate(20deg);
-          }
-          81% {
-            opacity: 0;
-            transform: translate(0, 0) rotate(20deg);
-          }
-          82% {
-            opacity: 1;
-            transform: translate(4vw, 2vh) rotate(20deg);
-          }
-          96% {
-            opacity: 1;
-            transform: translate(110vw, 58vh) rotate(20deg);
-          }
-          100% {
-            opacity: 0;
-            transform: translate(125vw, 65vh) rotate(20deg);
-          }
-        }
-
-        /* 2) top-right → bottom-left */
-        .home-asteroid-2 {
-          top: 22%;
-          right: -140px;
-          animation: home-streak-2 32s linear 11s infinite;
-        }
-        @keyframes home-streak-2 {
-          0%,
-          80% {
-            opacity: 0;
-            transform: translate(0, 0) rotate(160deg);
-          }
-          82% {
-            opacity: 1;
-            transform: translate(-4vw, 2vh) rotate(160deg);
-          }
-          96% {
-            opacity: 1;
-            transform: translate(-110vw, 58vh) rotate(160deg);
-          }
-          100% {
-            opacity: 0;
-            transform: translate(-125vw, 65vh) rotate(160deg);
-          }
-        }
-
-        /* 3) bottom-left → top-right */
-        .home-asteroid-3 {
-          bottom: 18%;
-          left: -140px;
-          animation: home-streak-3 38s linear 19s infinite;
-        }
-        @keyframes home-streak-3 {
-          0%,
-          80% {
-            opacity: 0;
-            transform: translate(0, 0) rotate(-22deg);
-          }
-          82% {
-            opacity: 1;
-            transform: translate(4vw, -2vh) rotate(-22deg);
-          }
-          96% {
-            opacity: 1;
-            transform: translate(110vw, -55vh) rotate(-22deg);
-          }
-          100% {
-            opacity: 0;
-            transform: translate(125vw, -62vh) rotate(-22deg);
-          }
-        }
-
-        /* 4) bottom-right → top-left */
-        .home-asteroid-4 {
-          bottom: 30%;
-          right: -140px;
-          animation: home-streak-4 28s linear 7s infinite;
-        }
-        @keyframes home-streak-4 {
-          0%,
-          80% {
-            opacity: 0;
-            transform: translate(0, 0) rotate(202deg);
-          }
-          82% {
-            opacity: 1;
-            transform: translate(-4vw, -2vh) rotate(202deg);
-          }
-          96% {
-            opacity: 1;
-            transform: translate(-110vw, -55vh) rotate(202deg);
-          }
-          100% {
-            opacity: 0;
-            transform: translate(-125vw, -62vh) rotate(202deg);
-          }
-        }
-
         @media (prefers-reduced-motion: reduce) {
           .home-asteroid {
             display: none;
@@ -608,185 +557,6 @@ function AsteroidField() {
         }
       `}</style>
     </div>
-  )
-}
-
-function RegisterModal({ onClose }: { onClose: () => void }) {
-  // Close on ESC.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="register-title"
-    >
-      {/* backdrop */}
-      <button
-        aria-label="Close"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm reg-fade"
-      />
-
-      <div
-        className="relative w-full max-w-md rounded-xl border border-white/10 p-7 reg-pop"
-        style={{
-          background:
-            'linear-gradient(180deg, #0b0b0b 0%, #060606 100%)',
-          boxShadow:
-            '0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.02), 0 0 60px rgba(2,254,1,0.04)',
-        }}
-      >
-        <div className="flex items-center justify-between">
-          <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-zinc-800 bg-zinc-950 text-[10px] tracking-[0.3em] text-zinc-400">
-            <span
-              className="h-1.5 w-1.5 rounded-full"
-              style={{
-                background: HACKER_GREEN,
-                boxShadow: `0 0 8px ${HACKER_GREEN}b0`,
-              }}
-            />
-            REGISTER
-          </span>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="text-zinc-500 hover:text-zinc-200 transition-colors text-lg leading-none"
-          >
-            ×
-          </button>
-        </div>
-
-        <div className="mt-5 space-y-1.5">
-          <h2
-            id="register-title"
-            className="text-2xl font-semibold tracking-tight text-zinc-50"
-          >
-            Join cribble.
-          </h2>
-          <p className="text-sm text-zinc-400">
-            Pick a provider to create your account.
-          </p>
-        </div>
-
-        <div className="mt-6 space-y-2.5">
-          <a
-            href="/api/auth/github"
-            className="group flex items-center justify-center gap-3 w-full bg-white text-black text-sm font-medium px-4 py-3 rounded-md hover:bg-zinc-200 transition-colors"
-          >
-            <GithubMark />
-            <span>Continue with GitHub</span>
-            <span className="text-zinc-500 group-hover:translate-x-0.5 transition-transform">
-              →
-            </span>
-          </a>
-
-          <DisabledProvider
-            label="Continue with X"
-            icon={<TwitterMark />}
-            note="soon"
-          />
-          <DisabledProvider
-            label="Continue with Google"
-            icon={<GoogleMark />}
-            note="soon"
-          />
-        </div>
-
-        <p className="mt-5 text-center text-[10px] tracking-[0.25em] text-zinc-600">
-          PRIVATE BETA · GITHUB ONLY FOR NOW
-        </p>
-      </div>
-
-      <style jsx>{`
-        .reg-fade {
-          animation: reg-fade-in 200ms ease-out both;
-        }
-        .reg-pop {
-          animation: reg-pop-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
-        }
-        @keyframes reg-fade-in {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
-        }
-        @keyframes reg-pop-in {
-          from {
-            opacity: 0;
-            transform: translateY(6px) scale(0.985);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-        }
-      `}</style>
-    </div>
-  )
-}
-
-function DisabledProvider({
-  label,
-  icon,
-  note,
-}: {
-  label: string
-  icon: React.ReactNode
-  note?: string
-}) {
-  return (
-    <div
-      aria-disabled
-      title={note ? `Coming ${note}` : 'Unavailable'}
-      className="flex items-center justify-center gap-3 w-full bg-zinc-900/50 text-zinc-500 text-sm font-medium px-4 py-3 rounded-md border border-zinc-800/80 cursor-not-allowed select-none"
-    >
-      <span className="opacity-60">{icon}</span>
-      <span className="opacity-80">{label}</span>
-      {note && (
-        <span className="ml-1 text-[10px] tracking-[0.25em] text-zinc-600">
-          {note.toUpperCase()}
-        </span>
-      )}
-    </div>
-  )
-}
-
-function GoogleMark() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="16"
-      height="16"
-      viewBox="0 0 48 48"
-      aria-hidden
-    >
-      <path
-        fill="#FFC107"
-        d="M43.6 20.5H42V20H24v8h11.3C33.7 32.4 29.3 35.5 24 35.5c-6.4 0-11.5-5.1-11.5-11.5S17.6 12.5 24 12.5c2.9 0 5.6 1.1 7.6 2.9l5.7-5.7C33.6 6.5 29 4.5 24 4.5 13.2 4.5 4.5 13.2 4.5 24S13.2 43.5 24 43.5c10.7 0 19.5-8.7 19.5-19.5 0-1.2-.1-2.3-.4-3.5z"
-      />
-      <path
-        fill="#FF3D00"
-        d="M6.3 14.7l6.6 4.8C14.7 15.7 19 12.5 24 12.5c2.9 0 5.6 1.1 7.6 2.9l5.7-5.7C33.6 6.5 29 4.5 24 4.5 16.3 4.5 9.7 8.9 6.3 14.7z"
-      />
-      <path
-        fill="#4CAF50"
-        d="M24 43.5c5 0 9.5-1.9 12.9-5l-6-4.9c-2 1.5-4.5 2.4-6.9 2.4-5.3 0-9.7-3.1-11.3-7.5l-6.5 5C9.6 39 16.2 43.5 24 43.5z"
-      />
-      <path
-        fill="#1976D2"
-        d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.3 4-4.3 5.1l6 4.9C40.7 35.7 44 30.4 44 24c0-1.2-.1-2.3-.4-3.5z"
-      />
-    </svg>
   )
 }
 
