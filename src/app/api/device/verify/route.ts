@@ -76,18 +76,11 @@ export async function GET(request: NextRequest) {
     })
 
     const isActive = device.is_active === true
-    
-    // Optionally fetch user data if needed
-    let userData = null
-    if (device.user_id) {
-      const { data: user } = await supabase
-        .from('users')
-        .select('id, twitter_id, twitter_name, twitter_username')
-        .eq('id', device.user_id)
-        .single()
-      userData = user
-    }
-    
+
+    // Note: intentionally no username / display name / auth-provider id here.
+    // This endpoint is reachable with only a device UUID, so it must not leak
+    // account identity details. The numeric userId is required by the
+    // extension to attribute its sync payloads.
     return NextResponse.json({
       success: true,
       verified: isActive,
@@ -95,17 +88,9 @@ export async function GET(request: NextRequest) {
       message: isActive ? 'Device is active and verified' : 'Device is registered but not active',
       device: {
         uuid: device.device_uuid,
-        name: device.device_name,
-        userId: device.user_id,
-        lastSync: device.last_sync_at,
-        createdAt: device.created_at
-      },
-      user: userData ? {
-        id: userData.id,
-        authProviderId: userData.twitter_id,
-        name: userData.twitter_name,
-        username: userData.twitter_username
-      } : null
+        userId: isActive ? device.user_id : null,
+        lastSync: device.last_sync_at
+      }
     })
 
   } catch (error) {
@@ -189,8 +174,7 @@ export async function POST(request: NextRequest) {
       isActive,
       verified: isActive,
       hasRecentSync,
-      lastSyncAt: device.last_sync_at,
-      userId: device.user_id
+      lastSyncAt: device.last_sync_at
     })
     
   } catch (error) {

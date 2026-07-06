@@ -86,10 +86,13 @@ export async function GET(request: NextRequest) {
 
     let user
     if (existingUser) {
+      // Deliberately not storing the GitHub access token: the app never uses
+      // it after login, so persisting it would only widen the blast radius of
+      // a database leak. Null also scrubs tokens stored by older versions.
       const { data: updated, error: updateError } = await supabase
         .from('users')
         .update({
-          twitter_access_token: accessToken,
+          twitter_access_token: null,
           twitter_username: username,
           twitter_name: displayName,
           twitter_profile_image: avatar,
@@ -111,7 +114,6 @@ export async function GET(request: NextRequest) {
           twitter_username: username,
           twitter_name: displayName,
           twitter_profile_image: avatar,
-          twitter_access_token: accessToken,
           created_at: new Date().toISOString(),
           last_login: new Date().toISOString()
         })

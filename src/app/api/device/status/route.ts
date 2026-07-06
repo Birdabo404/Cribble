@@ -23,8 +23,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ connected: false })
     }
 
-    // Connected = device exists and is active
-    return NextResponse.json({ connected: !!device.is_active, userId: device.user_id })
+    // Connected = device exists and is active.
+    // No userId in the response: this endpoint requires no auth, so it must
+    // not map device UUIDs to accounts.
+    return NextResponse.json({ connected: !!device.is_active })
   } catch (error) {
     return NextResponse.json({ connected: false, error: 'Internal server error' }, { status: 500 })
   }

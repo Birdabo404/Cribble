@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { v4 as uuidv4 } from 'uuid'
 import { z } from 'zod'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
+import { getSessionUserId } from '@/lib/sessionAuth'
+import { isTrackedAiDomain } from '@/lib/aiDomains'
+import { recalculateUserScore } from '@/lib/scoring'
+import { applyEventsUserEq, buildEventsUserInsertFields } from '@/lib/eventsIdentity'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,14 +29,6 @@ interface ExtensionEvent {
   metadata?: any
 }
 
-interface SyncRequest {
-  deviceUuid: string
-  userId?: number
-  events: ExtensionEvent[]
-  batchId: string
-  deviceInfo: DeviceInfo
-}
-
 const extensionEventSchema = z.object({
   type: z.string(),
   domain: z.string().min(1),
@@ -46,7 +41,7 @@ const extensionEventSchema = z.object({
 const syncRequestSchema = z.object({
   deviceUuid: z.string().uuid(),
   userId: z.number().int().positive().optional(),
-  events: z.array(extensionEventSchema),
+  events: z.array(extensionEventSchema).max(200),
   batchId: z.string().min(1)
 })
 
@@ -54,14 +49,14 @@ const syncRequestSchema = z.object({
 function parseUserAgent(userAgent: string): DeviceInfo {
   const browserRegex = /(Chrome|Firefox|Safari|Edge)\/(\d+\.\d+)/i
   const osRegex = /(Windows|Mac|Linux|Android|iOS)/i
-  
+
   const browserMatch = userAgent.match(browserRegex)
   const osMatch = userAgent.match(osRegex)
-  
+
   const browserName = browserMatch ? browserMatch[1] : 'Unknown'
   const browserVersion = browserMatch ? browserMatch[2] : '0.0'
   const os = osMatch ? osMatch[1] : 'Unknown'
-  
+
   return {
     userAgent,
     browserName,
@@ -73,14 +68,14 @@ function parseUserAgent(userAgent: string): DeviceInfo {
 
 // Register or update device with atomic operations to prevent race conditions
 async function registerDevice(userId: number, deviceUuid: string, deviceInfo: DeviceInfo) {
-  console.log(`[Extension Sync] Registering device ${deviceUuid} for user ${userId}`)
+  console.log(`[Extension Sync] Registering device ${deviceUuid.slice(0, 8)}... for user ${userId}`)
 
   try {
     const currentTime = new Date().toISOString()
 
     // Use RPC function to handle device registration atomically
     // This prevents race conditions by ensuring only one device is active per user
-    const { data: result, error } = await supabase.rpc('register_user_device', {
+    const { error } = await supabase.rpc('register_user_device', {
       p_user_id: userId,
       p_device_uuid: deviceUuid,
       p_device_name: deviceInfo.deviceName,
@@ -112,10 +107,11 @@ async function registerDevice(userId: number, deviceUuid: string, deviceInfo: De
         .single()
 
       if (existingDevice) {
-        // Update existing device and ensure it's active
+        // Update existing device: rebind to this (session-verified) user and activate
         const { error: updateError } = await supabase
           .from('user_devices')
           .update({
+            user_id: userId,
             device_name: deviceInfo.deviceName,
             browser_info: deviceInfo,
             is_active: true,
@@ -125,7 +121,6 @@ async function registerDevice(userId: number, deviceUuid: string, deviceInfo: De
           .eq('device_uuid', deviceUuid)
 
         if (updateError) throw updateError
-        console.log(`[Extension Sync] Updated existing device ${deviceUuid} - Set to active`)
       } else {
         // Create new device
         const { error: insertError } = await supabase
@@ -140,7 +135,6 @@ async function registerDevice(userId: number, deviceUuid: string, deviceInfo: De
           })
 
         if (insertError) throw insertError
-        console.log(`[Extension Sync] Created new device ${deviceUuid} - Set to active`)
       }
 
       // Update user's active device
@@ -159,16 +153,10 @@ async function registerDevice(userId: number, deviceUuid: string, deviceInfo: De
         .eq('device_uuid', deviceUuid)
         .single()
 
-      const isActive = verifyDevice?.is_active === true
-      console.log(`[Extension Sync] Device registration verification - Device ${deviceUuid} is_active: ${isActive}`)
-
-      return isActive
+      return verifyDevice?.is_active === true
     }
 
-    // RPC succeeded
-    console.log(`[Extension Sync] Device registered successfully via RPC: ${deviceUuid}`)
     return true
-
   } catch (error) {
     console.error(`[Extension Sync] Device registration failed:`, error)
     return false
@@ -179,21 +167,19 @@ async function registerDevice(userId: number, deviceUuid: string, deviceInfo: De
 async function validateDevice(userId: number, deviceUuid: string) {
   const { data: device } = await supabase
     .from('user_devices')
-    .select('*')
+    .select('id')
     .eq('user_id', userId)
     .eq('device_uuid', deviceUuid)
     .eq('is_active', true)
     .single()
-  
+
   return !!device
 }
 
 // Process extension events
-async function processEvents(userId: number, deviceUuid: string, events: ExtensionEvent[], batchId: string) {
+async function processEvents(userId: number, deviceUuid: string, events: ExtensionEvent[]) {
   if (!events || events.length === 0) return { processed: 0, errors: [] }
-  
-  console.log(`[Extension Sync] Processing ${events.length} events for device ${deviceUuid}`)
-  
+
   // Validation constants
   const MAX_ACTIVE_TIME_MS = 30 * 60 * 1000 // 30 minutes max per event
 
@@ -201,9 +187,14 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
   const validEvents = events.filter(event => {
     const duration = event.duration || 0
 
-    // Log suspicious events
+    // Server-side allowlist: only accept events for known AI tool domains
+    if (!isTrackedAiDomain(event.domain)) {
+      console.warn(`[Extension Sync] Rejecting event with untracked domain: ${event.domain}`)
+      return false
+    }
+
     if (duration > MAX_ACTIVE_TIME_MS) {
-      console.warn(`[Extension Sync] Rejecting event with excessive duration: ${duration}ms (${duration/1000/60} minutes) on ${event.domain}`)
+      console.warn(`[Extension Sync] Rejecting event with excessive duration: ${duration}ms on ${event.domain}`)
       return false
     }
 
@@ -212,23 +203,28 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
     const now = Date.now()
     const oneWeekAgo = now - (7 * 24 * 60 * 60 * 1000)
     const oneHourFuture = now + (60 * 60 * 1000)
-    
+
     if (eventTime < oneWeekAgo || eventTime > oneHourFuture) {
       console.warn(`[Extension Sync] Rejecting event with invalid timestamp: ${event.timestamp} on ${event.domain}`)
       return false
     }
-    
+
     return true
   })
-  
+
   if (validEvents.length !== events.length) {
     console.warn(`[Extension Sync] Filtered ${events.length - validEvents.length} invalid events out of ${events.length}`)
   }
-  
-  // Convert extension events to events_raw format (matching bulk API)
+
+  // Resolve the identity column(s) this Supabase project expects. Some
+  // deployments still key events_raw on the legacy twitter_user_id integer
+  // column (with user_id as a UUID), so we must not hardcode user_id.
+  const userInsertFields = await buildEventsUserInsertFields(supabase, userId)
+
+  // Convert extension events to events_raw format
   const processedEvents = validEvents.map(event => ({
+    ...userInsertFields,
     device_uuid: deviceUuid,
-    user_id: userId,
     timestamp: new Date(event.timestamp).toISOString(),
     domain: event.domain?.toLowerCase(),
     active_ms: Math.min(event.duration || 0, MAX_ACTIVE_TIME_MS),
@@ -236,18 +232,16 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
     visits: event.type === 'visit' ? 1 : 0,
     client_version: 'extension_v1'
   }))
-  
-  // Check for duplicates within the batch first
+
+  // Check for duplicates within the batch first (domain + timestamp)
   const uniqueEvents = []
   const seenKeys = new Set()
 
   for (const event of processedEvents) {
-    const key = `${event.user_id}-${event.domain}-${event.timestamp}`
+    const key = `${event.domain}-${event.timestamp}`
     if (!seenKeys.has(key)) {
       seenKeys.add(key)
       uniqueEvents.push(event)
-    } else {
-      console.warn(`[Extension Sync] Skipping duplicate event within batch: ${event.domain} at ${event.timestamp}`)
     }
   }
 
@@ -255,33 +249,27 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
     return { processed: 0, errors: ['All events were filtered out as invalid or duplicates'] }
   }
 
-  // Check for existing events in database to prevent duplicates
-  const eventKeys = uniqueEvents.map(event => ({
-    user_id: event.user_id,
-    domain: event.domain,
-    timestamp: event.timestamp
-  }))
-
-  // Query existing events with the same user_id, domain, and timestamp
-  const { data: existingEvents } = await supabase
+  // Check for existing events already stored for this user, scoped through the
+  // schema-compat identity column, then dedup by (domain, timestamp).
+  const batchTimestamps = uniqueEvents.map(e => e.timestamp)
+  let existingQuery = supabase
     .from('events_raw')
-    .select('user_id, domain, timestamp')
-    .or(
-      eventKeys.map(key => `and(user_id.eq.${key.user_id},domain.eq.${key.domain},timestamp.eq.${key.timestamp})`).join(',')
-    )
+    .select('domain, timestamp')
+    .in('timestamp', batchTimestamps)
+  const { query: scopedExistingQuery } = await applyEventsUserEq(
+    supabase,
+    existingQuery,
+    userId
+  )
+  const { data: existingEvents } = await scopedExistingQuery
 
-  // Filter out events that already exist in the database
   const existingEventKeys = new Set(
-    (existingEvents || []).map(event => `${event.user_id}-${event.domain}-${event.timestamp}`)
+    (existingEvents || []).map(event => `${event.domain}-${event.timestamp}`)
   )
 
   const finalEvents = uniqueEvents.filter(event => {
-    const key = `${event.user_id}-${event.domain}-${event.timestamp}`
-    if (existingEventKeys.has(key)) {
-      console.warn(`[Extension Sync] Skipping duplicate event (already in DB): ${event.domain} at ${event.timestamp}`)
-      return false
-    }
-    return true
+    const key = `${event.domain}-${event.timestamp}`
+    return !existingEventKeys.has(key)
   })
 
   if (finalEvents.length === 0) {
@@ -304,8 +292,7 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
     return { processed: 0, errors: [error.message] }
   }
 
-  const duplicatesFiltered = uniqueEvents.length - finalEvents.length
-  console.log(`[Extension Sync] Successfully inserted ${data.length} events (filtered ${duplicatesFiltered} duplicates from ${events.length} original events)`)
+  console.log(`[Extension Sync] Successfully inserted ${data.length} events (from ${events.length} submitted)`)
   return { processed: data.length, errors: [] }
 }
 
@@ -314,14 +301,14 @@ export async function GET(request: NextRequest) {
   try {
     const deviceUuid = request.headers.get('X-Extension-Device-UUID')
     const userId = request.headers.get('X-Extension-User-ID')
-    
+
     if (!deviceUuid || !userId) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Missing device UUID or user ID' 
+      return NextResponse.json({
+        success: false,
+        error: 'Missing device UUID or user ID'
       }, { status: 400 })
     }
-    
+
     const userIdNum = parseInt(userId)
     if (isNaN(userIdNum) || userIdNum <= 0) {
       return NextResponse.json({
@@ -333,44 +320,42 @@ export async function GET(request: NextRequest) {
     // Validate device
     const isValidDevice = await validateDevice(userIdNum, deviceUuid)
     if (!isValidDevice) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Device not registered or inactive' 
+      return NextResponse.json({
+        success: false,
+        error: 'Device not registered or inactive'
       }, { status: 403 })
     }
-    
+
     // Get today's stats (last 24 hours)
     const { data: todayStats } = await supabase
       .from('events_raw')
       .select('active_ms, total_ms, visits, timestamp')
       .eq('user_id', userIdNum)
       .gte('timestamp', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-    
+
     // Get total stats (all time)
     const { data: totalStats } = await supabase
       .from('events_raw')
       .select('active_ms, total_ms, visits')
       .eq('user_id', userIdNum)
-    
+
     // Calculate scores (basic scoring based on activity only)
-    const todayFromEvents = todayStats?.reduce((sum, event) => sum + (event.active_ms || 0) * 0.001 + (event.visits || 0) * 50, 0) || 0
-    const totalFromEvents = totalStats?.reduce((sum, event) => sum + (event.active_ms || 0) * 0.001 + (event.visits || 0) * 50, 0) || 0
-    const todayScore = todayFromEvents
-    const totalScore = totalFromEvents
-    
+    const todayScore = todayStats?.reduce((sum, event) => sum + (event.active_ms || 0) * 0.001 + (event.visits || 0) * 50, 0) || 0
+    const totalScore = totalStats?.reduce((sum, event) => sum + (event.active_ms || 0) * 0.001 + (event.visits || 0) * 50, 0) || 0
+
     // Calculate time stats
     const todayActiveTime = todayStats?.reduce((sum, event) => sum + (event.active_ms || 0), 0) || 0
     const todayTotalTime = todayStats?.reduce((sum, event) => sum + (event.total_ms || 0), 0) || 0
     const totalActiveTime = totalStats?.reduce((sum, event) => sum + (event.active_ms || 0), 0) || 0
     const totalTime = totalStats?.reduce((sum, event) => sum + (event.total_ms || 0), 0) || 0
-    
+
     // Calculate visits
     const todayVisits = todayStats?.reduce((sum, event) => sum + (event.visits || 0), 0) || 0
     const totalVisits = totalStats?.reduce((sum, event) => sum + (event.visits || 0), 0) || 0
-    
+
     // Calculate efficiency: active time / total time * 100
     const efficiency = todayTotalTime > 0 ? Math.min(100, Math.round((todayActiveTime / todayTotalTime) * 100)) : 0
-    
+
     return NextResponse.json({
       success: true,
       data: {
@@ -394,14 +379,23 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('[Extension Sync] GET error:', error)
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Internal server error' 
+    return NextResponse.json({
+      success: false,
+      error: 'Internal server error'
     }, { status: 500 })
   }
 }
 
 // POST - Sync extension data
+//
+// Two paths:
+// 1. Ingestion: the device UUID is already registered and active. Events are
+//    attributed to the user the device is bound to in the database — the
+//    client-supplied userId is never trusted for attribution.
+// 2. Registration / re-binding: the device is unknown, inactive, or claimed
+//    for a different user. This requires a valid dashboard session cookie and
+//    the device is always bound to the SESSION user, so nobody can attach
+//    devices (or events) to another person's account.
 export async function POST(request: NextRequest) {
   try {
     // Rate limiting - allow higher limits for data ingestion
@@ -423,169 +417,161 @@ export async function POST(request: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ success: false, error: 'Invalid payload', details: parsed.error.flatten() }, { status: 400 })
     }
-    const { deviceUuid, userId, events, batchId } = parsed.data
-    
-    if (!deviceUuid || !batchId) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Missing required fields' 
-      }, { status: 400 })
-    }
-    
-  // Parse device info from user agent (ignore extension-provided stubs)
-  const userAgent = request.headers.get('user-agent') || ''
-  const finalDeviceInfo = parseUserAgent(userAgent)
-    
-    // If userId provided, this is a device registration
-    if (userId) {
-      console.log(`[Extension Sync] Device registration requested: ${deviceUuid} for user ${userId}`)
-      
-      // First check if user exists
-      const { data: userExists } = await supabase
-        .from('users')
-        .select('id')
-        .eq('id', userId)
-        .single()
-      
-      if (!userExists) {
-        console.error(`[Extension Sync] User ${userId} not found in database`)
-        return NextResponse.json({ 
-          success: false, 
-          error: `User ${userId} does not exist. Please ensure you are logged in properly.` 
-        }, { status: 400 })
+    const { deviceUuid, userId: claimedUserId, events } = parsed.data
+    const batchId = parsed.data.batchId
+
+    // Look up the current device binding
+    const { data: device } = await supabase
+      .from('user_devices')
+      .select('user_id, is_active')
+      .eq('device_uuid', deviceUuid)
+      .maybeSingle()
+
+    const deviceMatchesClaim =
+      !!device && (!claimedUserId || Number(device.user_id) === claimedUserId)
+
+    let finalUserId: number
+
+    if (device && device.is_active && deviceMatchesClaim) {
+      // Path 1: ingestion for an already-registered, active device.
+      finalUserId = Number(device.user_id)
+    } else {
+      // Path 2: registration / re-activation / re-binding — session required.
+      const session = await getSessionUserId(request)
+      if (!session.ok) {
+        return NextResponse.json({
+          success: false,
+          error: 'Device not registered. Sign in on the dashboard to link this device.'
+        }, { status: 401 })
       }
-      
-      const registered = await registerDevice(userId, deviceUuid, finalDeviceInfo)
-      if (!registered) {
-        console.error(`[Extension Sync] Device registration failed for ${deviceUuid}`)
-        return NextResponse.json({ 
-          success: false, 
-          error: 'Device registration failed' 
-        }, { status: 500 })
-      }
-      console.log(`[Extension Sync] Device registration successful: ${deviceUuid}`)
-    }
-    
-    // Get user ID from device if not provided
-    let finalUserId = userId
-    if (!finalUserId) {
-      const { data: device } = await supabase
-        .from('user_devices')
-        .select('user_id, is_active')
-        .eq('device_uuid', deviceUuid)
-        .single()
-      
-      if (!device || !device.is_active) {
-        return NextResponse.json({ 
-          success: false, 
-          error: 'Device not registered or inactive' 
+
+      // The session decides ownership; a mismatched claim is rejected outright.
+      if (claimedUserId && claimedUserId !== session.userId) {
+        return NextResponse.json({
+          success: false,
+          error: 'User mismatch: you can only link devices to your own account.'
         }, { status: 403 })
       }
-      
-      finalUserId = device.user_id
+
+      // Never let one account take over a device that is actively bound to a
+      // different account. The rightful owner must deactivate it first.
+      if (device && device.is_active && Number(device.user_id) !== session.userId) {
+        return NextResponse.json({
+          success: false,
+          error: 'This device is already linked to another account.'
+        }, { status: 409 })
+      }
+
+      finalUserId = session.userId
+
+      const userAgent = request.headers.get('user-agent') || ''
+      const registered = await registerDevice(finalUserId, deviceUuid, parseUserAgent(userAgent))
+      if (!registered) {
+        console.error(`[Extension Sync] Device registration failed for ${deviceUuid.slice(0, 8)}...`)
+        return NextResponse.json({
+          success: false,
+          error: 'Device registration failed'
+        }, { status: 500 })
+      }
     }
-    
-    // Ensure we have a valid user ID
-    if (!finalUserId) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'User ID not found' 
-      }, { status: 400 })
-    }
-    
-    // Validate device is active
+
+    // Final gate: device must be active and bound to the resolved user
     const isValidDevice = await validateDevice(finalUserId, deviceUuid)
     if (!isValidDevice) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Device not active for this user' 
+      return NextResponse.json({
+        success: false,
+        error: 'Device not active for this user'
       }, { status: 403 })
     }
-    
+
     // Process events
-    const result = await processEvents(finalUserId, deviceUuid, events, batchId)
-    
+    const result = await processEvents(finalUserId, deviceUuid, events)
+
     // Update device last sync time
     await supabase
       .from('user_devices')
       .update({ last_sync_at: new Date().toISOString() })
       .eq('device_uuid', deviceUuid)
-    
-    // Trigger score recalculation using the new centralized scoring system
-    console.log(`[Extension Sync] Triggering score recalculation for user ${finalUserId}`)
 
-    try {
-      // Use the new RPC function to recalculate all scores
-      const { error: scoreError } = await supabase.rpc('recalculate_user_score', {
-        p_user_id: finalUserId
-      })
-
-      if (scoreError) {
-        console.error(`[Extension Sync] Failed to recalculate user scores:`, scoreError)
-      } else {
-        console.log(`[Extension Sync] Successfully triggered score recalculation for user ${finalUserId}`)
+    // Recalculate scores with the same policy the dashboard uses, so the
+    // leaderboard (user_scores) and dashboard (/api/user/me) stay consistent.
+    if (result.processed > 0) {
+      const { scoresStale } = await recalculateUserScore(supabase, finalUserId)
+      if (scoresStale) {
+        console.error(`[Extension Sync] Score recalculation failed for user ${finalUserId}`)
       }
-
-      // Update user's last sync time
-      await supabase
-        .from('users')
-        .update({ last_extension_sync: new Date().toISOString() })
-        .eq('id', finalUserId)
-
-    } catch (error) {
-      console.error(`[Extension Sync] Error triggering score recalculation:`, error)
     }
-    
-    console.log(`[Extension Sync] Sync completed: ${result.processed} events processed`)
-    
+
+    // Update user's last sync time
+    await supabase
+      .from('users')
+      .update({ last_extension_sync: new Date().toISOString() })
+      .eq('id', finalUserId)
+
     return NextResponse.json({
       success: true,
       processed: result.processed,
       errors: result.errors,
       batchId
     })
-    
+
   } catch (error) {
     console.error('[Extension Sync] POST error:', error)
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Internal server error' 
+    return NextResponse.json({
+      success: false,
+      error: 'Internal server error'
     }, { status: 500 })
   }
 }
 
-// DELETE - Unregister device
+// DELETE - Unregister device (session-authenticated, owner only)
 export async function DELETE(request: NextRequest) {
   try {
+    const session = await getSessionUserId(request)
+    if (!session.ok) {
+      return NextResponse.json({ success: false, error: session.error }, { status: session.status })
+    }
+
     const deviceUuid = request.headers.get('X-Extension-Device-UUID')
-    
+
     if (!deviceUuid) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Missing device UUID' 
+      return NextResponse.json({
+        success: false,
+        error: 'Missing device UUID'
       }, { status: 400 })
     }
-    
-    // Deactivate device
+
+    // Only the owner can deactivate their device
+    const { data: device } = await supabase
+      .from('user_devices')
+      .select('user_id')
+      .eq('device_uuid', deviceUuid)
+      .maybeSingle()
+
+    if (!device) {
+      return NextResponse.json({ success: false, error: 'Device not found' }, { status: 404 })
+    }
+    if (Number(device.user_id) !== session.userId) {
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
+    }
+
     const { error } = await supabase
       .from('user_devices')
-      .update({ 
-        is_active: false, 
-        deactivated_at: new Date().toISOString() 
+      .update({
+        is_active: false,
+        deactivated_at: new Date().toISOString()
       })
       .eq('device_uuid', deviceUuid)
-    
+
     if (error) throw error
-    
-    console.log(`[Extension Sync] Device ${deviceUuid} unregistered`)
-    
+
     return NextResponse.json({ success: true })
-    
+
   } catch (error) {
     console.error('[Extension Sync] DELETE error:', error)
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Internal server error' 
+    return NextResponse.json({
+      success: false,
+      error: 'Internal server error'
     }, { status: 500 })
   }
 }

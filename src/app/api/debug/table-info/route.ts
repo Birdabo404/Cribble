@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getSessionUserId } from '@/lib/sessionAuth'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,6 +11,11 @@ export async function GET(request: NextRequest) {
   try {
     if (process.env.NODE_ENV !== 'development') {
       return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 })
+    }
+
+    const session = await getSessionUserId(request)
+    if (!session.ok) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
 
     console.log('[Table Info] Checking events_raw schema...')
