@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import WorldwideText from '@/components/WorldwideText'
 import { AuthStatusModal, AuthStatusPill } from '@/components/AuthStatus'
@@ -339,11 +339,10 @@ function GlobeStage() {
       {/* SATELLITE — sits on the top of the orbit ring; wrapper rotates */}
       <div
         aria-hidden
-        className="absolute inset-0 m-auto pointer-events-none"
+        className="cribble-satellite absolute inset-0 m-auto pointer-events-none"
         style={{
           width: ORBIT_SIZE,
-          height: ORBIT_SIZE,
-          animation: 'cribble-orbit 32s linear infinite'
+          height: ORBIT_SIZE
         }}
       >
         {/* faint leading "spark" arc just ahead of the satellite */}
@@ -375,6 +374,11 @@ function GlobeStage() {
       </div>
 
       <style jsx global>{`
+        .cribble-satellite {
+          transform-origin: 50% 50%;
+          will-change: transform;
+          animation: cribble-orbit 32s linear infinite;
+        }
         @keyframes cribble-orbit {
           from {
             transform: rotate(0deg);
@@ -384,7 +388,7 @@ function GlobeStage() {
           }
         }
         @media (prefers-reduced-motion: reduce) {
-          [style*='cribble-orbit'] {
+          .cribble-satellite {
             animation: none !important;
           }
         }
@@ -393,17 +397,117 @@ function GlobeStage() {
   )
 }
 
+// Number of streaks that can be in flight at once. Each one re-launches on
+// its own randomized schedule, so the sky never feels metronomic.
+const ASTEROID_COUNT = 6
+
 function AsteroidField() {
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    if (
+      typeof window === 'undefined' ||
+      typeof window.matchMedia === 'undefined'
+    )
+      return
+
+    const reduceMotion = window.matchMedia(
+      '(prefers-reduced-motion: reduce)'
+    )
+    if (reduceMotion.matches) return
+
+    const streaks = Array.from(
+      container.querySelectorAll<HTMLSpanElement>('.home-asteroid')
+    )
+    const timers = new Set<number>()
+    const anims = new Set<Animation>()
+    let disposed = false
+
+    const rand = (min: number, max: number) => min + Math.random() * (max - min)
+
+    const launch = (el: HTMLSpanElement) => {
+      if (disposed) return
+      const w = window.innerWidth
+      const h = window.innerHeight
+      const margin = 180
+
+      // Travel direction: a shallow-to-medium diagonal, either way across the
+      // screen. Head (bright end) leads, so rotation == travel angle.
+      const goRight = Math.random() < 0.5
+      const goDown = Math.random() < 0.62
+      const tilt = rand(10, 42) * (Math.PI / 180)
+      const ux = (goRight ? 1 : -1) * Math.cos(tilt)
+      const uy = (goDown ? 1 : -1) * Math.sin(tilt)
+      const rotDeg = (Math.atan2(uy, ux) * 180) / Math.PI
+
+      // A single straight pass fully across the viewport (plus offscreen run-up
+      // and run-out so it enters and exits cleanly).
+      const dist = Math.hypot(w, h) + margin * 2
+      const startX = goRight ? -margin : w + margin
+      const bandY = goDown ? rand(-0.15 * h, 0.7 * h) : rand(0.3 * h, 1.05 * h)
+      const startY = bandY
+      const endX = startX + ux * dist
+      const endY = startY + uy * dist
+
+      // Physics: speed is randomized but always fast — a fly-by, never a drift.
+      // Duration is derived from distance / speed so long paths still zip.
+      const speed = rand(1250, 2850) // px per second
+      const duration = (dist / speed) * 1000
+
+      const from = `translate(${startX}px, ${startY}px) rotate(${rotDeg}deg)`
+      const to = `translate(${endX}px, ${endY}px) rotate(${rotDeg}deg)`
+
+      const anim = el.animate(
+        [
+          { transform: from, opacity: 0, offset: 0 },
+          { opacity: 1, offset: 0.06 },
+          { opacity: 1, offset: 0.9 },
+          { transform: to, opacity: 0, offset: 1 }
+        ],
+        { duration, easing: 'linear', fill: 'forwards' }
+      )
+      anims.add(anim)
+
+      anim.onfinish = () => {
+        anims.delete(anim)
+        if (disposed) return
+        // Idle gap before this streak flies again — this is what makes passes
+        // occasional and de-synced, while each pass itself stays fast.
+        const gap = rand(700, 4200)
+        const t = window.setTimeout(() => launch(el), gap)
+        timers.add(t)
+      }
+    }
+
+    // Stagger the first launch of each streak so they don't all fire at once.
+    streaks.forEach((el, i) => {
+      const t = window.setTimeout(
+        () => launch(el),
+        rand(200, 1200) + i * rand(500, 1400)
+      )
+      timers.add(t)
+    })
+
+    return () => {
+      disposed = true
+      timers.forEach((t) => window.clearTimeout(t))
+      timers.clear()
+      anims.forEach((a) => a.cancel())
+      anims.clear()
+    }
+  }, [])
+
   return (
     <div
+      ref={containerRef}
       aria-hidden
       className="pointer-events-none absolute inset-0 overflow-hidden z-0"
     >
-      {/* 4 asteroids from each corner — staggered so fly-bys are occasional */}
-      <span className="home-asteroid home-asteroid-1" />
-      <span className="home-asteroid home-asteroid-2" />
-      <span className="home-asteroid home-asteroid-3" />
-      <span className="home-asteroid home-asteroid-4" />
+      {Array.from({ length: ASTEROID_COUNT }).map((_, i) => (
+        <span key={i} className="home-asteroid" />
+      ))}
 
       <style jsx global>{`
         /* Anchor the rotating WorldwideText to the left edge so the layout
@@ -416,7 +520,9 @@ function AsteroidField() {
 
         .home-asteroid {
           position: absolute;
-          width: 110px;
+          top: 0;
+          left: 0;
+          width: 120px;
           height: 1px;
           background: linear-gradient(
             90deg,
@@ -427,6 +533,7 @@ function AsteroidField() {
           );
           opacity: 0;
           will-change: transform, opacity;
+          transform-origin: right center;
         }
         .home-asteroid::after {
           content: '';
@@ -438,117 +545,6 @@ function AsteroidField() {
           background: #ffffff;
           border-radius: 9999px;
           box-shadow: 0 0 6px rgba(255, 255, 255, 0.85);
-        }
-
-        /* Each corner has its own streak: starts off-screen, fades on
-           briefly while crossing at a constant velocity, then fades off. */
-
-        /* 1) top-left → bottom-right */
-        .home-asteroid-1 {
-          top: 12%;
-          left: -140px;
-          animation: home-streak-1 24s linear 3s infinite;
-        }
-        @keyframes home-streak-1 {
-          0%,
-          80% {
-            opacity: 0;
-            transform: translate(0, 0) rotate(20deg);
-          }
-          81% {
-            opacity: 0;
-            transform: translate(0, 0) rotate(20deg);
-          }
-          82% {
-            opacity: 1;
-            transform: translate(4vw, 2vh) rotate(20deg);
-          }
-          96% {
-            opacity: 1;
-            transform: translate(110vw, 58vh) rotate(20deg);
-          }
-          100% {
-            opacity: 0;
-            transform: translate(125vw, 65vh) rotate(20deg);
-          }
-        }
-
-        /* 2) top-right → bottom-left */
-        .home-asteroid-2 {
-          top: 22%;
-          right: -140px;
-          animation: home-streak-2 32s linear 11s infinite;
-        }
-        @keyframes home-streak-2 {
-          0%,
-          80% {
-            opacity: 0;
-            transform: translate(0, 0) rotate(160deg);
-          }
-          82% {
-            opacity: 1;
-            transform: translate(-4vw, 2vh) rotate(160deg);
-          }
-          96% {
-            opacity: 1;
-            transform: translate(-110vw, 58vh) rotate(160deg);
-          }
-          100% {
-            opacity: 0;
-            transform: translate(-125vw, 65vh) rotate(160deg);
-          }
-        }
-
-        /* 3) bottom-left → top-right */
-        .home-asteroid-3 {
-          bottom: 18%;
-          left: -140px;
-          animation: home-streak-3 38s linear 19s infinite;
-        }
-        @keyframes home-streak-3 {
-          0%,
-          80% {
-            opacity: 0;
-            transform: translate(0, 0) rotate(-22deg);
-          }
-          82% {
-            opacity: 1;
-            transform: translate(4vw, -2vh) rotate(-22deg);
-          }
-          96% {
-            opacity: 1;
-            transform: translate(110vw, -55vh) rotate(-22deg);
-          }
-          100% {
-            opacity: 0;
-            transform: translate(125vw, -62vh) rotate(-22deg);
-          }
-        }
-
-        /* 4) bottom-right → top-left */
-        .home-asteroid-4 {
-          bottom: 30%;
-          right: -140px;
-          animation: home-streak-4 28s linear 7s infinite;
-        }
-        @keyframes home-streak-4 {
-          0%,
-          80% {
-            opacity: 0;
-            transform: translate(0, 0) rotate(202deg);
-          }
-          82% {
-            opacity: 1;
-            transform: translate(-4vw, -2vh) rotate(202deg);
-          }
-          96% {
-            opacity: 1;
-            transform: translate(-110vw, -55vh) rotate(202deg);
-          }
-          100% {
-            opacity: 0;
-            transform: translate(-125vw, -62vh) rotate(202deg);
-          }
         }
 
         @media (prefers-reduced-motion: reduce) {
