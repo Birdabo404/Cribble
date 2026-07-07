@@ -9,7 +9,6 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "setup": "node scripts/create-env-example.js",
     "test": "vitest",
     "test:run": "vitest run"
   },
