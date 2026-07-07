@@ -1,9 +1,10 @@
 {
   "name": "cribble-frontend",
   "version": "0.1.1",
-  "description": "Beautiful landing page for cribble.dev - AI usage leaderboard for developers",
+  "description": "AI usage leaderboard for developers",
   "author": "birdabo404",
-  "license": "MIT",
+  "private": true,
+  "license": "UNLICENSED",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
