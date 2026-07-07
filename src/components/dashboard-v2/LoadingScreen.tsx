@@ -6,27 +6,35 @@ export function LoadingScreen() {
       <div className="flex flex-col items-center gap-3">
         <div className="flex items-center gap-2 text-[10px] tracking-[0.4em] text-zinc-500">
           <span
-            className="h-1.5 w-1.5 rounded-full"
+            className="loading-dot h-1.5 w-1.5 rounded-full"
             style={{
               background: HACKER_GREEN,
-              boxShadow: `0 0 8px ${HACKER_GREEN}99`,
-              animation: 'pulse 1.4s ease-in-out infinite'
+              boxShadow: `0 0 8px ${HACKER_GREEN}99`
             }}
           />
           SYNCING TELEMETRY
         </div>
         <div className="h-px w-32 overflow-hidden bg-zinc-900">
           <div
-            className="h-full w-1/3"
+            className="loading-dash h-full w-1/3"
             style={{
               background: HACKER_GREEN,
-              boxShadow: `0 0 6px ${HACKER_GREEN}99`,
-              animation: 'dash-slide 1.4s ease-in-out infinite'
+              boxShadow: `0 0 6px ${HACKER_GREEN}99`
             }}
           />
         </div>
       </div>
       <style jsx>{`
+        .loading-dot {
+          animation: dot-pulse 1.4s ease-in-out infinite;
+        }
+        .loading-dash {
+          animation: dash-slide 1.4s ease-in-out infinite;
+        }
+        @keyframes dot-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.35; }
+        }
         @keyframes dash-slide {
           0% { transform: translateX(-100%); }
           100% { transform: translateX(400%); }
