@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import { useTheme } from 'next-themes'
+import { ACCENT_HEX, ACCENT_RGB } from '@/lib/theme'
 
 interface RadarDisplayProps {
   status: 'connected' | 'inactive' | 'missing' | 'unknown'
 }
 
 const COLORS = {
-  connected: { primary: '#02fe01', r: 2,   g: 254, b: 1   },
   inactive:  { primary: '#fbbf24', r: 251, g: 191, b: 36  },
   missing:   { primary: '#ef4444', r: 239, g: 68,  b: 68  },
   unknown:   { primary: '#6b7280', r: 107, g: 114, b: 128 },
@@ -18,7 +19,14 @@ export default function RadarDisplay({ status }: RadarDisplayProps) {
   const rafRef    = useRef<number>(0)
   const angleRef  = useRef<number>(0)
 
-  const col = COLORS[status] ?? COLORS.unknown
+  const { resolvedTheme } = useTheme()
+  const mode = resolvedTheme === 'light' ? 'light' : 'dark'
+  // "connected" uses the theme accent (green in dark, orange in light);
+  // canvas can't resolve CSS variables, so pick concrete values here.
+  const col =
+    status === 'connected'
+      ? { primary: ACCENT_HEX[mode], ...ACCENT_RGB[mode] }
+      : COLORS[status] ?? COLORS.unknown
   const isLive = status === 'connected'
 
   useEffect(() => {
@@ -173,7 +181,8 @@ export default function RadarDisplay({ status }: RadarDisplayProps) {
 
     rafRef.current = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(rafRef.current)
-  }, [status])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, mode])
 
   return (
     <div className="relative flex items-center justify-center" style={{ width: 200, height: 200 }}>

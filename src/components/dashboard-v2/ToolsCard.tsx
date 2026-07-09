@@ -16,14 +16,14 @@ export function ToolsCard({ tools }: { tools: ToolRow[] }) {
             <li key={t.name}>
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
-                  <span className="text-[#02fe01]/70 w-4 text-right tabular-nums">{i + 1}</span>
+                  <span className="text-accent/70 w-4 text-right tabular-nums">{i + 1}</span>
                   <span className="text-zinc-100">{t.name}</span>
                 </div>
                 <span className="text-zinc-400 tabular-nums">{t.percent}%</span>
               </div>
               <div className="mt-1.5 h-1 rounded-full bg-zinc-900 overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-[#02fe01]/65 to-[#02fe01]"
+                  className="h-full bg-gradient-to-r from-accent/65 to-accent"
                   style={{ width: `${Math.max(2, t.percent)}%` }}
                 />
               </div>

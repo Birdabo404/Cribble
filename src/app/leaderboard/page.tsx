@@ -24,7 +24,8 @@ const SEASON = {
   endISO: '2026-07-01T00:00:00.000Z'
 }
 
-const HACKER_GREEN = '#02fe01'
+import { ACCENT, accentA } from '@/lib/theme'
+import { ThemeToggle } from '@/components/ThemeToggle'
 
 // "GLOBAL LEADERBOARD" in block characters — same art as v1, kept for the retro touch
 const ASCII_HEADER = String.raw` ██████╗ ██╗      ██████╗ ██████╗  █████╗ ██╗         ██╗     ███████╗ █████╗ ██████╗ ███████╗██████╗ ██████╗  ██████╗  █████╗ ██████╗ ██████╗ 
@@ -61,7 +62,7 @@ const tierAccent = (tier: Tier | undefined): string => {
     case 'AFFILIATE':
       return 'text-cyan-300 border-cyan-300/40 bg-cyan-300/5'
     case 'BASIC':
-      return 'text-emerald-300 border-emerald-300/40 bg-emerald-300/5'
+      return 'text-accent border-accent/40 bg-accent/5'
     default:
       return 'text-zinc-300 border-zinc-700 bg-zinc-900/60'
   }
@@ -189,7 +190,7 @@ export default function LeaderboardV2() {
   const showingTo = Math.min(page * PAGE_SIZE, filteredStandings.length)
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 font-mono selection:bg-[#02fe01]/20">
+    <div className="min-h-screen bg-black text-zinc-100 font-mono selection:bg-accent/20">
       <SpaceBackdrop />
 
       {/* horizon line */}
@@ -198,7 +199,7 @@ export default function LeaderboardV2() {
         className="pointer-events-none fixed inset-x-0 bottom-0 h-px opacity-30 z-0"
         style={{
           background:
-            'linear-gradient(90deg, transparent, rgba(2,254,1,0.55), transparent)'
+            'linear-gradient(90deg, transparent, rgb(var(--accent-rgb)/0.55), transparent)'
         }}
       />
 
@@ -217,8 +218,8 @@ export default function LeaderboardV2() {
                 className="whitespace-pre leading-[0.9] font-mono text-center mx-auto"
                 style={{
                   fontSize: 'clamp(4.5px, 0.78vw, 9.5px)',
-                  color: HACKER_GREEN,
-                  textShadow: `0 0 8px ${HACKER_GREEN}55, 0 0 22px ${HACKER_GREEN}26`,
+                  color: ACCENT,
+                  textShadow: `0 0 8px ${accentA(0.33)}, 0 0 22px ${accentA(0.15)}`,
                   letterSpacing: '-0.02em'
                 }}
               >
@@ -227,7 +228,7 @@ export default function LeaderboardV2() {
             </div>
 
             <p className="text-[11px] tracking-[0.2em] text-zinc-500 text-center">
-              <span style={{ color: `${HACKER_GREEN}cc` }}>{'// '}</span>
+              <span style={{ color: `${accentA(0.8)}` }}>{'// '}</span>
               ranked by season-long score
               <span className="mx-2 text-zinc-700">·</span>
               live sync every 30s
@@ -247,7 +248,7 @@ export default function LeaderboardV2() {
             <section className="mt-10">
               <div
                 className="text-[10px] tracking-[0.4em] mb-4"
-                style={{ color: `${HACKER_GREEN}b3` }}
+                style={{ color: `${accentA(0.7)}` }}
               >
                 {'// TOP 3'}
               </div>
@@ -269,7 +270,7 @@ export default function LeaderboardV2() {
               <div className="flex items-baseline gap-3">
                 <div
                   className="text-[10px] tracking-[0.4em]"
-                  style={{ color: `${HACKER_GREEN}b3` }}
+                  style={{ color: `${accentA(0.7)}` }}
                 >
                   STANDINGS
                 </div>
@@ -284,7 +285,7 @@ export default function LeaderboardV2() {
 
             <div
               className="rounded-2xl border bg-zinc-950/80 backdrop-blur-sm overflow-hidden"
-              style={{ borderColor: `${HACKER_GREEN}26` }}
+              style={{ borderColor: `${accentA(0.15)}` }}
             >
               <HeaderRow />
               <ul className="divide-y divide-zinc-900/80">
@@ -318,8 +319,8 @@ export default function LeaderboardV2() {
               <div
                 className="mt-3 rounded-2xl border backdrop-blur-sm"
                 style={{
-                  borderColor: `${HACKER_GREEN}40`,
-                  background: `${HACKER_GREEN}0a`
+                  borderColor: `${accentA(0.25)}`,
+                  background: `${accentA(0.04)}`
                 }}
               >
                 <Row user={me} isYou compact />
@@ -348,15 +349,15 @@ function Header({
         className="text-sm tracking-[0.4em] text-zinc-100 font-semibold hover:opacity-80 transition-opacity"
         aria-label="Back to dashboard"
       >
-        CRIBBLE<span style={{ color: HACKER_GREEN }}>.</span>
+        CRIBBLE<span style={{ color: ACCENT }}>.</span>
       </a>
 
       <div className="hidden md:flex items-center gap-2 px-2.5 py-1 rounded-full border border-zinc-800 bg-zinc-950/70">
         <span
           className="h-1.5 w-1.5 rounded-full"
           style={{
-            background: HACKER_GREEN,
-            boxShadow: `0 0 8px ${HACKER_GREEN}b0`
+            background: ACCENT,
+            boxShadow: `0 0 8px ${accentA(0.69)}`
           }}
         />
         <span className="text-[10px] tracking-[0.3em] text-zinc-400">LIVE</span>
@@ -366,12 +367,15 @@ function Header({
         </span>
       </div>
 
-      <a
-        href="/dashboard"
-        className="text-[10px] tracking-[0.3em] px-3 py-1.5 rounded border border-zinc-800 hover:border-zinc-600 text-zinc-300 hover:text-zinc-100 transition-colors"
-      >
-        ← DASHBOARD
-      </a>
+      <div className="flex items-center gap-2">
+        <ThemeToggle />
+        <a
+          href="/dashboard"
+          className="text-[10px] tracking-[0.3em] px-3 py-1.5 rounded border border-zinc-800 hover:border-zinc-600 text-zinc-300 hover:text-zinc-100 transition-colors"
+        >
+          ← DASHBOARD
+        </a>
+      </div>
     </header>
   )
 }
@@ -380,7 +384,7 @@ function Footer() {
   return (
     <footer className="mt-12 flex items-center justify-between text-[10px] tracking-[0.3em] text-zinc-600">
       <span>CRIBBLE · {new Date().getFullYear()}</span>
-      <span style={{ color: `${HACKER_GREEN}99` }}>
+      <span style={{ color: `${accentA(0.6)}` }}>
         {'// climb. or don\u2019t. we\u2019re keeping score.'}
       </span>
     </footer>
@@ -399,7 +403,7 @@ function SeasonCountdown({
       <div className="inline-flex items-center gap-3 rounded-lg border border-zinc-800/80 bg-zinc-950/70 backdrop-blur-sm px-4 py-2">
         <span
           className="text-[10px] tracking-[0.4em] font-semibold"
-          style={{ color: HACKER_GREEN }}
+          style={{ color: ACCENT }}
         >
           {seasonName}
         </span>
@@ -422,7 +426,7 @@ function SeasonCountdown({
     <div className="inline-flex items-center gap-3 rounded-lg border border-zinc-800/80 bg-zinc-950/70 backdrop-blur-sm px-4 py-2">
       <span
         className="text-[10px] tracking-[0.4em] font-semibold"
-        style={{ color: HACKER_GREEN }}
+        style={{ color: ACCENT }}
       >
         {seasonName}
       </span>
@@ -542,9 +546,9 @@ function Pagination({
             style={
               p === page
                 ? {
-                    borderColor: `${HACKER_GREEN}80`,
-                    color: HACKER_GREEN,
-                    background: `${HACKER_GREEN}12`
+                    borderColor: `${accentA(0.5)}`,
+                    color: ACCENT,
+                    background: `${accentA(0.07)}`
                   }
                 : undefined
             }
@@ -589,7 +593,7 @@ function PodiumCard({
   const isFirst = user.rank === 1
   const topTool = user.topTools?.[0]
   const rankLabel = user.rank.toString().padStart(2, '0')
-  const accentColor = isFirst ? HACKER_GREEN : '#3f3f46'
+  const accentColor = isFirst ? ACCENT : 'rgb(var(--z700))'
 
   return (
     <div
@@ -605,7 +609,7 @@ function PodiumCard({
         <div className="flex items-center justify-between">
           <div
             className="text-[11px] tracking-[0.3em] tabular-nums"
-            style={{ color: isFirst ? HACKER_GREEN : '#a1a1aa' }}
+            style={{ color: isFirst ? ACCENT : 'rgb(var(--z400))' }}
           >
             {rankLabel}
           </div>
@@ -634,8 +638,8 @@ function PodiumCard({
               <span
                 className="absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full border-2 border-zinc-950"
                 style={{
-                  background: HACKER_GREEN,
-                  boxShadow: `0 0 5px ${HACKER_GREEN}aa`
+                  background: ACCENT,
+                  boxShadow: `0 0 5px ${accentA(0.67)}`
                 }}
                 title="Active in last 24h"
               />
@@ -649,7 +653,7 @@ function PodiumCard({
               {isYou && (
                 <span
                   className="text-[9px] tracking-[0.2em]"
-                  style={{ color: HACKER_GREEN }}
+                  style={{ color: ACCENT }}
                 >
                   YOU
                 </span>
@@ -712,8 +716,8 @@ function Row({
     <li
       className="grid grid-cols-[3rem_1fr_auto_auto] md:grid-cols-[3rem_1fr_8rem_8rem_auto] items-center gap-3 px-4 md:px-5 py-3 transition-colors hover:bg-zinc-900/30"
       style={{
-        background: isYou && !compact ? `${HACKER_GREEN}0d` : undefined,
-        borderLeft: isYou && !compact ? `2px solid ${HACKER_GREEN}` : undefined,
+        background: isYou && !compact ? `${accentA(0.05)}` : undefined,
+        borderLeft: isYou && !compact ? `2px solid ${ACCENT}` : undefined,
         marginLeft: isYou && !compact ? '-2px' : undefined
       }}
     >
@@ -735,14 +739,14 @@ function Row({
         <div className="min-w-0 flex items-center gap-2">
           <span
             className="text-sm truncate"
-            style={{ color: isYou ? HACKER_GREEN : '#fafafa' }}
+            style={{ color: isYou ? ACCENT : 'rgb(var(--z50))' }}
           >
             @{user.username}
           </span>
           {isYou && (
             <span
               className="text-[9px] tracking-[0.3em]"
-              style={{ color: HACKER_GREEN }}
+              style={{ color: ACCENT }}
             >
               YOU
             </span>
@@ -775,8 +779,8 @@ function Row({
           <span
             className="inline-flex items-center justify-center h-1.5 w-1.5 rounded-full"
             style={{
-              background: HACKER_GREEN,
-              boxShadow: `0 0 6px ${HACKER_GREEN}99`
+              background: ACCENT,
+              boxShadow: `0 0 6px ${accentA(0.6)}`
             }}
             title="Active in last 24h"
           />
@@ -801,11 +805,11 @@ function SearchBar({
   return (
     <div
       className="flex items-center w-full max-w-xs border border-zinc-800 rounded-md bg-zinc-950/80 overflow-hidden transition-colors"
-      style={{ ['--hg' as string]: HACKER_GREEN }}
+      style={{ ['--hg' as string]: ACCENT }}
     >
       <span
         className="pl-3 pr-1 text-xs select-none"
-        style={{ color: `${HACKER_GREEN}80` }}
+        style={{ color: `${accentA(0.5)}` }}
       >
         ▸
       </span>

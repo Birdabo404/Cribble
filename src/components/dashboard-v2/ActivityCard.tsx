@@ -127,10 +127,10 @@ export function ActivityCard({ activity }: { activity: ActivityDay[] }) {
     if (cell.isFuture) return 'border border-zinc-800 bg-transparent'
     if (cell.score <= 0) return 'bg-zinc-900'
     const r = cell.score / maxScore
-    if (r < 0.25) return 'bg-emerald-900/70'
-    if (r < 0.5) return 'bg-emerald-700/80'
-    if (r < 0.75) return 'bg-emerald-500'
-    return 'bg-emerald-300 shadow-[0_0_6px_rgba(110,231,183,0.45)]'
+    if (r < 0.25) return 'bg-accent/25'
+    if (r < 0.5) return 'bg-accent/50'
+    if (r < 0.75) return 'bg-accent/75'
+    return 'bg-accent shadow-[0_0_6px_rgb(var(--accent-rgb)/0.45)]'
   }
 
   return (
@@ -145,10 +145,10 @@ export function ActivityCard({ activity }: { activity: ActivityDay[] }) {
         <div className="flex items-center gap-1.5 text-[9px] tracking-[0.3em] text-zinc-500">
           <span>LESS</span>
           <span className="h-[12px] w-[12px] rounded-[3px] bg-zinc-900" />
-          <span className="h-[12px] w-[12px] rounded-[3px] bg-emerald-900/70" />
-          <span className="h-[12px] w-[12px] rounded-[3px] bg-emerald-700/80" />
-          <span className="h-[12px] w-[12px] rounded-[3px] bg-emerald-500" />
-          <span className="h-[12px] w-[12px] rounded-[3px] bg-emerald-300" />
+          <span className="h-[12px] w-[12px] rounded-[3px] bg-accent/25" />
+          <span className="h-[12px] w-[12px] rounded-[3px] bg-accent/50" />
+          <span className="h-[12px] w-[12px] rounded-[3px] bg-accent/75" />
+          <span className="h-[12px] w-[12px] rounded-[3px] bg-accent" />
           <span>MORE</span>
         </div>
       </div>
@@ -191,8 +191,8 @@ export function ActivityCard({ activity }: { activity: ActivityDay[] }) {
                       <div
                         key={`${ci}-${ri}`}
                         style={{ gridColumn: ci + 1, gridRow: ri + 1 }}
-                        className={`relative rounded-[3px] transition-transform duration-150 hover:scale-[1.5] hover:z-10 hover:ring-1 hover:ring-emerald-300/70 ${cellClass(cell)} ${
-                          cell.isToday ? 'ring-1 ring-emerald-400/80' : ''
+                        className={`relative rounded-[3px] transition-transform duration-150 hover:scale-[1.5] hover:z-10 hover:ring-1 hover:ring-accent/70 ${cellClass(cell)} ${
+                          cell.isToday ? 'ring-1 ring-accent/80' : ''
                         }`}
                         title={
                           cell.isFuture

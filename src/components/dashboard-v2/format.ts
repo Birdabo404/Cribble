@@ -1,6 +1,6 @@
 import type { Tier } from '@/types/dashboard'
 
-export const HACKER_GREEN = '#02fe01'
+export { ACCENT, accentA } from '@/lib/theme'
 
 export const SEASON = {
   name: 'SEASON 01',
@@ -45,7 +45,7 @@ export const tierAccent = (tier: Tier | undefined): string => {
     case 'AFFILIATE':
       return 'text-cyan-300 border-cyan-300/40 bg-cyan-300/5'
     case 'BASIC':
-      return 'text-[#02fe01] border-[#02fe01]/40 bg-[#02fe01]/5'
+      return 'text-accent border-accent/40 bg-accent/5'
     default:
       return 'text-zinc-300 border-zinc-700 bg-zinc-900/60'
   }

@@ -110,7 +110,7 @@ export default function DashboardV2() {
   if (error || !user) return <ErrorScreen message={error} />
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 font-mono selection:bg-[#02fe01]/20">
+    <div className="min-h-screen bg-black text-zinc-100 font-mono selection:bg-accent/20">
       <SpaceBackdrop />
       {/* horizon line — thin emerald scanline at the bottom for retro hint */}
       <div
@@ -118,7 +118,7 @@ export default function DashboardV2() {
         className="pointer-events-none fixed inset-x-0 bottom-0 h-px opacity-25 z-0"
         style={{
           background:
-            'linear-gradient(90deg, transparent, rgba(2,254,1,0.55), transparent)'
+            'linear-gradient(90deg, transparent, rgb(var(--accent-rgb)/0.55), transparent)'
         }}
       />
 
@@ -174,7 +174,7 @@ export default function DashboardV2() {
 
         <footer className="mt-8 flex items-center justify-between text-[10px] tracking-[0.3em] text-zinc-600">
           <span>CRIBBLE · PRIVATE BETA</span>
-          <span className="text-[#02fe01]/60">v2 · {new Date().toLocaleDateString('en-US')}</span>
+          <span className="text-accent/60">v2 · {new Date().toLocaleDateString('en-US')}</span>
         </footer>
       </div>
 

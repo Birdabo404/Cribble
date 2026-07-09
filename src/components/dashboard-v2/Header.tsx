@@ -1,4 +1,5 @@
 import { formatRelative } from './format'
+import { ThemeToggle } from '@/components/ThemeToggle'
 import type { MeUser } from '@/types/dashboard'
 
 export type ConnectionState = 'online' | 'idle' | 'offline'
@@ -20,7 +21,7 @@ export function Header({
 }) {
   const dotColor =
     connection === 'online'
-      ? 'bg-[#02fe01] shadow-[0_0_10px_rgba(2,254,1,0.7)]'
+      ? 'bg-accent shadow-[0_0_10px_rgb(var(--accent-rgb)/0.7)]'
       : connection === 'idle'
       ? 'bg-amber-400'
       : 'bg-zinc-600'
@@ -32,7 +33,7 @@ export function Header({
     <header className="flex items-center justify-between gap-4">
       <div className="flex items-center gap-3">
         <div className="text-sm tracking-[0.4em] text-zinc-100 font-semibold">
-          CRIBBLE<span className="text-[#02fe01]">.</span>
+          CRIBBLE<span className="text-accent">.</span>
         </div>
         <div className="hidden md:flex items-center gap-2 px-2.5 py-1 rounded-full border border-zinc-800 bg-zinc-950/70">
           <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
@@ -43,6 +44,7 @@ export function Header({
       </div>
 
       <div className="flex items-center gap-2">
+        <ThemeToggle />
         <button
           onClick={onSync}
           disabled={syncing}
@@ -58,7 +60,7 @@ export function Header({
         </a>
         <button
           onClick={onOpenAccount}
-          className="ml-1 flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-full border border-zinc-800 bg-zinc-950/70 hover:border-[#02fe01]/40 hover:bg-zinc-900/80 transition-colors"
+          className="ml-1 flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-full border border-zinc-800 bg-zinc-950/70 hover:border-accent/40 hover:bg-zinc-900/80 transition-colors"
           aria-label="Open account"
         >
           {user.twitter_profile_image ? (

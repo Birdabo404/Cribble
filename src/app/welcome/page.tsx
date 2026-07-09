@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import SpaceBackdrop from '@/components/SpaceBackdrop'
 
-const HACKER_GREEN = '#02fe01'
+import { ACCENT, accentA } from '@/lib/theme'
+import { ThemeToggle } from '@/components/ThemeToggle'
 
 type Stage = 'boot' | 'privacy' | 'role' | 'goal' | 'tools' | 'thanks'
 
@@ -212,7 +213,7 @@ export default function WelcomePage() {
   }, [stage])
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 font-mono relative overflow-hidden selection:bg-[#02fe01]/20">
+    <div className="min-h-screen bg-black text-zinc-100 font-mono relative overflow-hidden selection:bg-accent/20">
       <SpaceBackdrop />
 
       {/* horizon line */}
@@ -220,7 +221,7 @@ export default function WelcomePage() {
         aria-hidden
         className="pointer-events-none fixed inset-x-0 bottom-0 h-px opacity-30 z-0"
         style={{
-          background: `linear-gradient(90deg, transparent, ${HACKER_GREEN}88, transparent)`
+          background: `linear-gradient(90deg, transparent, ${accentA(0.53)}, transparent)`
         }}
       />
 
@@ -275,12 +276,13 @@ function TopBar({
     <header className="relative z-10 px-6 pt-6">
       <div className="max-w-3xl mx-auto flex items-center justify-between">
         <div className="text-sm tracking-[0.4em] text-zinc-100 font-semibold">
-          CRIBBLE<span style={{ color: HACKER_GREEN }}>.</span>
+          CRIBBLE<span style={{ color: ACCENT }}>.</span>
         </div>
         <div className="flex items-center gap-4">
           <div className="hidden sm:block text-[10px] tracking-[0.3em] text-zinc-500 tabular-nums">
             STEP {stepNumber}/{totalSteps}
           </div>
+          <ThemeToggle />
           <button
             onClick={onSkip}
             className="text-[10px] tracking-[0.3em] px-3 py-1.5 rounded border border-zinc-800 hover:border-zinc-600 text-zinc-500 hover:text-zinc-200 transition-colors"
@@ -295,8 +297,8 @@ function TopBar({
             className="h-full transition-all duration-500 ease-out"
             style={{
               width: `${pct}%`,
-              background: HACKER_GREEN,
-              boxShadow: `0 0 8px ${HACKER_GREEN}99`
+              background: ACCENT,
+              boxShadow: `0 0 8px ${accentA(0.6)}`
             }}
           />
         </div>
@@ -319,8 +321,8 @@ function BootStage() {
         <div
           className="mt-2 text-2xl md:text-3xl tracking-[0.35em] font-semibold boot-glitch"
           style={{
-            color: HACKER_GREEN,
-            textShadow: `0 0 10px ${HACKER_GREEN}66, 0 0 28px ${HACKER_GREEN}33`
+            color: ACCENT,
+            textShadow: `0 0 10px ${accentA(0.4)}, 0 0 28px ${accentA(0.2)}`
           }}
         >
           CRIBBLE<span className="text-zinc-500">{'//'}</span>OS
@@ -341,15 +343,15 @@ function BootStage() {
         <div
           className="relative h-1.5 w-full rounded-sm overflow-hidden border"
           style={{
-            borderColor: `${HACKER_GREEN}40`,
-            background: 'rgba(2,254,1,0.05)'
+            borderColor: `${accentA(0.25)}`,
+            background: 'rgb(var(--accent-rgb)/0.05)'
           }}
         >
           <div
             className="boot-bar absolute inset-y-0 left-0"
             style={{
-              background: HACKER_GREEN,
-              boxShadow: `0 0 12px ${HACKER_GREEN}99, 0 0 24px ${HACKER_GREEN}55`
+              background: ACCENT,
+              boxShadow: `0 0 12px ${accentA(0.6)}, 0 0 24px ${accentA(0.33)}`
             }}
           />
         </div>
@@ -417,8 +419,8 @@ function BootStage() {
           height: 11px;
           margin-left: 2px;
           vertical-align: -1px;
-          background: ${HACKER_GREEN};
-          box-shadow: 0 0 6px ${HACKER_GREEN}aa;
+          background: ${ACCENT};
+          box-shadow: 0 0 6px ${accentA(0.67)};
           animation: boot-cursor 0.9s steps(2) infinite;
         }
 
@@ -465,7 +467,7 @@ function BootLine({
       className="boot-line flex items-center gap-2"
       style={{ animationDelay: `${delay}s` }}
     >
-      <span style={{ color: HACKER_GREEN }}>{'>'}</span>
+      <span style={{ color: ACCENT }}>{'>'}</span>
       <span className="text-zinc-300">{text}</span>
       {cursor && <span className="boot-cursor" />}
     </div>
@@ -486,11 +488,11 @@ function PrivacyStage({ onNext }: { onNext: () => void }) {
       <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-3">
         <div
           className="rounded-xl border bg-zinc-950/80 backdrop-blur-sm p-5"
-          style={{ borderColor: `${HACKER_GREEN}40` }}
+          style={{ borderColor: `${accentA(0.25)}` }}
         >
           <div
             className="text-[10px] tracking-[0.4em]"
-            style={{ color: `${HACKER_GREEN}cc` }}
+            style={{ color: `${accentA(0.8)}` }}
           >
             ✓ WHAT WE COLLECT
           </div>
@@ -515,7 +517,7 @@ function PrivacyStage({ onNext }: { onNext: () => void }) {
       </div>
 
       <p className="mt-6 text-[11px] tracking-[0.2em] text-zinc-500">
-        <span style={{ color: `${HACKER_GREEN}cc` }}>{'// '}</span>
+        <span style={{ color: `${accentA(0.8)}` }}>{'// '}</span>
         TL;DR — we count when you show up, not what you say. Like a Strava for
         the prompt grind.
       </p>
@@ -532,7 +534,7 @@ function PrivacyItem({ text, cross }: { text: string; cross?: boolean }) {
     <li className="flex items-start gap-2.5">
       <span
         className="mt-[3px] inline-block text-[11px]"
-        style={{ color: cross ? '#fb7185' : HACKER_GREEN }}
+        style={{ color: cross ? '#fb7185' : ACCENT }}
       >
         {cross ? '✗' : '✓'}
       </span>
@@ -571,7 +573,7 @@ function RoleStage({
               <span
                 className="text-base"
                 style={{
-                  color: value === r.id ? HACKER_GREEN : '#71717a'
+                  color: value === r.id ? ACCENT : 'rgb(var(--z500))'
                 }}
               >
                 {r.glyph}
@@ -686,7 +688,7 @@ function ToolsStage({
                 <span
                   className="text-[11px]"
                   style={{
-                    color: selected ? HACKER_GREEN : 'transparent'
+                    color: selected ? ACCENT : 'transparent'
                   }}
                 >
                   ✓
@@ -721,8 +723,8 @@ function ThanksStage({ role }: { role: string | null }) {
       <div
         className="mt-3 text-3xl md:text-4xl tracking-[0.25em] font-semibold"
         style={{
-          color: HACKER_GREEN,
-          textShadow: `0 0 10px ${HACKER_GREEN}66, 0 0 28px ${HACKER_GREEN}33`
+          color: ACCENT,
+          textShadow: `0 0 10px ${accentA(0.4)}, 0 0 28px ${accentA(0.2)}`
         }}
       >
         WELCOME, {roleLabel.toUpperCase()}
@@ -735,8 +737,8 @@ function ThanksStage({ role }: { role: string | null }) {
           <div
             className="h-full"
             style={{
-              background: HACKER_GREEN,
-              boxShadow: `0 0 8px ${HACKER_GREEN}99`,
+              background: ACCENT,
+              boxShadow: `0 0 8px ${accentA(0.6)}`,
               animation: 'thanks-bar 2s ease-out forwards'
             }}
           />
@@ -771,7 +773,7 @@ function StageShell({
     <section className="w-full max-w-3xl">
       <div
         className="text-[10px] tracking-[0.4em]"
-        style={{ color: `${HACKER_GREEN}cc` }}
+        style={{ color: `${accentA(0.8)}` }}
       >
         {'//'} {eyebrow}
       </div>
@@ -810,15 +812,15 @@ function PrimaryButton({
       style={
         disabled
           ? {
-              borderColor: '#27272a',
-              color: '#71717a',
+              borderColor: 'rgb(var(--z800))',
+              color: 'rgb(var(--z500))',
               background: 'transparent'
             }
           : {
-              borderColor: `${HACKER_GREEN}80`,
-              color: HACKER_GREEN,
-              background: `${HACKER_GREEN}12`,
-              boxShadow: `0 0 18px ${HACKER_GREEN}30`
+              borderColor: `${accentA(0.5)}`,
+              color: ACCENT,
+              background: `${accentA(0.07)}`,
+              boxShadow: `0 0 18px ${accentA(0.19)}`
             }
       }
     >
@@ -849,17 +851,17 @@ function ChoiceCard({
         wide ? 'p-5' : 'p-4'
       } ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
       style={{
-        borderColor: selected ? `${HACKER_GREEN}80` : '#27272a',
-        background: selected ? `${HACKER_GREEN}0d` : undefined,
-        boxShadow: selected ? `0 0 22px ${HACKER_GREEN}26 inset` : undefined
+        borderColor: selected ? `${accentA(0.5)}` : 'rgb(var(--z800))',
+        background: selected ? `${accentA(0.05)}` : undefined,
+        boxShadow: selected ? `0 0 22px ${accentA(0.15)} inset` : undefined
       }}
       onMouseEnter={(e) => {
         if (!selected && !disabled)
-          (e.currentTarget as HTMLButtonElement).style.borderColor = '#52525b'
+          (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgb(var(--z600))'
       }}
       onMouseLeave={(e) => {
         if (!selected && !disabled)
-          (e.currentTarget as HTMLButtonElement).style.borderColor = '#27272a'
+          (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgb(var(--z800))'
       }}
     >
       {children}

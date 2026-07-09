@@ -2,9 +2,101 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Theme tokens.
+ * Dark (default): black surfaces + hacker green accent.
+ * Light (html.light): white surfaces + neon orange accent.
+ * The zinc/gray scales are mirrored in light mode so existing
+ * utility classes (bg-zinc-950, text-zinc-100, …) flip automatically.
+ */
 :root {
   --background: #000000;
   --foreground: #ffffff;
+  --panel: #080808;
+
+  --accent: #02fe01;
+  --accent-rgb: 2 254 1;
+
+  /* stars / decorative dots */
+  --star-rgb: 255 255 255;
+  --dot-rgb: 255 255 255;
+
+  /* landing globe halo: whitish blue in dark mode */
+  --globe-glow-rgb: 150 190 255;
+
+  /* flipped-in-light monochrome anchors */
+  --c-black: 0 0 0;
+  --c-white: 255 255 255;
+
+  /* zinc scale (tailwind defaults) */
+  --z50: 250 250 250;
+  --z100: 244 244 245;
+  --z200: 228 228 231;
+  --z300: 212 212 216;
+  --z400: 161 161 170;
+  --z500: 113 113 122;
+  --z600: 82 82 91;
+  --z700: 63 63 70;
+  --z800: 39 39 42;
+  --z900: 24 24 27;
+  --z950: 9 9 11;
+
+  /* gray scale (tailwind defaults) */
+  --g50: 249 250 251;
+  --g100: 243 244 246;
+  --g200: 229 231 235;
+  --g300: 209 213 219;
+  --g400: 156 163 175;
+  --g500: 107 114 128;
+  --g600: 75 85 99;
+  --g700: 55 65 81;
+  --g800: 31 41 55;
+  --g900: 17 24 39;
+  --g950: 3 7 18;
+}
+
+html.light {
+  --background: #ffffff;
+  --foreground: #0a0a0a;
+  --panel: #fafafa;
+
+  --accent: #ff5e00;
+  --accent-rgb: 255 94 0;
+
+  --star-rgb: 39 39 42;
+  --dot-rgb: 0 0 0;
+
+  /* landing globe halo: neon orange in light mode */
+  --globe-glow-rgb: 255 94 0;
+
+  --c-black: 255 255 255;
+  --c-white: 10 10 10;
+
+  /* mirrored zinc scale: zinc-950 becomes near-white, zinc-50 near-black */
+  --z50: 9 9 11;
+  --z100: 24 24 27;
+  --z200: 39 39 42;
+  --z300: 63 63 70;
+  --z400: 82 82 91;
+  --z500: 113 113 122;
+  --z600: 161 161 170;
+  --z700: 212 212 216;
+  --z800: 228 228 231;
+  --z900: 244 244 245;
+  --z950: 250 250 250;
+
+  /* mirrored gray scale */
+  --g50: 3 7 18;
+  --g100: 17 24 39;
+  --g200: 31 41 55;
+  --g300: 55 65 81;
+  --g400: 75 85 99;
+  --g500: 107 114 128;
+  --g600: 156 163 175;
+  --g700: 209 213 219;
+  --g800: 229 231 235;
+  --g900: 243 244 246;
+  --g950: 249 250 251;
 }
 
 body {
@@ -150,8 +242,8 @@ body {
   right: 0;
   bottom: 0;
   background-image: 
-    radial-gradient(circle, rgba(255,255,255,0.15) 1px, transparent 1px),
-    radial-gradient(circle, rgba(255,255,255,0.08) 0.5px, transparent 0.5px);
+    radial-gradient(circle, rgb(var(--dot-rgb) / 0.15) 1px, transparent 1px),
+    radial-gradient(circle, rgb(var(--dot-rgb) / 0.08) 0.5px, transparent 0.5px);
   background-size: 48px 48px, 24px 24px;
   background-position: 0 0, 12px 12px;
   pointer-events: none;
@@ -218,10 +310,10 @@ body {
 /* Retro 90's Computer Glow Effect - SUBTLE */
 .retro-glow {
   text-shadow: 
-    0 0 2px rgba(0, 255, 0, 0.3),
-    0 0 4px rgba(0, 255, 0, 0.2),
-    0 0 6px rgba(0, 255, 0, 0.1);
-  filter: drop-shadow(0 0 3px rgba(0, 255, 0, 0.2));
+    0 0 2px rgb(var(--accent-rgb) / 0.3),
+    0 0 4px rgb(var(--accent-rgb) / 0.2),
+    0 0 6px rgb(var(--accent-rgb) / 0.1);
+  filter: drop-shadow(0 0 3px rgb(var(--accent-rgb) / 0.2));
   position: relative;
   font-family: 'Courier New', 'Monaco', 'Menlo', monospace;
   font-weight: 700;
@@ -249,7 +341,7 @@ body {
   right: 0;
   bottom: 0;
   background: 
-    linear-gradient(90deg, transparent 50%, rgba(0, 255, 0, 0.03) 50%),
+    linear-gradient(90deg, transparent 50%, rgb(var(--accent-rgb) / 0.03) 50%),
     linear-gradient(rgba(0, 0, 0, 0.015) 50%, transparent 50%);
   background-size: 2px 2px;
   pointer-events: none;
@@ -266,10 +358,10 @@ body {
   background: linear-gradient(
     180deg,
     transparent 0%,
-    rgba(0, 255, 0, 0.02) 20%,
-    rgba(0, 255, 0, 0.01) 40%,
+    rgb(var(--accent-rgb) / 0.02) 20%,
+    rgb(var(--accent-rgb) / 0.01) 40%,
     transparent 60%,
-    rgba(0, 255, 0, 0.01) 80%,
+    rgb(var(--accent-rgb) / 0.01) 80%,
     transparent 100%
   );
   animation: crt-scanlines 0.1s linear infinite;
@@ -310,60 +402,60 @@ body {
 }
 
 .leaderboard-entry:hover {
-  background: rgba(0, 255, 0, 0.08) !important;
-  box-shadow: inset 0 0 20px rgba(0, 255, 0, 0.1);
+  background: rgb(var(--accent-rgb) / 0.08) !important;
+  box-shadow: inset 0 0 20px rgb(var(--accent-rgb) / 0.1);
   transform: translateX(2px);
 }
 
 /* Enhanced retro status indicator */
 .retro-status-active {
-  box-shadow: 0 0 10px rgba(0, 255, 0, 0.6);
+  box-shadow: 0 0 10px rgb(var(--accent-rgb) / 0.6);
   animation: retro-pulse 1.5s ease-in-out infinite;
 }
 
 @keyframes retro-pulse {
   0%, 100% {
-    box-shadow: 0 0 10px rgba(0, 255, 0, 0.6);
+    box-shadow: 0 0 10px rgb(var(--accent-rgb) / 0.6);
     transform: scale(1);
   }
   50% {
-    box-shadow: 0 0 20px rgba(0, 255, 0, 0.8);
+    box-shadow: 0 0 20px rgb(var(--accent-rgb) / 0.8);
     transform: scale(1.1);
   }
 }
 
 /* Retro terminal-style search input */
 .retro-input {
-  background: #000000;
-  border: 1px solid #00ff00;
-  color: #00ff00;
+  background: var(--background);
+  border: 1px solid var(--accent);
+  color: var(--accent);
   font-family: 'Courier New', monospace;
-  text-shadow: 0 0 5px rgba(0, 255, 0, 0.5);
+  text-shadow: 0 0 5px rgb(var(--accent-rgb) / 0.5);
 }
 
 .retro-input:focus {
   box-shadow: 
-    0 0 10px rgba(0, 255, 0, 0.3),
-    inset 0 0 10px rgba(0, 255, 0, 0.1);
+    0 0 10px rgb(var(--accent-rgb) / 0.3),
+    inset 0 0 10px rgb(var(--accent-rgb) / 0.1);
   outline: none;
 }
 
 .retro-input::placeholder {
-  color: rgba(0, 255, 0, 0.4);
+  color: rgb(var(--accent-rgb) / 0.4);
 }
 
 /* Dashboard panel primitives */
 .db-panel {
-  background: #080808;
-  border: 1px solid rgba(2, 254, 1, 0.15);
+  background: var(--panel);
+  border: 1px solid rgb(var(--accent-rgb) / 0.15);
   border-radius: 8px;
   padding: 20px;
   position: relative;
 }
 
 .db-panel-sm {
-  background: #080808;
-  border: 1px solid rgba(2, 254, 1, 0.12);
+  background: var(--panel);
+  border: 1px solid rgb(var(--accent-rgb) / 0.12);
   border-radius: 8px;
   padding: 14px 16px;
 }
@@ -382,11 +474,11 @@ body {
 }
 
 .cribble-title-glow {
-  text-shadow: 0 0 20px rgba(2, 254, 1, 0.4), 0 0 40px rgba(2, 254, 1, 0.1);
+  text-shadow: 0 0 20px rgb(var(--accent-rgb) / 0.4), 0 0 40px rgb(var(--accent-rgb) / 0.1);
 }
 
 .cribble-score-glow {
-  text-shadow: 0 0 30px rgba(2, 254, 1, 0.3), 0 0 60px rgba(2, 254, 1, 0.1);
+  text-shadow: 0 0 30px rgb(var(--accent-rgb) / 0.3), 0 0 60px rgb(var(--accent-rgb) / 0.1);
 }
 
 @keyframes toastSlideIn {

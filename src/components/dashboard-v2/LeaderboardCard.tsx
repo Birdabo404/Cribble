@@ -1,4 +1,4 @@
-import { formatCompact, formatNumber, tierAccent, HACKER_GREEN } from './format'
+import { formatCompact, formatNumber, tierAccent, accentA } from './format'
 import type { GlobalTotals, LeaderUser, RankInfo } from '@/types/dashboard'
 
 function GlobalTelemetryStrip({
@@ -36,7 +36,7 @@ function GlobalTelemetryStrip({
         >
           <div
             className="text-[9px] tracking-[0.35em]"
-            style={{ color: c.accent ? `${HACKER_GREEN}cc` : '#71717a' }}
+            style={{ color: c.accent ? `${accentA(0.8)}` : 'rgb(var(--z500))' }}
           >
             {c.label}
           </div>
@@ -72,7 +72,7 @@ export function LeaderboardCard({
         </div>
         <a
           href="/leaderboard"
-          className="text-[10px] tracking-[0.3em] text-zinc-400 hover:text-[#02fe01] transition-colors"
+          className="text-[10px] tracking-[0.3em] text-zinc-400 hover:text-accent transition-colors"
         >
           VIEW ALL →
         </a>
@@ -91,14 +91,14 @@ export function LeaderboardCard({
                 key={u.userId}
                 className={`flex items-center justify-between gap-3 py-2.5 px-2 -mx-2 rounded-md transition-colors ${
                   isYou
-                    ? 'bg-[#02fe01]/[0.06] ring-1 ring-[#02fe01]/30'
+                    ? 'bg-accent/[0.06] ring-1 ring-accent/30'
                     : 'hover:bg-zinc-900/40'
                 }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <span
                     className={`w-7 text-xs tabular-nums ${
-                      isYou ? 'text-[#02fe01]' : 'text-zinc-500'
+                      isYou ? 'text-accent' : 'text-zinc-500'
                     }`}
                   >
                     #{u.rank}
@@ -116,7 +116,7 @@ export function LeaderboardCard({
                   <div className="flex items-center gap-2 min-w-0">
                     <span
                       className={`text-sm truncate ${
-                        isYou ? 'text-[#02fe01]' : 'text-zinc-100'
+                        isYou ? 'text-accent' : 'text-zinc-100'
                       }`}
                     >
                       @{u.username}
@@ -128,7 +128,7 @@ export function LeaderboardCard({
                     </span>
                     {u.isActive && (
                       <span
-                        className="h-1.5 w-1.5 rounded-full bg-[#02fe01] shadow-[0_0_6px_rgba(2,254,1,0.7)]"
+                        className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_6px_rgb(var(--accent-rgb)/0.7)]"
                         title="Active in last 24h"
                       />
                     )}
@@ -136,7 +136,7 @@ export function LeaderboardCard({
                 </div>
                 <div
                   className={`text-sm tabular-nums ${
-                    isYou ? 'text-[#02fe01]' : 'text-zinc-100'
+                    isYou ? 'text-accent' : 'text-zinc-100'
                   }`}
                 >
                   {formatNumber(u.score)}

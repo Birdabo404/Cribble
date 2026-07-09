@@ -183,8 +183,8 @@ export default function WorldwideText() {
           display: inline-block;
           vertical-align: baseline;
           line-height: 1.05;
-          color: #02fe01;
-          text-shadow: 0 0 14px rgba(2, 254, 1, 0.18);
+          color: var(--accent);
+          text-shadow: 0 0 14px rgb(var(--accent-rgb)/0.18);
           will-change: width;
         }
         .worldwide-measure {

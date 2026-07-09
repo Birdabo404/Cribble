@@ -192,25 +192,25 @@ export default function SetupWizardModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/95">
       {/* Scanlines */}
       <div className="absolute inset-0 pointer-events-none" style={{
-        backgroundImage: 'repeating-linear-gradient(0deg, rgba(2,254,1,0.015) 0px, transparent 1px, transparent 4px)',
+        backgroundImage: 'repeating-linear-gradient(0deg, rgb(var(--accent-rgb)/0.015) 0px, transparent 1px, transparent 4px)',
       }} />
 
       <div className={`relative w-full max-w-md transition-all ${glitching ? 'translate-x-[1px] opacity-95' : ''}`}>
         {/* Green outer glow */}
-        <div className="absolute -inset-px rounded-lg bg-[#02fe01]/20 blur-md pointer-events-none" />
-        <div className="absolute -inset-[2px] rounded-lg bg-[#02fe01]/5 blur-xl pointer-events-none" />
+        <div className="absolute -inset-px rounded-lg bg-accent/20 blur-md pointer-events-none" />
+        <div className="absolute -inset-[2px] rounded-lg bg-accent/5 blur-xl pointer-events-none" />
 
-        <div className="relative bg-[#080808] border border-[#02fe01]/40 rounded-lg overflow-hidden">
+        <div className="relative bg-[var(--panel)] border border-accent/40 rounded-lg overflow-hidden">
 
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-4 border-b border-[#02fe01]/20">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-accent/20">
             <div className="flex items-center gap-3">
               {/* Blinking dot */}
               <div className="relative w-2 h-2">
-                <div className="absolute inset-0 rounded-full bg-[#02fe01] animate-ping opacity-60" />
-                <div className="relative w-2 h-2 rounded-full bg-[#02fe01]" />
+                <div className="absolute inset-0 rounded-full bg-accent animate-ping opacity-60" />
+                <div className="relative w-2 h-2 rounded-full bg-accent" />
               </div>
-              <span className="font-mono text-sm font-bold text-[#02fe01] tracking-[0.2em] uppercase">
+              <span className="font-mono text-sm font-bold text-accent tracking-[0.2em] uppercase">
                 {currentStep === 'install' && 'Install Extension'}
                 {currentStep === 'connect' && 'Connect Device'}
                 {currentStep === 'verify' && 'Verifying...'}
@@ -220,7 +220,7 @@ export default function SetupWizardModal({
             {currentStep !== 'complete' && (
               <button
                 onClick={onClose}
-                className="w-6 h-6 flex items-center justify-center text-gray-600 hover:text-[#02fe01] transition-colors font-mono text-xs"
+                className="w-6 h-6 flex items-center justify-center text-gray-600 hover:text-accent transition-colors font-mono text-xs"
               >
                 ✕
               </button>
@@ -228,26 +228,26 @@ export default function SetupWizardModal({
           </div>
 
           {/* Step indicator — minimal dots */}
-          <div className="flex items-center gap-0 border-b border-[#02fe01]/10">
+          <div className="flex items-center gap-0 border-b border-accent/10">
             {steps.map((step, idx) => (
               <div key={step} className="flex-1 relative">
                 <div className={`h-[2px] transition-all duration-500 ${
-                  idx <= currentStepIndex ? 'bg-[#02fe01]' : 'bg-[#02fe01]/10'
+                  idx <= currentStepIndex ? 'bg-accent' : 'bg-accent/10'
                 }`} />
                 <div className={`absolute right-0 top-1/2 -translate-y-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full transition-all ${
-                  idx < currentStepIndex ? 'bg-[#02fe01]' :
-                  idx === currentStepIndex ? 'bg-[#02fe01] shadow-[0_0_6px_#02fe01]' :
-                  'bg-[#02fe01]/20'
+                  idx < currentStepIndex ? 'bg-accent' :
+                  idx === currentStepIndex ? 'bg-accent shadow-[0_0_6px_var(--accent)]' :
+                  'bg-accent/20'
                 }`} />
               </div>
             ))}
           </div>
 
           {/* Step label row */}
-          <div className="flex border-b border-[#02fe01]/10">
+          <div className="flex border-b border-accent/10">
             {steps.map((step, idx) => (
               <div key={step} className={`flex-1 text-center py-1.5 font-mono text-[9px] tracking-widest transition-colors ${
-                idx === currentStepIndex ? 'text-[#02fe01]' : 'text-[#02fe01]/25'
+                idx === currentStepIndex ? 'text-accent' : 'text-accent/25'
               }`}>
                 {stepLabels[idx]}
               </div>
@@ -266,20 +266,20 @@ export default function SetupWizardModal({
 
                 <div className="space-y-1.5 text-[11px] font-mono text-gray-500">
                   <div className="flex gap-3">
-                    <span className="text-[#02fe01]/60">01</span>
+                    <span className="text-accent/60">01</span>
                     <span>Download and unzip from GitHub</span>
                   </div>
                   <div className="flex gap-3">
-                    <span className="text-[#02fe01]/60">02</span>
-                    <span>Open <span className="text-[#02fe01]/70">chrome://extensions</span></span>
+                    <span className="text-accent/60">02</span>
+                    <span>Open <span className="text-accent/70">chrome://extensions</span></span>
                   </div>
                   <div className="flex gap-3">
-                    <span className="text-[#02fe01]/60">03</span>
+                    <span className="text-accent/60">03</span>
                     <span>Enable "Developer mode" → Load unpacked</span>
                   </div>
                   <div className="flex gap-3">
-                    <span className="text-[#02fe01]/60">04</span>
-                    <span>Select the <span className="text-[#02fe01]/70">cribble-extension</span> folder</span>
+                    <span className="text-accent/60">04</span>
+                    <span>Select the <span className="text-accent/70">cribble-extension</span> folder</span>
                   </div>
                 </div>
 
@@ -287,15 +287,15 @@ export default function SetupWizardModal({
                   href="https://github.com/Birdabo404/Cribble"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-between w-full border border-[#02fe01]/30 hover:border-[#02fe01]/70 hover:bg-[#02fe01]/5 px-4 py-3 rounded font-mono text-sm text-[#02fe01] transition-all group"
+                  className="flex items-center justify-between w-full border border-accent/30 hover:border-accent/70 hover:bg-accent/5 px-4 py-3 rounded font-mono text-sm text-accent transition-all group"
                 >
                   <span>github.com/Birdabo404/Cribble</span>
-                  <span className="text-[#02fe01]/40 group-hover:text-[#02fe01] transition-colors">↗</span>
+                  <span className="text-accent/40 group-hover:text-accent transition-colors">↗</span>
                 </a>
 
                 <button
                   onClick={() => setCurrentStep('connect')}
-                  className="w-full bg-[#02fe01] hover:bg-[#02fe01]/90 text-black px-4 py-3 rounded font-mono text-sm font-bold tracking-widest transition-all active:scale-[0.98]"
+                  className="w-full bg-accent hover:bg-accent/90 text-black px-4 py-3 rounded font-mono text-sm font-bold tracking-widest transition-all active:scale-[0.98]"
                 >
                   INSTALLED → NEXT
                 </button>
@@ -311,21 +311,21 @@ export default function SetupWizardModal({
 
                 <div className="space-y-1.5 text-[11px] font-mono text-gray-500">
                   <div className="flex gap-3">
-                    <span className="text-[#02fe01]/60">01</span>
+                    <span className="text-accent/60">01</span>
                     <span>Click the Cribble extension icon in toolbar</span>
                   </div>
                   <div className="flex gap-3">
-                    <span className="text-[#02fe01]/60">02</span>
+                    <span className="text-accent/60">02</span>
                     <span>Find and copy your Device ID</span>
                   </div>
                   <div className="flex gap-3">
-                    <span className="text-[#02fe01]/60">03</span>
+                    <span className="text-accent/60">03</span>
                     <span>Paste it in the field below</span>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-mono text-[#02fe01]/50 mb-1.5 tracking-widest uppercase">
+                  <label className="block text-[10px] font-mono text-accent/50 mb-1.5 tracking-widest uppercase">
                     Device ID
                   </label>
                   <input
@@ -333,7 +333,7 @@ export default function SetupWizardModal({
                     value={manualDeviceId}
                     onChange={(e) => setManualDeviceId(e.target.value)}
                     placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                    className="w-full bg-black border border-[#02fe01]/25 focus:border-[#02fe01]/70 rounded px-3 py-3 text-[#02fe01] font-mono text-xs placeholder-gray-700 focus:outline-none transition-all"
+                    className="w-full bg-black border border-accent/25 focus:border-accent/70 rounded px-3 py-3 text-accent font-mono text-xs placeholder-gray-700 focus:outline-none transition-all"
                     style={{ letterSpacing: '0.05em' }}
                   />
                 </div>
@@ -347,14 +347,14 @@ export default function SetupWizardModal({
                 <div className="flex gap-2">
                   <button
                     onClick={() => setCurrentStep('install')}
-                    className="px-4 py-3 border border-[#02fe01]/20 text-[#02fe01]/50 hover:text-[#02fe01]/80 hover:border-[#02fe01]/40 rounded font-mono text-xs transition-all"
+                    className="px-4 py-3 border border-accent/20 text-accent/50 hover:text-accent/80 hover:border-accent/40 rounded font-mono text-xs transition-all"
                   >
                     ← BACK
                   </button>
                   <button
                     onClick={handleConnectExtension}
                     disabled={isConnecting || !manualDeviceId.trim()}
-                    className="flex-1 bg-[#02fe01] hover:bg-[#02fe01]/90 disabled:bg-[#02fe01]/20 disabled:text-black/40 text-black px-4 py-3 rounded font-mono text-sm font-bold tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                    className="flex-1 bg-accent hover:bg-accent/90 disabled:bg-accent/20 disabled:text-black/40 text-black px-4 py-3 rounded font-mono text-sm font-bold tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                   >
                     {isConnecting ? (
                       <>
@@ -374,19 +374,19 @@ export default function SetupWizardModal({
                   {/* Status orb */}
                   <div className={`relative w-16 h-16 rounded-full border flex items-center justify-center transition-all ${
                     verificationState.status === 'success'
-                      ? 'border-[#02fe01]/60 bg-[#02fe01]/10'
+                      ? 'border-accent/60 bg-accent/10'
                       : verificationState.status === 'failed'
                         ? 'border-red-500/50 bg-red-500/5'
-                        : 'border-[#02fe01]/30 bg-[#02fe01]/5'
+                        : 'border-accent/30 bg-accent/5'
                   }`}>
                     {verificationState.status === 'pending' && (
                       <>
-                        <div className="absolute inset-0 rounded-full border border-[#02fe01]/20 animate-ping" />
-                        <div className="w-3 h-3 rounded-full bg-[#02fe01]/60 animate-pulse" />
+                        <div className="absolute inset-0 rounded-full border border-accent/20 animate-ping" />
+                        <div className="w-3 h-3 rounded-full bg-accent/60 animate-pulse" />
                       </>
                     )}
                     {verificationState.status === 'success' && (
-                      <div className="w-4 h-4 rounded-full bg-[#02fe01] shadow-[0_0_16px_#02fe01]" />
+                      <div className="w-4 h-4 rounded-full bg-accent shadow-[0_0_16px_var(--accent)]" />
                     )}
                     {verificationState.status === 'failed' && (
                       <div className="w-4 h-4 rounded-full bg-red-500" />
@@ -394,9 +394,9 @@ export default function SetupWizardModal({
                   </div>
 
                   <div className={`font-mono text-sm font-bold tracking-wider ${
-                    verificationState.status === 'success' ? 'text-[#02fe01]' :
+                    verificationState.status === 'success' ? 'text-accent' :
                     verificationState.status === 'failed' ? 'text-red-400' :
-                    'text-[#02fe01]/60'
+                    'text-accent/60'
                   }`}>
                     {verificationState.status === 'success' ? 'VERIFIED' :
                      verificationState.status === 'failed' ? 'FAILED' :
@@ -408,7 +408,7 @@ export default function SetupWizardModal({
                       {[0, 1, 2].map(i => (
                         <div
                           key={i}
-                          className="w-1 h-1 rounded-full bg-[#02fe01]/50"
+                          className="w-1 h-1 rounded-full bg-accent/50"
                           style={{ animation: `bounce 1s ${i * 0.2}s infinite` }}
                         />
                       ))}
@@ -430,13 +430,13 @@ export default function SetupWizardModal({
                         setConnectionError('')
                         setVerificationState({ status: 'pending', attempt: 0, maxAttempts: 3 })
                       }}
-                      className="px-4 py-3 border border-[#02fe01]/20 text-[#02fe01]/50 hover:text-[#02fe01]/80 rounded font-mono text-xs transition-all"
+                      className="px-4 py-3 border border-accent/20 text-accent/50 hover:text-accent/80 rounded font-mono text-xs transition-all"
                     >
                       ← BACK
                     </button>
                     <button
                       onClick={() => verifyConnection(deviceUuid)}
-                      className="flex-1 border border-[#02fe01]/40 hover:border-[#02fe01]/70 hover:bg-[#02fe01]/5 text-[#02fe01] px-4 py-3 rounded font-mono text-sm font-bold tracking-widest transition-all"
+                      className="flex-1 border border-accent/40 hover:border-accent/70 hover:bg-accent/5 text-accent px-4 py-3 rounded font-mono text-sm font-bold tracking-widest transition-all"
                     >
                       RETRY
                     </button>
@@ -449,16 +449,16 @@ export default function SetupWizardModal({
             {currentStep === 'complete' && (
               <div className="space-y-5 py-2">
                 <div className="flex flex-col items-center gap-3">
-                  <div className="w-14 h-14 rounded-full border border-[#02fe01]/60 bg-[#02fe01]/10 flex items-center justify-center shadow-[0_0_24px_rgba(2,254,1,0.2)]">
-                    <div className="w-5 h-5 rounded-full bg-[#02fe01] shadow-[0_0_12px_#02fe01]" />
+                  <div className="w-14 h-14 rounded-full border border-accent/60 bg-accent/10 flex items-center justify-center shadow-[0_0_24px_rgb(var(--accent-rgb)/0.2)]">
+                    <div className="w-5 h-5 rounded-full bg-accent shadow-[0_0_12px_var(--accent)]" />
                   </div>
-                  <div className="text-[#02fe01] font-mono text-sm font-bold tracking-widest">CONNECTED</div>
+                  <div className="text-accent font-mono text-sm font-bold tracking-widest">CONNECTED</div>
                 </div>
 
                 <div className="space-y-1.5">
                   {['Device registered', 'Connection verified', 'Tracking active'].map((item) => (
                     <div key={item} className="flex items-center gap-3 text-[11px] font-mono text-gray-400">
-                      <div className="w-1 h-1 rounded-full bg-[#02fe01]" />
+                      <div className="w-1 h-1 rounded-full bg-accent" />
                       <span>{item}</span>
                     </div>
                   ))}

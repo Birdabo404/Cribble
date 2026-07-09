@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { formatNumber, formatRelative, tierAccent, HACKER_GREEN } from './format'
+import { formatNumber, formatRelative, tierAccent, ACCENT, accentA } from './format'
 import type { ActiveDevice, MeUser, RankInfo } from '@/types/dashboard'
 
 const ROLE_LABELS: Record<string, string> = {
@@ -79,15 +79,15 @@ export function AccountModal({
         onClick={onClose}
         aria-hidden
       />
-      <div className="relative w-full max-w-md rounded-2xl border border-zinc-800/80 bg-[#0a0a0a] shadow-2xl overflow-hidden">
+      <div className="relative w-full max-w-md rounded-2xl border border-zinc-800/80 bg-[var(--panel)] shadow-2xl overflow-hidden">
         {/* HEADER */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-900">
           <div className="flex items-center gap-2.5">
             <span
               className="h-1.5 w-1.5 rounded-full"
               style={{
-                background: HACKER_GREEN,
-                boxShadow: `0 0 8px ${HACKER_GREEN}aa`
+                background: ACCENT,
+                boxShadow: `0 0 8px ${accentA(0.67)}`
               }}
             />
             <span className="text-[10px] tracking-[0.4em] text-zinc-300">
@@ -141,9 +141,9 @@ export function AccountModal({
                 <span
                   className="text-[9px] tracking-[0.3em] px-1.5 py-0.5 rounded border"
                   style={{
-                    color: HACKER_GREEN,
-                    borderColor: `${HACKER_GREEN}55`,
-                    background: `${HACKER_GREEN}0d`
+                    color: ACCENT,
+                    borderColor: `${accentA(0.33)}`,
+                    background: `${accentA(0.05)}`
                   }}
                 >
                   {roleLabel.toUpperCase()}
@@ -158,7 +158,7 @@ export function AccountModal({
           <div className="px-5 pb-4">
             <div className="rounded-lg border border-zinc-900 bg-black/40 px-3 py-2.5">
               <div className="text-[9px] tracking-[0.3em] text-zinc-600">
-                <span style={{ color: `${HACKER_GREEN}99` }}>{'// '}</span>
+                <span style={{ color: `${accentA(0.6)}` }}>{'// '}</span>
                 MISSION
               </div>
               <div className="mt-0.5 text-xs text-zinc-300">
@@ -216,7 +216,7 @@ export function AccountModal({
         <div className="border-t border-zinc-900 px-5 py-3 flex items-center justify-between">
           <a
             href="/leaderboard"
-            className="text-[10px] tracking-[0.3em] text-zinc-400 hover:text-[#02fe01] transition-colors"
+            className="text-[10px] tracking-[0.3em] text-zinc-400 hover:text-accent transition-colors"
           >
             LEADERBOARD →
           </a>

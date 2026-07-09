@@ -8,7 +8,7 @@ type Star = {
   size: number
   duration: number
   delay: number
-  tint: 'white' | 'emerald'
+  tint: 'base' | 'accent'
 }
 
 type AsteroidConfig = {
@@ -44,7 +44,7 @@ export default function SpaceBackdrop() {
           size: (sizeRoll < 0.75 ? 1 : sizeRoll < 0.95 ? 1.5 : 2) + sizeBoost,
           duration: 2.5 + Math.random() * 4.5,
           delay: Math.random() * 6,
-          tint: Math.random() < 0.92 ? 'white' : 'emerald'
+          tint: Math.random() < 0.92 ? 'base' : 'accent'
         })
       }
       return list
@@ -65,16 +65,18 @@ export default function SpaceBackdrop() {
   }, [])
 
   const renderStar = (s: Star, i: number, keyPrefix: string) => {
-    const isWhite = s.tint === 'white'
-    const glow = isWhite
+    // --star-rgb flips with the theme (white stars on black, dark on white);
+    // accent-tinted stars follow --accent-rgb (green in dark, orange in light).
+    const isBase = s.tint === 'base'
+    const glow = isBase
       ? s.size >= 2.5
-        ? '0 0 5px rgba(255,255,255,0.75), 0 0 12px rgba(255,255,255,0.28)'
+        ? '0 0 5px rgb(var(--star-rgb) / 0.75), 0 0 12px rgb(var(--star-rgb) / 0.28)'
         : s.size >= 2
-        ? '0 0 4px rgba(255,255,255,0.7), 0 0 10px rgba(255,255,255,0.22)'
+        ? '0 0 4px rgb(var(--star-rgb) / 0.7), 0 0 10px rgb(var(--star-rgb) / 0.22)'
         : s.size >= 1.5
-        ? '0 0 3px rgba(255,255,255,0.55)'
-        : '0 0 2px rgba(255,255,255,0.4)'
-      : '0 0 3px rgba(110,231,183,0.45)'
+        ? '0 0 3px rgb(var(--star-rgb) / 0.55)'
+        : '0 0 2px rgb(var(--star-rgb) / 0.4)'
+      : '0 0 3px rgb(var(--accent-rgb) / 0.45)'
     return (
       <span
         key={`${keyPrefix}-${i}`}
@@ -84,7 +86,7 @@ export default function SpaceBackdrop() {
           left: `${s.left}%`,
           width: `${s.size}px`,
           height: `${s.size}px`,
-          background: isWhite ? 'rgb(255,255,255)' : 'rgb(167,243,208)',
+          background: isBase ? 'rgb(var(--star-rgb))' : 'rgb(var(--accent-rgb) / 0.8)',
           opacity: 0.35,
           boxShadow: glow,
           animation: `cribble-twinkle ${s.duration}s ease-in-out ${s.delay}s infinite`
@@ -171,9 +173,9 @@ export default function SpaceBackdrop() {
           background: linear-gradient(
             90deg,
             transparent 0%,
-            rgba(255, 255, 255, 0.05) 30%,
-            rgba(255, 255, 255, 0.6) 80%,
-            rgba(255, 255, 255, 0.95) 100%
+            rgb(var(--star-rgb) / 0.05) 30%,
+            rgb(var(--star-rgb) / 0.6) 80%,
+            rgb(var(--star-rgb) / 0.95) 100%
           );
           transform: rotate(20deg);
           opacity: 0;
@@ -186,11 +188,11 @@ export default function SpaceBackdrop() {
           top: -1.5px;
           width: 4px;
           height: 4px;
-          background: #ffffff;
+          background: rgb(var(--star-rgb));
           border-radius: 9999px;
           box-shadow:
-            0 0 8px rgba(255, 255, 255, 0.9),
-            0 0 16px rgba(110, 231, 183, 0.7);
+            0 0 8px rgb(var(--star-rgb) / 0.9),
+            0 0 16px rgb(var(--accent-rgb) / 0.7);
         }
 
         /* Single asteroid: idles for most of its long cycle, then flies

@@ -15,11 +15,11 @@ export function HeroCard({
 }) {
   return (
     <section className="col-span-12 md:col-span-8">
-      <div className="relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-gradient-to-br from-zinc-950 via-[#0b0e0c] to-black p-7">
+      <div className="relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-gradient-to-br from-zinc-950 via-[var(--panel)] to-black p-7">
         <div
           aria-hidden
           className="absolute -top-32 -right-24 h-64 w-64 rounded-full opacity-25 blur-3xl"
-          style={{ background: 'radial-gradient(circle, rgba(2,254,1,0.4), transparent 70%)' }}
+          style={{ background: 'radial-gradient(circle, rgb(var(--accent-rgb)/0.4), transparent 70%)' }}
         />
         <div className="relative flex items-start justify-between gap-4">
           <div>
@@ -34,7 +34,7 @@ export function HeroCard({
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
               <span className="inline-flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-[#02fe01] shadow-[0_0_8px_rgba(2,254,1,0.7)]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_8px_rgb(var(--accent-rgb)/0.7)]" />
                 <span>+{formatNumber(Math.round(todayDelta))} today</span>
               </span>
               {rank && <span className="text-zinc-700">·</span>}

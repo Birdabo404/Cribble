@@ -1,4 +1,4 @@
-import { HACKER_GREEN, SEASON } from './format'
+import { ACCENT, SEASON, accentA } from './format'
 
 export function SeasonCard({ pct, daysLeft }: { pct: number; daysLeft: number }) {
   return (
@@ -7,7 +7,7 @@ export function SeasonCard({ pct, daysLeft }: { pct: number; daysLeft: number })
         <div
           aria-hidden
           className="absolute -top-20 -right-16 h-44 w-44 rounded-full opacity-20 blur-3xl"
-          style={{ background: 'radial-gradient(circle, rgba(2,254,1,0.4), transparent 70%)' }}
+          style={{ background: 'radial-gradient(circle, rgb(var(--accent-rgb)/0.4), transparent 70%)' }}
         />
         <div className="relative">
           <div className="text-[10px] tracking-[0.4em] text-zinc-300">{SEASON.name}</div>
@@ -22,14 +22,14 @@ export function SeasonCard({ pct, daysLeft }: { pct: number; daysLeft: number })
               className="h-full"
               style={{
                 width: `${pct}%`,
-                background: HACKER_GREEN,
-                boxShadow: `0 0 8px ${HACKER_GREEN}99`
+                background: ACCENT,
+                boxShadow: `0 0 8px ${accentA(0.6)}`
               }}
             />
           </div>
           <div className="mt-2 flex justify-between text-[10px] tracking-[0.3em] text-zinc-500">
             <span>PROGRESS</span>
-            <span style={{ color: HACKER_GREEN }}>{pct}%</span>
+            <span style={{ color: ACCENT }}>{pct}%</span>
           </div>
         </div>
       </div>

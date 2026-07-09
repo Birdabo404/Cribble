@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react'
 
-const HACKER_GREEN = '#02fe01'
+import { accentA } from '@/lib/theme'
 // Amber CRT tone for the "not ready / standby" state — deliberately distinct
 // from the green "live" signal used everywhere else on the site.
 const STANDBY_AMBER = '#f5a524'
@@ -183,7 +183,7 @@ function Dots() {
 
 function ProviderTag({ state }: { state: ProviderState }) {
   const isStandby = state === 'standby'
-  const color = isStandby ? STANDBY_AMBER : '#71717a'
+  const color = isStandby ? STANDBY_AMBER : 'rgb(var(--z500))'
   return (
     <span
       className="whitespace-nowrap rounded-sm border px-1.5 py-px text-[9px] tracking-[0.2em]"
@@ -271,7 +271,7 @@ export function AuthStatusModal({
       <div
         className="auth-pop relative w-full max-w-md rounded-xl border border-white/10 p-6"
         style={{
-          background: 'linear-gradient(180deg, #0b0b0b 0%, #060606 100%)',
+          background: 'linear-gradient(180deg, var(--panel) 0%, var(--background) 100%)',
           boxShadow:
             '0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.02), 0 0 60px rgba(245,165,36,0.05)'
         }}
@@ -331,7 +331,7 @@ export function AuthStatusModal({
 
         <p
           className="mt-4 text-center text-[10px] tracking-[0.25em]"
-          style={{ color: `${HACKER_GREEN}88` }}
+          style={{ color: `${accentA(0.53)}` }}
         >
           {'// see you on the board soon'}
         </p>

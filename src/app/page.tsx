@@ -12,7 +12,8 @@ const Globe = dynamic(() => import('@/components/Globe'), {
 
 type Status = 'idle' | 'submitting' | 'success' | 'error'
 
-const HACKER_GREEN = '#02fe01'
+import { ACCENT, accentA } from '@/lib/theme'
+import { ThemeToggle } from '@/components/ThemeToggle'
 const IS_PUBLIC_SITE_LOCKED = process.env.NEXT_PUBLIC_SITE_LOCKED === 'true'
 
 export default function HomeV2() {
@@ -47,13 +48,13 @@ export default function HomeV2() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 font-mono selection:bg-[#02fe01]/20 flex flex-col relative overflow-hidden">
+    <div className="min-h-screen bg-black text-zinc-100 font-mono selection:bg-accent/20 flex flex-col relative overflow-hidden">
       {/* faint hacker-green wash on the right side — sits behind the globe */}
       <div
         aria-hidden
         className="pointer-events-none absolute top-1/2 -translate-y-1/2 right-[-12%] h-[640px] w-[640px] rounded-full opacity-[0.12] blur-3xl"
         style={{
-          background: `radial-gradient(circle, ${HACKER_GREEN}, transparent 70%)`
+          background: `radial-gradient(circle, ${ACCENT}, transparent 70%)`
         }}
       />
       {/* thin horizon line — single retro accent */}
@@ -61,7 +62,7 @@ export default function HomeV2() {
         aria-hidden
         className="pointer-events-none absolute inset-x-0 bottom-0 h-px opacity-30"
         style={{
-          background: `linear-gradient(90deg, transparent, ${HACKER_GREEN}55, transparent)`
+          background: `linear-gradient(90deg, transparent, ${accentA(0.33)}, transparent)`
         }}
       />
       {/* minimalist white asteroids — occasional fly-by */}
@@ -78,8 +79,8 @@ export default function HomeV2() {
                 <span
                   className="h-1.5 w-1.5 rounded-full"
                   style={{
-                    background: HACKER_GREEN,
-                    boxShadow: `0 0 8px ${HACKER_GREEN}b0`
+                    background: ACCENT,
+                    boxShadow: `0 0 8px ${accentA(0.69)}`
                   }}
                 />
                 PRIVATE BETA · INVITE-ONLY
@@ -118,7 +119,7 @@ export default function HomeV2() {
                 ) : (
                   <button
                     onClick={() => setShowAuthStatus(true)}
-                    className="inline-flex items-center gap-2 rounded-md border border-[#02fe01]/70 bg-[#02fe01]/10 px-4 py-2 text-xs tracking-[0.18em] text-[#02fe01] shadow-[0_0_18px_rgba(2,254,1,0.18)] transition-colors hover:bg-[#02fe01]/15"
+                    className="inline-flex items-center gap-2 rounded-md border border-accent/70 bg-accent/10 px-4 py-2 text-xs tracking-[0.18em] text-accent shadow-[0_0_18px_rgb(var(--accent-rgb)/0.18)] transition-colors hover:bg-accent/15"
                   >
                     SIGN IN
                   </button>
@@ -128,7 +129,7 @@ export default function HomeV2() {
                   <button
                     onClick={() => setShowForm(true)}
                     className="text-xs tracking-[0.2em] text-zinc-400 hover:text-[color:var(--hg)] transition-colors"
-                    style={{ ['--hg' as string]: HACKER_GREEN }}
+                    style={{ ['--hg' as string]: ACCENT }}
                   >
                     join the waitlist →
                   </button>
@@ -144,7 +145,7 @@ export default function HomeV2() {
                 <form onSubmit={submit} className="mt-5 max-w-md" noValidate>
                   <div
                     className="flex items-stretch border rounded-md bg-zinc-950/80 overflow-hidden transition-colors"
-                    style={{ borderColor: '#27272a' }}
+                    style={{ borderColor: 'rgb(var(--z800))' }}
                   >
                     <span className="pl-3 pr-1 flex items-center text-zinc-600 text-xs select-none">
                       ▸
@@ -166,8 +167,8 @@ export default function HomeV2() {
                       disabled={status === 'submitting' || !email}
                       className="text-[11px] tracking-[0.2em] px-4 border-l border-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       style={{
-                        color: HACKER_GREEN,
-                        background: 'rgba(2,254,1,0.10)'
+                        color: ACCENT,
+                        background: 'rgb(var(--accent-rgb)/0.10)'
                       }}
                     >
                       {status === 'submitting' ? 'SENDING…' : 'JOIN'}
@@ -188,9 +189,9 @@ export default function HomeV2() {
                 <div
                   className="mt-6 max-w-md rounded-md border px-4 py-3 text-xs"
                   style={{
-                    borderColor: `${HACKER_GREEN}55`,
-                    background: `${HACKER_GREEN}0d`,
-                    color: HACKER_GREEN
+                    borderColor: `${accentA(0.33)}`,
+                    background: `${accentA(0.05)}`,
+                    color: ACCENT
                   }}
                 >
                   <span className="tracking-[0.2em]">▸ ON THE LIST.</span>{' '}
@@ -229,9 +230,10 @@ function Header() {
     <header className="pt-8 flex items-center justify-between">
       <div className="text-sm tracking-[0.4em] text-zinc-100 font-semibold">
         CRIBBLE
-        <span style={{ color: HACKER_GREEN }}>.</span>
+        <span style={{ color: ACCENT }}>.</span>
       </div>
       <nav className="flex items-center gap-1">
+        <ThemeToggle className="mr-2" />
         <a
           href="https://twitter.com/cribbledotdev"
           target="_blank"
@@ -272,7 +274,7 @@ function Footer() {
         <span className="tracking-[0.25em]">CURSOR</span>
       </a>
 
-      <span style={{ color: `${HACKER_GREEN}99` }}>
+      <span style={{ color: `${accentA(0.6)}` }}>
         {'// backed by no one'}
       </span>
     </footer>
@@ -321,18 +323,18 @@ function GlobeStage() {
         style={{
           width: ORBIT_SIZE,
           height: ORBIT_SIZE,
-          border: '1px dashed rgba(255,255,255,0.06)'
+          border: '1px dashed rgb(var(--star-rgb) / 0.06)'
         }}
       />
 
-      {/* inner glow */}
+      {/* inner glow — follows the globe halo (blue-white dark / orange light) */}
       <div
         aria-hidden
-        className="absolute inset-0 m-auto rounded-full blur-3xl opacity-30 pointer-events-none"
+        className="absolute inset-0 m-auto rounded-full blur-3xl opacity-30 pointer-events-none transition-[background] duration-700"
         style={{
           width: 'min(360px, 80vw)',
           height: 'min(360px, 80vw)',
-          background: `radial-gradient(circle, ${HACKER_GREEN}26, transparent 70%)`
+          background: 'radial-gradient(circle, rgb(var(--globe-glow-rgb) / 0.15), transparent 70%)'
         }}
       />
 
@@ -350,7 +352,7 @@ function GlobeStage() {
           className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 h-px w-10"
           style={{
             background:
-              'linear-gradient(to right, transparent, rgba(255,255,255,0.45))',
+              'linear-gradient(to right, transparent, rgb(var(--star-rgb) / 0.45))',
             transform: 'translate(-50%, -50%) rotate(0deg) translateX(-12px)'
           }}
         />
@@ -359,7 +361,7 @@ function GlobeStage() {
           className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full bg-white"
           style={{
             boxShadow:
-              '0 0 6px rgba(255,255,255,0.9), 0 0 14px rgba(255,255,255,0.35)'
+              '0 0 6px rgb(var(--star-rgb) / 0.9), 0 0 14px rgb(var(--star-rgb) / 0.35)'
           }}
         />
       </div>
@@ -370,7 +372,7 @@ function GlobeStage() {
 
       {/* tiny corner annotation */}
       <div className="absolute bottom-2 right-2 text-[9px] tracking-[0.3em] text-zinc-700 pointer-events-none">
-        {'// 10 ai hubs'}
+        {'// 15 ai hubs · drag to spin'}
       </div>
 
       <style jsx global>{`
@@ -530,9 +532,9 @@ function AsteroidField() {
           background: linear-gradient(
             90deg,
             transparent 0%,
-            rgba(255, 255, 255, 0.05) 30%,
-            rgba(255, 255, 255, 0.55) 80%,
-            rgba(255, 255, 255, 0.92) 100%
+            rgb(var(--star-rgb) / 0.05) 30%,
+            rgb(var(--star-rgb) / 0.55) 80%,
+            rgb(var(--star-rgb) / 0.92) 100%
           );
           opacity: 0;
           will-change: transform, opacity;
@@ -545,9 +547,9 @@ function AsteroidField() {
           top: -1.5px;
           width: 4px;
           height: 4px;
-          background: #ffffff;
+          background: rgb(var(--star-rgb));
           border-radius: 9999px;
-          box-shadow: 0 0 6px rgba(255, 255, 255, 0.85);
+          box-shadow: 0 0 6px rgb(var(--star-rgb) / 0.85);
         }
 
         @media (prefers-reduced-motion: reduce) {

@@ -1,4 +1,4 @@
-import { HACKER_GREEN } from './format'
+import { ACCENT, accentA } from './format'
 
 export function LoadingScreen() {
   return (
@@ -8,8 +8,8 @@ export function LoadingScreen() {
           <span
             className="loading-dot h-1.5 w-1.5 rounded-full"
             style={{
-              background: HACKER_GREEN,
-              boxShadow: `0 0 8px ${HACKER_GREEN}99`
+              background: ACCENT,
+              boxShadow: `0 0 8px ${accentA(0.6)}`
             }}
           />
           SYNCING TELEMETRY
@@ -18,8 +18,8 @@ export function LoadingScreen() {
           <div
             className="loading-dash h-full w-1/3"
             style={{
-              background: HACKER_GREEN,
-              boxShadow: `0 0 6px ${HACKER_GREEN}99`
+              background: ACCENT,
+              boxShadow: `0 0 6px ${accentA(0.6)}`
             }}
           />
         </div>
