@@ -264,6 +264,8 @@ function LoginSplit() {
           alt="Pixel-art Golden Gate Bridge at dusk"
           fill
           priority
+          loading="eager"
+          fetchPriority="high"
           sizes="(min-width: 1024px) 44rem, 100vw"
           className={`object-cover transition-opacity duration-700 ease-in-out ${
             isLight ? 'opacity-0' : 'opacity-100'
@@ -274,6 +276,8 @@ function LoginSplit() {
           alt="Pixel-art classical palace under a blue sky"
           fill
           priority
+          loading="eager"
+          fetchPriority="high"
           sizes="(min-width: 1024px) 44rem, 100vw"
           className={`object-cover transition-opacity duration-700 ease-in-out ${
             isLight ? 'opacity-100' : 'opacity-0'
