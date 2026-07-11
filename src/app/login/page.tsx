@@ -2,6 +2,7 @@
 
 import { FormEvent, Suspense, useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
+import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import { ThemeToggle } from '@/components/ThemeToggle'
@@ -108,12 +109,12 @@ function LoginSplit() {
       <div className="flex flex-col p-7 sm:p-10 lg:p-12">
         {/* top bar */}
         <div className="flex items-center justify-between">
-          <a
+          <Link
             href="/"
             className="text-sm font-semibold tracking-[0.35em] text-zinc-100 transition-colors duration-500"
           >
             CRIBBLE<span className="text-accent">.</span>
-          </a>
+          </Link>
           <ThemeToggle />
         </div>
 
@@ -247,12 +248,12 @@ function LoginSplit() {
         {/* bottom bar */}
         <p className="text-center text-xs text-zinc-500 transition-colors duration-500 lg:text-left">
           No invite yet?{' '}
-          <a
+          <Link
             href="/"
             className="text-accent/80 underline-offset-2 transition-colors hover:text-accent hover:underline"
           >
             join the waitlist
-          </a>
+          </Link>
         </p>
       </div>
 

@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     // No userId in the response: this endpoint requires no auth, so it must
     // not map device UUIDs to accounts.
     return NextResponse.json({ connected: !!device.is_active })
-  } catch (error) {
+  } catch {
     return NextResponse.json({ connected: false, error: 'Internal server error' }, { status: 500 })
   }
 }

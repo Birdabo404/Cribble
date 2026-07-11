@@ -139,7 +139,7 @@ export default function RadarDisplay({ status }: RadarDisplayProps) {
           const by = cy + Math.sin(b.a) * R * b.d
 
           // How far behind the sweep angle is this blip?
-          let diff = ((angleRef.current - b.a) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2)
+          const diff = ((angleRef.current - b.a) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2)
           const fade = diff < sweepAngle ? 1 - diff / sweepAngle : 0
           if (fade <= 0) return
 

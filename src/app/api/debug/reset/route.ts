@@ -6,8 +6,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-type ResetAction = 'reset_all'
-
 /**
  * Dangerous reset endpoint - DEVELOPMENT ONLY.
  * Protected by: NODE_ENV check + session auth + confirmation token.
@@ -61,8 +59,8 @@ export async function POST(request: NextRequest) {
       try {
         await fn()
         results[label] = 'ok'
-      } catch (err: any) {
-        const msg = err?.message || String(err)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
         errors.push(`${label}: ${msg}`)
         results[label] = msg
       }
@@ -102,12 +100,12 @@ export async function POST(request: NextRequest) {
       results,
       errors: errors.length ? errors : undefined
     })
-  } catch (error: any) {
+  } catch (error) {
     return NextResponse.json(
       {
         success: false,
         error: 'Internal server error',
-        details: error?.message || String(error)
+        details: error instanceof Error ? error.message : String(error)
       },
       { status: 500 }
     )

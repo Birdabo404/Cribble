@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useTheme } from 'next-themes'
+import type createGlobeType from 'cobe'
+import type { COBEOptions } from 'cobe'
 
 interface GlobeProps {
   className?: string
@@ -71,8 +73,8 @@ const mixRGB = (a: RGB, b: RGB): RGB => [mix(a[0], b[0]), mix(a[1], b[1]), mix(a
 
 export default function Globe({ className = '', size = 400 }: GlobeProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const globeRef = useRef<any>(null)
-  const [createGlobe, setCreateGlobe] = useState<any>(null)
+  const globeRef = useRef<ReturnType<typeof createGlobeType> | null>(null)
+  const [createGlobe, setCreateGlobe] = useState<typeof createGlobeType | null>(null)
   const [ready, setReady] = useState(false)
   const { resolvedTheme } = useTheme()
   const isLight = resolvedTheme === 'light'
@@ -165,7 +167,7 @@ export default function Globe({ className = '', size = 400 }: GlobeProps) {
         markerColor: initial.markerColor,
         glowColor: initial.glowColor,
         markers: AI_HUBS,
-        onRender: (state: any) => {
+        onRender: (state: Parameters<COBEOptions['onRender']>[0]) => {
           if (!announcedReady) {
             announcedReady = true
             setReady(true)

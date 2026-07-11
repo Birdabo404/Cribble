@@ -12,7 +12,7 @@ interface LogEntry {
   timestamp: string
   level: LogLevel
   message: string
-  context?: Record<string, any>
+  context?: Record<string, unknown>
   error?: Error
   userId?: string
   ip?: string
@@ -56,7 +56,7 @@ class Logger {
     return JSON.stringify(logData)
   }
 
-  private log(level: LogLevel, message: string, context?: Record<string, any>, error?: Error): void {
+  private log(level: LogLevel, message: string, context?: Record<string, unknown>, error?: Error): void {
     if (!this.shouldLog(level)) return
 
     const entry: LogEntry = {
@@ -84,6 +84,10 @@ class Logger {
       case LogLevel.CRITICAL:
         console.error(formattedLog)
         break
+      default: {
+        const exhaustiveCheck: never = level
+        throw new Error(`Unhandled log level: ${exhaustiveCheck}`)
+      }
     }
 
     // In production, you might want to send to external logging service
@@ -96,6 +100,7 @@ class Logger {
     // Placeholder for external logging service integration
     // Examples: Sentry, LogRocket, DataDog, etc.
     try {
+      void entry
       // Example: await sendToSentry(entry)
       // Example: await sendToLogRocket(entry)
     } catch (err) {
@@ -104,23 +109,23 @@ class Logger {
     }
   }
 
-  debug(message: string, context?: Record<string, any>): void {
+  debug(message: string, context?: Record<string, unknown>): void {
     this.log(LogLevel.DEBUG, message, context)
   }
 
-  info(message: string, context?: Record<string, any>): void {
+  info(message: string, context?: Record<string, unknown>): void {
     this.log(LogLevel.INFO, message, context)
   }
 
-  warn(message: string, context?: Record<string, any>): void {
+  warn(message: string, context?: Record<string, unknown>): void {
     this.log(LogLevel.WARN, message, context)
   }
 
-  error(message: string, error?: Error, context?: Record<string, any>): void {
+  error(message: string, error?: Error, context?: Record<string, unknown>): void {
     this.log(LogLevel.ERROR, message, context, error)
   }
 
-  critical(message: string, error?: Error, context?: Record<string, any>): void {
+  critical(message: string, error?: Error, context?: Record<string, unknown>): void {
     this.log(LogLevel.CRITICAL, message, context, error)
   }
 
@@ -134,14 +139,14 @@ class Logger {
     })
   }
 
-  apiError(endpoint: string, error: Error, context?: Record<string, any>): void {
+  apiError(endpoint: string, error: Error, context?: Record<string, unknown>): void {
     this.log(LogLevel.ERROR, `API Error: ${endpoint}`, {
       endpoint,
       ...context
     }, error)
   }
 
-  securityEvent(event: string, ip?: string, userAgent?: string, context?: Record<string, any>): void {
+  securityEvent(event: string, ip?: string, userAgent?: string, context?: Record<string, unknown>): void {
     this.log(LogLevel.WARN, `Security Event: ${event}`, {
       event,
       ip,
@@ -174,6 +179,6 @@ export function logApiRequest(request: Request, endpoint: string) {
 }
 
 // Helper function for API error logging
-export function logApiError(endpoint: string, error: Error, context?: Record<string, any>) {
+export function logApiError(endpoint: string, error: Error, context?: Record<string, unknown>) {
   logger.apiError(endpoint, error, context)
 } 
