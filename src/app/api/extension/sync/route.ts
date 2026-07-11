@@ -33,7 +33,7 @@ interface ExtensionEvent {
   timestamp: number
   duration?: number
   score?: number
-  metadata?: any
+  metadata?: unknown
 }
 
 const extensionEventSchema = z.object({
@@ -42,7 +42,7 @@ const extensionEventSchema = z.object({
   timestamp: z.number().int().nonnegative(),
   duration: z.number().int().nonnegative().optional(),
   score: z.number().int().optional(),
-  metadata: z.any().optional()
+  metadata: z.unknown().optional()
 })
 
 const syncRequestSchema = z.object({
@@ -334,7 +334,7 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
   // Check for existing events already stored for this user, scoped through the
   // schema-compat identity column, then dedup by (domain, timestamp).
   const batchTimestamps = uniqueEvents.map(e => e.timestamp)
-  let existingQuery = supabase
+  const existingQuery = supabase
     .from('events_raw')
     .select('domain, timestamp')
     .in('timestamp', batchTimestamps)

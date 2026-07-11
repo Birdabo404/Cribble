@@ -12,7 +12,7 @@ const supabase = createClient(
 // Revoke an invite code (soft delete — keeps the redemption history).
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const admin = await getAdminUser(request)
@@ -20,7 +20,8 @@ export async function DELETE(
       return NextResponse.json({ error: admin.error }, { status: admin.status })
     }
 
-    const inviteId = Number(params.id)
+    const { id } = await params
+    const inviteId = Number(id)
     if (!Number.isInteger(inviteId) || inviteId <= 0) {
       return NextResponse.json({ error: 'Invalid invite id' }, { status: 400 })
     }

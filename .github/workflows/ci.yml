@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder
+      SITE_LOCKED: "false"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run audit:prod
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:run
+      - run: npm run build
+      - name: Smoke test production server
+        run: |
+          node <<'NODE'
+          const { spawn } = require('node:child_process')
+
+          const baseUrl = 'http://127.0.0.1:3100'
+          const server = spawn(
+            process.execPath,
+            ['node_modules/next/dist/bin/next', 'start', '--hostname', '127.0.0.1', '--port', '3100'],
+            { stdio: 'inherit' }
+          )
+          const sleep = (milliseconds) =>
+            new Promise((resolve) => setTimeout(resolve, milliseconds))
+
+          async function waitForServer() {
+            for (let attempt = 0; attempt < 30; attempt += 1) {
+              try {
+                const response = await fetch(baseUrl)
+                if (response.ok) return
+              } catch {
+                // The server is still starting.
+              }
+              await sleep(1000)
+            }
+            throw new Error('Production server did not become ready')
+          }
+
+          async function expectStatus(pathname, expectedStatus, options) {
+            const response = await fetch(`${baseUrl}${pathname}`, options)
+            if (response.status !== expectedStatus) {
+              throw new Error(
+                `${pathname}: expected ${expectedStatus}, received ${response.status}`
+              )
+            }
+            return response
+          }
+
+          async function main() {
+            try {
+              await waitForServer()
+
+              const pages = [
+                '/',
+                '/login',
+                '/welcome',
+                '/dashboard',
+                '/dashboard/legacy',
+                '/leaderboard',
+                '/profile',
+                '/admin/invites'
+              ]
+              for (const pathname of pages) {
+                await expectStatus(pathname, 200)
+              }
+
+              const loginResponse = await expectStatus('/login', 200)
+              const expectedHeaders = {
+                'content-security-policy': "default-src 'self'",
+                'permissions-policy': 'camera=(), microphone=(), geolocation=()',
+                'referrer-policy': 'strict-origin-when-cross-origin',
+                'x-content-type-options': 'nosniff',
+                'x-frame-options': 'DENY'
+              }
+              for (const [name, expectedValue] of Object.entries(expectedHeaders)) {
+                const actualValue = loginResponse.headers.get(name) || ''
+                if (!actualValue.includes(expectedValue)) {
+                  throw new Error(`${name}: expected ${expectedValue}, received ${actualValue}`)
+                }
+              }
+
+              await expectStatus('/api/user/me', 401)
+              await expectStatus('/api/device/verify', 400)
+              const preflightResponse = await expectStatus('/api/device/verify', 200, {
+                method: 'OPTIONS'
+              })
+              const allowedOrigin =
+                preflightResponse.headers.get('access-control-allow-origin')
+              if (!allowedOrigin || allowedOrigin === '*') {
+                throw new Error('API preflight response must use a restricted allowed origin')
+              }
+            } finally {
+              server.kill('SIGTERM')
+            }
+          }
+
+          main().catch((error) => {
+            console.error(error)
+            process.exitCode = 1
+          })
+          NODE

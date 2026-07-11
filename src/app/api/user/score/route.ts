@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     const eventsScore = events?.reduce((sum, e) => sum + (e.active_ms || 0) * 0.001 + (e.visits || 0) * 50, 0) || 0
     const score = Math.round(eventsScore)
     return NextResponse.json({ success: true, score })
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
     const eventsScore = events?.reduce((sum, e) => sum + (e.active_ms || 0) * 0.001 + (e.visits || 0) * 50, 0) || 0
     const score = Math.round(eventsScore)
     return NextResponse.json({ success: true, score })
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

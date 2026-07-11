@@ -27,7 +27,8 @@ export async function GET(request: NextRequest) {
       .limit(1)
     
     // Also try to get actual table info
-    let schemaData: any = null, schemaError: any = null
+    let schemaData: unknown = null
+    let schemaError: { message?: string } | null = null
     try {
       const result = await supabase.rpc('get_table_info', { table_name: 'events_raw' })
       schemaData = result.data
@@ -59,6 +60,7 @@ export async function GET(request: NextRequest) {
       success: true,
       results: {
         sampleRow: columns?.[0] ? Object.keys(columns[0]) : 'No rows',
+        columnsError: columnsError?.message,
         sampleData: sample,
         sampleError: sampleError?.message,
         totalCount: count,
