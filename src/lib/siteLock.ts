@@ -16,10 +16,16 @@ export function isSiteLocked(): boolean {
   return TRUE_LIKE_VALUES.has(publicFlag)
 }
 
+// Static assets served from /public that pages need even while locked
+// (e.g. the /login artwork, logos, badges). Matched by file extension so the
+// Next image optimizer's internal fetch of the source file also succeeds.
+const STATIC_ASSET_RE = /\.(png|jpe?g|gif|webp|avif|svg|ico|mp3|mp4|webm|woff2?)$/i
+
 export function isAllowedDuringLock(pathname: string): boolean {
   if (pathname === '/') return true
   if (pathname === '/welcome' || pathname === '/login') return true
   if (pathname.startsWith('/audio/')) return true
+  if (!pathname.startsWith('/api/') && STATIC_ASSET_RE.test(pathname)) return true
   if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) return true
   if (pathname === '/admin' || pathname.startsWith('/admin/')) return true
   if (pathname.startsWith('/api/admin/')) return true
