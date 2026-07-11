@@ -111,12 +111,16 @@ export default function SetupWizardModal({
       })
 
       if (response.ok) {
+        const body = await response.json().catch(() => ({}))
+        const syncToken = typeof body.syncToken === 'string' ? body.syncToken : undefined
+
         setDeviceUuid(finalDeviceUuid)
         window.postMessage({
           type: 'CRIBBLE_DEVICE_REGISTERED',
           deviceUuid: finalDeviceUuid,
           userId: userId,
-          success: true
+          success: true,
+          ...(syncToken ? { syncToken } : {})
         }, window.location.origin)
 
         setCurrentStep('verify')

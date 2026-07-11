@@ -1,3 +1,4 @@
+import { animDelay } from '@/components/dashboard-v3/anim'
 import { ACCENT, accentA } from './format'
 
 // "DASHBOARD" rendered in ANSI Shadow block characters, matching the leaderboard ASCII.
@@ -25,7 +26,10 @@ export function AsciiBanner({ username }: { username: string }) {
           {ASCII_DASHBOARD}
         </pre>
       </div>
-      <p className="text-[10px] tracking-[0.3em] text-zinc-600 text-center">
+      <p
+        className="anim-rise text-[10px] tracking-[0.3em] text-zinc-600 text-center"
+        style={animDelay(180)}
+      >
         <span style={{ color: `${accentA(0.8)}` }}>{'// '}</span>
         pilot console
         <span className="mx-2 text-zinc-800">·</span>

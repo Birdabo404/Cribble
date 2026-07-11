@@ -109,6 +109,14 @@ export const rateLimitConfigs = {
     windowMs: 60 * 1000, // 1 minute
     maxRequests: 1000 // 1000 requests per minute
   },
+
+  // Device verification polling (extension reconcile + setup wizard).
+  // Must comfortably allow the extension's periodic reconcile without
+  // permitting high-rate UUID enumeration.
+  deviceVerify: {
+    windowMs: 60 * 1000, // 1 minute
+    maxRequests: 30 // 30 requests per minute
+  },
   
   // Very strict for admin operations
   admin: {

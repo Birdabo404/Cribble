@@ -78,14 +78,16 @@ describe('extensionBridge wire contract', () => {
       uuid: 'device-abc',
       isRegistered: true,
       userId: 42,
-      queueSize: 3
+      queueSize: 3,
+      hasSyncToken: true
     })
 
     await expect(promise).resolves.toEqual({
       deviceUuid: 'device-abc',
       isRegistered: true,
       userId: 42,
-      queueSize: 3
+      queueSize: 3,
+      hasSyncToken: true
     })
     expect(fake.__listeners.size).toBe(0)
   })
@@ -119,7 +121,8 @@ describe('extensionBridge wire contract', () => {
       deviceUuid: 'dev-1',
       isRegistered: false,
       userId: null,
-      queueSize: undefined
+      queueSize: undefined,
+      hasSyncToken: false
     })
   })
 
@@ -168,6 +171,20 @@ describe('extensionBridge wire contract', () => {
         success: true,
         deviceUuid: 'dev-xyz',
         userId: 9
+      }
+    ])
+  })
+
+  it('notifyDeviceRegistered forwards the issued sync token when present', async () => {
+    const { notifyDeviceRegistered } = await import('./extensionBridge')
+    notifyDeviceRegistered({ deviceUuid: 'dev-xyz', userId: 9, syncToken: 'tok-123' })
+    expect(fake.__sentPayloads).toEqual([
+      {
+        type: 'CRIBBLE_DEVICE_REGISTERED',
+        success: true,
+        deviceUuid: 'dev-xyz',
+        userId: 9,
+        syncToken: 'tok-123'
       }
     ])
   })

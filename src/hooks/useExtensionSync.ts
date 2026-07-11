@@ -1,6 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { formatNumber } from '@/components/dashboard-v2/format'
+import { toast } from '@/components/Toaster'
+import { requestNotificationsRefresh } from '@/hooks/useNotifications'
 import {
   forceExtensionSync,
   notifyDeviceRegistered,
@@ -69,22 +72,37 @@ function canStartHandshake(phase: ExtensionLinkPhase): boolean {
   }
 }
 
+interface RegistrationResult {
+  ok: boolean
+  syncToken: string | null
+}
+
 async function registerDeviceWithBackend(
-  user: MeUser,
+  userId: number,
   deviceUuid: string
-): Promise<boolean> {
+): Promise<RegistrationResult> {
   const res = await fetch('/api/extension/sync', {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       deviceUuid,
-      userId: user.id,
+      userId,
       events: [],
       batchId: crypto.randomUUID()
     })
   })
-  return res.ok
+  if (!res.ok) return { ok: false, syncToken: null }
+
+  try {
+    const body = await res.json()
+    return {
+      ok: true,
+      syncToken: typeof body.syncToken === 'string' ? body.syncToken : null
+    }
+  } catch {
+    return { ok: true, syncToken: null }
+  }
 }
 
 export interface UseExtensionSyncArgs {
@@ -112,6 +130,20 @@ export function useExtensionSync({
   const connectedDeviceRef = useRef<string | null>(null)
   const activeDeviceUuidRef = useRef<string | null>(activeDevice?.device_uuid ?? null)
 
+  // The `user` object is replaced on every /api/user/me fetch (30s poll +
+  // every refreshDashboard call). Callbacks must depend on the stable numeric
+  // id — depending on the object identity made attemptHandshake (and the
+  // auto-handshake effect below) re-fire after its own refreshDashboard(),
+  // re-registering the device in a tight loop. Every registration rotates the
+  // device sync token server-side, so the loop kept invalidating the token
+  // the extension had just stored and ingestion 401'd forever.
+  const userId = user?.id ?? null
+  const userIdRef = useRef<number | null>(userId)
+
+  useEffect(() => {
+    userIdRef.current = userId
+  }, [userId])
+
   useEffect(() => {
     activeDeviceUuidRef.current = activeDevice?.device_uuid ?? null
   }, [activeDevice?.device_uuid])
@@ -126,7 +158,8 @@ export function useExtensionSync({
   }, [transition])
 
   const attemptHandshake = useCallback(async (): Promise<boolean> => {
-    if (!user) return false
+    const sessionUserId = userIdRef.current
+    if (!sessionUserId) return false
     if (!canStartHandshake(phaseRef.current)) return false
 
     transition('detecting')
@@ -136,21 +169,30 @@ export function useExtensionSync({
       return false
     }
 
-    // Already bound to this device in this session — no work needed.
+    // Already bound to this device in this session — no work needed. A
+    // registered device without a sync token still needs re-registration so
+    // the server can issue one (its syncs would otherwise be rejected).
     const sameDevice = activeDeviceUuidRef.current === identity.deviceUuid
     if (
       connectedDeviceRef.current === identity.deviceUuid &&
       identity.isRegistered &&
+      identity.hasSyncToken &&
       sameDevice
     ) {
       transition('linked')
       return true
     }
 
-    let linked = identity.isRegistered && sameDevice
+    let linked = identity.isRegistered && identity.hasSyncToken && sameDevice
+    let issuedSyncToken: string | null = null
     if (!linked) {
       transition('linking')
-      linked = await registerDeviceWithBackend(user, identity.deviceUuid)
+      const registration = await registerDeviceWithBackend(
+        sessionUserId,
+        identity.deviceUuid
+      )
+      linked = registration.ok
+      issuedSyncToken = registration.syncToken
     }
 
     if (!linked) {
@@ -159,22 +201,29 @@ export function useExtensionSync({
     }
 
     connectedDeviceRef.current = identity.deviceUuid
-    notifyDeviceRegistered({ deviceUuid: identity.deviceUuid, userId: user.id })
+    notifyDeviceRegistered({
+      deviceUuid: identity.deviceUuid,
+      userId: sessionUserId,
+      ...(issuedSyncToken ? { syncToken: issuedSyncToken } : {})
+    })
     await refreshDashboard({ scope: 'full' })
     transition('linked')
     return true
-  }, [user, transition, refreshDashboard])
+  }, [transition, refreshDashboard])
 
   const handleSync = useCallback(async () => {
-    if (!user) return
+    if (!userIdRef.current) return
     if (phaseRef.current === 'syncing') return
+
+    // Handshake BEFORE entering the 'syncing' phase — canStartHandshake
+    // blocks once we're syncing, so a handshake attempted inside the syncing
+    // phase silently no-ops. This is also the manual recovery path: it
+    // re-registers a never-linked device and re-issues a sync token the
+    // extension may have lost, both required for the force sync to succeed.
+    await attemptHandshake()
 
     transition('syncing')
     try {
-      if (!activeDeviceUuidRef.current) {
-        await attemptHandshake()
-      }
-
       // "before" must be read AFTER handshake to avoid comparing against a
       // closure captured before device registration persisted.
       const beforeFetch = await fetchMe()
@@ -183,22 +232,55 @@ export function useExtensionSync({
       const forceResult = await forceExtensionSync()
 
       const afterFetch = await refreshDashboard({ scope: 'full' })
-      const after = takeSnapshot(afterFetch, before)
+      let after = takeSnapshot(afterFetch, before)
 
       // SYNC_COMPLETE can fire before user_scores is written; one retry
       // covers the gap without falling back to the 30s poll.
       if (forceResult.success && !snapshotChanged(before, after)) {
         await new Promise((resolve) => setTimeout(resolve, STALE_SYNC_RETRY_MS))
-        await refreshDashboard({ scope: 'core' })
+        const retryFetch = await refreshDashboard({ scope: 'core' })
+        after = takeSnapshot(retryFetch, after)
       }
+
+      const changed = snapshotChanged(before, after)
+      const scoreDelta = after.totalScore - before.totalScore
+      // The ZERO_SNAPSHOT fallback would inflate the delta to the full
+      // lifetime total, so only celebrate when "before" actually loaded.
+      if (beforeFetch.ok && changed && scoreDelta > 0) {
+        toast({
+          kind: 'score',
+          title: 'SCORE SYNCED',
+          body: `Total ${formatNumber(after.totalScore)} pts`,
+          scoreDelta
+        })
+      } else if (forceResult.success || changed) {
+        toast({
+          kind: 'success',
+          title: 'SYNC COMPLETE',
+          body: 'Everything is up to date.'
+        })
+      } else {
+        toast({
+          kind: 'error',
+          title: 'SYNC FAILED',
+          body: 'Extension not responding. Check that Cribble is installed and enabled.'
+        })
+      }
+
+      // A rank or milestone notification may have just been created
+      // server-side; nudge the bell instead of waiting for its next poll.
+      requestNotificationsRefresh()
     } finally {
       settleIdlePhase()
     }
-  }, [user, transition, attemptHandshake, fetchMe, refreshDashboard, settleIdlePhase])
+  }, [transition, attemptHandshake, fetchMe, refreshDashboard, settleIdlePhase])
 
-  // Re-runs when the server reports a different active device.
+  // Runs once per login and when the server reports a different active
+  // device. Depends on primitives only (see userIdRef note above): the
+  // handshake itself refreshes the dashboard, and an object dependency here
+  // would retrigger the effect on every refresh, looping registrations.
   useEffect(() => {
-    if (!user) return
+    if (!userId) return
     let cancelled = false
     const timer = setTimeout(() => {
       if (cancelled) return
@@ -208,7 +290,7 @@ export function useExtensionSync({
       cancelled = true
       clearTimeout(timer)
     }
-  }, [user, activeDevice?.device_uuid, attemptHandshake])
+  }, [userId, activeDevice?.device_uuid, attemptHandshake])
 
   return {
     phase,

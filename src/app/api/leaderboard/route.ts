@@ -22,6 +22,8 @@ export async function GET() {
         created_at,
         last_extension_sync,
         subscription_tier,
+        user_type,
+        metadata,
         user_scores(total_score),
         user_devices(is_active, last_sync_at)
       `)
@@ -85,8 +87,23 @@ export async function GET() {
       return 'FREE'
     }
 
+    // Row shape for the joined select above (client has no generated DB types)
+    interface UserRow {
+      id: number
+      twitter_username: string | null
+      twitter_name: string | null
+      twitter_profile_image: string | null
+      created_at: string
+      last_extension_sync: string | null
+      subscription_tier: string | null
+      user_type: string | null
+      metadata: Record<string, unknown> | null
+      user_scores: { total_score: number | null } | null
+      user_devices: { is_active: boolean; last_sync_at: string | null }[] | null
+    }
+
     // Build leaderboard data — no more per-user DB calls
-    const leaderboardData = users.map((user: any) => {
+    const leaderboardData = (users as unknown as UserRow[]).map((user) => {
       // Score from joined user_scores
       const score = Math.round(user.user_scores?.total_score || 0)
 
@@ -118,8 +135,39 @@ export async function GET() {
         ? (Date.now() - new Date(lastSync).getTime()) < (24 * 60 * 60 * 1000)
         : false
 
+      // Auth provider heuristic: X avatars are served from pbs.twimg.com,
+      // GitHub avatars from *.githubusercontent.com. (No provider column —
+      // GitHub sign-ins reuse the twitter_* columns.)
+      const avatarUrl = String(user.twitter_profile_image || '')
+      const provider: 'x' | 'github' | 'other' = avatarUrl.includes('pbs.twimg.com')
+        ? 'x'
+        : avatarUrl.includes('githubusercontent.com')
+          ? 'github'
+          : 'other'
+
+      const username = user.twitter_username || `User${user.id}`
+
+      // Profile extras live in the free-form metadata JSONB. Fall back to the
+      // auth handle for the provider's own network.
+      const meta = user.metadata || {}
+      const metaSocials = (meta.socials || {}) as Record<string, unknown>
+      const socialOr = (key: string, fallback: string | null = null) => {
+        const v = metaSocials[key]
+        return typeof v === 'string' && v.trim() ? v.trim() : fallback
+      }
+      const socials = {
+        x: socialOr('x', provider === 'x' ? username : null),
+        github: socialOr('github', provider === 'github' ? username : null),
+        youtube: socialOr('youtube'),
+        linkedin: socialOr('linkedin')
+      }
+      const bannerImage =
+        typeof meta.banner_image === 'string' && meta.banner_image.trim()
+          ? meta.banner_image.trim()
+          : null
+
       return {
-        username: user.twitter_username || `User${user.id}`,
+        username,
         display_name: user.twitter_name || user.twitter_username || `User${user.id}`,
         profile_image: user.twitter_profile_image || null,
         score,
@@ -127,7 +175,11 @@ export async function GET() {
         lastSeen: lastSync || user.created_at,
         tier: normalizeTier(user.subscription_tier),
         userId: user.id,
-        topTools
+        topTools,
+        provider,
+        banner_image: bannerImage,
+        socials,
+        role: user.user_type || null
       }
     })
       .sort((a, b) => b.score - a.score)
@@ -141,7 +193,7 @@ export async function GET() {
         'Expires': '0'
       }
     })
-  } catch (err: any) {
+  } catch (err) {
     console.error('[Leaderboard] Unexpected error:', err)
     return NextResponse.json({ success: false, error: 'Unexpected error' }, { status: 500 })
   }

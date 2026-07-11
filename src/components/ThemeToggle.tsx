@@ -1,12 +1,19 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { useTheme } from 'next-themes'
+
+type DocumentWithViewTransition = Document & {
+  startViewTransition?: (callback: () => void) => void
+}
 
 /**
  * DARK / LIGHT toggle styled to match the terminal chrome.
  * Renders a fixed-size placeholder until mounted to avoid hydration
  * mismatch (next-themes resolves the theme client-side only).
+ * Theme switches crossfade via the View Transitions API where available
+ * (falls back to an instant swap elsewhere / under reduced motion).
  */
 export function ThemeToggle({ className = '' }: { className?: string }) {
   const { resolvedTheme, setTheme } = useTheme()
@@ -16,10 +23,26 @@ export function ThemeToggle({ className = '' }: { className?: string }) {
 
   const isLight = mounted && resolvedTheme === 'light'
 
+  const toggleTheme = () => {
+    const next = isLight ? 'dark' : 'light'
+    const doc = document as DocumentWithViewTransition
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    if (typeof doc.startViewTransition === 'function' && !reduceMotion) {
+      // flushSync ensures next-themes applies the html class inside the
+      // transition callback, so old/new snapshots differ and crossfade.
+      doc.startViewTransition(() => {
+        flushSync(() => setTheme(next))
+      })
+    } else {
+      setTheme(next)
+    }
+  }
+
   return (
     <button
       type="button"
-      onClick={() => setTheme(isLight ? 'dark' : 'light')}
+      onClick={toggleTheme}
       aria-label={isLight ? 'Switch to dark mode' : 'Switch to light mode'}
       title={isLight ? 'Switch to dark mode' : 'Switch to light mode'}
       className={`flex items-center gap-1.5 text-[10px] tracking-[0.3em] px-3 py-1.5 rounded border border-zinc-800 hover:border-zinc-600 text-zinc-300 hover:text-zinc-100 transition-colors font-mono ${className}`}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import { resolveAppUrl, resolveGithubRedirectUri } from '@/lib/appUrl'
+import { isAllowlistedAdmin } from '@/lib/adminAuth'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,15 +22,15 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('GitHub OAuth error:', error)
-      return NextResponse.redirect(`${appUrl}?error=github_oauth_denied`)
+      return NextResponse.redirect(`${appUrl}/login?error=github_oauth_denied`)
     }
     if (!code) {
-      return NextResponse.redirect(`${appUrl}?error=github_missing_code`)
+      return NextResponse.redirect(`${appUrl}/login?error=github_missing_code`)
     }
 
     const storedState = request.cookies.get('github_oauth_state')?.value
     if (!storedState || storedState !== state) {
-      return NextResponse.redirect(`${appUrl}?error=github_invalid_state`)
+      return NextResponse.redirect(`${appUrl}/login?error=github_invalid_state`)
     }
 
     // Exchange code for token
@@ -52,13 +53,13 @@ export async function GET(request: NextRequest) {
     if (!tokenRes.ok) {
       const text = await tokenRes.text()
       console.error('GitHub token exchange failed:', text)
-      return NextResponse.redirect(`${appUrl}?error=github_token_failed`)
+      return NextResponse.redirect(`${appUrl}/login?error=github_token_failed`)
     }
 
     const tokenData = await tokenRes.json()
     const accessToken = tokenData.access_token
     if (!accessToken) {
-      return NextResponse.redirect(`${appUrl}?error=github_no_token`)
+      return NextResponse.redirect(`${appUrl}/login?error=github_no_token`)
     }
 
     // Fetch user profile
@@ -68,7 +69,7 @@ export async function GET(request: NextRequest) {
     if (!userRes.ok) {
       const text = await userRes.text()
       console.error('GitHub user fetch failed:', text)
-      return NextResponse.redirect(`${appUrl}?error=github_user_failed`)
+      return NextResponse.redirect(`${appUrl}/login?error=github_user_failed`)
     }
     const ghUser = await userRes.json()
 
@@ -88,32 +89,59 @@ export async function GET(request: NextRequest) {
     if (existingUser) {
       // Deliberately not storing the GitHub access token: the app never uses
       // it after login, so persisting it would only widen the blast radius of
-      // a database leak. Null also scrubs tokens stored by older versions.
+      // a database leak. Empty string (the column is NOT NULL) also scrubs
+      // tokens stored by older versions.
       const { data: updated, error: updateError } = await supabase
         .from('users')
         .update({
-          twitter_access_token: null,
+          twitter_access_token: '',
           twitter_username: username,
           twitter_name: displayName,
           twitter_profile_image: avatar,
-          last_login: new Date().toISOString()
+          last_login: new Date().toISOString(),
+          // Keep the env allowlist as a recovery path: admins listed in
+          // ADMIN_USERNAMES regain the flag on every login.
+          ...(isAllowlistedAdmin(username) ? { is_admin: true } : {})
         })
         .eq('twitter_id', providerId)
         .select()
         .single()
       if (updateError) {
         console.error('Failed to update GitHub user:', updateError)
-        return NextResponse.redirect(`${appUrl}?error=github_user_update_failed`)
+        return NextResponse.redirect(`${appUrl}/login?error=github_user_update_failed`)
       }
       user = updated
     } else {
+      // New signups are invite-gated. The code was stashed in a cookie by
+      // /api/auth/github before the OAuth redirect.
+      const inviteCode = request.cookies.get('cribble_invite')?.value
+      if (!inviteCode) {
+        return NextResponse.redirect(`${appUrl}/login?error=invite_required`)
+      }
+
+      // Atomically claims one use of the code; returns null when the code
+      // is unknown, revoked, expired, or fully used.
+      const { data: inviteCodeId, error: redeemError } = await supabase.rpc(
+        'redeem_invite_code',
+        { p_code: inviteCode }
+      )
+      if (redeemError) {
+        console.error('Invite redemption failed:', redeemError)
+        return NextResponse.redirect(`${appUrl}/login?error=invite_check_failed`)
+      }
+      if (!inviteCodeId) {
+        return NextResponse.redirect(`${appUrl}/login?error=invite_invalid`)
+      }
+
       const { data: created, error: insertError } = await supabase
         .from('users')
         .insert({
           twitter_id: providerId,
+          twitter_access_token: '',
           twitter_username: username,
           twitter_name: displayName,
           twitter_profile_image: avatar,
+          is_admin: isAllowlistedAdmin(username),
           created_at: new Date().toISOString(),
           last_login: new Date().toISOString()
         })
@@ -121,9 +149,28 @@ export async function GET(request: NextRequest) {
         .single()
       if (insertError) {
         console.error('Failed to create GitHub user:', insertError)
-        return NextResponse.redirect(`${appUrl}?error=github_user_create_failed`)
+        // Give the claimed use back so the invite still works on retry.
+        const { data: invite } = await supabase
+          .from('invite_codes')
+          .select('use_count')
+          .eq('id', inviteCodeId)
+          .single()
+        if (invite && invite.use_count > 0) {
+          await supabase
+            .from('invite_codes')
+            .update({ use_count: invite.use_count - 1 })
+            .eq('id', inviteCodeId)
+        }
+        return NextResponse.redirect(`${appUrl}/login?error=github_user_create_failed`)
       }
       user = created
+
+      const { error: redemptionLogError } = await supabase
+        .from('invite_redemptions')
+        .insert({ invite_code_id: inviteCodeId, user_id: user.id })
+      if (redemptionLogError) {
+        console.error('Failed to log invite redemption:', redemptionLogError)
+      }
     }
 
     // Create session
@@ -139,7 +186,7 @@ export async function GET(request: NextRequest) {
 
     if (sessionError) {
       console.error('Failed to create session (github):', sessionError)
-      return NextResponse.redirect(`${appUrl}?error=session_creation_failed`)
+      return NextResponse.redirect(`${appUrl}/login?error=session_creation_failed`)
     }
 
     // Land every successful login on /welcome. That page plays the boot
@@ -153,9 +200,10 @@ export async function GET(request: NextRequest) {
       maxAge: 30 * 24 * 60 * 60
     })
     response.cookies.delete('github_oauth_state')
+    response.cookies.delete('cribble_invite')
     return response
   } catch (err) {
     console.error('GitHub OAuth callback error:', err)
-    return NextResponse.redirect(`${appUrl}?error=github_callback_failed`)
+    return NextResponse.redirect(`${appUrl}/login?error=github_callback_failed`)
   }
 }

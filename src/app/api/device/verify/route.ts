@@ -15,8 +15,9 @@ export async function OPTIONS(request: NextRequest) {
 // GET - Verify if device UUID is active and registered
 export async function GET(request: NextRequest) {
   try {
-    // Rate limiting - strict limits for device verification
-    const rateLimitResult = checkRateLimit(request, rateLimitConfigs.auth)
+    // Rate limiting - tolerant of the extension's periodic reconcile, strict
+    // enough to make UUID enumeration impractical.
+    const rateLimitResult = checkRateLimit(request, rateLimitConfigs.deviceVerify)
     if (!rateLimitResult.success) {
       const headers = createRateLimitResponse(rateLimitResult)
       return NextResponse.json(
@@ -77,10 +78,11 @@ export async function GET(request: NextRequest) {
 
     const isActive = device.is_active === true
 
-    // Note: intentionally no username / display name / auth-provider id here.
-    // This endpoint is reachable with only a device UUID, so it must not leak
-    // account identity details. The numeric userId is required by the
-    // extension to attribute its sync payloads.
+    // Note: intentionally no account identity here — no username, display
+    // name, auth-provider id, or userId. This endpoint is reachable with only
+    // a device UUID, so it must not let a UUID be resolved to an account.
+    // The server attributes sync payloads from its own device binding, so the
+    // extension never needs the userId from this endpoint.
     return NextResponse.json({
       success: true,
       verified: isActive,
@@ -88,7 +90,6 @@ export async function GET(request: NextRequest) {
       message: isActive ? 'Device is active and verified' : 'Device is registered but not active',
       device: {
         uuid: device.device_uuid,
-        userId: isActive ? device.user_id : null,
         lastSync: device.last_sync_at
       }
     })
@@ -108,8 +109,7 @@ export async function GET(request: NextRequest) {
 // POST - Verify if device UUID is active and registered
 export async function POST(request: NextRequest) {
   try {
-    // Rate limiting - strict limits for device verification
-    const rateLimitResult = checkRateLimit(request, rateLimitConfigs.auth)
+    const rateLimitResult = checkRateLimit(request, rateLimitConfigs.deviceVerify)
     if (!rateLimitResult.success) {
       const headers = createRateLimitResponse(rateLimitResult)
       return NextResponse.json(

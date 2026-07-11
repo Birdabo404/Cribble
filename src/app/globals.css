@@ -21,6 +21,18 @@
   --star-rgb: 255 255 255;
   --dot-rgb: 255 255 255;
 
+  /* default profile banner duotone. Dark mode: retro-arcade neon pink
+     into violet (synthwave palette — magenta is the complement of the
+     green accent, so the two pop against each other without either
+     reading as "more green"). Light mode: accent orange, single hue. */
+  --banner-a: 255 45 149;
+  --banner-b: 168 85 247;
+
+  /* champion-only banner variant: neon gold into amber. Dark mode only —
+     light mode overrides back to the plain accent orange below. */
+  --banner-gold-a: 255 214 68;
+  --banner-gold-b: 255 152 0;
+
   /* landing globe halo: whitish blue in dark mode */
   --globe-glow-rgb: 150 190 255;
 
@@ -53,6 +65,27 @@
   --g800: 31 41 55;
   --g900: 17 24 39;
   --g950: 3 7 18;
+
+  /* Liquid glass (Apple-style) panel tokens — dark: frosted white over black */
+  --glass-tint: 255 255 255;
+  --glass-bg-top: 0.06;
+  --glass-bg-bottom: 0.02;
+  --glass-border: rgb(255 255 255 / 0.10);
+  --glass-highlight: rgb(255 255 255 / 0.16);
+  --glass-sheen: 0.07;
+  --glass-shadow:
+    0 20px 44px -20px rgb(0 0 0 / 0.85),
+    0 4px 14px -8px rgb(0 0 0 / 0.6);
+  --glass-inset-bg: rgb(255 255 255 / 0.04);
+  --glass-inset-border: rgb(255 255 255 / 0.08);
+
+  /* hover / dynamic lensing */
+  --glass-border-hover: rgb(255 255 255 / 0.20);
+  --glass-highlight-hover: rgb(255 255 255 / 0.28);
+  --glass-shadow-hover:
+    0 28px 60px -22px rgb(0 0 0 / 0.9),
+    0 6px 18px -8px rgb(0 0 0 / 0.65),
+    0 0 30px -6px rgb(var(--accent-rgb) / 0.14);
 }
 
 html.light {
@@ -65,6 +98,9 @@ html.light {
 
   --star-rgb: 39 39 42;
   --dot-rgb: 0 0 0;
+
+  --banner-a: 255 94 0;
+  --banner-b: 255 94 0;
 
   /* landing globe halo: neon orange in light mode */
   --globe-glow-rgb: 255 94 0;
@@ -97,12 +133,66 @@ html.light {
   --g800: 229 231 235;
   --g900: 243 244 246;
   --g950: 249 250 251;
+
+  /* Liquid glass — light: milky white glass over a soft tinted canvas */
+  --glass-tint: 255 255 255;
+  --glass-bg-top: 0.66;
+  --glass-bg-bottom: 0.42;
+  --glass-border: rgb(10 10 10 / 0.10);
+  --glass-highlight: rgb(255 255 255 / 0.95);
+  --glass-sheen: 0.5;
+  --glass-shadow:
+    0 20px 44px -22px rgb(10 10 10 / 0.30),
+    0 4px 14px -10px rgb(10 10 10 / 0.14);
+  --glass-inset-bg: rgb(255 255 255 / 0.55);
+  --glass-inset-border: rgb(10 10 10 / 0.08);
+
+  /* hover / dynamic lensing */
+  --glass-border-hover: rgb(10 10 10 / 0.18);
+  --glass-highlight-hover: rgb(255 255 255 / 1);
+  --glass-shadow-hover:
+    0 28px 60px -24px rgb(10 10 10 / 0.38),
+    0 6px 18px -10px rgb(10 10 10 / 0.18),
+    0 0 30px -6px rgb(var(--accent-rgb) / 0.16);
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
   font-family: 'Inter', system-ui, sans-serif;
+}
+
+/*
+ * Theme-switch crossfade (View Transitions API, triggered by ThemeToggle).
+ * Old and new theme snapshots dissolve into each other instead of the
+ * default quick swap; the incoming frame eases in slightly slower for a
+ * softer landing.
+ */
+::view-transition-old(root) {
+  animation: theme-fade-out 480ms ease both;
+}
+
+::view-transition-new(root) {
+  animation: theme-fade-in 560ms ease both;
+}
+
+@keyframes theme-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes theme-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
 }
 
 @layer utilities {
@@ -444,6 +534,147 @@ body {
   color: rgb(var(--accent-rgb) / 0.4);
 }
 
+/*
+ * Liquid glass panels (Apple-style).
+ * Frosted translucent surface with backdrop blur + saturation boost,
+ * a specular top highlight, and a soft drop shadow to lift panels
+ * off the backdrop in both themes.
+ */
+.liquid-glass {
+  position: relative;
+  background: linear-gradient(
+    180deg,
+    rgb(var(--glass-tint) / var(--glass-bg-top)),
+    rgb(var(--glass-tint) / var(--glass-bg-bottom))
+  );
+  backdrop-filter: blur(24px) saturate(170%);
+  -webkit-backdrop-filter: blur(24px) saturate(170%);
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    var(--glass-shadow),
+    inset 0 1px 0 var(--glass-highlight),
+    inset 0 -1px 0 rgb(var(--glass-tint) / 0.04);
+  /* --tilt-x/--tilt-y are driven by GlassTilt (0deg at rest); the eased
+     transition makes the pane trail the cursor with a liquid lag. */
+  transform: perspective(1100px) rotateX(var(--tilt-x, 0deg))
+    rotateY(var(--tilt-y, 0deg));
+  transition:
+    transform 380ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 380ms ease,
+    box-shadow 380ms ease;
+}
+
+/* Specular sheen — soft light pooling in the top-left corner */
+.liquid-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    130% 70% at 18% 0%,
+    rgb(var(--glass-tint) / var(--glass-sheen)),
+    transparent 55%
+  );
+  pointer-events: none;
+}
+
+/* Sheen-free variant — for sparse panels where the corner light reads as a
+   random smudge instead of glass (e.g. leaderboard podium cards). */
+.liquid-glass-flat::before {
+  content: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .liquid-glass:hover {
+    /* lift + slight scale (the "lens" magnifying what's behind it),
+       keeping the cursor-driven tilt in the same transform */
+    transform: perspective(1100px) rotateX(var(--tilt-x, 0deg))
+      rotateY(var(--tilt-y, 0deg)) translateY(-3px) scale(1.006);
+    border-color: var(--glass-border-hover);
+    box-shadow:
+      var(--glass-shadow-hover),
+      inset 0 1px 0 var(--glass-highlight-hover),
+      inset 0 -1px 0 rgb(var(--glass-tint) / 0.07);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liquid-glass {
+    transition: none;
+  }
+  .liquid-glass:hover {
+    transform: none;
+  }
+}
+
+/* Champion podium card: swaps the banner duotone to neon gold.
+   In light mode the champion keeps the same orange as everyone else. */
+.banner-gold {
+  --banner-a: var(--banner-gold-a);
+  --banner-b: var(--banner-gold-b);
+}
+html.light .banner-gold {
+  --banner-a: 255 94 0;
+  --banner-b: 255 94 0;
+}
+
+/* Ambient background orbs: light mode only. Dark mode stays pure black —
+   the accent is reserved for content, not atmosphere. */
+.ambient-glow-field {
+  display: none;
+}
+html.light .ambient-glow-field {
+  display: block;
+}
+
+/*
+ * Static glass for floating chrome (dropdowns, modals): same material as
+ * .liquid-glass but without the hover lift/tilt/rim-sweep, so menus feel
+ * anchored rather than reactive.
+ */
+.glass-pop {
+  background: linear-gradient(
+    180deg,
+    rgb(var(--glass-tint) / var(--glass-bg-top)),
+    rgb(var(--glass-tint) / var(--glass-bg-bottom))
+  );
+  backdrop-filter: blur(28px) saturate(170%);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    var(--glass-shadow),
+    inset 0 1px 0 var(--glass-highlight);
+}
+
+@keyframes glass-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+}
+
+@keyframes glass-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+}
+
+/* Nested chips / mini-stats sitting on top of a glass panel */
+.liquid-glass-inset {
+  background: var(--glass-inset-bg);
+  border: 1px solid var(--glass-inset-border);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: border-color 300ms ease, background-color 300ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .liquid-glass-inset:hover {
+    border-color: var(--glass-border-hover);
+  }
+}
+
 /* Dashboard panel primitives */
 .db-panel {
   background: var(--panel);
@@ -490,8 +721,127 @@ body {
   animation: toastSlideIn 0.3s ease-out forwards;
 }
 
+/* Toast stack (Toaster.tsx) — entrance mirrors the dashboard's
+   rise-and-unblur language; the progress keyframe drains the
+   lifetime bar and is paused on hover via animation-play-state. */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+    filter: blur(6px);
+  }
+}
+
+.toast-enter {
+  animation: toast-in 420ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@keyframes toast-progress {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast-enter {
+    animation: none;
+  }
+}
+
 /* Radar ring expand — used by RadarDisplay component */
 @keyframes radar-ring-expand {
   0%   { transform: scale(0.4); opacity: 0.6; }
   100% { transform: scale(1.6); opacity: 0; }
+}
+
+/* ---------------------------------------------------------------------------
+   Entrance choreography — first-paint animations for dashboard elements.
+
+   Each utility animates once on mount and then fully releases (fill:
+   backwards), so hover transitions and transforms keep working afterwards.
+   Delay = --ad-base (set on the card by the page-level cascade) + --ad
+   (per-element stagger, set inline). Both default to 0ms so the utilities
+   are safe anywhere.
+--------------------------------------------------------------------------- */
+
+/* Rise: lift + unblur, for text blocks, chips, rows */
+@keyframes anim-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+    filter: blur(4px);
+  }
+}
+.anim-rise {
+  animation: anim-rise-in 640ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(var(--ad-base, 0ms) + var(--ad, 0ms));
+}
+
+/* Plain fade, for labels and decorations */
+@keyframes anim-fade-in {
+  from { opacity: 0; }
+}
+.anim-fade {
+  animation: anim-fade-in 800ms ease backwards;
+  animation-delay: calc(var(--ad-base, 0ms) + var(--ad, 0ms));
+}
+
+/* Grow-x: progress/meter fills sweep in from the left */
+@keyframes anim-grow-x-in {
+  from { transform: scaleX(0); }
+}
+.anim-grow-x {
+  transform-origin: left center;
+  animation: anim-grow-x-in 900ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(var(--ad-base, 0ms) + var(--ad, 0ms));
+}
+
+/* Cell pop: tiny overshoot, for heatmap cells and tracker dots */
+@keyframes anim-cell-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+.anim-cell {
+  animation: anim-cell-in 460ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  animation-delay: calc(var(--ad-base, 0ms) + var(--ad, 0ms));
+}
+
+/* Sweep: reveals a layer left → right via clip-path. Used for the hero
+   graph — robust with preserveAspectRatio="none", unlike stroke-dash
+   drawing which misrenders when combined with non-scaling strokes. */
+@keyframes anim-sweep-in {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+.anim-sweep {
+  animation: anim-sweep-in 1250ms cubic-bezier(0.65, 0, 0.35, 1) backwards;
+  animation-delay: calc(var(--ad-base, 0ms) + var(--ad, 0ms));
+}
+
+/* Ignite: element starts dark, flares slightly past its resting glow,
+   then settles. For streak-tracker dots lighting up one by one. */
+@keyframes anim-ignite-in {
+  from {
+    background-color: rgb(24 24 27);
+    box-shadow: none;
+  }
+  65% {
+    filter: brightness(1.75);
+  }
+}
+.anim-ignite {
+  animation: anim-ignite-in 700ms ease-out backwards;
+  animation-delay: calc(var(--ad-base, 0ms) + var(--ad, 0ms));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-rise,
+  .anim-fade,
+  .anim-grow-x,
+  .anim-cell,
+  .anim-sweep,
+  .anim-ignite {
+    animation: none;
+  }
 }

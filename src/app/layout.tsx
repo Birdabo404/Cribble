@@ -1,7 +1,6 @@
 import type { Metadata } from 'next'
-import { Inter, Noto_Sans_Arabic, Noto_Sans_JP, Noto_Sans_KR, Noto_Sans_SC, Roboto, Noto_Sans } from 'next/font/google'
+import { Inter, Noto_Sans_Arabic, Noto_Sans_JP, Noto_Sans_KR, Noto_Sans_SC, Press_Start_2P, Roboto } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/react'
-import Script from 'next/script'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import './globals.css'
 
@@ -29,6 +28,14 @@ const notoKorean = Noto_Sans_KR({
 const notoChinese = Noto_Sans_SC({ 
   subsets: ['latin'],
   variable: '--font-chinese',
+  display: 'swap',
+})
+
+// Retro pixel font for arcade-style stat readouts
+const pressStart = Press_Start_2P({
+  weight: '400',
+  subsets: ['latin'],
+  variable: '--font-pixel',
   display: 'swap',
 })
 
@@ -65,7 +72,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.className} ${notoArabic.variable} ${notoJapanese.variable} ${notoKorean.variable} ${notoChinese.variable} ${roboto.variable}`}>
+      <body className={`${inter.className} ${notoArabic.variable} ${notoJapanese.variable} ${notoKorean.variable} ${notoChinese.variable} ${roboto.variable} ${pressStart.variable}`}>
         <ThemeProvider>
           {children}
           <Analytics />

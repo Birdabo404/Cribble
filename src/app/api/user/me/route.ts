@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     const { data: user, error: userError } = await supabase
       .from('users')
       .select(
-        'id, twitter_username, twitter_name, twitter_profile_image, created_at, last_login, subscription_tier, user_type, active_device_uuid, last_extension_sync'
+        'id, twitter_username, twitter_name, twitter_profile_image, created_at, last_login, subscription_tier, user_type, active_device_uuid, last_extension_sync, is_admin'
       )
       .eq('id', session.userId)
       .single()

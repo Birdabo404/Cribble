@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from '@/components/Toaster'
+import { requestNotificationsRefresh } from '@/hooks/useNotifications'
 import {
   EMPTY_SCORES,
   EMPTY_STATS,
@@ -167,6 +169,13 @@ export function useDashboardData(): DashboardData {
     refreshRef.current = refreshDashboard
   }, [refreshDashboard])
 
+  // Latest total score, readable from the push-refresh listener below
+  // without re-subscribing it on every scores update.
+  const totalScoreRef = useRef(0)
+  useEffect(() => {
+    totalScoreRef.current = scores.total_score
+  }, [scores.total_score])
+
   useEffect(() => {
     if (!user) return
     const id = setInterval(() => {
@@ -181,9 +190,24 @@ export function useDashboardData(): DashboardData {
 
     const scheduleRefresh = () => {
       if (timer) return
-      timer = setTimeout(() => {
+      timer = setTimeout(async () => {
         timer = null
-        void refreshRef.current({ scope: 'core' })
+        const previousTotal = totalScoreRef.current
+        const result = await refreshRef.current({ scope: 'core' })
+        if (!result.ok || !result.data.scores) return
+        const delta = result.data.scores.total_score - previousTotal
+        // previousTotal > 0 guards the first load, where the "gain" would
+        // just be the lifetime total arriving.
+        if (delta > 0 && previousTotal > 0) {
+          toast({
+            kind: 'score',
+            title: 'POINTS EARNED',
+            body: 'Background sync from your extension.',
+            scoreDelta: delta,
+            durationMs: 4200
+          })
+          requestNotificationsRefresh()
+        }
       }, PUSH_REFRESH_DEBOUNCE_MS)
     }
 

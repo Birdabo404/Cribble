@@ -2,8 +2,8 @@
 
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 import WorldwideText from '@/components/WorldwideText'
-import { AuthStatusModal, AuthStatusPill } from '@/components/AuthStatus'
 
 const Globe = dynamic(() => import('@/components/Globe'), {
   ssr: false,
@@ -21,7 +21,6 @@ export default function HomeV2() {
   const [status, setStatus] = useState<Status>('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [showForm, setShowForm] = useState(false)
-  const [showAuthStatus, setShowAuthStatus] = useState(false)
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -107,22 +106,22 @@ export default function HomeV2() {
 
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 {!IS_PUBLIC_SITE_LOCKED ? (
-                  <button
-                    onClick={() => setShowAuthStatus(true)}
+                  <Link
+                    href="/login"
                     className="group inline-flex items-center gap-2.5 bg-white text-black text-sm font-medium px-5 py-2.5 rounded-md hover:bg-zinc-200 transition-colors"
                   >
                     <span>Register</span>
                     <span className="text-zinc-500 group-hover:translate-x-0.5 transition-transform">
                       →
                     </span>
-                  </button>
+                  </Link>
                 ) : (
-                  <button
-                    onClick={() => setShowAuthStatus(true)}
+                  <Link
+                    href="/login"
                     className="inline-flex items-center gap-2 rounded-md border border-accent/70 bg-accent/10 px-4 py-2 text-xs tracking-[0.18em] text-accent shadow-[0_0_18px_rgb(var(--accent-rgb)/0.18)] transition-colors hover:bg-accent/15"
                   >
                     SIGN IN
-                  </button>
+                  </Link>
                 )}
 
                 {!showForm && status !== 'success' && (
@@ -134,10 +133,6 @@ export default function HomeV2() {
                     join the waitlist →
                   </button>
                 )}
-              </div>
-
-              <div className="mt-4">
-                <AuthStatusPill onClick={() => setShowAuthStatus(true)} />
               </div>
 
               {/* Waitlist form (inline reveal) */}
@@ -212,15 +207,6 @@ export default function HomeV2() {
         <Footer />
       </div>
 
-      {showAuthStatus && (
-        <AuthStatusModal
-          onClose={() => setShowAuthStatus(false)}
-          onJoinWaitlist={() => {
-            setShowAuthStatus(false)
-            setShowForm(true)
-          }}
-        />
-      )}
     </div>
   )
 }

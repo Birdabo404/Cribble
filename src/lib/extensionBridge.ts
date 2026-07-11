@@ -12,6 +12,7 @@ export type ExtensionOutgoingMessage =
       success: boolean
       deviceUuid: string
       userId: number
+      syncToken?: string
     }
 
 interface ExtensionDetectedMessage {
@@ -20,6 +21,7 @@ interface ExtensionDetectedMessage {
   isRegistered?: unknown
   userId?: unknown
   queueSize?: unknown
+  hasSyncToken?: unknown
 }
 
 interface SyncCompleteMessage {
@@ -47,6 +49,9 @@ export interface ExtensionIdentity {
   isRegistered: boolean
   userId: number | null
   queueSize?: number
+  // False when the extension predates (or lost) its per-device sync token.
+  // The dashboard re-registers in that case so a fresh token gets issued.
+  hasSyncToken: boolean
 }
 
 export type ExtensionForceSyncSource =
@@ -125,7 +130,8 @@ export function requestExtensionIdentity(): Promise<ExtensionIdentity | null> {
             deviceUuid: msg.uuid,
             isRegistered: !!msg.isRegistered,
             userId: typeof msg.userId === 'number' ? msg.userId : null,
-            queueSize: typeof msg.queueSize === 'number' ? msg.queueSize : undefined
+            queueSize: typeof msg.queueSize === 'number' ? msg.queueSize : undefined,
+            hasSyncToken: !!msg.hasSyncToken
           }
         }
         case 'CRIBBLE_EXTENSION_ERROR':
@@ -162,17 +168,20 @@ export function forceExtensionSync(): Promise<ExtensionForceSyncResult> {
 }
 
 // Fire-and-forget: flips the extension popup to "linked" without waiting for
-// its next heartbeat.
+// its next heartbeat, and hands the freshly issued sync token to the
+// extension so subsequent ingestion requests authenticate.
 export function notifyDeviceRegistered(params: {
   deviceUuid: string
   userId: number
+  syncToken?: string
 }): void {
   if (typeof window === 'undefined') return
   const payload: ExtensionOutgoingMessage = {
     type: 'CRIBBLE_DEVICE_REGISTERED',
     success: true,
     deviceUuid: params.deviceUuid,
-    userId: params.userId
+    userId: params.userId,
+    ...(params.syncToken ? { syncToken: params.syncToken } : {})
   }
   try {
     window.postMessage(payload, window.location.origin)

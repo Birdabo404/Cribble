@@ -21,11 +21,16 @@ export function isAllowedDuringLock(pathname: string): boolean {
   if (pathname === '/welcome' || pathname === '/login') return true
   if (pathname.startsWith('/audio/')) return true
   if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) return true
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) return true
+  if (pathname.startsWith('/api/admin/')) return true
   if (pathname === '/leaderboard' || pathname.startsWith('/leaderboard/')) return true
   if (/^\/api\/waitlist\/?$/.test(pathname)) return true
   if (pathname.startsWith('/api/auth/')) return true
   if (/^\/api\/user\/(onboarding|me|tools|activity)\/?$/.test(pathname)) return true
   if (/^\/api\/leaderboard\/?$/.test(pathname)) return true
   if (pathname.startsWith('/api/extension/')) return true
+  // Extension reconcile polling (GET /api/device/verify) must keep working
+  // while the site is locked, same as the /api/extension/* sync path.
+  if (pathname.startsWith('/api/device/')) return true
   return false
 }

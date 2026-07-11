@@ -4,8 +4,15 @@ import { z } from 'zod'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
 import { getSessionUserId } from '@/lib/sessionAuth'
 import { isTrackedAiDomain } from '@/lib/aiDomains'
+import { evaluateScoreNotifications } from '@/lib/notifications'
 import { recalculateUserScore } from '@/lib/scoring'
 import { applyEventsUserEq, buildEventsUserInsertFields } from '@/lib/eventsIdentity'
+import {
+  DEVICE_TOKEN_HEADER,
+  generateDeviceSyncToken,
+  hashDeviceSyncToken,
+  verifyDeviceSyncToken
+} from '@/lib/deviceToken'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -176,6 +183,43 @@ async function validateDevice(userId: number, deviceUuid: string) {
   return !!device
 }
 
+// Server-side ceilings on how much a single user can bank per rolling 24h
+// window. Bounds score inflation from a modified client even though
+// individual durations are client-reported. Visits must be capped too:
+// they score a flat 40 points each and a zero-duration visit consumes no
+// active time, so without a visit ceiling the active-time cap could be
+// bypassed entirely by spamming visit events at unique timestamps.
+const MAX_CUMULATIVE_ACTIVE_MS_PER_24H = 16 * 60 * 60 * 1000
+const MAX_CUMULATIVE_VISITS_PER_24H = 600
+
+async function getUsageLast24h(userId: number): Promise<{ activeMs: number; visits: number }> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const query = supabase
+    .from('events_raw')
+    .select('active_ms, visits')
+    .gte('timestamp', since)
+  const { query: scopedQuery, column } = await applyEventsUserEq(supabase, query, userId)
+  if (!column) return { activeMs: 0, visits: 0 }
+
+  const { data, error } = await scopedQuery
+  if (error) {
+    console.error('[Extension Sync] 24h cumulative query failed:', error)
+    // Fail closed: pretend the caps are reached so a DB error can't be used
+    // to bypass the ceilings.
+    return {
+      activeMs: MAX_CUMULATIVE_ACTIVE_MS_PER_24H,
+      visits: MAX_CUMULATIVE_VISITS_PER_24H
+    }
+  }
+  return (data || []).reduce(
+    (acc, row) => ({
+      activeMs: acc.activeMs + (row.active_ms || 0),
+      visits: acc.visits + (row.visits || 0)
+    }),
+    { activeMs: 0, visits: 0 }
+  )
+}
+
 // Process extension events
 async function processEvents(userId: number, deviceUuid: string, events: ExtensionEvent[]) {
   if (!events || events.length === 0) return { processed: 0, errors: [] }
@@ -216,13 +260,51 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
     console.warn(`[Extension Sync] Filtered ${events.length - validEvents.length} invalid events out of ${events.length}`)
   }
 
+  // Enforce the rolling 24h active-time and visit ceilings. Events are
+  // admitted oldest first until a ceiling is reached; the rest are dropped
+  // (not queued), so a forged high-volume client cannot bank unbounded score.
+  const batchActiveMs = validEvents.reduce(
+    (sum, event) => sum + Math.min(event.duration || 0, MAX_ACTIVE_TIME_MS),
+    0
+  )
+  const batchVisits = validEvents.reduce(
+    (sum, event) => sum + (event.type === 'visit' ? 1 : 0),
+    0
+  )
+  let cappedEvents = validEvents
+  if (batchActiveMs > 0 || batchVisits > 0) {
+    const used = await getUsageLast24h(userId)
+    const activeCapHit = used.activeMs + batchActiveMs > MAX_CUMULATIVE_ACTIVE_MS_PER_24H
+    const visitCapHit = used.visits + batchVisits > MAX_CUMULATIVE_VISITS_PER_24H
+    if (activeCapHit || visitCapHit) {
+      let remainingMs = Math.max(0, MAX_CUMULATIVE_ACTIVE_MS_PER_24H - used.activeMs)
+      let remainingVisits = Math.max(0, MAX_CUMULATIVE_VISITS_PER_24H - used.visits)
+      cappedEvents = [...validEvents]
+        .sort((a, b) => a.timestamp - b.timestamp)
+        .filter(event => {
+          const eventMs = Math.min(event.duration || 0, MAX_ACTIVE_TIME_MS)
+          const eventVisits = event.type === 'visit' ? 1 : 0
+          if (eventMs > remainingMs || eventVisits > remainingVisits) return false
+          remainingMs -= eventMs
+          remainingVisits -= eventVisits
+          return true
+        })
+      console.warn(
+        `[Extension Sync] 24h cap hit for user ${userId}: ` +
+        `usedMs=${used.activeMs}, batchMs=${batchActiveMs}, ` +
+        `usedVisits=${used.visits}, batchVisits=${batchVisits}, ` +
+        `kept ${cappedEvents.length}/${validEvents.length} events`
+      )
+    }
+  }
+
   // Resolve the identity column(s) this Supabase project expects. Some
   // deployments still key events_raw on the legacy twitter_user_id integer
   // column (with user_id as a UUID), so we must not hardcode user_id.
   const userInsertFields = await buildEventsUserInsertFields(supabase, userId)
 
   // Convert extension events to events_raw format
-  const processedEvents = validEvents.map(event => ({
+  const processedEvents = cappedEvents.map(event => ({
     ...userInsertFields,
     device_uuid: deviceUuid,
     timestamp: new Date(event.timestamp).toISOString(),
@@ -276,18 +358,18 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
     return { processed: 0, errors: ['All events already exist in database'] }
   }
 
-  // Insert events with proper error handling for constraint violations
+  // Insert idempotently: a plain bulk INSERT aborts on the first duplicate
+  // (23505), silently dropping the genuinely-new rows in a retried batch.
+  // ignoreDuplicates makes true duplicates a no-op while new rows persist.
   const { data, error } = await supabase
     .from('events_raw')
-    .insert(finalEvents)
+    .upsert(finalEvents, {
+      onConflict: 'user_id,domain,timestamp',
+      ignoreDuplicates: true
+    })
     .select()
 
   if (error) {
-    // Check if it's a duplicate constraint violation
-    if (error.code === '23505') {
-      console.warn(`[Extension Sync] Some events were duplicates and could not be inserted:`, error.message)
-      return { processed: 0, errors: ['Some events were duplicates'] }
-    }
     console.error(`[Extension Sync] Failed to insert events:`, error)
     return { processed: 0, errors: [error.message] }
   }
@@ -296,106 +378,23 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
   return { processed: data.length, errors: [] }
 }
 
-// GET - Return user's extension stats
-export async function GET(request: NextRequest) {
-  try {
-    const deviceUuid = request.headers.get('X-Extension-Device-UUID')
-    const userId = request.headers.get('X-Extension-User-ID')
-
-    if (!deviceUuid || !userId) {
-      return NextResponse.json({
-        success: false,
-        error: 'Missing device UUID or user ID'
-      }, { status: 400 })
-    }
-
-    const userIdNum = parseInt(userId)
-    if (isNaN(userIdNum) || userIdNum <= 0) {
-      return NextResponse.json({
-        success: false,
-        error: 'Invalid user ID'
-      }, { status: 400 })
-    }
-
-    // Validate device
-    const isValidDevice = await validateDevice(userIdNum, deviceUuid)
-    if (!isValidDevice) {
-      return NextResponse.json({
-        success: false,
-        error: 'Device not registered or inactive'
-      }, { status: 403 })
-    }
-
-    // Get today's stats (last 24 hours)
-    const { data: todayStats } = await supabase
-      .from('events_raw')
-      .select('active_ms, total_ms, visits, timestamp')
-      .eq('user_id', userIdNum)
-      .gte('timestamp', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-
-    // Get total stats (all time)
-    const { data: totalStats } = await supabase
-      .from('events_raw')
-      .select('active_ms, total_ms, visits')
-      .eq('user_id', userIdNum)
-
-    // Calculate scores (basic scoring based on activity only)
-    const todayScore = todayStats?.reduce((sum, event) => sum + (event.active_ms || 0) * 0.001 + (event.visits || 0) * 50, 0) || 0
-    const totalScore = totalStats?.reduce((sum, event) => sum + (event.active_ms || 0) * 0.001 + (event.visits || 0) * 50, 0) || 0
-
-    // Calculate time stats
-    const todayActiveTime = todayStats?.reduce((sum, event) => sum + (event.active_ms || 0), 0) || 0
-    const todayTotalTime = todayStats?.reduce((sum, event) => sum + (event.total_ms || 0), 0) || 0
-    const totalActiveTime = totalStats?.reduce((sum, event) => sum + (event.active_ms || 0), 0) || 0
-    const totalTime = totalStats?.reduce((sum, event) => sum + (event.total_ms || 0), 0) || 0
-
-    // Calculate visits
-    const todayVisits = todayStats?.reduce((sum, event) => sum + (event.visits || 0), 0) || 0
-    const totalVisits = totalStats?.reduce((sum, event) => sum + (event.visits || 0), 0) || 0
-
-    // Calculate efficiency: active time / total time * 100
-    const efficiency = todayTotalTime > 0 ? Math.min(100, Math.round((todayActiveTime / todayTotalTime) * 100)) : 0
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        totalScore,
-        todayScore,
-        totalVisits,
-        todayVisits,
-        totalTime,
-        todayTime: todayTotalTime,
-        activeTime: todayActiveTime,
-        efficiency,
-        streak: 1,
-        rank: 'Active'
-      },
-      debug: {
-        counts: {
-          today: todayStats?.length || 0,
-          total: totalStats?.length || 0
-        }
-      }
-    })
-  } catch (error) {
-    console.error('[Extension Sync] GET error:', error)
-    return NextResponse.json({
-      success: false,
-      error: 'Internal server error'
-    }, { status: 500 })
-  }
-}
+// NOTE: the old GET stats endpoint was removed. It authenticated with
+// spoofable X-Extension-User-ID / X-Extension-Device-UUID headers, used a
+// stale score formula, and had no callers in the extension or dashboard.
 
 // POST - Sync extension data
 //
 // Two paths:
-// 1. Ingestion: the device UUID is already registered and active. Events are
-//    attributed to the user the device is bound to in the database — the
-//    client-supplied userId is never trusted for attribution.
-// 2. Registration / re-binding: the device is unknown, inactive, or claimed
-//    for a different user. This requires a valid dashboard session cookie and
-//    the device is always bound to the SESSION user, so nobody can attach
-//    devices (or events) to another person's account.
+// 1. Ingestion: the device UUID is registered, active, and the request
+//    carries the device's secret sync token (issued at registration, stored
+//    only as a hash). Events are attributed to the user the device is bound
+//    to in the database — the client-supplied userId is never trusted.
+// 2. Registration / re-binding / token (re-)issue: anything without a valid
+//    token. This requires a valid dashboard session cookie; the device is
+//    always bound to the SESSION user and receives a freshly rotated sync
+//    token in the response, so nobody can attach devices (or events) to
+//    another person's account, and possession of a device UUID alone is not
+//    enough to submit events.
 export async function POST(request: NextRequest) {
   try {
     // Rate limiting - allow higher limits for data ingestion
@@ -423,25 +422,31 @@ export async function POST(request: NextRequest) {
     // Look up the current device binding
     const { data: device } = await supabase
       .from('user_devices')
-      .select('user_id, is_active')
+      .select('user_id, is_active, sync_token_hash')
       .eq('device_uuid', deviceUuid)
       .maybeSingle()
 
     const deviceMatchesClaim =
       !!device && (!claimedUserId || Number(device.user_id) === claimedUserId)
 
-    let finalUserId: number
+    const presentedToken = request.headers.get(DEVICE_TOKEN_HEADER)
+    const tokenValid =
+      !!device && verifyDeviceSyncToken(presentedToken, device.sync_token_hash)
 
-    if (device && device.is_active && deviceMatchesClaim) {
-      // Path 1: ingestion for an already-registered, active device.
+    let finalUserId: number
+    let issuedSyncToken: string | null = null
+
+    if (device && device.is_active && deviceMatchesClaim && tokenValid) {
+      // Path 1: ingestion — device UUID + valid secret token.
       finalUserId = Number(device.user_id)
     } else {
-      // Path 2: registration / re-activation / re-binding — session required.
+      // Path 2: registration / re-activation / token issue — session required.
       const session = await getSessionUserId(request)
       if (!session.ok) {
         return NextResponse.json({
           success: false,
-          error: 'Device not registered. Sign in on the dashboard to link this device.'
+          error: 'Device not registered. Sign in on the dashboard to link this device.',
+          code: 'REGISTRATION_REQUIRED'
         }, { status: 401 })
       }
 
@@ -473,6 +478,23 @@ export async function POST(request: NextRequest) {
           error: 'Device registration failed'
         }, { status: 500 })
       }
+
+      // Rotate the device's sync token on every (re-)registration. The
+      // plaintext token is returned exactly once, in this response; only its
+      // hash is persisted.
+      issuedSyncToken = generateDeviceSyncToken()
+      const { error: tokenError } = await supabase
+        .from('user_devices')
+        .update({ sync_token_hash: hashDeviceSyncToken(issuedSyncToken) })
+        .eq('device_uuid', deviceUuid)
+
+      if (tokenError) {
+        console.error('[Extension Sync] Failed to store sync token hash:', tokenError)
+        return NextResponse.json({
+          success: false,
+          error: 'Device registration failed'
+        }, { status: 500 })
+      }
     }
 
     // Final gate: device must be active and bound to the resolved user
@@ -499,6 +521,10 @@ export async function POST(request: NextRequest) {
       const { scoresStale } = await recalculateUserScore(supabase, finalUserId)
       if (scoresStale) {
         console.error(`[Extension Sync] Score recalculation failed for user ${finalUserId}`)
+      } else {
+        // Rank buckets and score milestones are deduped server-side, so this
+        // is safe to run on every sync. Never throws.
+        await evaluateScoreNotifications(supabase, finalUserId)
       }
     }
 
@@ -512,7 +538,8 @@ export async function POST(request: NextRequest) {
       success: true,
       processed: result.processed,
       errors: result.errors,
-      batchId
+      batchId,
+      ...(issuedSyncToken ? { syncToken: issuedSyncToken } : {})
     })
 
   } catch (error) {
