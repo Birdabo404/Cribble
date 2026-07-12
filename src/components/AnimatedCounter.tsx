@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { prefersReducedMotion } from '@/lib/motion'
 
 interface AnimatedCounterProps {
   value: number
@@ -14,38 +15,44 @@ export default function AnimatedCounter({
   className = ""
 }: AnimatedCounterProps) {
   const [displayValue, setDisplayValue] = useState(value)
-  const fromRef = useRef(value)
+  // The actually-painted value, updated every frame. Interrupted animations
+  // restart from here instead of jumping to the previous target.
+  const displayRef = useRef(value)
   const rafRef = useRef<number | null>(null)
 
   useEffect(() => {
-    // Cancel any in-flight animation
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
     }
 
-    const startValue = fromRef.current
+    const startValue = displayRef.current
     const difference = value - startValue
-
-    // No change — skip animation
     if (difference === 0) return
 
-    const startTime = Date.now()
+    if (prefersReducedMotion()) {
+      displayRef.current = value
+      setDisplayValue(value)
+      return
+    }
 
-    const animate = () => {
-      const elapsed = Date.now() - startTime
-      const progress = Math.min(elapsed / duration, 1)
+    const startTime = performance.now()
+
+    const animate = (now: number) => {
+      const progress = Math.min((now - startTime) / duration, 1)
 
       // easeOutCubic
       const eased = 1 - Math.pow(1 - progress, 3)
       const current = startValue + difference * eased
 
+      displayRef.current = current
       setDisplayValue(current)
 
       if (progress < 1) {
         rafRef.current = requestAnimationFrame(animate)
       } else {
+        displayRef.current = value
         setDisplayValue(value)
-        fromRef.current = value
         rafRef.current = null
       }
     }
@@ -55,11 +62,10 @@ export default function AnimatedCounter({
     return () => {
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current)
+        rafRef.current = null
       }
-      // Remember where we stopped so next animation starts from here
-      fromRef.current = value
     }
-  }, [value, duration]) // ← displayValue intentionally NOT in deps
+  }, [value, duration])
 
   return (
     <span className={className}>
