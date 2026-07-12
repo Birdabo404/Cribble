@@ -1,33 +1,31 @@
 'use client'
 
 // Dashboard v3 — command-console layout.
-// Previous design is preserved at /dashboard/legacy for rollback.
+// Navigation chrome (rail/top bar) lives in the (app) shell layout; this
+// page publishes its sync status to the nav via usePublishNavStatus.
 
 import { useCallback, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import SpaceBackdrop from '@/components/SpaceBackdrop'
-import { Toaster } from '@/components/Toaster'
 import { AsciiBanner } from '@/components/dashboard-v2/AsciiBanner'
 import { ErrorScreen } from '@/components/dashboard-v2/ErrorScreen'
 import { LoadingScreen } from '@/components/dashboard-v2/LoadingScreen'
 import { SEASON } from '@/components/dashboard-v2/format'
 import { ActivityCard } from '@/components/dashboard-v3/ActivityCard'
-import { AmbientGlow } from '@/components/dashboard-v3/AmbientGlow'
 import { AsteroidShower } from '@/components/dashboard-v3/AsteroidShower'
-import { GlassTilt } from '@/components/dashboard-v3/GlassTilt'
-import { Header, type ConnectionState } from '@/components/dashboard-v3/Header'
 import { HeroCard } from '@/components/dashboard-v3/HeroCard'
 import { KpiStrip } from '@/components/dashboard-v3/KpiStrip'
 import { SeasonRail } from '@/components/dashboard-v3/SeasonRail'
 import { ToolsCard } from '@/components/dashboard-v3/ToolsCard'
+import {
+  usePublishNavStatus,
+  type ConnectionState,
+  type NavStatus
+} from '@/components/nav/NavStatusContext'
 import { useDashboardData } from '@/hooks/useDashboardData'
 import { useExtensionSync } from '@/hooks/useExtensionSync'
 import { calculateStreak } from '@/lib/activity'
 import type { RankInfo } from '@/types/dashboard'
 
 export default function DashboardV3() {
-  const router = useRouter()
-
   const {
     user,
     scores,
@@ -59,14 +57,6 @@ export default function DashboardV3() {
     }
   }, [refreshDashboard])
 
-  const handleLogout = async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
-    } finally {
-      router.push('/login')
-    }
-  }
-
   const streak = useMemo(() => calculateStreak(activity), [activity])
 
   const rankInfo: RankInfo | null = useMemo(() => {
@@ -96,36 +86,26 @@ export default function DashboardV3() {
     return 'offline'
   }, [activeDevice, user])
 
+  // Surface connection + sync controls in the persistent nav shell.
+  const navStatus = useMemo<NavStatus>(
+    () => ({
+      connection: connectionState,
+      lastSync: activeDevice?.last_sync_at || user?.last_extension_sync || null,
+      onSync: handleSync,
+      syncing
+    }),
+    [connectionState, activeDevice, user, handleSync, syncing]
+  )
+  usePublishNavStatus(navStatus)
+
   if (loading) return <LoadingScreen />
   if (error || !user) return <ErrorScreen message={error} />
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 font-mono selection:bg-accent/20">
-      <SpaceBackdrop />
-      <AmbientGlow />
+    <>
       <AsteroidShower />
-      <GlassTilt />
-      {/* horizon line — thin accent scanline at the bottom for retro hint */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-x-0 bottom-0 h-px opacity-25 z-0"
-        style={{
-          background:
-            'linear-gradient(90deg, transparent, rgb(var(--accent-rgb)/0.55), transparent)'
-        }}
-      />
 
-      <div className="dash-reveal-root relative z-10 max-w-6xl mx-auto px-6 pt-10 pb-10">
-        <Header
-          user={user}
-          connection={connectionState}
-          lastSync={activeDevice?.last_sync_at || user.last_extension_sync || null}
-          onSync={handleSync}
-          syncing={syncing}
-          activeDevice={activeDevice}
-          onLogout={handleLogout}
-        />
-
+      <div className="page-zoom-out dash-reveal-root relative max-w-6xl mx-auto px-6 pt-6 pb-10">
         <AsciiBanner username={user.twitter_username} />
 
         <main className="mt-8 grid grid-cols-12 gap-5">
@@ -156,48 +136,41 @@ export default function DashboardV3() {
         </footer>
       </div>
 
-      {/* Outside dash-reveal-root so the entrance cascade never delays toasts */}
-      <Toaster />
-
       <style jsx global>{`
-        /* First-paint cascade — header → DASHBOARD banner → cards → footer.
+        /* First-paint cascade — DASHBOARD banner → cards → footer.
            Uses "backwards" fill (not "both") so the finished animation
            releases the transform, letting the liquid-glass hover lift work.
 
            Each block also publishes its delay as --ad-base; the inherited
            variable lets elements INSIDE a card stagger relative to their
            card's entrance (see the .anim-* utilities in globals.css). */
-        .dash-reveal-root > header,
         .dash-reveal-root > section,
         .dash-reveal-root > main > *,
         .dash-reveal-root > footer {
           animation: dash-reveal-in 760ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
           animation-delay: var(--ad-base, 0ms);
         }
-        .dash-reveal-root > header {
-          --ad-base: 0ms;
-        }
         /* AsciiBanner — the "DASHBOARD" wordmark, where the cascade originates */
         .dash-reveal-root > section {
-          --ad-base: 90ms;
+          --ad-base: 0ms;
         }
         .dash-reveal-root > main > *:nth-child(1) {
-          --ad-base: 180ms;
+          --ad-base: 100ms;
         }
         .dash-reveal-root > main > *:nth-child(2) {
-          --ad-base: 260ms;
+          --ad-base: 180ms;
         }
         .dash-reveal-root > main > *:nth-child(3) {
-          --ad-base: 340ms;
+          --ad-base: 260ms;
         }
         .dash-reveal-root > main > *:nth-child(4) {
-          --ad-base: 420ms;
+          --ad-base: 340ms;
         }
         .dash-reveal-root > main > *:nth-child(5) {
-          --ad-base: 500ms;
+          --ad-base: 420ms;
         }
         .dash-reveal-root > footer {
-          --ad-base: 600ms;
+          --ad-base: 520ms;
         }
 
         /* "from"-only keyframe: animates to each element's natural style,
@@ -211,7 +184,6 @@ export default function DashboardV3() {
         }
 
         @media (prefers-reduced-motion: reduce) {
-          .dash-reveal-root > header,
           .dash-reveal-root > section,
           .dash-reveal-root > main > *,
           .dash-reveal-root > footer {
@@ -219,6 +191,6 @@ export default function DashboardV3() {
           }
         }
       `}</style>
-    </div>
+    </>
   )
 }

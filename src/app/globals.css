@@ -17,6 +17,14 @@
   --accent: #02fe01;
   --accent-rgb: 2 254 1;
 
+  /* Achievement rarity palette (used by the achievements page and the
+     notification bell). Dark: zinc / hacker green / synthwave pink /
+     neon gold — light overrides below. */
+  --r-common: 161 161 170;
+  --r-rare: var(--accent-rgb);
+  --r-epic: 255 45 149;
+  --r-legendary: 255 214 68;
+
   /* stars / decorative dots */
   --star-rgb: 255 255 255;
   --dot-rgb: 255 255 255;
@@ -86,6 +94,18 @@
     0 28px 60px -22px rgb(0 0 0 / 0.9),
     0 6px 18px -8px rgb(0 0 0 / 0.65),
     0 0 30px -6px rgb(var(--accent-rgb) / 0.14);
+
+  /* Leaderboard arena palette — medals own this page, not the accent.
+     Neon gold champion, icy platinum runner-up, ember bronze third.
+     Up/down are semantic (gain green / loss rose), independent of theme. */
+  --lb-gold: 255 214 68;
+  --lb-gold-hi: 255 240 160;
+  --lb-silver: 216 228 242;
+  --lb-bronze: 255 145 77;
+  --lb-up: 74 222 128;
+  --lb-down: 251 113 133;
+  --lb-panel-bg: 9 10 13;
+  --lb-panel-edge: 255 255 255;
 }
 
 html.light {
@@ -96,14 +116,19 @@ html.light {
   --accent: #ff5e00;
   --accent-rgb: 255 94 0;
 
+  /* rarity palette: slate / neon orange / violet / burnt gold */
+  --r-common: 113 113 122;
+  --r-epic: 147 51 234;
+  --r-legendary: 202 138 4;
+
   --star-rgb: 39 39 42;
   --dot-rgb: 0 0 0;
 
   --banner-a: 255 94 0;
   --banner-b: 255 94 0;
 
-  /* landing globe halo: neon orange in light mode */
-  --globe-glow-rgb: 255 94 0;
+  /* The Earth keeps its blue atmospheric halo in both color schemes. */
+  --globe-glow-rgb: 70 145 255;
 
   --c-black: 255 255 255;
   --c-white: 10 10 10;
@@ -154,6 +179,16 @@ html.light {
     0 28px 60px -24px rgb(10 10 10 / 0.38),
     0 6px 18px -10px rgb(10 10 10 / 0.18),
     0 0 30px -6px rgb(var(--accent-rgb) / 0.16);
+
+  /* Leaderboard arena palette — deeper metals so they hold on white. */
+  --lb-gold: 202 138 4;
+  --lb-gold-hi: 234 179 8;
+  --lb-silver: 100 116 139;
+  --lb-bronze: 180 83 9;
+  --lb-up: 22 163 74;
+  --lb-down: 225 29 72;
+  --lb-panel-bg: 255 255 255;
+  --lb-panel-edge: 10 10 10;
 }
 
 body {
@@ -199,12 +234,19 @@ body {
   .text-balance {
     text-wrap: balance;
   }
+
+  /* Pulls a page's composition back ~10% — applied to the content wrapper
+     (not the root) so full-bleed backdrops keep filling the viewport. */
+  .page-zoom-out {
+    zoom: 0.9;
+  }
   
   /* International font classes */
   .font-english {
-    font-family: 'Inter', system-ui, sans-serif;
-    font-weight: 600;
-    letter-spacing: -0.018em;
+    font-family: var(--font-serif-display), Georgia, serif;
+    font-style: italic;
+    font-weight: 400;
+    letter-spacing: 0.005em;
   }
 
   .font-arabic {
@@ -630,20 +672,31 @@ html.light .ambient-glow-field {
 /*
  * Static glass for floating chrome (dropdowns, modals): same material as
  * .liquid-glass but without the hover lift/tilt/rim-sweep, so menus feel
- * anchored rather than reactive.
+ * anchored rather than reactive. A near-opaque scrim sits under the gradient:
+ * these panels float over arbitrary page content (neon banners, glass cards)
+ * and anything more translucent splits the panel into visible tone bands
+ * wherever a card edge passes underneath. The remaining transparency +
+ * blur keeps a hint of the material without hurting readability.
  */
 .glass-pop {
-  background: linear-gradient(
-    180deg,
-    rgb(var(--glass-tint) / var(--glass-bg-top)),
-    rgb(var(--glass-tint) / var(--glass-bg-bottom))
-  );
+  --glass-pop-scrim: rgb(0 0 0 / 0.88);
+  background:
+    linear-gradient(
+      180deg,
+      rgb(var(--glass-tint) / var(--glass-bg-top)),
+      rgb(var(--glass-tint) / var(--glass-bg-bottom))
+    ),
+    var(--glass-pop-scrim);
   backdrop-filter: blur(28px) saturate(170%);
   -webkit-backdrop-filter: blur(28px) saturate(170%);
   border: 1px solid var(--glass-border);
   box-shadow:
     var(--glass-shadow),
     inset 0 1px 0 var(--glass-highlight);
+}
+
+html.light .glass-pop {
+  --glass-pop-scrim: rgb(255 255 255 / 0.85);
 }
 
 @keyframes glass-pop-in {
@@ -658,6 +711,80 @@ html.light .ambient-glow-field {
     opacity: 0;
     transform: translateY(10px) scale(0.98);
   }
+}
+
+/*
+ * Lightweight glass — visual twin of .liquid-glass with no backdrop-filter
+ * and no perspective transform. For dense grids (e.g. the achievements page,
+ * ~25 cards) where dozens of live blur surfaces over an animated backdrop
+ * overwhelm integrated GPUs. The gradient is composited over the page
+ * background color, so the material reads the same without sampling
+ * what's behind it.
+ */
+.glass-lite {
+  position: relative;
+  background:
+    linear-gradient(
+      180deg,
+      rgb(var(--glass-tint) / var(--glass-bg-top)),
+      rgb(var(--glass-tint) / var(--glass-bg-bottom))
+    ),
+    var(--background);
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    var(--glass-shadow),
+    inset 0 1px 0 var(--glass-highlight);
+  transition: border-color 300ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .glass-lite:hover {
+    border-color: var(--glass-border-hover);
+  }
+}
+
+/* Inset chip variant without the backdrop blur of .liquid-glass-inset */
+.glass-inset-lite {
+  background: var(--glass-inset-bg);
+  border: 1px solid var(--glass-inset-border);
+}
+
+/*
+ * Leaderboard arena panels — deliberately NOT liquid glass. Solid, deep
+ * surfaces with a hairline edge so the scores (not the material) carry the
+ * page. A faint top-light gradient keeps them from reading flat-dead.
+ */
+.lb-panel {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.035), rgb(255 255 255 / 0.008) 42%, transparent),
+    rgb(var(--lb-panel-bg));
+  border: 1px solid rgb(var(--lb-panel-edge) / 0.09);
+  box-shadow: 0 22px 48px -26px rgb(0 0 0 / 0.85);
+}
+html.light .lb-panel {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.6), transparent 46%),
+    rgb(var(--lb-panel-bg));
+  border-color: rgb(var(--lb-panel-edge) / 0.12);
+  box-shadow: 0 20px 44px -30px rgb(10 10 10 / 0.3);
+}
+
+/* Inset wells sitting on an .lb-panel (search field, chips, buttons) */
+.lb-inset {
+  background: rgb(var(--lb-panel-edge) / 0.045);
+  border: 1px solid rgb(var(--lb-panel-edge) / 0.09);
+  transition: border-color 240ms ease, background-color 240ms ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .lb-inset:hover {
+    border-color: rgb(var(--lb-panel-edge) / 0.2);
+  }
+}
+
+/* Competitive display face (Space Grotesk, loaded in the root layout). */
+.font-display {
+  font-family: var(--font-display), 'Inter', system-ui, sans-serif;
 }
 
 /* Nested chips / mini-stats sitting on top of a glass panel */
@@ -745,12 +872,6 @@ html.light .ambient-glow-field {
   .toast-enter {
     animation: none;
   }
-}
-
-/* Radar ring expand — used by RadarDisplay component */
-@keyframes radar-ring-expand {
-  0%   { transform: scale(0.4); opacity: 0.6; }
-  100% { transform: scale(1.6); opacity: 0; }
 }
 
 /* ---------------------------------------------------------------------------
@@ -842,6 +963,225 @@ html.light .ambient-glow-field {
   .anim-cell,
   .anim-sweep,
   .anim-ignite {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   App navigation shell — command rail (left) / sticky top bar (top).
+
+   Position + rail expansion live on <html> as data-nav-pos / data-nav-exp,
+   seeded pre-paint by a boot script (NavPrefsContext.NAV_BOOT_SCRIPT) and
+   kept in sync by NavPrefsProvider. Rail width and the page content inset
+   both read --nav-rail-w, so a single attribute flip animates the whole
+   composition in lockstep.
+--------------------------------------------------------------------------- */
+
+:root {
+  --nav-topbar-h: 56px;
+  --nav-rail-collapsed: 64px;
+  --nav-rail-expanded: 232px;
+  /* collapsed is the default — expansion is an explicit user action */
+  --nav-rail-w: var(--nav-rail-collapsed);
+  --nav-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html[data-nav-exp='1'] {
+  --nav-rail-w: var(--nav-rail-expanded);
+}
+
+/* Content inset: top bar height by default (also the sub-md fallback when
+   the rail is active), left rail width on md+ when position = left. */
+.app-nav-inset {
+  padding-top: var(--nav-topbar-h);
+  transition: padding 560ms var(--nav-ease);
+}
+
+@media (min-width: 768px) {
+  html[data-nav-pos='left'] .app-nav-inset {
+    padding-top: 0;
+    padding-left: var(--nav-rail-w);
+  }
+}
+
+/* Rail chassis — width follows the shared variable. */
+.app-nav-rail {
+  width: var(--nav-rail-w);
+  transition: width 560ms var(--nav-ease);
+}
+
+.app-nav-glass-rail {
+  background: linear-gradient(
+    180deg,
+    rgb(var(--glass-tint) / var(--glass-bg-top)),
+    rgb(var(--glass-tint) / var(--glass-bg-bottom))
+  );
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border-right: 1px solid var(--glass-border);
+  box-shadow: inset -1px 0 0 rgb(var(--glass-tint) / 0.03);
+}
+
+/* Top bar — always glass; the bottom edge + shadow fade in once content
+   has scrolled underneath (data-scrolled set by a scroll listener).
+   A scrim sits under the glass gradient so bright content (the neon ASCII
+   banners) can't wash out the chips as it scrolls beneath; the dark value
+   is nearly opaque black, light mode overrides with milky white. */
+.app-nav-topbar {
+  --nav-scrim: rgb(0 0 0 / 0.62);
+  background:
+    linear-gradient(
+      180deg,
+      rgb(var(--glass-tint) / var(--glass-bg-top)),
+      rgb(var(--glass-tint) / var(--glass-bg-bottom))
+    ),
+    var(--nav-scrim);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border-bottom: 1px solid transparent;
+  transition: border-color 320ms ease, box-shadow 320ms ease;
+}
+
+html.light .app-nav-topbar {
+  --nav-scrim: rgb(255 255 255 / 0.5);
+}
+
+.app-nav-topbar[data-scrolled] {
+  border-bottom-color: var(--glass-border);
+  box-shadow: 0 14px 34px -22px rgb(0 0 0 / 0.65);
+}
+
+/* Label mechanics — every rail row is [48px icon column][clipped label].
+   The clip container shrinks with the rail so text never paints outside
+   the chassis; the label itself fades/slides for the reveal. */
+.nav-label-clip {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Flex (not block): rows right-align trailing bits (unread count, sync
+   time, dropdown chevron) with ml-auto, and this rule must not override
+   the utilities on the markup. */
+.nav-label {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  white-space: nowrap;
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 320ms ease 160ms, transform 480ms var(--nav-ease) 120ms;
+}
+
+html[data-nav-exp='0'] .app-nav-rail .nav-label {
+  opacity: 0;
+  transform: translateX(-8px);
+  transition: opacity 140ms ease, transform 200ms ease;
+}
+
+/* Wordmark crossfade — mini "C." (collapsed) vs full "CRIBBLE." (expanded) */
+.nav-wordmark-full {
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 300ms ease 180ms, transform 480ms var(--nav-ease) 120ms;
+}
+.nav-wordmark-mini {
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+html[data-nav-exp='0'] .app-nav-rail .nav-wordmark-full {
+  opacity: 0;
+  transform: translateX(-10px);
+  transition: opacity 140ms ease, transform 200ms ease;
+}
+html[data-nav-exp='0'] .app-nav-rail .nav-wordmark-mini {
+  opacity: 1;
+  transition: opacity 260ms ease 200ms;
+}
+
+/* Collapsed-only tooltip flyouts. Rendered unconditionally; CSS gates them
+   to the collapsed state so components don't need to know the width. */
+.nav-tip {
+  position: absolute;
+  left: calc(100% + 14px);
+  top: 50%;
+  transform: translate(-6px, -50%);
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 60;
+  transition: opacity 180ms ease, transform 260ms var(--nav-ease);
+}
+
+html[data-nav-exp='1'] .app-nav-rail .nav-tip {
+  display: none;
+}
+
+html[data-nav-exp='0'] .app-nav-rail .nav-row:hover > .nav-tip,
+html[data-nav-exp='0'] .app-nav-rail .nav-row:focus-visible > .nav-tip {
+  opacity: 1;
+  transform: translate(0, -50%);
+  transition-delay: 220ms, 220ms;
+}
+
+/* A row with its flyout menu open must not also show the tooltip —
+   the two would overlap right where the menu renders. */
+html[data-nav-exp='0'] .app-nav-rail .nav-row[aria-expanded='true'] > .nav-tip {
+  display: none;
+}
+
+/* Short viewports: let the link list scroll instead of crushing the
+   footer clusters. (Tooltips clip in this mode — acceptable trade.) */
+@media (max-height: 600px) {
+  .app-nav-rail-body {
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+}
+
+/* Entrance — chrome slides in once per hard load (the shell layout
+   persists across client-side navigation, so this never replays). */
+@keyframes app-nav-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+    filter: blur(6px);
+  }
+}
+.app-nav-enter-left {
+  animation: app-nav-in-left 640ms var(--nav-ease) backwards;
+}
+
+@keyframes app-nav-in-top {
+  from {
+    opacity: 0;
+    transform: translateY(-14px);
+    filter: blur(6px);
+  }
+}
+.app-nav-enter-top {
+  animation: app-nav-in-top 640ms var(--nav-ease) backwards;
+}
+
+/* Side-opening dropdown (rail account menu / notification panel) */
+@keyframes glass-pop-in-side {
+  from {
+    opacity: 0;
+    transform: translateX(-6px) scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-nav-inset,
+  .app-nav-rail,
+  .nav-label,
+  .nav-wordmark-full,
+  .nav-wordmark-mini,
+  .nav-tip {
+    transition: none;
+  }
+  .app-nav-enter-left,
+  .app-nav-enter-top {
     animation: none;
   }
 }

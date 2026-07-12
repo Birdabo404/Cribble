@@ -1,0 +1,38 @@
+// Stroke icon set for the navigation shell — same 24px viewBox / 1.8
+// stroke language as the AccountMenu and NotificationBell glyphs.
+
+const PATHS = {
+  console: 'M3 3h7v9H3z M14 3h7v5h-7z M14 12h7v9h-7z M3 16h7v5H3z',
+  standings: 'M18 20V10 M12 20V4 M6 20v-6',
+  award: 'M12 15a7 7 0 1 0 0-14 7 7 0 0 0 0 14z M8.21 13.89 7 23l5-3 5 3-1.21-9.12',
+  pilot: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+  sync: 'M21 12a9 9 0 1 1-2.64-6.36 M21 3v6h-6',
+  menu: 'M4 7h16 M4 12h16 M4 17h16',
+  close: 'M18 6 6 18 M6 6l12 12',
+  signIn: 'M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4 M10 17l5-5-5-5 M15 12H3'
+} as const satisfies Record<string, string>
+
+export type NavIconName = keyof typeof PATHS
+
+export function NavIcon({
+  name,
+  className = 'h-4 w-4'
+}: {
+  name: NavIconName
+  className?: string
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d={PATHS[name]} />
+    </svg>
+  )
+}

@@ -1,10 +1,21 @@
 import type { Metadata } from 'next'
-import { Inter, Noto_Sans_Arabic, Noto_Sans_JP, Noto_Sans_KR, Noto_Sans_SC, Press_Start_2P, Roboto } from 'next/font/google'
+import { Instrument_Serif, Inter, Noto_Sans_Arabic, Noto_Sans_JP, Noto_Sans_KR, Noto_Sans_SC, Press_Start_2P, Roboto, Space_Grotesk } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/react'
 import { ThemeProvider } from '@/components/ThemeProvider'
+import { NAV_BOOT_SCRIPT } from '@/components/nav/navBoot'
 import './globals.css'
 
 const inter = Inter({ subsets: ['latin'] })
+
+// Editorial display serif — hero tagline + the rotating "worldwide" word.
+// Single weight; the italic is the whole point.
+const instrumentSerif = Instrument_Serif({
+  weight: '400',
+  style: ['normal', 'italic'],
+  subsets: ['latin'],
+  variable: '--font-serif-display',
+  display: 'swap',
+})
 
 // International fonts
 const notoArabic = Noto_Sans_Arabic({ 
@@ -36,6 +47,15 @@ const pressStart = Press_Start_2P({
   weight: '400',
   subsets: ['latin'],
   variable: '--font-pixel',
+  display: 'swap',
+})
+
+// Geometric display sans for competitive surfaces (leaderboard names,
+// headers, big numerals) — sharper than mono, still space-age.
+const spaceGrotesk = Space_Grotesk({
+  weight: ['400', '500', '600', '700'],
+  subsets: ['latin'],
+  variable: '--font-display',
   display: 'swap',
 })
 
@@ -72,7 +92,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.className} ${notoArabic.variable} ${notoJapanese.variable} ${notoKorean.variable} ${notoChinese.variable} ${roboto.variable} ${pressStart.variable}`}>
+      <body className={`${inter.className} ${instrumentSerif.variable} ${notoArabic.variable} ${notoJapanese.variable} ${notoKorean.variable} ${notoChinese.variable} ${roboto.variable} ${pressStart.variable} ${spaceGrotesk.variable}`}>
+        {/* Seeds nav position/expansion attributes on <html> before first
+            paint so the app shell inset renders correctly with no flash. */}
+        <script dangerouslySetInnerHTML={{ __html: NAV_BOOT_SCRIPT }} />
         <ThemeProvider>
           {children}
           <Analytics />

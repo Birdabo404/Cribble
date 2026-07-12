@@ -47,22 +47,28 @@ export function ActivityCard({ activity }: { activity: ActivityDay[] }) {
     const scoreByDate = new Map<string, number>()
     for (const d of activity) scoreByDate.set(d.date, d.score)
 
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
+    // Day cells are UTC days: the activity API buckets scores by UTC date
+    // key, so the grid must be built from UTC midnights too. Local-midnight
+    // math shifted every key back a day for users east of UTC — the "today"
+    // cell showed yesterday and today's activity hid in a "future" cell.
+    const now = new Date()
+    const today = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+    )
     const todayKey = today.toISOString().split('T')[0]
 
-    const dow = today.getDay()
+    const dow = today.getUTCDay()
     const currentSunday = new Date(today)
-    currentSunday.setDate(today.getDate() - dow)
+    currentSunday.setUTCDate(today.getUTCDate() - dow)
 
     const allColumns: HeatCell[][] = []
     for (let col = 0; col < WEEKS; col++) {
       const weekStart = new Date(currentSunday)
-      weekStart.setDate(currentSunday.getDate() - (WEEKS - 1 - col) * 7)
+      weekStart.setUTCDate(currentSunday.getUTCDate() - (WEEKS - 1 - col) * 7)
       const colCells: HeatCell[] = []
       for (let row = 0; row < 7; row++) {
         const day = new Date(weekStart)
-        day.setDate(weekStart.getDate() + row)
+        day.setUTCDate(weekStart.getUTCDate() + row)
         const key = day.toISOString().split('T')[0]
         const isFuture = day > today
         colCells.push({
@@ -81,7 +87,7 @@ export function ActivityCard({ activity }: { activity: ActivityDay[] }) {
     type Chunk = { month: number; label: string; columns: HeatCell[][] }
     const chunks: Chunk[] = []
     for (const col of allColumns) {
-      const m = col[0].date.getMonth()
+      const m = col[0].date.getUTCMonth()
       const last = chunks[chunks.length - 1]
       if (last && last.month === m) {
         last.columns.push(col)
