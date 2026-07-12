@@ -48,5 +48,5 @@ Desktop.ini
 
 # Tooling
 .claude/
-.cursor/mcp.json
+.cursor/
 .eslintcache
