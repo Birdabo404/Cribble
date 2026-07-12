@@ -25,3 +25,12 @@ export function resolveGithubRedirectUri(request: NextRequest, appUrl: string): 
 
   return process.env.GITHUB_REDIRECT_URI || `${appUrl}/api/auth/github/callback`
 }
+
+/** X (Twitter) OAuth callback URL registered with the X developer app. */
+export function resolveTwitterRedirectUri(request: NextRequest, appUrl: string): string {
+  if (process.env.NODE_ENV !== 'production') {
+    return `${appUrl}/api/auth/twitter/callback`
+  }
+
+  return process.env.TWITTER_REDIRECT_URI || `${appUrl}/api/auth/twitter/callback`
+}

@@ -48,6 +48,7 @@ const TRACKED_AI_DOMAINS = new Set([
   'lovable.dev',
   'v0.dev',
   'bolt.new',
+  'cribble.dev',
   'ai21.com',
   'runpod.io',
   'chatbot.com'

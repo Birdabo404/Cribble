@@ -105,20 +105,6 @@ export async function applyEventsUserEq<T>(
   }
 }
 
-export async function applyEventsUsersIn<T>(
-  supabase: SupabaseClient,
-  query: T,
-  userIds: number[]
-): Promise<{ query: T; column: EventsIdentityColumn | null }> {
-  const column = await getEventsIdentityColumn(supabase)
-  if (!column) return { query, column: null }
-  return {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    query: (query as any).in(column, userIds) as T,
-    column
-  }
-}
-
 export async function buildEventsUserInsertFields(
   supabase: SupabaseClient,
   userId: number
@@ -140,10 +126,5 @@ export async function buildEventsUserInsertFields(
   }
 
   return { user_id: userId }
-}
-
-export async function canUseScoreRpc(supabase: SupabaseClient) {
-  const column = await getEventsIdentityColumn(supabase)
-  return column !== 'twitter_user_id' && column !== null
 }
 

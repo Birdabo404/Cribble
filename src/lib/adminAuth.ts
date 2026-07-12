@@ -1,11 +1,8 @@
 import { NextRequest } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { getSessionUserId } from '@/lib/sessionAuth'
+import { createServiceClient } from '@/lib/supabaseServer'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabase = createServiceClient()
 
 export type AdminUserResult =
   | { ok: true; userId: number; username: string | null }

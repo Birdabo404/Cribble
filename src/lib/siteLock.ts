@@ -30,10 +30,13 @@ export function isAllowedDuringLock(pathname: string): boolean {
   if (pathname === '/admin' || pathname.startsWith('/admin/')) return true
   if (pathname.startsWith('/api/admin/')) return true
   if (pathname === '/leaderboard' || pathname.startsWith('/leaderboard/')) return true
+  // Public pilot dossiers (+ the /profile redirect into your own).
+  if (pathname === '/profile' || pathname.startsWith('/u/')) return true
   if (/^\/api\/waitlist\/?$/.test(pathname)) return true
   if (pathname.startsWith('/api/auth/')) return true
-  if (/^\/api\/user\/(onboarding|me|tools|activity)\/?$/.test(pathname)) return true
-  if (/^\/api\/leaderboard\/?$/.test(pathname)) return true
+  if (/^\/api\/user\/(onboarding|me|tools|activity|follow|profile|achievements|notifications)\/?$/.test(pathname)) return true
+  if (pathname.startsWith('/api/profile/')) return true
+  if (pathname === '/api/leaderboard' || pathname.startsWith('/api/leaderboard/')) return true
   if (pathname.startsWith('/api/extension/')) return true
   // Extension reconcile polling (GET /api/device/verify) must keep working
   // while the site is locked, same as the /api/extension/* sync path.

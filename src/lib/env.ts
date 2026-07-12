@@ -79,21 +79,14 @@ export const env = {
   NODE_ENV: process.env.NODE_ENV || 'development',
 }
 
-// Runtime validation (only run in runtime, not during build)
-if (typeof window === 'undefined' && !isBuildTime) {
-  // Server-side validation
-  if (isProduction) {
-    console.log('✅ Production environment variables validated successfully')
-    
-    // Additional security checks
-    if (env.CRON_SECRET && env.CRON_SECRET.length < 32) {
-      console.warn('⚠️  CRON_SECRET should be at least 32 characters in production')
-    }
-    
-    if (!env.NEXT_PUBLIC_DOMAIN?.startsWith('https://')) {
-      console.warn('⚠️  NEXT_PUBLIC_DOMAIN should use HTTPS in production')
-    }
-  } else {
-    console.log('✅ Development environment - some variables are optional')
+// Runtime misconfiguration warnings (server-side, production only). These
+// only log when something is actually wrong — no unconditional boot noise.
+if (typeof window === 'undefined' && !isBuildTime && isProduction) {
+  if (env.CRON_SECRET && env.CRON_SECRET.length < 32) {
+    console.warn('⚠️  CRON_SECRET should be at least 32 characters in production')
+  }
+
+  if (!env.NEXT_PUBLIC_DOMAIN?.startsWith('https://')) {
+    console.warn('⚠️  NEXT_PUBLIC_DOMAIN should use HTTPS in production')
   }
 } 

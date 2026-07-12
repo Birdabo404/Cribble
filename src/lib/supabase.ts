@@ -18,7 +18,11 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   global: {
     headers: {
       'X-Client-Info': 'cribble-webapp'
-    }
+    },
+    // This client is also imported by server routes (e.g. waitlist). Next.js
+    // patches server fetch with its Data Cache, so reads must opt out; in the
+    // browser `no-store` is a harmless HTTP-cache bypass.
+    fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' })
   },
   db: {
     schema: 'public'

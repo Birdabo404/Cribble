@@ -15,9 +15,15 @@ export function middleware(request: NextRequest) {
   response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
 
   // CSP Header (Content Security Policy)
+  // 'unsafe-eval' is only needed by Next.js dev tooling (fast refresh /
+  // eval source maps). No production dependency evals code, so drop it there.
+  const scriptSrc =
+    process.env.NODE_ENV !== 'production'
+      ? "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com"
+      : "script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com"
   const csp = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com",
+    scriptSrc,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: https: blob:",

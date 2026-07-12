@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { noStoreFetch } from './supabaseServer'
 
 // Check if environment variables are configured
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -19,7 +20,9 @@ export const supabaseAdmin = isConfigured
       global: {
         headers: {
           'X-Client-Info': 'cribble-admin'
-        }
+        },
+        // Opt out of the Next.js Data Cache — server reads must be live.
+        fetch: noStoreFetch
       },
       db: {
         schema: 'public'

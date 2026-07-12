@@ -22,6 +22,8 @@ describe('middleware security headers', () => {
     expect(response.headers.get('permissions-policy')).toBe(
       'camera=(), microphone=(), geolocation=()'
     )
+    // Outside production (dev/test) the CSP keeps 'unsafe-eval' for Next.js
+    // dev tooling; production drops it (covered below).
     expect(response.headers.get('content-security-policy')).toBe(
       "default-src 'self'; " +
         "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com; " +
@@ -32,6 +34,16 @@ describe('middleware security headers', () => {
         "frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; " +
         "frame-ancestors 'none'"
     )
+  })
+
+  it("omits 'unsafe-eval' from the production CSP", () => {
+    vi.stubEnv('NODE_ENV', 'production')
+
+    const response = middleware(new NextRequest('https://cribble.dev/login'))
+    const csp = response.headers.get('content-security-policy')
+
+    expect(csp).toContain("script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com")
+    expect(csp).not.toContain('unsafe-eval')
   })
 
   it('returns production CORS headers for API preflight requests', () => {
