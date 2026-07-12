@@ -1,6 +1,7 @@
 export const NOTIFICATION_TYPES = [
   'rank',
   'milestone',
+  'achievement',
   'season',
   'social',
   'system'

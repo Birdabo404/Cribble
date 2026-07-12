@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabaseServer'
 import { z } from 'zod'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
 import { getSessionUserId } from '@/lib/sessionAuth'
 import { isTrackedAiDomain } from '@/lib/aiDomains'
+import { evaluateAchievements } from '@/lib/achievementsServer'
 import { evaluateScoreNotifications } from '@/lib/notifications'
 import { recalculateUserScore } from '@/lib/scoring'
 import { applyEventsUserEq, buildEventsUserInsertFields } from '@/lib/eventsIdentity'
@@ -14,10 +15,7 @@ import {
   verifyDeviceSyncToken
 } from '@/lib/deviceToken'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabase = createServiceClient()
 
 interface DeviceInfo {
   userAgent: string
@@ -33,7 +31,7 @@ interface ExtensionEvent {
   timestamp: number
   duration?: number
   score?: number
-  metadata?: unknown
+  metadata?: Record<string, unknown>
 }
 
 const extensionEventSchema = z.object({
@@ -42,7 +40,7 @@ const extensionEventSchema = z.object({
   timestamp: z.number().int().nonnegative(),
   duration: z.number().int().nonnegative().optional(),
   score: z.number().int().optional(),
-  metadata: z.unknown().optional()
+  metadata: z.record(z.unknown()).optional()
 })
 
 const syncRequestSchema = z.object({
@@ -73,101 +71,30 @@ function parseUserAgent(userAgent: string): DeviceInfo {
   }
 }
 
-// Register or update device with atomic operations to prevent race conditions
+// Register or update device atomically via the register_user_device RPC.
+// The RPC (migrations 002/007) deactivates the user's other devices and
+// refuses to steal a device that is actively bound to a different account.
+// There is deliberately NO manual fallback: replaying the registration with
+// raw table writes on RPC failure would bypass the DB-level no-steal guard
+// and could rebind a device across accounts on any transient error. If the
+// RPC fails, registration fails closed.
 async function registerDevice(userId: number, deviceUuid: string, deviceInfo: DeviceInfo) {
   console.log(`[Extension Sync] Registering device ${deviceUuid.slice(0, 8)}... for user ${userId}`)
 
-  try {
-    const currentTime = new Date().toISOString()
+  const { error } = await supabase.rpc('register_user_device', {
+    p_user_id: userId,
+    p_device_uuid: deviceUuid,
+    p_device_name: deviceInfo.deviceName,
+    p_browser_info: deviceInfo,
+    p_last_sync_at: new Date().toISOString()
+  })
 
-    // Use RPC function to handle device registration atomically
-    // This prevents race conditions by ensuring only one device is active per user
-    const { error } = await supabase.rpc('register_user_device', {
-      p_user_id: userId,
-      p_device_uuid: deviceUuid,
-      p_device_name: deviceInfo.deviceName,
-      p_browser_info: deviceInfo,
-      p_last_sync_at: currentTime
-    })
-
-    if (error) {
-      console.error(`[Extension Sync] RPC error:`, error)
-
-      // Fallback to manual approach if RPC is not available
-      console.log(`[Extension Sync] Falling back to manual device registration`)
-
-      // First, deactivate all other devices for this user
-      await supabase
-        .from('user_devices')
-        .update({
-          is_active: false,
-          deactivated_at: currentTime
-        })
-        .eq('user_id', userId)
-        .neq('device_uuid', deviceUuid)
-
-      // Check if device already exists
-      const { data: existingDevice } = await supabase
-        .from('user_devices')
-        .select('*')
-        .eq('device_uuid', deviceUuid)
-        .single()
-
-      if (existingDevice) {
-        // Update existing device: rebind to this (session-verified) user and activate
-        const { error: updateError } = await supabase
-          .from('user_devices')
-          .update({
-            user_id: userId,
-            device_name: deviceInfo.deviceName,
-            browser_info: deviceInfo,
-            is_active: true,
-            last_sync_at: currentTime,
-            deactivated_at: null
-          })
-          .eq('device_uuid', deviceUuid)
-
-        if (updateError) throw updateError
-      } else {
-        // Create new device
-        const { error: insertError } = await supabase
-          .from('user_devices')
-          .insert({
-            user_id: userId,
-            device_uuid: deviceUuid,
-            device_name: deviceInfo.deviceName,
-            browser_info: deviceInfo,
-            is_active: true,
-            last_sync_at: currentTime
-          })
-
-        if (insertError) throw insertError
-      }
-
-      // Update user's active device
-      await supabase
-        .from('users')
-        .update({
-          active_device_uuid: deviceUuid,
-          last_extension_sync: currentTime
-        })
-        .eq('id', userId)
-
-      // Verify the device is active
-      const { data: verifyDevice } = await supabase
-        .from('user_devices')
-        .select('is_active')
-        .eq('device_uuid', deviceUuid)
-        .single()
-
-      return verifyDevice?.is_active === true
-    }
-
-    return true
-  } catch (error) {
-    console.error(`[Extension Sync] Device registration failed:`, error)
+  if (error) {
+    console.error(`[Extension Sync] Device registration RPC failed:`, error)
     return false
   }
+
+  return true
 }
 
 // Validate device is active for user
@@ -220,6 +147,51 @@ async function getUsageLast24h(userId: number): Promise<{ activeMs: number; visi
   )
 }
 
+// Same-domain active-time ticks within this window merge into one row at
+// ingest. The extension emits a heartbeat every 5s, which at ~720 rows/hour
+// bloats events_raw and every full-history recalculation; coalescing keeps
+// the same totals (durations sum) while cutting row growth ~12x. The window
+// is kept small so session boundaries stay accurate at read time.
+const HEARTBEAT_COALESCE_WINDOW_MS = 60 * 1000
+
+// Merge consecutive same-domain active_time events (already sorted oldest
+// first) whose span fits inside the coalesce window. Visit events are never
+// merged. Merged rows keep the FIRST tick's timestamp, so a retried batch
+// re-merges identically and lands on the same dedupe key.
+function coalesceActiveTimeEvents(events: ExtensionEvent[], maxEventMs: number): ExtensionEvent[] {
+  const result: ExtensionEvent[] = []
+  const openGroupByDomain = new Map<string, ExtensionEvent>()
+
+  for (const event of events) {
+    if (event.type !== 'active_time') {
+      result.push(event)
+      continue
+    }
+
+    const domain = event.domain
+    const open = openGroupByDomain.get(domain)
+    const duration = Math.min(event.duration || 0, maxEventMs)
+
+    if (open && event.timestamp - open.timestamp <= HEARTBEAT_COALESCE_WINDOW_MS) {
+      const mergedDuration = Math.min((open.duration || 0) + duration, maxEventMs)
+      // total span covered by the merged row: first tick start -> last tick end
+      const spanMs = Math.max(
+        event.timestamp - open.timestamp + duration,
+        mergedDuration
+      )
+      open.duration = mergedDuration
+      open.metadata = { ...(open.metadata || {}), coalescedSpanMs: spanMs }
+      continue
+    }
+
+    const group: ExtensionEvent = { ...event, duration }
+    openGroupByDomain.set(domain, group)
+    result.push(group)
+  }
+
+  return result
+}
+
 // Process extension events
 async function processEvents(userId: number, deviceUuid: string, events: ExtensionEvent[]) {
   if (!events || events.length === 0) return { processed: 0, errors: [] }
@@ -237,7 +209,11 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
       return false
     }
 
-    if (duration > MAX_ACTIVE_TIME_MS) {
+    // Only active-time events are duration-bounded: their duration earns
+    // score. A visit's duration is informational wall-clock page time (it
+    // earns nothing and is clamped at insert), so a long-lived tab must not
+    // cost the user the visit itself.
+    if (event.type === 'active_time' && duration > MAX_ACTIVE_TIME_MS) {
       console.warn(`[Extension Sync] Rejecting event with excessive duration: ${duration}ms on ${event.domain}`)
       return false
     }
@@ -260,13 +236,16 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
     console.warn(`[Extension Sync] Filtered ${events.length - validEvents.length} invalid events out of ${events.length}`)
   }
 
+  // Only verified active time counts toward the ms ceiling — visit rows
+  // store active_ms = 0, so their wall-clock duration must not consume the
+  // budget either. Visits are bounded by their own ceiling.
+  const activeMsOf = (event: ExtensionEvent) =>
+    event.type === 'active_time' ? Math.min(event.duration || 0, MAX_ACTIVE_TIME_MS) : 0
+
   // Enforce the rolling 24h active-time and visit ceilings. Events are
   // admitted oldest first until a ceiling is reached; the rest are dropped
   // (not queued), so a forged high-volume client cannot bank unbounded score.
-  const batchActiveMs = validEvents.reduce(
-    (sum, event) => sum + Math.min(event.duration || 0, MAX_ACTIVE_TIME_MS),
-    0
-  )
+  const batchActiveMs = validEvents.reduce((sum, event) => sum + activeMsOf(event), 0)
   const batchVisits = validEvents.reduce(
     (sum, event) => sum + (event.type === 'visit' ? 1 : 0),
     0
@@ -282,7 +261,7 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
       cappedEvents = [...validEvents]
         .sort((a, b) => a.timestamp - b.timestamp)
         .filter(event => {
-          const eventMs = Math.min(event.duration || 0, MAX_ACTIVE_TIME_MS)
+          const eventMs = activeMsOf(event)
           const eventVisits = event.type === 'visit' ? 1 : 0
           if (eventMs > remainingMs || eventVisits > remainingVisits) return false
           remainingMs -= eventMs
@@ -298,22 +277,37 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
     }
   }
 
+  const orderedEvents = [...cappedEvents].sort((a, b) => a.timestamp - b.timestamp)
+  const coalescedEvents = coalesceActiveTimeEvents(orderedEvents, MAX_ACTIVE_TIME_MS)
+
   // Resolve the identity column(s) this Supabase project expects. Some
   // deployments still key events_raw on the legacy twitter_user_id integer
   // column (with user_id as a UUID), so we must not hardcode user_id.
   const userInsertFields = await buildEventsUserInsertFields(supabase, userId)
 
-  // Convert extension events to events_raw format
-  const processedEvents = cappedEvents.map(event => ({
-    ...userInsertFields,
-    device_uuid: deviceUuid,
-    timestamp: new Date(event.timestamp).toISOString(),
-    domain: event.domain?.toLowerCase(),
-    active_ms: Math.min(event.duration || 0, MAX_ACTIVE_TIME_MS),
-    total_ms: Math.min(event.duration || 0, MAX_ACTIVE_TIME_MS),
-    visits: event.type === 'visit' ? 1 : 0,
-    client_version: 'extension_v1'
-  }))
+  // Convert extension events to events_raw format. Visit rows carry NO
+  // active_ms: their duration is unverified wall-clock page time (activity
+  // is reported separately by heartbeat events), so storing it as active
+  // time double-counted and rewarded idle tabs. total_ms keeps the wall
+  // span for both kinds of rows.
+  const processedEvents = coalescedEvents.map(event => {
+    const isVisit = event.type === 'visit'
+    const activeMs = isVisit ? 0 : Math.min(event.duration || 0, MAX_ACTIVE_TIME_MS)
+    const coalescedSpanMs = Number(event.metadata?.coalescedSpanMs || 0)
+    const totalMs = isVisit
+      ? Math.min(event.duration || 0, MAX_ACTIVE_TIME_MS)
+      : Math.max(activeMs, Math.min(coalescedSpanMs, MAX_ACTIVE_TIME_MS))
+    return {
+      ...userInsertFields,
+      device_uuid: deviceUuid,
+      timestamp: new Date(event.timestamp).toISOString(),
+      domain: event.domain?.toLowerCase(),
+      active_ms: activeMs,
+      total_ms: totalMs,
+      visits: isVisit ? 1 : 0,
+      client_version: 'extension_v1'
+    }
+  })
 
   // Check for duplicates within the batch first (domain + timestamp)
   const uniqueEvents = []
@@ -333,6 +327,10 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
 
   // Check for existing events already stored for this user, scoped through the
   // schema-compat identity column, then dedup by (domain, timestamp).
+  // Timestamps are compared as epoch ms: PostgREST returns "+00:00"-suffixed
+  // strings while ours end in "Z", so raw string keys would never match.
+  const dedupeKey = (domain: string | undefined, timestamp: string) =>
+    `${domain}-${Date.parse(timestamp)}`
   const batchTimestamps = uniqueEvents.map(e => e.timestamp)
   const existingQuery = supabase
     .from('events_raw')
@@ -346,12 +344,11 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
   const { data: existingEvents } = await scopedExistingQuery
 
   const existingEventKeys = new Set(
-    (existingEvents || []).map(event => `${event.domain}-${event.timestamp}`)
+    (existingEvents || []).map(event => dedupeKey(event.domain, event.timestamp))
   )
 
   const finalEvents = uniqueEvents.filter(event => {
-    const key = `${event.domain}-${event.timestamp}`
-    return !existingEventKeys.has(key)
+    return !existingEventKeys.has(dedupeKey(event.domain, event.timestamp))
   })
 
   if (finalEvents.length === 0) {
@@ -522,9 +519,11 @@ export async function POST(request: NextRequest) {
       if (scoresStale) {
         console.error(`[Extension Sync] Score recalculation failed for user ${finalUserId}`)
       } else {
-        // Rank buckets and score milestones are deduped server-side, so this
-        // is safe to run on every sync. Never throws.
+        // Rank buckets, score milestones, and achievement unlocks are all
+        // deduped server-side, so these are safe to run on every sync.
+        // Neither call throws.
         await evaluateScoreNotifications(supabase, finalUserId)
+        await evaluateAchievements(supabase, finalUserId)
       }
     }
 

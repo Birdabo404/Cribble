@@ -72,8 +72,9 @@ async function insertNotification(
  * The pre-select keeps steady-state calls (every sync / every feed poll)
  * from generating constant unique-violation noise; a lost race still
  * lands on the unique index and is swallowed by insertNotification.
+ * Also used by the achievements evaluator to announce unlocks.
  */
-async function insertMissingNotifications(
+export async function insertMissingNotifications(
   supabase: SupabaseClient,
   userId: number,
   candidates: (NotificationInput & { dedupeKey: string })[]
