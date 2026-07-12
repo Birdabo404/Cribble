@@ -226,13 +226,14 @@ export default function WorldwideText() {
           transition: none;
         }
 
-        /* English-specific tuning — Inter at a confident display weight
-           with a touch of negative tracking so it harmonises with the
+        /* English-specific tuning — editorial serif italic, the signature
+           moment of the rotation. Deliberate contrast with the mono
            "cribble." wordmark above it. */
         :global(.font-english) {
-          font-family: 'Inter', system-ui, sans-serif;
-          font-weight: 600;
-          letter-spacing: -0.018em;
+          font-family: var(--font-serif-display), Georgia, serif;
+          font-style: italic;
+          font-weight: 400;
+          letter-spacing: 0.005em;
         }
 
         .kin-row {

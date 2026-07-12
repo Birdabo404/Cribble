@@ -2,95 +2,47 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useTheme } from 'next-themes'
-import type createGlobeType from 'cobe'
-import type { COBEOptions } from 'cobe'
+import {
+  createEarthRenderer,
+  type EarthRenderer,
+  type RGB,
+} from '@/components/pixelEarthRenderer'
 
 interface GlobeProps {
   className?: string
   size?: number
 }
 
-// Major AI hubs around the world
-export const AI_HUBS: { location: [number, number]; size: number }[] = [
-  { location: [37.7749, -122.4194], size: 0.1 }, // San Francisco (OpenAI, Anthropic)
-  { location: [47.6062, -122.3321], size: 0.08 }, // Seattle (Microsoft)
-  { location: [40.7128, -74.006], size: 0.07 }, // New York
-  { location: [51.5074, -0.1278], size: 0.06 }, // London (DeepMind)
-  { location: [48.8566, 2.3522], size: 0.05 }, // Paris (Mistral)
-  { location: [35.6762, 139.6503], size: 0.05 }, // Tokyo
-  { location: [39.9042, 116.4074], size: 0.05 }, // Beijing (DeepSeek)
-  { location: [12.9716, 77.5946], size: 0.05 }, // Bangalore
-  { location: [22.3193, 114.1694], size: 0.04 }, // Hong Kong
-  { location: [1.3521, 103.8198], size: 0.04 }, // Singapore
-  { location: [37.5665, 126.978], size: 0.04 }, // Seoul
-  { location: [43.6532, -79.3832], size: 0.04 }, // Toronto (Cohere)
-  { location: [-33.8688, 151.2093], size: 0.03 }, // Sydney
-  { location: [52.52, 13.405], size: 0.03 }, // Berlin
-  { location: [32.0853, 34.7818], size: 0.03 }, // Tel Aviv
-]
+type RenderStatus = 'loading' | 'ready' | 'fallback'
 
-const AUTO_SPIN_SPEED = 0.002
-const DRAG_SENSITIVITY = 1 / 140 // px of pointer travel per radian
-const DRAG_FOLLOW = 0.3 // per-frame easing toward the pointer while dragging
+const AUTO_SPIN_SPEED = 0.00012
+const DRAG_SENSITIVITY = 1 / 140
+const DRAG_FOLLOW = 0.3
 const INERTIA_DAMPING = 0.94
-const MAX_FLING = 0.22 // rad/frame cap so violent flicks don't spin wildly
-const THEME_LERP = 0.055 // per-frame easing factor for theme transitions (~0.7s)
+const MAX_FLING = 0.22
+const THEME_LERP = 0.055
+const DARK_MARKER: RGB = [0.008, 0.996, 0.004]
+const LIGHT_MARKER: RGB = [1, 0.37, 0]
 
-type RGB = [number, number, number]
-
-interface GlobeTheme {
-  dark: number
-  diffuse: number
-  mapBrightness: number
-  baseColor: RGB
-  markerColor: RGB
-  glowColor: RGB
-}
-
-const themeFor = (light: boolean): GlobeTheme =>
-  light
-    ? {
-        // Greyish sphere with darker dotted land, neon orange halo + markers
-        dark: 0,
-        diffuse: 0.55,
-        mapBrightness: 7,
-        baseColor: [0.62, 0.61, 0.63],
-        markerColor: [1, 0.37, 0],
-        glowColor: [1.15, 0.55, 0.2],
-      }
-    : {
-        // Black sphere with white dotted land, whitish-blue halo, green markers
-        dark: 1,
-        diffuse: 0.6,
-        mapBrightness: 1.6,
-        baseColor: [1, 1, 1],
-        markerColor: [0.008, 0.996, 0.004],
-        glowColor: [0.55, 0.75, 1.15],
-      }
-
-const mix = (a: number, b: number) => a + (b - a) * THEME_LERP
-const mixRGB = (a: RGB, b: RGB): RGB => [mix(a[0], b[0]), mix(a[1], b[1]), mix(a[2], b[2])]
+const mixRGB = (from: RGB, to: RGB, amount: number): RGB => [
+  from[0] + (to[0] - from[0]) * amount,
+  from[1] + (to[1] - from[1]) * amount,
+  from[2] + (to[2] - from[2]) * amount,
+]
 
 export default function Globe({ className = '', size = 400 }: GlobeProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const globeRef = useRef<ReturnType<typeof createGlobeType> | null>(null)
-  const [createGlobe, setCreateGlobe] = useState<typeof createGlobeType | null>(null)
-  const [ready, setReady] = useState(false)
+  const [renderStatus, setRenderStatus] = useState<RenderStatus>('loading')
   const { resolvedTheme } = useTheme()
   const isLight = resolvedTheme === 'light'
 
-  // Drag-to-spin state lives in refs so onRender reads live values
-  // without recreating the globe on every pointer move.
   const grabX = useRef<number | null>(null)
   const rotAtGrab = useRef(0)
-  const targetRot = useRef(0) // where the pointer wants the globe to be
-  const rot = useRef(0) // eased actual rotation
+  const targetRot = useRef(0)
+  const rot = useRef(0)
   const vel = useRef(0)
+  const targetLightMode = useRef(isLight ? 1 : 0)
 
-  // Track the pointer on window, not the canvas: pointer capture can drop
-  // events once the cursor leaves the canvas, which used to freeze the drag
-  // and leave the globe "held" until the next hover. Window listeners always
-  // see the move/up, wherever the release happens.
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
       if (grabX.current === null) return
@@ -114,119 +66,125 @@ export default function Globe({ className = '', size = 400 }: GlobeProps) {
     }
   }, [])
 
-  // Theme colors are eased toward `target` every frame inside onRender,
-  // so toggling modes cross-fades the globe instead of recreating it.
-  const targetTheme = useRef<GlobeTheme>(themeFor(isLight))
-  const liveTheme = useRef<GlobeTheme>(themeFor(isLight))
-
   useEffect(() => {
-    targetTheme.current = themeFor(isLight)
+    targetLightMode.current = isLight ? 1 : 0
   }, [isLight])
 
   useEffect(() => {
-    // Dynamically import COBE only on client side
-    import('cobe')
-      .then((module) => {
-        setCreateGlobe(() => module.default)
-      })
-      .catch((error) => {
-        console.error('Failed to load COBE:', error)
-      })
-  }, [])
+    const canvas = canvasRef.current
+    if (!canvas) return
 
-  useEffect(() => {
-    if (!createGlobe || !canvasRef.current) return
-
-    // Start facing the Americas/Atlantic so land and markers are visible
-    // immediately instead of open ocean.
+    let renderer: EarthRenderer | null = null
+    let resizeObserver: ResizeObserver | null = null
+    let animationFrame = 0
+    let disposed = false
+    let onVisibilityChange: (() => void) | null = null
     let phi = 2.6
-    let width = 0
-    let announcedReady = false
-    const onResize = () => canvasRef.current && (width = canvasRef.current.offsetWidth)
+    let previousTime = performance.now()
+    let liveLightMode = targetLightMode.current
+    const reduceMotion = window.matchMedia(
+      '(prefers-reduced-motion: reduce)',
+    ).matches
 
-    window.addEventListener('resize', onResize)
-    onResize()
+    setRenderStatus('loading')
 
-    // Snap to the current theme at creation; afterwards onRender eases
-    // toward targetTheme whenever the user toggles modes.
-    liveTheme.current = { ...targetTheme.current }
-    const initial = liveTheme.current
+    void createEarthRenderer(canvas)
+      .then((createdRenderer) => {
+        if (disposed) {
+          createdRenderer.destroy()
+          return
+        }
 
-    try {
-      globeRef.current = createGlobe(canvasRef.current, {
-        devicePixelRatio: 2,
-        width: size * 2,
-        height: size * 2,
-        phi: 0,
-        theta: 0.28,
-        dark: initial.dark,
-        diffuse: initial.diffuse,
-        mapSamples: 20000,
-        mapBrightness: initial.mapBrightness,
-        baseColor: initial.baseColor,
-        markerColor: initial.markerColor,
-        glowColor: initial.glowColor,
-        markers: AI_HUBS,
-        onRender: (state: Parameters<COBEOptions['onRender']>[0]) => {
-          if (!announcedReady) {
-            announcedReady = true
-            setReady(true)
-          }
+        renderer = createdRenderer
+        resizeObserver = new ResizeObserver(() => renderer?.resize())
+        resizeObserver.observe(canvas)
+        setRenderStatus('ready')
+
+        const draw = (time: number) => {
+          if (!renderer || disposed) return
+
+          const elapsed = Math.min(time - previousTime, 34)
+          const frameScale = elapsed / (1000 / 60)
+          previousTime = time
+
           if (grabX.current !== null) {
-            // Ease toward the pointer so the drag feels fluid, and record
-            // the per-frame delta as velocity for the release fling.
-            const delta = (targetRot.current - rot.current) * DRAG_FOLLOW
+            const follow = 1 - Math.pow(1 - DRAG_FOLLOW, frameScale)
+            const delta = (targetRot.current - rot.current) * follow
             rot.current += delta
             vel.current = Math.max(-MAX_FLING, Math.min(MAX_FLING, delta))
           } else {
-            phi += AUTO_SPIN_SPEED
-            rot.current += vel.current
-            vel.current *= INERTIA_DAMPING
+            if (!reduceMotion) phi += AUTO_SPIN_SPEED * elapsed
+            rot.current += vel.current * frameScale
+            vel.current *= Math.pow(INERTIA_DAMPING, frameScale)
           }
-          state.phi = phi + rot.current
-          state.width = width * 2
-          state.height = width * 2
 
-          const live = liveTheme.current
-          const tgt = targetTheme.current
-          live.dark = mix(live.dark, tgt.dark)
-          live.diffuse = mix(live.diffuse, tgt.diffuse)
-          live.mapBrightness = mix(live.mapBrightness, tgt.mapBrightness)
-          live.baseColor = mixRGB(live.baseColor, tgt.baseColor)
-          live.markerColor = mixRGB(live.markerColor, tgt.markerColor)
-          live.glowColor = mixRGB(live.glowColor, tgt.glowColor)
-          state.dark = live.dark
-          state.diffuse = live.diffuse
-          state.mapBrightness = live.mapBrightness
-          state.baseColor = live.baseColor
-          state.markerColor = live.markerColor
-          state.glowColor = live.glowColor
-        },
+          const themeFollow = 1 - Math.pow(1 - THEME_LERP, frameScale)
+          liveLightMode +=
+            (targetLightMode.current - liveLightMode) * themeFollow
+
+          renderer.render({
+            phi: phi + rot.current,
+            theta: 0.25,
+            time: reduceMotion ? 0 : time / 1000,
+            lightMode: liveLightMode,
+            accent: mixRGB(DARK_MARKER, LIGHT_MARKER, liveLightMode),
+          })
+          animationFrame = window.requestAnimationFrame(draw)
+        }
+
+        animationFrame = window.requestAnimationFrame(draw)
+
+        // Pause the render loop while the tab is hidden; resume (with a
+        // fresh frame clock) when it becomes visible again.
+        onVisibilityChange = () => {
+          if (document.hidden) {
+            window.cancelAnimationFrame(animationFrame)
+          } else if (!disposed) {
+            previousTime = performance.now()
+            animationFrame = window.requestAnimationFrame(draw)
+          }
+        }
+        document.addEventListener('visibilitychange', onVisibilityChange)
       })
-    } catch (error) {
-      console.error('Error creating globe:', error)
-    }
+      .catch(() => {
+        if (disposed) return
+        setRenderStatus('fallback')
+      })
 
     return () => {
-      try {
-        if (globeRef.current) {
-          globeRef.current.destroy()
-        }
-      } catch (error) {
-        console.error('Error destroying globe:', error)
+      disposed = true
+      window.cancelAnimationFrame(animationFrame)
+      if (onVisibilityChange) {
+        document.removeEventListener('visibilitychange', onVisibilityChange)
       }
-      window.removeEventListener('resize', onResize)
+      resizeObserver?.disconnect()
+      renderer?.destroy()
     }
-    // Theme changes are handled per-frame via targetTheme; recreating the
-    // globe here would cause a visible pop instead of a smooth cross-fade.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createGlobe, size])
+  }, [size])
 
   return (
-    <div className={`flex items-center justify-center ${className}`}>
+    <div
+      className={`relative flex w-full items-center justify-center ${className}`}
+      style={{ maxWidth: size }}
+    >
+      {renderStatus === 'fallback' && (
+        <div
+          aria-hidden
+          className="absolute inset-[14%] rounded-full"
+          style={{
+            background:
+              'radial-gradient(circle at 34% 28%, #4f9cc8 0%, #135b83 25%, #07345e 55%, #03162d 76%, #010812 100%)',
+            boxShadow:
+              '0 0 3px #9ed8ff, 0 0 18px rgb(70 150 255 / 0.75), 0 0 44px rgb(35 110 255 / 0.32)',
+          }}
+        />
+      )}
       <canvas
         ref={canvasRef}
+        aria-label="A rotating Earth showing major AI hubs"
+        role="img"
         onPointerDown={(e) => {
+          if (e.button !== 0) return
           grabX.current = e.clientX
           rotAtGrab.current = rot.current
           targetRot.current = rot.current
@@ -234,17 +192,16 @@ export default function Globe({ className = '', size = 400 }: GlobeProps) {
           if (canvasRef.current) canvasRef.current.style.cursor = 'grabbing'
         }}
         style={{
-          width: size,
-          height: size,
-          maxWidth: '100%',
+          width: '100%',
+          height: 'auto',
           aspectRatio: '1',
           cursor: 'grab',
-          touchAction: 'pan-y', // horizontal drag spins, vertical still scrolls
+          touchAction: 'pan-y',
         }}
         width={size * 2}
         height={size * 2}
-        className={`transition-opacity duration-1000 ${
-          ready ? 'opacity-90 hover:opacity-100' : 'opacity-0'
+        className={`relative transition-opacity duration-700 ${
+          renderStatus === 'ready' ? 'opacity-100' : 'opacity-0'
         }`}
       />
     </div>

@@ -3,61 +3,124 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import SpaceBackdrop from '@/components/SpaceBackdrop'
-
-import { ACCENT, accentA } from '@/lib/theme'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import {
+  BrandClaude,
+  BrandCopilot,
+  BrandCursor,
+  BrandGemini,
+  BrandMidjourney,
+  BrandOpenAI,
+  BrandPerplexity,
+  IconActivity,
+  IconArrowLeft,
+  IconArrowRight,
+  IconAsterisk,
+  IconBookOpen,
+  IconCheck,
+  IconCode,
+  IconCompass,
+  IconFeather,
+  IconFlask,
+  IconGraduationCap,
+  IconGrid,
+  IconMicroscope,
+  IconOrbit,
+  IconPenTool,
+  IconRocket,
+  IconShieldCheck,
+  IconSolo,
+  IconSparkles,
+  IconTeam,
+  IconWrench,
+  IconX,
+  IconZap,
+  type IconProps
+} from '@/components/welcome/icons'
 
-type Stage = 'boot' | 'privacy' | 'role' | 'goal' | 'tools' | 'thanks'
+type Stage = 'intro' | 'mode' | 'privacy' | 'role' | 'goal' | 'tools'
 
-const STEP_ORDER: Stage[] = ['privacy', 'role', 'goal', 'tools', 'thanks']
+const STEPS: Stage[] = ['mode', 'privacy', 'role', 'goal', 'tools']
 
-const ROLES: { id: string; label: string; glyph: string; hint: string }[] = [
-  { id: 'student', label: 'STUDENT', glyph: '▲', hint: 'class, papers, projects' },
-  { id: 'researcher', label: 'RESEARCHER', glyph: '✦', hint: 'theses, labs, science' },
-  { id: 'developer', label: 'DEVELOPER', glyph: '◇', hint: 'shipping code daily' },
-  { id: 'designer', label: 'DESIGNER', glyph: '◆', hint: 'pixels, vectors, taste' },
-  { id: 'founder', label: 'FOUNDER', glyph: '⌬', hint: 'building a thing' },
-  { id: 'product', label: 'PRODUCT', glyph: '⬢', hint: 'specs to shipping' },
-  { id: 'writer', label: 'WRITER', glyph: '▰', hint: 'words for a living' },
-  { id: 'other', label: 'OTHER', glyph: '◌', hint: 'something else cool' }
+const STEP_META: Record<
+  Exclude<Stage, 'intro'>,
+  { eyebrow: string }
+> = {
+  mode: { eyebrow: 'Account' },
+  privacy: { eyebrow: 'Privacy' },
+  role: { eyebrow: 'About you' },
+  goal: { eyebrow: 'Mission' },
+  tools: { eyebrow: 'Loadout' }
+}
+
+type IconComponent = (p: IconProps) => JSX.Element
+
+const ROLES: { id: string; label: string; hint: string; icon: IconComponent }[] = [
+  { id: 'student', label: 'Student', hint: 'classes, papers, projects', icon: IconGraduationCap },
+  { id: 'researcher', label: 'Researcher', hint: 'theses, labs, science', icon: IconFlask },
+  { id: 'developer', label: 'Developer', hint: 'shipping code daily', icon: IconCode },
+  { id: 'designer', label: 'Designer', hint: 'pixels, vectors, taste', icon: IconPenTool },
+  { id: 'founder', label: 'Founder', hint: 'building a thing', icon: IconRocket },
+  { id: 'product', label: 'Product', hint: 'specs to shipping', icon: IconCompass },
+  { id: 'writer', label: 'Writer', hint: 'words for a living', icon: IconFeather },
+  { id: 'other', label: 'Other', hint: 'something else cool', icon: IconSparkles }
 ]
 
-const GOALS: { id: string; label: string; hint: string }[] = [
-  { id: 'learn', label: 'LEARN A SKILL', hint: 'study, practice, level up' },
-  { id: 'build', label: 'BUILD A PRODUCT', hint: 'ship something real' },
-  { id: 'research', label: 'DO RESEARCH', hint: 'academic or industry' },
-  { id: 'work', label: 'WORK FASTER', hint: 'crush daily output' },
-  { id: 'hobby', label: 'STAY CURIOUS', hint: 'no agenda, just vibes' },
-  { id: 'other', label: 'SOMETHING ELSE', hint: 'tell us later' }
+const GOALS: { id: string; label: string; hint: string; icon: IconComponent }[] = [
+  { id: 'learn', label: 'Learn a skill', hint: 'study, practice, level up', icon: IconBookOpen },
+  { id: 'build', label: 'Build a product', hint: 'ship something real', icon: IconWrench },
+  { id: 'research', label: 'Do research', hint: 'academic or industry', icon: IconMicroscope },
+  { id: 'work', label: 'Work faster', hint: 'crush daily output', icon: IconZap },
+  { id: 'hobby', label: 'Stay curious', hint: 'no agenda, just vibes', icon: IconOrbit },
+  { id: 'other', label: 'Something else', hint: 'tell us later', icon: IconAsterisk }
 ]
 
-const TOOLS: { id: string; label: string }[] = [
-  { id: 'chatgpt', label: 'CHATGPT' },
-  { id: 'claude', label: 'CLAUDE' },
-  { id: 'gemini', label: 'GEMINI' },
-  { id: 'perplexity', label: 'PERPLEXITY' },
-  { id: 'cursor', label: 'CURSOR' },
-  { id: 'copilot', label: 'GH COPILOT' },
-  { id: 'midjourney', label: 'MIDJOURNEY' },
-  { id: 'other', label: 'OTHER' }
+const TOOLS: { id: string; label: string; icon: IconComponent }[] = [
+  { id: 'chatgpt', label: 'ChatGPT', icon: BrandOpenAI },
+  { id: 'claude', label: 'Claude', icon: BrandClaude },
+  { id: 'gemini', label: 'Gemini', icon: BrandGemini },
+  { id: 'perplexity', label: 'Perplexity', icon: BrandPerplexity },
+  { id: 'cursor', label: 'Cursor', icon: BrandCursor },
+  { id: 'copilot', label: 'Copilot', icon: BrandCopilot },
+  { id: 'midjourney', label: 'Midjourney', icon: BrandMidjourney },
+  { id: 'other', label: 'Other', icon: IconGrid }
 ]
 
-const WIZARD_STAGES: Stage[] = ['privacy', 'role', 'goal', 'tools']
 const AMBIENCE_AUDIO_PATH = '/audio/deeper-into-it.mp3'
-const INTRO_AUDIO_PATH = '/audio/intro/welcome-to-cribble.mp3'
+
+const STEP_SWAP_MS = 240
 
 export default function WelcomePage() {
   const router = useRouter()
-  const [stage, setStage] = useState<Stage>('boot')
+  const [stage, setStage] = useState<Stage>('intro')
+  const [leaving, setLeaving] = useState(false)
+  const [mode, setMode] = useState<string | null>(null)
   const [role, setRole] = useState<string | null>(null)
   const [goal, setGoal] = useState<string | null>(null)
   const [topTools, setTopTools] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [alreadyOnboarded, setAlreadyOnboarded] = useState(false)
   const [statusKnown, setStatusKnown] = useState(false)
+  const [devMode, setDevMode] = useState(false)
+  const devRequestedRef = useRef(false)
   const ambienceAudioRef = useRef<HTMLAudioElement | null>(null)
-  const introAudioRef = useRef<HTMLAudioElement | null>(null)
-  const introPlayedRef = useRef(false)
+  const swapTimerRef = useRef<number | null>(null)
+
+  // Crossfade between steps: animate the current step out, then swap.
+  const goTo = useCallback((next: Stage) => {
+    setLeaving(true)
+    if (swapTimerRef.current) window.clearTimeout(swapTimerRef.current)
+    swapTimerRef.current = window.setTimeout(() => {
+      setStage(next)
+      setLeaving(false)
+    }, STEP_SWAP_MS)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (swapTimerRef.current) window.clearTimeout(swapTimerRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     const ambience = new Audio(AMBIENCE_AUDIO_PATH)
@@ -65,58 +128,26 @@ export default function WelcomePage() {
     ambience.volume = 0.32
     ambience.preload = 'auto'
     ambienceAudioRef.current = ambience
-
-    const intro = new Audio(INTRO_AUDIO_PATH)
-    intro.volume = 0.85
-    intro.preload = 'auto'
-    introAudioRef.current = intro
-
     return () => {
       ambience.pause()
       ambience.currentTime = 0
-      intro.pause()
-      intro.currentTime = 0
       ambienceAudioRef.current = null
-      introAudioRef.current = null
     }
   }, [])
 
   useEffect(() => {
     const ambience = ambienceAudioRef.current
-    const intro = introAudioRef.current
-    if (!ambience || !intro) return
-
-    const playSafely = async (audio: HTMLAudioElement) => {
-      try {
-        await audio.play()
-      } catch {
+    if (!ambience) return
+    if (stage !== 'intro') {
+      ambience.play().catch(() => {
         // Browser autoplay policies may block until user gesture.
-      }
+      })
     }
-
-    if (WIZARD_STAGES.includes(stage)) {
-      intro.pause()
-      intro.currentTime = 0
-      introPlayedRef.current = false
-      void playSafely(ambience)
-      return
-    }
-
-    ambience.pause()
-    ambience.currentTime = 0
-
-    if (stage === 'thanks') {
-      if (introPlayedRef.current) return
-      intro.currentTime = 0
-      introPlayedRef.current = true
-      void playSafely(intro)
-      return
-    }
-
-    intro.pause()
-    intro.currentTime = 0
-    introPlayedRef.current = false
   }, [stage])
+
+  useEffect(() => {
+    devRequestedRef.current = new URLSearchParams(window.location.search).has('dev')
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -133,7 +164,11 @@ export default function WelcomePage() {
           router.replace('/login')
           return
         }
-        if (data?.onboarded) setAlreadyOnboarded(true)
+        // ?dev=1 (stage jumper + replay) only works in local development —
+        // never for any account in production.
+        const dev = devRequestedRef.current && process.env.NODE_ENV === 'development'
+        setDevMode(dev)
+        if (data?.onboarded && !dev) setAlreadyOnboarded(true)
         setStatusKnown(true)
       })
       .catch(() => {
@@ -144,122 +179,287 @@ export default function WelcomePage() {
     }
   }, [router])
 
-  // After the boot finishes, branch on whether the user is already onboarded.
+  // After the intro moment, branch on whether the user is already onboarded.
   useEffect(() => {
-    if (stage !== 'boot') return
-    const minBoot = 2800
+    if (stage !== 'intro') return
+    const minIntro = 1800
     const id = setTimeout(() => {
-      if (!statusKnown) {
-        // status hasn't returned yet — short retry tick
-        return
-      }
-      if (alreadyOnboarded) {
-        router.replace('/dashboard')
-      } else {
-        setStage('privacy')
-      }
-    }, minBoot)
+      if (!statusKnown) return // status hasn't returned yet — retry tick below
+      if (alreadyOnboarded) router.replace('/dashboard')
+      else goTo('mode')
+    }, minIntro)
     return () => clearTimeout(id)
-  }, [stage, alreadyOnboarded, statusKnown, router])
+  }, [stage, alreadyOnboarded, statusKnown, router, goTo])
 
-  // Safety: if status arrives later than 2.8s, still advance.
+  // Safety: if status arrives later than the intro minimum, still advance.
   useEffect(() => {
-    if (stage !== 'boot' || !statusKnown) return
+    if (stage !== 'intro' || !statusKnown) return
     const t = setTimeout(() => {
       if (alreadyOnboarded) router.replace('/dashboard')
-      else setStage('privacy')
+      else goTo('mode')
     }, 200)
     return () => clearTimeout(t)
-  }, [statusKnown, alreadyOnboarded, stage, router])
+  }, [statusKnown, alreadyOnboarded, stage, router, goTo])
 
   const advance = useCallback(() => {
-    setStage((cur) => {
-      const idx = STEP_ORDER.indexOf(cur)
-      const next = STEP_ORDER[idx + 1]
-      return next || cur
-    })
-  }, [])
+    const idx = STEPS.indexOf(stage as Exclude<Stage, 'intro'>)
+    const next = STEPS[idx + 1]
+    if (next) goTo(next)
+  }, [stage, goTo])
 
+  const back = useCallback(() => {
+    const idx = STEPS.indexOf(stage as Exclude<Stage, 'intro'>)
+    if (idx > 0) goTo(STEPS[idx - 1])
+  }, [stage, goTo])
+
+  // Save + straight to dashboard. No interstitial.
   const submit = useCallback(async () => {
     if (saving) return
     setSaving(true)
-    try {
-      await fetch('/api/user/onboarding', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role, goal, topTools, newsletter: false })
-      })
-    } catch {
-      // intentionally swallow — we'd rather show thanks than block the user
+    if (!devMode) {
+      try {
+        await fetch('/api/user/onboarding', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            role,
+            goal,
+            topTools,
+            accountType: mode,
+            newsletter: false
+          })
+        })
+      } catch {
+        // intentionally swallow — we'd rather land the user than block them
+      }
     }
-    setStage('thanks')
-    setSaving(false)
-  }, [role, goal, topTools, saving])
-
-  useEffect(() => {
-    if (stage !== 'thanks') return
-    const id = setTimeout(() => router.replace('/dashboard'), 2200)
-    return () => clearTimeout(id)
-  }, [stage, router])
+    router.replace('/dashboard')
+  }, [role, goal, topTools, mode, saving, devMode, router])
 
   const skip = useCallback(() => {
     router.replace('/dashboard')
   }, [router])
 
   const stepNumber = useMemo(() => {
-    if (stage === 'boot' || stage === 'thanks') return null
-    return STEP_ORDER.indexOf(stage) + 1
+    if (stage === 'intro') return null
+    return STEPS.indexOf(stage) + 1
   }, [stage])
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 font-mono relative overflow-hidden selection:bg-accent/20">
+    <div className="min-h-screen bg-black text-zinc-100 relative overflow-hidden selection:bg-accent/20">
       <SpaceBackdrop />
 
-      {/* horizon line */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-x-0 bottom-0 h-px opacity-30 z-0"
-        style={{
-          background: `linear-gradient(90deg, transparent, ${accentA(0.53)}, transparent)`
-        }}
-      />
+      {devMode && <DevBar stage={stage} onJump={setStage} />}
 
       <div className="relative z-10 min-h-screen flex flex-col">
-        {stage !== 'boot' && stage !== 'thanks' && (
+        {stage !== 'intro' && (
           <TopBar
             stepNumber={stepNumber}
-            totalSteps={STEP_ORDER.length - 1}
+            totalSteps={STEPS.length}
             onSkip={skip}
           />
         )}
 
         <main className="flex-1 flex items-center justify-center px-6 py-10">
-          {stage === 'boot' && <BootStage />}
-          {stage === 'privacy' && <PrivacyStage onNext={advance} />}
-          {stage === 'role' && (
-            <RoleStage value={role} onChange={setRole} onNext={advance} />
+          {stage === 'intro' ? (
+            <IntroStage />
+          ) : (
+            <div
+              key={stage}
+              className={`w-full flex justify-center ${
+                leaving ? 'step-leave' : 'step-enter'
+              }`}
+            >
+              {stage === 'mode' && (
+                <ModeStage value={mode} onChange={setMode} onNext={advance} />
+              )}
+              {stage === 'privacy' && (
+                <PrivacyStage onNext={advance} onBack={back} />
+              )}
+              {stage === 'role' && (
+                <RoleStage
+                  value={role}
+                  onChange={setRole}
+                  onNext={advance}
+                  onBack={back}
+                />
+              )}
+              {stage === 'goal' && (
+                <GoalStage
+                  value={goal}
+                  onChange={setGoal}
+                  onNext={advance}
+                  onBack={back}
+                />
+              )}
+              {stage === 'tools' && (
+                <ToolsStage
+                  value={topTools}
+                  onChange={setTopTools}
+                  onSubmit={submit}
+                  onBack={back}
+                  saving={saving}
+                />
+              )}
+            </div>
           )}
-          {stage === 'goal' && (
-            <GoalStage value={goal} onChange={setGoal} onNext={advance} />
-          )}
-          {stage === 'tools' && (
-            <ToolsStage
-              value={topTools}
-              onChange={setTopTools}
-              onSubmit={submit}
-              saving={saving}
-            />
-          )}
-          {stage === 'thanks' && <ThanksStage role={role} />}
         </main>
       </div>
+
+      <style jsx global>{`
+        @keyframes welcome-step-in {
+          from {
+            opacity: 0;
+            transform: translateY(14px);
+            filter: blur(5px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+            filter: blur(0);
+          }
+        }
+        .step-enter {
+          animation: welcome-step-in 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        @keyframes welcome-step-out {
+          to {
+            opacity: 0;
+            transform: translateY(-10px);
+            filter: blur(5px);
+          }
+        }
+        .step-leave {
+          animation: welcome-step-out ${STEP_SWAP_MS}ms ease-in both;
+          pointer-events: none;
+        }
+
+        /* Per-card entrance — rides the step swap with a small stagger. */
+        @keyframes welcome-card-in {
+          from {
+            opacity: 0;
+            transform: translateY(10px) scale(0.985);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+        .card-enter {
+          animation: welcome-card-in 460ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+          animation-delay: var(--wd, 0ms);
+        }
+
+        /* Selection check pops in with a slight overshoot. */
+        @keyframes welcome-check-pop {
+          from {
+            opacity: 0;
+            transform: scale(0.4);
+          }
+          70% {
+            transform: scale(1.15);
+          }
+          to {
+            opacity: 1;
+            transform: scale(1);
+          }
+        }
+        .check-pop {
+          animation: welcome-check-pop 260ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+        }
+
+        @keyframes welcome-note-in {
+          from {
+            opacity: 0;
+            transform: translateY(4px);
+          }
+        }
+        .note-enter {
+          animation: welcome-note-in 320ms ease-out both;
+        }
+
+        /* Intro choreography */
+        @keyframes intro-rise {
+          from {
+            opacity: 0;
+            transform: translateY(16px);
+            filter: blur(6px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+            filter: blur(0);
+          }
+        }
+        .intro-rise {
+          animation: intro-rise 800ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+          animation-delay: var(--wd, 0ms);
+        }
+
+        @keyframes intro-line {
+          from {
+            transform: scaleX(0);
+          }
+          to {
+            transform: scaleX(1);
+          }
+        }
+        .intro-line {
+          transform-origin: left center;
+          animation: intro-line 1.5s cubic-bezier(0.65, 0, 0.35, 1) 400ms both;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .step-enter,
+          .step-leave,
+          .card-enter,
+          .check-pop,
+          .note-enter,
+          .intro-rise,
+          .intro-line {
+            animation: none;
+          }
+        }
+      `}</style>
     </div>
   )
 }
 
 /* ============================================================
-   TOP BAR — progress + skip
+   DEV BAR — stage jumper, only shown with ?dev=1 for allowed accounts
+   ============================================================ */
+
+const DEV_STAGES: Stage[] = ['intro', 'mode', 'privacy', 'role', 'goal', 'tools']
+
+function DevBar({
+  stage,
+  onJump
+}: {
+  stage: Stage
+  onJump: (s: Stage) => void
+}) {
+  return (
+    <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/90 backdrop-blur px-2 py-1.5 font-mono">
+      <span className="text-[9px] tracking-[0.3em] text-zinc-600 px-1">DEV</span>
+      {DEV_STAGES.map((s) => (
+        <button
+          key={s}
+          onClick={() => onJump(s)}
+          className={`text-[9px] tracking-[0.2em] uppercase px-2 py-1 rounded transition-colors ${
+            stage === s ? 'text-accent bg-accent/10' : 'text-zinc-500'
+          }`}
+        >
+          {s}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/* ============================================================
+   TOP BAR — wordmark, step counter, segmented progress, skip
    ============================================================ */
 
 function TopBar({
@@ -271,259 +471,211 @@ function TopBar({
   totalSteps: number
   onSkip: () => void
 }) {
-  const pct = stepNumber ? Math.round((stepNumber / totalSteps) * 100) : 0
   return (
     <header className="relative z-10 px-6 pt-6">
       <div className="max-w-3xl mx-auto flex items-center justify-between">
-        <div className="text-sm tracking-[0.4em] text-zinc-100 font-semibold">
-          CRIBBLE<span style={{ color: ACCENT }}>.</span>
+        <div className="font-mono text-sm tracking-[0.4em] text-zinc-100 font-semibold">
+          CRIBBLE<span className="text-accent">.</span>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="hidden sm:block text-[10px] tracking-[0.3em] text-zinc-500 tabular-nums">
-            STEP {stepNumber}/{totalSteps}
+        <div className="flex items-center gap-3">
+          <div className="hidden sm:block font-mono text-[10px] tracking-[0.3em] text-zinc-500 tabular-nums">
+            {String(stepNumber ?? 0).padStart(2, '0')} / {String(totalSteps).padStart(2, '0')}
           </div>
           <ThemeToggle />
           <button
             onClick={onSkip}
-            className="text-[10px] tracking-[0.3em] px-3 py-1.5 rounded border border-zinc-800 hover:border-zinc-600 text-zinc-500 hover:text-zinc-200 transition-colors"
+            className="font-mono text-[10px] tracking-[0.3em] px-3 py-1.5 rounded border border-zinc-800 hover:border-zinc-600 text-zinc-500 hover:text-zinc-200 transition-colors"
           >
-            SKIP →
+            SKIP
           </button>
         </div>
       </div>
-      <div className="mt-4 max-w-3xl mx-auto">
-        <div className="h-px w-full bg-zinc-900 overflow-hidden">
+      <div className="mt-5 max-w-3xl mx-auto flex gap-1.5">
+        {Array.from({ length: totalSteps }).map((_, i) => (
           <div
-            className="h-full transition-all duration-500 ease-out"
-            style={{
-              width: `${pct}%`,
-              background: ACCENT,
-              boxShadow: `0 0 8px ${accentA(0.6)}`
-            }}
-          />
-        </div>
+            key={i}
+            className="h-[3px] flex-1 rounded-full bg-zinc-900 overflow-hidden"
+          >
+            <div
+              className={`h-full rounded-full bg-accent transition-transform duration-500 ease-out origin-left ${
+                stepNumber !== null && i < stepNumber ? 'scale-x-100' : 'scale-x-0'
+              }`}
+            />
+          </div>
+        ))}
       </div>
     </header>
   )
 }
 
 /* ============================================================
-   STAGE 0 — Boot animation (finite, advances on its own timer)
+   INTRO — brief brand moment while onboarding status loads
    ============================================================ */
 
-function BootStage() {
+function IntroStage() {
   return (
-    <div className="relative w-full max-w-md px-2">
-      <div className="text-center">
-        <div className="text-[10px] tracking-[0.5em] text-zinc-600">
-          [ SYSTEM ]
-        </div>
-        <div
-          className="mt-2 text-2xl md:text-3xl tracking-[0.35em] font-semibold boot-glitch"
-          style={{
-            color: ACCENT,
-            textShadow: `0 0 10px ${accentA(0.4)}, 0 0 28px ${accentA(0.2)}`
-          }}
-        >
-          CRIBBLE<span className="text-zinc-500">{'//'}</span>OS
-        </div>
-        <div className="mt-1 text-[10px] tracking-[0.4em] text-zinc-600">
-          v2.1.0 · LOGIN ACCEPTED
-        </div>
+    <div className="relative w-full max-w-md px-2 text-center">
+      <div
+        className="intro-rise font-mono text-[10px] tracking-[0.5em] text-zinc-500"
+        style={{ ['--wd' as string]: '0ms' }}
+      >
+        WELCOME TO
       </div>
-
-      <div className="mt-10 space-y-1.5 text-xs">
-        <BootLine delay={0} text="LINK_ESTABLISHED" />
-        <BootLine delay={0.35} text="GITHUB_HANDSHAKE OK" />
-        <BootLine delay={0.7} text="SESSION_FORGED" />
-        <BootLine delay={1.1} text="LOADING USER_PROFILE_" cursor />
+      <div
+        className="intro-rise mt-4 font-mono text-3xl md:text-4xl tracking-[0.3em] font-semibold text-zinc-50"
+        style={{ ['--wd' as string]: '120ms' }}
+      >
+        CRIBBLE<span className="text-accent">.</span>
       </div>
-
-      <div className="mt-8">
-        <div
-          className="relative h-1.5 w-full rounded-sm overflow-hidden border"
-          style={{
-            borderColor: `${accentA(0.25)}`,
-            background: 'rgb(var(--accent-rgb)/0.05)'
-          }}
-        >
-          <div
-            className="boot-bar absolute inset-y-0 left-0"
-            style={{
-              background: ACCENT,
-              boxShadow: `0 0 12px ${accentA(0.6)}, 0 0 24px ${accentA(0.33)}`
-            }}
-          />
-        </div>
-        <div className="mt-2 flex items-center justify-between text-[9px] tracking-[0.3em] text-zinc-600">
-          <span>{'>'} BOOTING</span>
-          <span className="boot-pct tabular-nums" />
-        </div>
+      <div
+        className="intro-rise mt-5 font-serif text-xl md:text-2xl text-zinc-400"
+        style={{ ['--wd' as string]: '320ms' }}
+      >
+        your AI grind, <em className="text-zinc-200">on the record</em>.
       </div>
-
-      <div className="mt-12 text-center text-[10px] tracking-[0.4em] text-zinc-700 boot-pulse">
-        ⌬ WELCOME, PILOT ⌬
+      <div className="mt-12 mx-auto h-px w-44 bg-zinc-900 overflow-hidden rounded-full">
+        <div className="intro-line h-full w-full bg-accent/80" />
       </div>
-
-      <style jsx global>{`
-        @keyframes boot-bar {
-          0% {
-            width: 0%;
-          }
-          100% {
-            width: 100%;
-          }
-        }
-        .boot-bar {
-          width: 0%;
-          animation: boot-bar 2.6s ease-out forwards;
-        }
-
-        @keyframes boot-pct {
-          0%,
-          15% { content: '08%'; }
-          16%,
-          30% { content: '22%'; }
-          31%,
-          45% { content: '41%'; }
-          46%,
-          60% { content: '58%'; }
-          61%,
-          75% { content: '74%'; }
-          76%,
-          90% { content: '89%'; }
-          91%,
-          100% { content: '100%'; }
-        }
-        .boot-pct::before {
-          content: '00%';
-          animation: boot-pct 2.6s ease-out forwards;
-        }
-
-        @keyframes boot-line-in {
-          from { opacity: 0; transform: translateX(-8px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-        .boot-line {
-          opacity: 0;
-          animation: boot-line-in 0.45s ease-out forwards;
-        }
-
-        @keyframes boot-cursor {
-          0%, 50% { opacity: 1; }
-          51%, 100% { opacity: 0; }
-        }
-        .boot-cursor {
-          display: inline-block;
-          width: 7px;
-          height: 11px;
-          margin-left: 2px;
-          vertical-align: -1px;
-          background: ${ACCENT};
-          box-shadow: 0 0 6px ${accentA(0.67)};
-          animation: boot-cursor 0.9s steps(2) infinite;
-        }
-
-        @keyframes boot-pulse {
-          0%, 100% { opacity: 0.35; }
-          50% { opacity: 1; }
-        }
-        .boot-pulse {
-          animation: boot-pulse 1.8s ease-in-out infinite;
-        }
-
-        @keyframes boot-glitch {
-          0%, 96%, 100% { transform: translate(0, 0); }
-          97% { transform: translate(-1px, 0); }
-          98% { transform: translate(1px, 0); }
-        }
-        .boot-glitch {
-          animation: boot-glitch 4s steps(1) infinite;
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .boot-bar { width: 95%; animation: none; }
-          .boot-line { opacity: 1; animation: none; }
-          .boot-cursor, .boot-pulse, .boot-glitch, .boot-pct::before {
-            animation: none !important;
-          }
-        }
-      `}</style>
-    </div>
-  )
-}
-
-function BootLine({
-  delay,
-  text,
-  cursor
-}: {
-  delay: number
-  text: string
-  cursor?: boolean
-}) {
-  return (
-    <div
-      className="boot-line flex items-center gap-2"
-      style={{ animationDelay: `${delay}s` }}
-    >
-      <span style={{ color: ACCENT }}>{'>'}</span>
-      <span className="text-zinc-300">{text}</span>
-      {cursor && <span className="boot-cursor" />}
     </div>
   )
 }
 
 /* ============================================================
-   STAGE 1 — Privacy reassurance
+   STEP 1 — Solo or Team
    ============================================================ */
 
-function PrivacyStage({ onNext }: { onNext: () => void }) {
+function ModeStage({
+  value,
+  onChange,
+  onNext
+}: {
+  value: string | null
+  onChange: (v: string) => void
+  onNext: () => void
+}) {
   return (
     <StageShell
-      eyebrow="ABOUT_TRACKING.MD"
-      title="we measure usage, not your prompts."
-      subtitle="The extension only counts which AI tools you visit and for how long. It never reads what you type, what the model says back, or your chat history. Promise."
+      step={1}
+      title={
+        <>
+          how will you <em className="text-zinc-50">play</em>?
+        </>
+      }
+      subtitle="Cribble tracks your time inside AI tools and turns it into a score. Compete on your own, or represent your company."
     >
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div
-          className="rounded-xl border bg-zinc-950/80 backdrop-blur-sm p-5"
-          style={{ borderColor: `${accentA(0.25)}` }}
+      <div className="mt-9 grid grid-cols-1 md:grid-cols-2 gap-3">
+        <ChoiceCard
+          selected={value === 'solo'}
+          onClick={() => onChange('solo')}
+          index={0}
+          large
         >
-          <div
-            className="text-[10px] tracking-[0.4em]"
-            style={{ color: `${accentA(0.8)}` }}
-          >
-            ✓ WHAT WE COLLECT
+          <CardIcon icon={IconSolo} selected={value === 'solo'} />
+          <div className="mt-4 text-base font-semibold text-zinc-100">Solo</div>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-zinc-500">
+            Track your own usage, keep your streak alive and climb the global
+            leaderboard.
+          </p>
+        </ChoiceCard>
+
+        <ChoiceCard
+          selected={value === 'team'}
+          onClick={() => onChange('team')}
+          index={1}
+          large
+        >
+          <div className="flex items-start justify-between">
+            <CardIcon icon={IconTeam} selected={value === 'team'} />
+            <span className="font-mono text-[9px] tracking-[0.25em] px-2 py-1 rounded-full border border-zinc-800 text-zinc-500">
+              EARLY
+            </span>
           </div>
-          <ul className="mt-4 space-y-2.5 text-xs text-zinc-300">
-            <PrivacyItem text="Domains you visit (chatgpt.com, claude.ai, …)." />
-            <PrivacyItem text="Active vs idle minutes per tab." />
-            <PrivacyItem text="Number of visits per tool." />
-            <PrivacyItem text="Sync timestamps for streak math." />
+          <div className="mt-4 text-base font-semibold text-zinc-100">Team</div>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-zinc-500">
+            Play as your company. Pool your crew&apos;s hours onto one board and
+            see who really ships.
+          </p>
+        </ChoiceCard>
+      </div>
+
+      {value === 'team' && (
+        <p className="note-enter mt-5 text-[13px] leading-relaxed text-zinc-500">
+          <span className="text-accent">*</span> Team spaces are just opening
+          up. You&apos;ll start with solo tracking today, and we&apos;ll ping
+          you the moment company boards go live.
+        </p>
+      )}
+
+      <StageActions>
+        <PrimaryButton onClick={onNext} disabled={!value}>
+          Continue
+        </PrimaryButton>
+      </StageActions>
+    </StageShell>
+  )
+}
+
+/* ============================================================
+   STEP 2 — Privacy reassurance
+   ============================================================ */
+
+function PrivacyStage({
+  onNext,
+  onBack
+}: {
+  onNext: () => void
+  onBack: () => void
+}) {
+  return (
+    <StageShell
+      step={2}
+      title={
+        <>
+          we count <em className="text-zinc-50">showing up</em>, not what you
+          say.
+        </>
+      }
+      subtitle="The extension only measures which AI tools you visit and for how long. It never reads what you type, what the model says back, or your chat history."
+    >
+      <div className="mt-9 grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="card-enter glass-lite rounded-2xl p-6" style={{ ['--wd' as string]: '0ms' }}>
+          <div className="flex items-center gap-2.5">
+            <IconActivity size={17} className="text-accent" />
+            <span className="font-mono text-[10px] tracking-[0.3em] text-zinc-400">
+              WHAT WE COLLECT
+            </span>
+          </div>
+          <ul className="mt-5 space-y-3">
+            <PrivacyItem text="Domains you visit (chatgpt.com, claude.ai, …)" />
+            <PrivacyItem text="Active vs idle minutes per tab" />
+            <PrivacyItem text="Number of visits per tool" />
+            <PrivacyItem text="Sync timestamps for streak math" />
           </ul>
         </div>
-        <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/80 backdrop-blur-sm p-5">
-          <div className="text-[10px] tracking-[0.4em] text-rose-300/80">
-            ✗ WHAT WE DON&apos;T TOUCH
+        <div className="card-enter glass-lite rounded-2xl p-6" style={{ ['--wd' as string]: '70ms' }}>
+          <div className="flex items-center gap-2.5">
+            <IconShieldCheck size={17} className="text-zinc-300" />
+            <span className="font-mono text-[10px] tracking-[0.3em] text-zinc-400">
+              WHAT WE NEVER TOUCH
+            </span>
           </div>
-          <ul className="mt-4 space-y-2.5 text-xs text-zinc-300">
+          <ul className="mt-5 space-y-3">
             <PrivacyItem cross text="Your prompts. Ever." />
-            <PrivacyItem cross text="The model's responses." />
-            <PrivacyItem cross text="Your chat history or files." />
-            <PrivacyItem cross text="Keystrokes, clipboard, screens." />
+            <PrivacyItem cross text="The model's responses" />
+            <PrivacyItem cross text="Your chat history or files" />
+            <PrivacyItem cross text="Keystrokes, clipboard, screens" />
           </ul>
         </div>
       </div>
 
-      <p className="mt-6 text-[11px] tracking-[0.2em] text-zinc-500">
-        <span style={{ color: `${accentA(0.8)}` }}>{'// '}</span>
-        TL;DR — we count when you show up, not what you say. Like a Strava for
-        the prompt grind.
+      <p className="mt-6 text-[13px] leading-relaxed text-zinc-500">
+        <span className="text-accent">*</span> Think Strava for the prompt
+        grind — we log the session, never the conversation.
       </p>
 
       <StageActions>
-        <PrimaryButton onClick={onNext}>I UNDERSTAND — CONTINUE →</PrimaryButton>
+        <GhostButton onClick={onBack}>Back</GhostButton>
+        <PrimaryButton onClick={onNext}>Sounds fair</PrimaryButton>
       </StageActions>
     </StageShell>
   )
@@ -531,67 +683,63 @@ function PrivacyStage({ onNext }: { onNext: () => void }) {
 
 function PrivacyItem({ text, cross }: { text: string; cross?: boolean }) {
   return (
-    <li className="flex items-start gap-2.5">
-      <span
-        className="mt-[3px] inline-block text-[11px]"
-        style={{ color: cross ? '#fb7185' : ACCENT }}
-      >
-        {cross ? '✗' : '✓'}
-      </span>
+    <li className="flex items-start gap-3 text-[13px] leading-snug text-zinc-300">
+      {cross ? (
+        <IconX size={14} className="mt-[2px] shrink-0 text-zinc-600" />
+      ) : (
+        <IconCheck size={14} className="mt-[2px] shrink-0 text-accent" />
+      )}
       <span>{text}</span>
     </li>
   )
 }
 
 /* ============================================================
-   STAGE 2 — Role
+   STEP 3 — Role
    ============================================================ */
 
 function RoleStage({
   value,
   onChange,
-  onNext
+  onNext,
+  onBack
 }: {
   value: string | null
   onChange: (v: string) => void
   onNext: () => void
+  onBack: () => void
 }) {
   return (
     <StageShell
-      eyebrow="WHO_ARE_YOU.MD"
-      title="what brings you to cribble?"
-      subtitle="Pick the role that fits you best. We use this to tune leaderboards and weekly recap copy — it's not a permanent label."
+      step={3}
+      title={
+        <>
+          what do you <em className="text-zinc-50">do</em>?
+        </>
+      }
+      subtitle="Pick whatever fits best — we use it to tune leaderboards and recap copy. It's not a permanent label."
     >
-      <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-2.5">
-        {ROLES.map((r) => (
+      <div className="mt-9 grid grid-cols-2 md:grid-cols-4 gap-2.5">
+        {ROLES.map((r, i) => (
           <ChoiceCard
             key={r.id}
             selected={value === r.id}
             onClick={() => onChange(r.id)}
+            index={i}
           >
-            <div className="flex items-baseline justify-between">
-              <span
-                className="text-base"
-                style={{
-                  color: value === r.id ? ACCENT : 'rgb(var(--z500))'
-                }}
-              >
-                {r.glyph}
-              </span>
-            </div>
-            <div className="mt-3 text-sm font-semibold tracking-[0.1em] text-zinc-100">
+            <CardIcon icon={r.icon} selected={value === r.id} />
+            <div className="mt-3.5 text-sm font-semibold text-zinc-100">
               {r.label}
             </div>
-            <div className="mt-1 text-[10px] tracking-wide text-zinc-500">
-              {r.hint}
-            </div>
+            <div className="mt-0.5 text-xs text-zinc-500">{r.hint}</div>
           </ChoiceCard>
         ))}
       </div>
 
       <StageActions>
+        <GhostButton onClick={onBack}>Back</GhostButton>
         <PrimaryButton onClick={onNext} disabled={!value}>
-          NEXT →
+          Continue
         </PrimaryButton>
       </StageActions>
     </StageShell>
@@ -599,45 +747,55 @@ function RoleStage({
 }
 
 /* ============================================================
-   STAGE 3 — Goal
+   STEP 4 — Goal
    ============================================================ */
 
 function GoalStage({
   value,
   onChange,
-  onNext
+  onNext,
+  onBack
 }: {
   value: string | null
   onChange: (v: string) => void
   onNext: () => void
+  onBack: () => void
 }) {
   return (
     <StageShell
-      eyebrow="MISSION.MD"
-      title="what's the mission?"
-      subtitle="One main goal you'd want AI tools to help you crush over the next few months."
+      step={4}
+      title={
+        <>
+          what&apos;s the <em className="text-zinc-50">mission</em>?
+        </>
+      }
+      subtitle="One main thing you'd want AI tools to help you crush over the next few months."
     >
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-2.5">
-        {GOALS.map((g) => (
+      <div className="mt-9 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+        {GOALS.map((g, i) => (
           <ChoiceCard
             key={g.id}
             selected={value === g.id}
             onClick={() => onChange(g.id)}
-            wide
+            index={i}
           >
-            <div className="text-sm font-semibold tracking-[0.1em] text-zinc-100">
-              {g.label}
-            </div>
-            <div className="mt-1 text-[10px] tracking-wide text-zinc-500">
-              {g.hint}
+            <div className="flex items-center gap-3">
+              <CardIcon icon={g.icon} selected={value === g.id} />
+              <div>
+                <div className="text-sm font-semibold text-zinc-100">
+                  {g.label}
+                </div>
+                <div className="mt-0.5 text-xs text-zinc-500">{g.hint}</div>
+              </div>
             </div>
           </ChoiceCard>
         ))}
       </div>
 
       <StageActions>
+        <GhostButton onClick={onBack}>Back</GhostButton>
         <PrimaryButton onClick={onNext} disabled={!value}>
-          NEXT →
+          Continue
         </PrimaryButton>
       </StageActions>
     </StageShell>
@@ -645,18 +803,20 @@ function GoalStage({
 }
 
 /* ============================================================
-   STAGE 4 — Top tools (multi-select)
+   STEP 5 — Top tools (multi-select), finishes straight to dashboard
    ============================================================ */
 
 function ToolsStage({
   value,
   onChange,
   onSubmit,
+  onBack,
   saving
 }: {
   value: string[]
   onChange: (v: string[]) => void
   onSubmit: () => void
+  onBack: () => void
   saving: boolean
 }) {
   const toggle = (id: string) => {
@@ -666,12 +826,16 @@ function ToolsStage({
 
   return (
     <StageShell
-      eyebrow="LOADOUT.MD"
-      title="which tools do you live in?"
-      subtitle={`Pick up to 4. The extension will detect more automatically — this just helps us preload your dashboard. (${value.length}/4 selected)`}
+      step={5}
+      title={
+        <>
+          pick your <em className="text-zinc-50">daily drivers</em>.
+        </>
+      }
+      subtitle={`Up to four. The extension detects everything else automatically — this just preloads your dashboard. ${value.length}/4 selected.`}
     >
-      <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-2.5">
-        {TOOLS.map((t) => {
+      <div className="mt-9 grid grid-cols-2 md:grid-cols-4 gap-2.5">
+        {TOOLS.map((t, i) => {
           const selected = value.includes(t.id)
           const atCap = !selected && value.length >= 4
           return (
@@ -680,18 +844,12 @@ function ToolsStage({
               selected={selected}
               onClick={() => !atCap && toggle(t.id)}
               disabled={atCap}
+              index={i}
             >
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold tracking-[0.1em] text-zinc-100">
+              <div className="flex items-center gap-3">
+                <CardIcon icon={t.icon} selected={selected} />
+                <span className="text-sm font-semibold text-zinc-100">
                   {t.label}
-                </div>
-                <span
-                  className="text-[11px]"
-                  style={{
-                    color: selected ? ACCENT : 'transparent'
-                  }}
-                >
-                  ✓
                 </span>
               </div>
             </ChoiceCard>
@@ -700,57 +858,12 @@ function ToolsStage({
       </div>
 
       <StageActions>
+        <GhostButton onClick={onBack}>Back</GhostButton>
         <PrimaryButton onClick={onSubmit} disabled={saving}>
-          {saving ? 'SAVING…' : 'FINISH BOOT →'}
+          {saving ? 'Opening dashboard…' : 'Enter dashboard'}
         </PrimaryButton>
       </StageActions>
     </StageShell>
-  )
-}
-
-/* ============================================================
-   STAGE 5 — Thanks
-   ============================================================ */
-
-function ThanksStage({ role }: { role: string | null }) {
-  const roleLabel =
-    ROLES.find((r) => r.id === role)?.label.toLowerCase() || 'pilot'
-  return (
-    <div className="relative w-full max-w-md px-2 text-center">
-      <div className="text-[10px] tracking-[0.5em] text-zinc-600">
-        [ HANDSHAKE COMPLETE ]
-      </div>
-      <div
-        className="mt-3 text-3xl md:text-4xl tracking-[0.25em] font-semibold"
-        style={{
-          color: ACCENT,
-          textShadow: `0 0 10px ${accentA(0.4)}, 0 0 28px ${accentA(0.2)}`
-        }}
-      >
-        WELCOME, {roleLabel.toUpperCase()}
-      </div>
-      <div className="mt-3 text-[11px] tracking-[0.3em] text-zinc-500">
-        cribble//os is live. opening dashboard…
-      </div>
-      <div className="mt-8 inline-block">
-        <div className="h-px w-40 overflow-hidden bg-zinc-900 mx-auto">
-          <div
-            className="h-full"
-            style={{
-              background: ACCENT,
-              boxShadow: `0 0 8px ${accentA(0.6)}`,
-              animation: 'thanks-bar 2s ease-out forwards'
-            }}
-          />
-        </div>
-      </div>
-      <style jsx global>{`
-        @keyframes thanks-bar {
-          from { width: 0%; }
-          to { width: 100%; }
-        }
-      `}</style>
-    </div>
   )
 }
 
@@ -759,28 +872,28 @@ function ThanksStage({ role }: { role: string | null }) {
    ============================================================ */
 
 function StageShell({
-  eyebrow,
+  step,
   title,
   subtitle,
   children
 }: {
-  eyebrow: string
-  title: string
+  step: number
+  title: React.ReactNode
   subtitle: string
   children: React.ReactNode
 }) {
+  const meta = STEP_META[STEPS[step - 1] as Exclude<Stage, 'intro'>]
   return (
     <section className="w-full max-w-3xl">
-      <div
-        className="text-[10px] tracking-[0.4em]"
-        style={{ color: `${accentA(0.8)}` }}
-      >
-        {'//'} {eyebrow}
+      <div className="font-mono text-[10px] tracking-[0.35em] text-zinc-500 uppercase">
+        <span className="text-accent">{String(step).padStart(2, '0')}</span>
+        <span className="mx-2 text-zinc-700">/</span>
+        {meta.eyebrow}
       </div>
-      <h1 className="mt-3 text-3xl md:text-4xl font-semibold tracking-tight text-zinc-50">
+      <h1 className="mt-4 font-serif text-4xl md:text-5xl leading-[1.08] text-zinc-300">
         {title}
       </h1>
-      <p className="mt-3 text-sm text-zinc-400 leading-relaxed max-w-2xl">
+      <p className="mt-4 text-sm md:text-[15px] text-zinc-500 leading-relaxed max-w-xl">
         {subtitle}
       </p>
       {children}
@@ -790,7 +903,7 @@ function StageShell({
 
 function StageActions({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mt-8 flex items-center justify-end gap-2">{children}</div>
+    <div className="mt-10 flex items-center justify-end gap-3">{children}</div>
   )
 }
 
@@ -808,24 +921,57 @@ function PrimaryButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="text-[11px] tracking-[0.3em] px-5 py-2.5 rounded-md border transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-      style={
-        disabled
-          ? {
-              borderColor: 'rgb(var(--z800))',
-              color: 'rgb(var(--z500))',
-              background: 'transparent'
-            }
-          : {
-              borderColor: `${accentA(0.5)}`,
-              color: ACCENT,
-              background: `${accentA(0.07)}`,
-              boxShadow: `0 0 18px ${accentA(0.19)}`
-            }
-      }
+      className="group inline-flex items-center gap-2.5 text-[13px] font-semibold px-6 py-3 rounded-full transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed enabled:hover:-translate-y-px enabled:active:translate-y-0"
+      style={{
+        background: 'var(--foreground)',
+        color: 'var(--background)'
+      }}
     >
       {children}
+      <IconArrowRight
+        size={15}
+        className="transition-transform duration-300 group-enabled:group-hover:translate-x-0.5"
+      />
     </button>
+  )
+}
+
+function GhostButton({
+  children,
+  onClick
+}: {
+  children: React.ReactNode
+  onClick?: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-2 text-[13px] px-5 py-3 rounded-full border border-zinc-800 text-zinc-400 hover:text-zinc-100 hover:border-zinc-600 transition-colors"
+    >
+      <IconArrowLeft size={15} />
+      {children}
+    </button>
+  )
+}
+
+function CardIcon({
+  icon: Icon,
+  selected
+}: {
+  icon: IconComponent
+  selected: boolean
+}) {
+  return (
+    <span
+      className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border transition-colors duration-300 ${
+        selected
+          ? 'border-accent/40 bg-accent/10 text-accent'
+          : 'border-zinc-800 bg-zinc-900/60 text-zinc-400'
+      }`}
+    >
+      <Icon size={19} />
+    </span>
   )
 }
 
@@ -833,13 +979,15 @@ function ChoiceCard({
   selected,
   disabled,
   onClick,
-  wide,
+  index = 0,
+  large,
   children
 }: {
   selected: boolean
   disabled?: boolean
   onClick: () => void
-  wide?: boolean
+  index?: number
+  large?: boolean
   children: React.ReactNode
 }) {
   return (
@@ -847,23 +995,22 @@ function ChoiceCard({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`text-left rounded-xl border bg-zinc-950/80 backdrop-blur-sm transition-all ${
-        wide ? 'p-5' : 'p-4'
-      } ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
-      style={{
-        borderColor: selected ? `${accentA(0.5)}` : 'rgb(var(--z800))',
-        background: selected ? `${accentA(0.05)}` : undefined,
-        boxShadow: selected ? `0 0 22px ${accentA(0.15)} inset` : undefined
-      }}
-      onMouseEnter={(e) => {
-        if (!selected && !disabled)
-          (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgb(var(--z600))'
-      }}
-      onMouseLeave={(e) => {
-        if (!selected && !disabled)
-          (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgb(var(--z800))'
-      }}
+      className={`card-enter relative text-left rounded-2xl border backdrop-blur-sm transition-all duration-300 ${
+        large ? 'p-6' : 'p-4'
+      } ${
+        disabled
+          ? 'opacity-35 cursor-not-allowed border-zinc-800 bg-zinc-950/70'
+          : selected
+          ? 'border-accent/50 bg-accent/[0.05]'
+          : 'border-zinc-800 bg-zinc-950/70 hover:border-zinc-600 hover:-translate-y-0.5'
+      }`}
+      style={{ ['--wd' as string]: `${index * 45}ms` }}
     >
+      {selected && (
+        <span className="check-pop absolute top-3 right-3 inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-black">
+          <IconCheck size={11} />
+        </span>
+      )}
       {children}
     </button>
   )

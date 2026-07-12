@@ -1,6 +1,13 @@
 'use client'
 
-import { FormEvent, useEffect, useRef, useState } from 'react'
+import {
+  FormEvent,
+  ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState
+} from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import WorldwideText from '@/components/WorldwideText'
@@ -67,14 +74,17 @@ export default function HomeV2() {
       {/* minimalist white asteroids — occasional fly-by */}
       <AsteroidField />
 
-      <div className="relative z-10 max-w-6xl w-full mx-auto px-6 flex-1 flex flex-col">
+      <div className="page-zoom-out relative z-10 max-w-6xl w-full mx-auto px-6 flex-1 flex flex-col">
         <Header />
 
         <main className="flex-1 flex items-center py-8">
           <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_1fr] gap-10 lg:gap-16 items-center w-full">
             {/* LEFT — hero copy */}
             <div className="order-2 lg:order-1">
-              <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-zinc-800 bg-zinc-950 text-[10px] tracking-[0.3em] text-zinc-400">
+              <span
+                className="hero-item inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-zinc-800 bg-zinc-950 text-[10px] tracking-[0.3em] text-zinc-400"
+                style={{ ['--hr' as string]: '0ms' }}
+              >
                 <span
                   className="h-1.5 w-1.5 rounded-full"
                   style={{
@@ -85,26 +95,42 @@ export default function HomeV2() {
                 PRIVATE BETA · INVITE-ONLY
               </span>
 
-              <h1 className="mt-6 font-semibold tracking-tight leading-[1.02] text-zinc-50 text-5xl md:text-6xl lg:text-[5.25rem]">
-                cribble.
+              <h1
+                className="hero-item mt-7 font-semibold tracking-tight leading-none text-zinc-50 text-5xl md:text-6xl lg:text-[4.75rem]"
+                style={{ ['--hr' as string]: '90ms' }}
+              >
+                cribble
+                <span style={{ color: ACCENT }}>.</span>
               </h1>
-              <div className="mt-4 text-3xl md:text-4xl lg:text-5xl font-normal leading-tight">
+
+              {/* Editorial serif tagline — deliberate contrast against the
+                  mono wordmark. The rotating word rides an accent underline
+                  that stretches with each language (see .worldwide-anchor). */}
+              <div
+                className="hero-item mt-5 font-serif text-4xl md:text-[2.85rem] lg:text-[3.55rem] leading-[1.1]"
+                style={{ ['--hr' as string]: '180ms' }}
+              >
                 <div className="text-zinc-400">ranking AI users,</div>
-                <div className="worldwide-anchor mt-3 md:mt-4">
+                <div className="worldwide-anchor mt-2 md:mt-3">
                   <WorldwideText />
                 </div>
               </div>
 
-              <p className="mt-7 max-w-md text-sm leading-relaxed text-zinc-400">
-                The worldwide leaderboard for AI users. Tracks{' '}
-                <span className="text-zinc-200">ChatGPT</span>,{' '}
-                <span className="text-zinc-200">Claude</span>,{' '}
-                <span className="text-zinc-200">Cursor</span>, and 30+ more.
-                Build a streak. Climb the board. Or just lurk — the extension
-                is silent.
+              <p
+                className="hero-item mt-8 max-w-md font-sans text-[15px] leading-[1.8] text-zinc-400"
+                style={{ ['--hr' as string]: '280ms' }}
+              >
+                Every prompt you send counts here. Cribble tallies your usage
+                across <ToolChip>ChatGPT</ToolChip>, <ToolChip>Claude</ToolChip>
+                , <ToolChip>Cursor</ToolChip>, <RotatingTool />, and 30+ more,
+                then ranks you against the rest of the world. Climb loud or
+                lurk quietly. The extension never makes a sound.
               </p>
 
-              <div className="mt-8 flex flex-wrap items-center gap-3">
+              <div
+                className="hero-item mt-9 flex flex-wrap items-center gap-3"
+                style={{ ['--hr' as string]: '380ms' }}
+              >
                 {!IS_PUBLIC_SITE_LOCKED ? (
                   <Link
                     href="/login"
@@ -246,7 +272,7 @@ function Header() {
 function Footer() {
   return (
     <footer className="pb-6 pt-10 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-[10px] tracking-[0.3em] text-zinc-600">
-      <span>CRIBBLE · 2025</span>
+      <span>CRIBBLE · 2026</span>
 
       <a
         href="https://cursor.com"
@@ -313,18 +339,21 @@ function GlobeStage() {
         }}
       />
 
-      {/* inner glow — follows the globe halo (blue-white dark / orange light) */}
+      {/* soft blue atmospheric spill behind the Earth — sized to catch the
+          shader's exospheric haze where the canvas edge cuts it off */}
       <div
         aria-hidden
         className="absolute inset-0 m-auto rounded-full blur-3xl opacity-30 pointer-events-none transition-[background] duration-700"
         style={{
-          width: 'min(360px, 80vw)',
-          height: 'min(360px, 80vw)',
-          background: 'radial-gradient(circle, rgb(var(--globe-glow-rgb) / 0.15), transparent 70%)'
+          width: 'min(430px, 88vw)',
+          height: 'min(430px, 88vw)',
+          background: 'radial-gradient(circle, rgb(var(--globe-glow-rgb) / 0.19), transparent 70%)'
         }}
       />
 
-      {/* SATELLITE — sits on the top of the orbit ring; wrapper rotates */}
+      {/* SATELLITE — sits on the top of the orbit ring; the wrapper spins
+          to carry it around the dashed circle while the craft itself slowly
+          tumbles about its own axis. */}
       <div
         aria-hidden
         className="cribble-satellite absolute inset-0 m-auto pointer-events-none"
@@ -333,27 +362,46 @@ function GlobeStage() {
           height: ORBIT_SIZE
         }}
       >
-        {/* faint leading "spark" arc just ahead of the satellite */}
+        {/* motion trail — orbit runs clockwise, so it streams off to the
+            left of the craft at the top of the ring */}
         <div
-          className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 h-px w-10"
+          className="absolute top-0 left-1/2 h-px w-16"
           style={{
+            transform: 'translate(calc(-100% - 22px), -50%)',
             background:
-              'linear-gradient(to right, transparent, rgb(var(--star-rgb) / 0.45))',
-            transform: 'translate(-50%, -50%) rotate(0deg) translateX(-12px)'
+              'linear-gradient(to right, transparent, rgb(var(--star-rgb) / 0.5))'
           }}
         />
-        {/* satellite body */}
-        <div
-          className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full bg-white"
-          style={{
-            boxShadow:
-              '0 0 6px rgb(var(--star-rgb) / 0.9), 0 0 14px rgb(var(--star-rgb) / 0.35)'
-          }}
-        />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2">
+          <div className="cribble-sat-spin cribble-sat-spin-slow">
+            <SatelliteMark />
+          </div>
+        </div>
       </div>
 
-      <div className="relative">
+      <div className="relative z-[1]">
         <Globe size={400} />
+      </div>
+
+      {/* POLAR SATELLITE — a real orbit, not a fade: the keyframes sample a
+          tilted circle (position + depth-scale + heading), and on the far
+          half its z-index drops below the globe canvas, so the opaque
+          planet pixels clip it at the limb. It slides out from behind the
+          top of the Earth, sweeps down the face growing as it nears the
+          viewer, swings around below, recedes, and slips behind the planet
+          again. Track radius stays inside the dashed ring so it never meets
+          the first satellite. */}
+      <div
+        aria-hidden
+        className="cribble-polar-sat absolute left-1/2 top-1/2 pointer-events-none"
+      >
+        {/* velocity-matched motion trail: always streams opposite the
+            flight direction and stretches with projected speed, so it
+            collapses to nothing at the turnarounds and hides the flip */}
+        <div className="cribble-polar-trail" />
+        <div className="cribble-sat-spin">
+          <SatelliteMark />
+        </div>
       </div>
 
       {/* tiny corner annotation */}
@@ -375,13 +423,438 @@ function GlobeStage() {
             transform: rotate(360deg);
           }
         }
+        .cribble-satellite-body {
+          filter: drop-shadow(0 0 5px rgb(var(--star-rgb) / 0.45));
+        }
+        .cribble-satellite-beacon {
+          animation: cribble-beacon 1.6s ease-in-out infinite;
+        }
+        @keyframes cribble-beacon {
+          0%,
+          100% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.2;
+          }
+        }
+        .cribble-polar-sat {
+          /* one orbit unit; the track spans ±196 units against a planet
+             radius of ~146, so limb crossings happen well inside the frame */
+          --pu: min(1px, 0.21vw);
+          z-index: 2;
+          will-change: transform;
+          animation: cribble-polar 26s linear infinite;
+        }
+        /* Keyframes sample a tilted orbit circle every 15°:
+           x = 24·cosθ + 14·sinθ (tilt + lean), y = -196·cosθ,
+           scale = 0.825 + 0.325·sinθ (depth). Craft attitude is handled by
+           the separate self-spin, which keeps the angular rate constant.
+           Front half (0–50%) rides above the globe; at the bottom
+           turnaround the z-index drops under the canvas, so on the way up
+           the opaque planet itself clips the craft at the limb. */
+        @keyframes cribble-polar {
+          0% {
+            transform: translate(
+                calc(-50% + 24 * var(--pu)),
+                calc(-50% - 196 * var(--pu))
+              )
+              scale(0.825);
+            z-index: 2;
+          }
+          4.17% {
+            transform: translate(
+                calc(-50% + 26.8 * var(--pu)),
+                calc(-50% - 189.3 * var(--pu))
+              )
+              scale(0.909);
+          }
+          8.33% {
+            transform: translate(
+                calc(-50% + 27.8 * var(--pu)),
+                calc(-50% - 169.7 * var(--pu))
+              )
+              scale(0.988);
+          }
+          12.5% {
+            transform: translate(
+                calc(-50% + 26.9 * var(--pu)),
+                calc(-50% - 138.6 * var(--pu))
+              )
+              scale(1.055);
+          }
+          16.67% {
+            transform: translate(
+                calc(-50% + 24.1 * var(--pu)),
+                calc(-50% - 98 * var(--pu))
+              )
+              scale(1.106);
+          }
+          20.83% {
+            transform: translate(
+                calc(-50% + 19.7 * var(--pu)),
+                calc(-50% - 50.7 * var(--pu))
+              )
+              scale(1.139);
+          }
+          25% {
+            transform: translate(calc(-50% + 14 * var(--pu)), -50%) scale(1.15);
+          }
+          29.17% {
+            transform: translate(
+                calc(-50% + 7.3 * var(--pu)),
+                calc(-50% + 50.7 * var(--pu))
+              )
+              scale(1.139);
+          }
+          33.33% {
+            transform: translate(
+                calc(-50% + 0.1 * var(--pu)),
+                calc(-50% + 98 * var(--pu))
+              )
+              scale(1.106);
+          }
+          37.5% {
+            transform: translate(
+                calc(-50% - 7.1 * var(--pu)),
+                calc(-50% + 138.6 * var(--pu))
+              )
+              scale(1.055);
+          }
+          41.67% {
+            transform: translate(
+                calc(-50% - 13.8 * var(--pu)),
+                calc(-50% + 169.7 * var(--pu))
+              )
+              scale(0.988);
+          }
+          45.83% {
+            transform: translate(
+                calc(-50% - 19.6 * var(--pu)),
+                calc(-50% + 189.3 * var(--pu))
+              )
+              scale(0.909);
+          }
+          50% {
+            transform: translate(
+                calc(-50% - 24 * var(--pu)),
+                calc(-50% + 196 * var(--pu))
+              )
+              scale(0.825);
+            z-index: 2;
+          }
+          /* bottom turnaround happens clear of the planet, so the z-order
+             swap under the canvas is invisible */
+          50.2% {
+            z-index: 0;
+          }
+          54.17% {
+            transform: translate(
+                calc(-50% - 26.8 * var(--pu)),
+                calc(-50% + 189.3 * var(--pu))
+              )
+              scale(0.741);
+          }
+          58.33% {
+            transform: translate(
+                calc(-50% - 27.8 * var(--pu)),
+                calc(-50% + 169.7 * var(--pu))
+              )
+              scale(0.663);
+          }
+          62.5% {
+            transform: translate(
+                calc(-50% - 26.9 * var(--pu)),
+                calc(-50% + 138.6 * var(--pu))
+              )
+              scale(0.595);
+          }
+          66.67% {
+            transform: translate(
+                calc(-50% - 24.1 * var(--pu)),
+                calc(-50% + 98 * var(--pu))
+              )
+              scale(0.544);
+          }
+          70.83% {
+            transform: translate(
+                calc(-50% - 19.7 * var(--pu)),
+                calc(-50% + 50.7 * var(--pu))
+              )
+              scale(0.511);
+          }
+          75% {
+            transform: translate(calc(-50% - 14 * var(--pu)), -50%) scale(0.5);
+          }
+          79.17% {
+            transform: translate(
+                calc(-50% - 7.3 * var(--pu)),
+                calc(-50% - 50.7 * var(--pu))
+              )
+              scale(0.511);
+          }
+          83.33% {
+            transform: translate(
+                calc(-50% - 0.1 * var(--pu)),
+                calc(-50% - 98 * var(--pu))
+              )
+              scale(0.544);
+          }
+          87.5% {
+            transform: translate(
+                calc(-50% + 7.1 * var(--pu)),
+                calc(-50% - 138.6 * var(--pu))
+              )
+              scale(0.595);
+          }
+          91.67% {
+            transform: translate(
+                calc(-50% + 13.8 * var(--pu)),
+                calc(-50% - 169.7 * var(--pu))
+              )
+              scale(0.663);
+          }
+          95.83% {
+            transform: translate(
+                calc(-50% + 19.6 * var(--pu)),
+                calc(-50% - 189.3 * var(--pu))
+              )
+              scale(0.741);
+          }
+          100% {
+            transform: translate(
+                calc(-50% + 24 * var(--pu)),
+                calc(-50% - 196 * var(--pu))
+              )
+              scale(0.825);
+            z-index: 0;
+          }
+        }
+        /* Trail anchored to the polar craft's center. transform-origin sits
+           on the craft, so rotate() aims the streak opposite the flight
+           direction and scaleX() stretches it with projected speed. The
+           fast heading flips at the turnarounds happen while the trail is
+           collapsed, so they are invisible. Sampled every 15° of the same
+           orbit the position keyframes trace. */
+        .cribble-polar-trail {
+          position: absolute;
+          top: 50%;
+          right: 50%;
+          width: 64px;
+          height: 1px;
+          margin-top: -0.5px;
+          transform-origin: 100% 50%;
+          background: linear-gradient(
+            to right,
+            transparent,
+            rgb(var(--star-rgb) / 0.5)
+          );
+          animation: cribble-polar-trail 26s linear infinite;
+        }
+        @keyframes cribble-polar-trail {
+          0% {
+            transform: rotate(0deg) scaleX(0.07);
+          }
+          4.17% {
+            transform: rotate(81.8deg) scaleX(0.26);
+          }
+          8.33% {
+            transform: rotate(89.9deg) scaleX(0.5);
+          }
+          12.5% {
+            transform: rotate(92.9deg) scaleX(0.7);
+          }
+          16.67% {
+            transform: rotate(94.6deg) scaleX(0.86);
+          }
+          20.83% {
+            transform: rotate(95.9deg) scaleX(0.96);
+          }
+          25% {
+            transform: rotate(97deg) scaleX(1);
+          }
+          29.17% {
+            transform: rotate(98.1deg) scaleX(0.97);
+          }
+          33.33% {
+            transform: rotate(99.3deg) scaleX(0.87);
+          }
+          37.5% {
+            transform: rotate(101deg) scaleX(0.71);
+          }
+          41.67% {
+            transform: rotate(103.8deg) scaleX(0.51);
+          }
+          45.83% {
+            transform: rotate(111.3deg) scaleX(0.28);
+          }
+          50% {
+            transform: rotate(180deg) scaleX(0.07);
+          }
+          54.17% {
+            transform: rotate(261.8deg) scaleX(0.26);
+          }
+          58.33% {
+            transform: rotate(269.9deg) scaleX(0.5);
+          }
+          62.5% {
+            transform: rotate(272.9deg) scaleX(0.7);
+          }
+          66.67% {
+            transform: rotate(274.6deg) scaleX(0.86);
+          }
+          70.83% {
+            transform: rotate(275.9deg) scaleX(0.96);
+          }
+          75% {
+            transform: rotate(277deg) scaleX(1);
+          }
+          79.17% {
+            transform: rotate(278.1deg) scaleX(0.97);
+          }
+          83.33% {
+            transform: rotate(279.3deg) scaleX(0.87);
+          }
+          87.5% {
+            transform: rotate(281deg) scaleX(0.71);
+          }
+          91.67% {
+            transform: rotate(283.8deg) scaleX(0.51);
+          }
+          95.83% {
+            transform: rotate(291.3deg) scaleX(0.28);
+          }
+          100% {
+            transform: rotate(360deg) scaleX(0.07);
+          }
+        }
+        /* slow tumble about each craft's own axis; constant angular rate
+           so nothing snaps at the orbit turnarounds */
+        .cribble-sat-spin {
+          animation: cribble-sat-spin 14s linear infinite;
+        }
+        .cribble-sat-spin > svg {
+          display: block;
+        }
+        .cribble-sat-spin-slow {
+          animation-duration: 22s;
+          animation-direction: reverse;
+        }
+        @keyframes cribble-sat-spin {
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
+        }
         @media (prefers-reduced-motion: reduce) {
-          .cribble-satellite {
+          .cribble-satellite,
+          .cribble-satellite-beacon,
+          .cribble-sat-spin {
             animation: none !important;
+          }
+          /* without its animation the polar craft has no valid resting
+             spot, so it sits out entirely */
+          .cribble-polar-sat {
+            display: none;
           }
         }
       `}</style>
     </div>
+  )
+}
+
+function SatelliteMark() {
+  // Side-view comms satellite: long twin solar wings on booms, silver bus
+  // with a sensor strip, uplink dish, and a blinking accent beacon.
+  return (
+    <svg
+      width="56"
+      height="22"
+      viewBox="0 0 56 22"
+      className="cribble-satellite-body"
+      aria-hidden
+    >
+      {/* left solar wing */}
+      <rect
+        x="1"
+        y="7"
+        width="18"
+        height="8.5"
+        rx="1"
+        fill="rgb(30 64 175 / 0.92)"
+        stroke="rgb(148 163 184 / 0.95)"
+        strokeWidth="0.8"
+      />
+      <path
+        d="M5.5 7v8.5M10 7v8.5M14.5 7v8.5M1 11.25h18"
+        stroke="rgb(191 219 254 / 0.55)"
+        strokeWidth="0.6"
+      />
+      {/* right solar wing */}
+      <rect
+        x="37"
+        y="7"
+        width="18"
+        height="8.5"
+        rx="1"
+        fill="rgb(30 64 175 / 0.92)"
+        stroke="rgb(148 163 184 / 0.95)"
+        strokeWidth="0.8"
+      />
+      <path
+        d="M41.5 7v8.5M46 7v8.5M50.5 7v8.5M37 11.25h18"
+        stroke="rgb(191 219 254 / 0.55)"
+        strokeWidth="0.6"
+      />
+      {/* wing booms */}
+      <path
+        d="M19 11.25h4M33 11.25h4"
+        stroke="rgb(161 161 170)"
+        strokeWidth="1"
+      />
+      {/* bus */}
+      <rect
+        x="23"
+        y="5.5"
+        width="10"
+        height="11.5"
+        rx="1.8"
+        fill="#e4e4e7"
+        stroke="#3f3f46"
+        strokeWidth="0.9"
+      />
+      {/* sensor strip */}
+      <rect x="24.8" y="7.4" width="6.4" height="2.6" rx="0.6" fill="#27272a" />
+      <rect
+        x="25.5"
+        y="8.1"
+        width="2.1"
+        height="1.2"
+        rx="0.3"
+        fill="rgb(56 189 248 / 0.85)"
+      />
+      {/* uplink dish */}
+      <path d="M28 5.5V2.9" stroke="#a1a1aa" strokeWidth="0.9" />
+      <circle
+        cx="28"
+        cy="2.2"
+        r="1.5"
+        fill="#f4f4f5"
+        stroke="#52525b"
+        strokeWidth="0.7"
+      />
+      <circle cx="28" cy="2.2" r="0.45" fill="#52525b" />
+      {/* status beacon */}
+      <circle
+        className="cribble-satellite-beacon"
+        cx="28"
+        cy="14.4"
+        r="1.2"
+        fill="rgb(var(--accent-rgb))"
+      />
+    </svg>
   )
 }
 
@@ -504,9 +977,50 @@ function AsteroidField() {
         /* Anchor the rotating WorldwideText to the left edge so the layout
            reads as a clean width change rather than a jiggling reflow. */
         .worldwide-anchor {
+          position: relative;
           display: inline-block;
-          padding-bottom: 4px;
-          line-height: 1.15;
+          padding-bottom: 12px;
+          line-height: 1.12;
+        }
+
+        /* Accent underline that stretches and shrinks with each language —
+           it tracks the animated width of the wrap above it. */
+        .worldwide-anchor::after {
+          content: '';
+          position: absolute;
+          left: 1px;
+          right: 1px;
+          bottom: 2px;
+          height: 2px;
+          border-radius: 999px;
+          background: linear-gradient(
+            90deg,
+            rgb(var(--accent-rgb) / 0.85),
+            rgb(var(--accent-rgb) / 0.1)
+          );
+          box-shadow: 0 0 14px rgb(var(--accent-rgb) / 0.35);
+          pointer-events: none;
+        }
+
+        /* Hero entrance — badge, wordmark, tagline, copy, CTAs rise in
+           sequence. Uses "backwards" fill so hover states stay free after
+           the cascade finishes. Delay comes from --hr, set inline. */
+        .hero-item {
+          animation: hero-rise-in 720ms cubic-bezier(0.22, 1, 0.36, 1)
+            backwards;
+          animation-delay: var(--hr, 0ms);
+        }
+        @keyframes hero-rise-in {
+          from {
+            opacity: 0;
+            transform: translateY(16px);
+            filter: blur(8px);
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .hero-item {
+            animation: none;
+          }
         }
 
         .home-asteroid {
@@ -545,6 +1059,132 @@ function AsteroidField() {
         }
       `}</style>
     </div>
+  )
+}
+
+function ToolChip({ children }: { children: ReactNode }) {
+  return (
+    <span className="font-medium text-zinc-200 border-b border-zinc-700/70">
+      {children}
+    </span>
+  )
+}
+
+// The fourth slot in the tool list cycles through the rest of the roster so
+// the paragraph reads as live inventory instead of static marketing copy.
+const ROTATING_TOOLS = [
+  'Gemini',
+  'Perplexity',
+  'Copilot',
+  'v0',
+  'Windsurf',
+  'DeepSeek',
+  'Grok',
+  'Lovable'
+]
+
+const ROTATE_HOLD_MS = 2400
+const ROTATE_SWAP_MS = 240
+
+function RotatingTool() {
+  const [index, setIndex] = useState(0)
+  const [leaving, setLeaving] = useState(false)
+  const [width, setWidth] = useState<number | null>(null)
+  const measureRef = useRef<HTMLSpanElement | null>(null)
+
+  // Measure each word so the sentence reflows smoothly instead of jumping.
+  useLayoutEffect(() => {
+    if (measureRef.current) {
+      setWidth(Math.ceil(measureRef.current.getBoundingClientRect().width))
+    }
+  }, [index])
+
+  useEffect(() => {
+    if (
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    )
+      return
+
+    let cancelled = false
+    const timers: Array<ReturnType<typeof setTimeout>> = []
+
+    const tick = () => {
+      timers.push(
+        setTimeout(() => {
+          if (cancelled) return
+          setLeaving(true)
+          timers.push(
+            setTimeout(() => {
+              if (cancelled) return
+              setIndex((v) => (v + 1) % ROTATING_TOOLS.length)
+              setLeaving(false)
+              tick()
+            }, ROTATE_SWAP_MS)
+          )
+        }, ROTATE_HOLD_MS)
+      )
+    }
+    tick()
+
+    return () => {
+      cancelled = true
+      timers.forEach(clearTimeout)
+    }
+  }, [])
+
+  return (
+    <span
+      className="rt-wrap"
+      style={{ width: width != null ? `${width}px` : 'auto' }}
+    >
+      <span ref={measureRef} aria-hidden className="rt-measure">
+        {ROTATING_TOOLS[index]}
+      </span>
+      <span className={`rt-word ${leaving ? 'is-out' : ''}`}>
+        {ROTATING_TOOLS[index]}
+      </span>
+
+      <style jsx>{`
+        .rt-wrap {
+          position: relative;
+          display: inline-block;
+          vertical-align: baseline;
+          white-space: nowrap;
+          transition: width ${ROTATE_SWAP_MS + 80}ms
+            cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .rt-measure {
+          position: absolute;
+          left: 0;
+          top: 0;
+          visibility: hidden;
+          pointer-events: none;
+          font-weight: 500;
+        }
+        .rt-word {
+          display: inline-block;
+          font-weight: 500;
+          color: var(--accent);
+          border-bottom: 1px dashed rgb(var(--accent-rgb) / 0.45);
+          transition:
+            opacity ${ROTATE_SWAP_MS}ms ease,
+            transform ${ROTATE_SWAP_MS}ms ease,
+            filter ${ROTATE_SWAP_MS}ms ease;
+        }
+        .rt-word.is-out {
+          opacity: 0;
+          transform: translateY(-5px);
+          filter: blur(3px);
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .rt-wrap,
+          .rt-word {
+            transition: none;
+          }
+        }
+      `}</style>
+    </span>
   )
 }
 
