@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabaseServer'
 import { getSessionUserId } from '@/lib/sessionAuth'
 
 export const dynamic = 'force-dynamic'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabase = createServiceClient()
 
 const ROLES = [
   'student',
@@ -42,10 +39,16 @@ const TOOLS = [
   'other'
 ] as const
 
+// "team" is an early-access flag for company accounts — the user still
+// tracks solo for now, but we record the intent for when team boards ship.
+const ACCOUNT_TYPES = ['solo', 'team'] as const
+type AccountType = (typeof ACCOUNT_TYPES)[number]
+
 interface OnboardingPayload {
   role?: Role | null
   goal?: Goal | null
   topTools?: string[]
+  accountType?: AccountType | null
   referralSource?: string | null
   newsletter?: boolean
 }
@@ -64,7 +67,7 @@ export async function GET(req: NextRequest) {
 
   const { data: user, error } = await supabase
     .from('users')
-    .select('id, user_type, onboarded_at, metadata, created_at')
+    .select('id, twitter_username, user_type, onboarded_at, metadata, created_at')
     .eq('id', auth.userId)
     .single()
 
@@ -74,6 +77,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     onboarded: !!user.onboarded_at,
+    username: user.twitter_username || null,
     role: user.user_type || null,
     metadata: user.metadata || {},
     createdAt: user.created_at || null
@@ -110,6 +114,12 @@ export async function POST(req: NextRequest) {
         .slice(0, 8)
     : []
 
+  const accountType: AccountType =
+    body.accountType &&
+    (ACCOUNT_TYPES as readonly string[]).includes(body.accountType)
+      ? body.accountType
+      : 'solo'
+
   const referralSource = sanitizeString(body.referralSource, 60)
   const newsletter = body.newsletter === true
 
@@ -127,9 +137,10 @@ export async function POST(req: NextRequest) {
     role,
     goal,
     top_tools: topTools,
+    account_type: accountType,
     referral_source: referralSource,
     newsletter,
-    onboarding_version: 1
+    onboarding_version: 2
   }
 
   const { error: updateError } = await supabase

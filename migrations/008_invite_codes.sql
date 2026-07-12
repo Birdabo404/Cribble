@@ -77,7 +77,6 @@ REVOKE ALL ON FUNCTION redeem_invite_code(TEXT) FROM anon;
 REVOKE ALL ON FUNCTION redeem_invite_code(TEXT) FROM authenticated;
 GRANT EXECUTE ON FUNCTION redeem_invite_code(TEXT) TO service_role;
 
--- 6. Seed admin access for the founding account (no-op if the
---    account hasn't logged in yet; the OAuth callback also grants
---    admin to usernames in the ADMIN_USERNAMES allowlist).
-UPDATE users SET is_admin = TRUE WHERE LOWER(twitter_username) = 'birdabo404';
+-- 6. Admin access is NOT seeded here. Admin usernames live in the
+--    ADMIN_USERNAMES environment variable; the GitHub OAuth callback
+--    re-grants the flag on every login for allowlisted accounts.

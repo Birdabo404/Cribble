@@ -262,5 +262,24 @@ REVOKE ALL ON admin_activity_log FROM anon;
 
 
 -- ============================================================
+-- PART 5: LOCK DOWN SECURITY DEFINER RPC EXECUTE GRANTS
+-- ============================================================
+-- Without explicit grants these functions keep the default PUBLIC
+-- EXECUTE, letting the anon key call them through PostgREST.
+-- Only the service role (used by the app's API routes) may run them.
+-- (Mirrors migration 014 for fresh setups.)
+
+REVOKE ALL ON FUNCTION register_user_device(INTEGER, UUID, TEXT, JSONB, TIMESTAMPTZ) FROM PUBLIC;
+REVOKE ALL ON FUNCTION register_user_device(INTEGER, UUID, TEXT, JSONB, TIMESTAMPTZ) FROM anon;
+REVOKE ALL ON FUNCTION register_user_device(INTEGER, UUID, TEXT, JSONB, TIMESTAMPTZ) FROM authenticated;
+GRANT EXECUTE ON FUNCTION register_user_device(INTEGER, UUID, TEXT, JSONB, TIMESTAMPTZ) TO service_role;
+
+REVOKE ALL ON FUNCTION recalculate_user_score(INTEGER) FROM PUBLIC;
+REVOKE ALL ON FUNCTION recalculate_user_score(INTEGER) FROM anon;
+REVOKE ALL ON FUNCTION recalculate_user_score(INTEGER) FROM authenticated;
+GRANT EXECUTE ON FUNCTION recalculate_user_score(INTEGER) TO service_role;
+
+
+-- ============================================================
 -- DONE! Your database is ready for Cribble.
 -- ============================================================

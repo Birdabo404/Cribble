@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabaseServer'
 import { getSessionUserId } from '@/lib/sessionAuth'
+import {
+  calculateScoreBuckets,
+  fetchAllUserEvents,
+  sessionizeEvents,
+  visitsFromEvents
+} from '@/lib/scoring'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabase = createServiceClient()
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,26 +21,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
 
-    console.log('=== DEBUGGING SCORE CALCULATIONS ===')
-    
     // Get all users
     const { data: users } = await supabase
       .from('users')
       .select('id, twitter_username')
-    
+
     const results = []
-    
+
     for (const user of users || []) {
-      console.log(`Analyzing user ${user.id} (${user.twitter_username})`)
-      
-      // Get all events for this user
-      const { data: allEvents } = await supabase
-        .from('events_raw')
-        .select('active_ms, visits, timestamp, domain')
-        .eq('user_id', user.id)
-        .order('timestamp', { ascending: false })
-      
-      if (!allEvents || allEvents.length === 0) {
+      const { events } = await fetchAllUserEvents(supabase, user.id)
+      const allEvents = events || []
+
+      if (allEvents.length === 0) {
         results.push({
           userId: user.id,
           username: user.twitter_username,
@@ -45,58 +40,57 @@ export async function GET(request: NextRequest) {
           totalScore: 0,
           totalVisits: 0,
           totalActiveMs: 0,
+          sessions: 0,
           anomalousEvents: []
         })
         continue
       }
-      
-      // Calculate total score using the same formula as the API
-      const totalScore = allEvents.reduce((sum, event) => 
-        sum + (event.active_ms || 0) * 0.001 + (event.visits || 0) * 50, 0)
-      
-      const totalVisits = allEvents.reduce((sum, event) => sum + (event.visits || 0), 0)
-      const totalActiveMs = allEvents.reduce((sum, event) => sum + (event.active_ms || 0), 0)
-      
-      // Find anomalous events (very high active time or visits)
-      const anomalousEvents = allEvents.filter(event => 
-        (event.active_ms || 0) > 30 * 60 * 1000 || // > 30 minutes
-        (event.visits || 0) > 10 // > 10 visits in one event
-      ).slice(0, 5).map(event => ({
-        timestamp: event.timestamp,
-        domain: event.domain,
-        active_ms: event.active_ms,
-        visits: event.visits,
-        score: (event.active_ms || 0) * 0.001 + (event.visits || 0) * 50
-      }))
-      
+
+      // Same scoring path as the live APIs, so this debug view can be
+      // trusted to explain what users actually see.
+      const buckets = calculateScoreBuckets(allEvents)
+      const sessions = sessionizeEvents(allEvents)
+
+      // Anomalies: raw rows claiming implausible values.
+      const anomalousEvents = allEvents
+        .filter(event =>
+          (event.active_ms || 0) > 30 * 60 * 1000 || // > 30 minutes
+          (event.visits || 0) > 10 // > 10 visits in one event
+        )
+        .slice(0, 5)
+        .map(event => ({
+          timestamp: event.timestamp,
+          domain: event.domain,
+          active_ms: event.active_ms,
+          visits: event.visits
+        }))
+
       results.push({
         userId: user.id,
         username: user.twitter_username,
         totalEvents: allEvents.length,
-        totalScore,
-        totalVisits,
-        totalActiveMs,
-        anomalousEvents,
-        recentEvents: allEvents.slice(0, 3).map(event => ({
-          timestamp: event.timestamp,
-          domain: event.domain,
-          active_ms: event.active_ms,
-          visits: event.visits,
-          score: (event.active_ms || 0) * 0.001 + (event.visits || 0) * 50
-        }))
+        totalScore: buckets.totalScore,
+        todayScore: buckets.todayScore,
+        weekScore: buckets.weekScore,
+        monthScore: buckets.monthScore,
+        totalVisits: visitsFromEvents(allEvents),
+        totalActiveMs: buckets.aggregates.total.activeMs,
+        totalWallMs: buckets.aggregates.total.wallMs,
+        sessions: sessions.length,
+        anomalousEvents
       })
     }
-    
+
     return NextResponse.json({
       success: true,
       data: results,
       timestamp: new Date().toISOString()
     })
-    
+
   } catch (error) {
     console.error('Debug API error:', error)
-    return NextResponse.json({ 
-      success: false, 
+    return NextResponse.json({
+      success: false,
       error: 'Internal server error',
       details: error instanceof Error ? error.message : String(error)
     }, { status: 500 })

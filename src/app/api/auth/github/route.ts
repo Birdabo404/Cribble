@@ -2,10 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { resolveAppUrl, resolveGithubRedirectUri } from '@/lib/appUrl'
 import { normalizeInviteCode } from '@/lib/inviteCodes'
+import { checkRateLimit, rateLimitConfigs } from '@/lib/rateLimit'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
+  // OAuth flows are browser navigations, so a rate-limited attempt lands
+  // back on /login with a visible error rather than a raw 429 body.
+  const rateLimitResult = checkRateLimit(request, rateLimitConfigs.auth)
+  if (!rateLimitResult.success) {
+    return NextResponse.redirect(`${resolveAppUrl(request)}/login?error=github_rate_limited`)
+  }
+
   try {
     const state = crypto.randomUUID()
     const clientId = process.env.GITHUB_CLIENT_ID!

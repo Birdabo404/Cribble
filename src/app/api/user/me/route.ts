@@ -1,22 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { applyEventsUserEq } from '@/lib/eventsIdentity'
 import {
   calculateScoreBuckets,
-  SCORE_POLICY,
-  visitsFromEvents
+  fetchAllUserEvents,
+  SCORE_POLICY
 } from '@/lib/scoring'
 import { getSessionUserId } from '@/lib/sessionAuth'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { createServiceClient } from '@/lib/supabaseServer'
 
 export const dynamic = 'force-dynamic'
 
-const supabase =
-  supabaseAdmin ||
-  createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+const supabase = supabaseAdmin || createServiceClient()
 
 export async function GET(request: NextRequest) {
   try {
@@ -27,8 +21,11 @@ export async function GET(request: NextRequest) {
 
     const { data: user, error: userError } = await supabase
       .from('users')
+      // is_admin is deliberately NOT selected: no client code consumes it and
+      // admin checks happen server-side (adminAuth), so exposing the flag
+      // here would only fingerprint admin accounts.
       .select(
-        'id, twitter_username, twitter_name, twitter_profile_image, created_at, last_login, subscription_tier, user_type, active_device_uuid, last_extension_sync, is_admin'
+        'id, twitter_username, twitter_name, twitter_profile_image, created_at, last_login, subscription_tier, user_type, active_device_uuid, last_extension_sync'
       )
       .eq('id', session.userId)
       .single()
@@ -40,14 +37,8 @@ export async function GET(request: NextRequest) {
     const now = new Date()
     const userId = Number(session.userId)
 
-    let eventsQuery = supabase
-      .from('events_raw')
-      .select('active_ms, visits, timestamp, total_ms, domain')
-    const { query: scopedEventsQuery, column: eventsUserColumn } =
-      await applyEventsUserEq(supabase, eventsQuery, userId)
-    eventsQuery = scopedEventsQuery
-
-    const { data: allEvents, error: eventsError } = await eventsQuery
+    const { events: allEvents, column: eventsUserColumn } =
+      await fetchAllUserEvents(supabase, userId)
 
     let scores = {
       total_score: 0,
@@ -67,13 +58,13 @@ export async function GET(request: NextRequest) {
       efficiency: 0
     }
 
-    if (eventsError) {
-      console.error('[API] /user/me - Error fetching events:', eventsError)
-    } else if (!eventsUserColumn) {
+    if (!eventsUserColumn) {
       console.warn('[API] /user/me - No compatible events_raw user column found')
-    } else if (allEvents && allEvents.length > 0) {
+    } else if (allEvents === null) {
+      console.error('[API] /user/me - Error fetching events')
+    } else if (allEvents.length > 0) {
       const scoreBuckets = calculateScoreBuckets(allEvents, now)
-      const todayEvents = scoreBuckets.windows.today
+      const { total, today } = scoreBuckets.aggregates
 
       scores = {
         total_score: scoreBuckets.totalScore,
@@ -83,28 +74,21 @@ export async function GET(request: NextRequest) {
         last_calculated_at: now.toISOString()
       }
 
-      const totalVisits = visitsFromEvents(allEvents)
-      const todayVisits = visitsFromEvents(todayEvents)
-      const totalActiveMs = allEvents.reduce((sum, e) => sum + (e.active_ms || 0), 0)
-      const todayActiveMs = todayEvents.reduce((sum, e) => sum + (e.active_ms || 0), 0)
-      const totalMs = allEvents.reduce(
-        (sum, e) => sum + (e.total_ms || e.active_ms || 0),
-        0
-      )
-      const todayMs = todayEvents.reduce(
-        (sum, e) => sum + (e.total_ms || e.active_ms || 0),
-        0
-      )
+      // Session aggregates: active time is verified heartbeat time only,
+      // and total time is real session wall-clock — visit rows no longer
+      // leak their page-open duration into either number.
       const efficiency =
-        todayMs > 0 ? Math.min(100, Math.round((todayActiveMs / todayMs) * 100)) : 0
+        today.wallMs > 0
+          ? Math.min(100, Math.round((today.activeMs / today.wallMs) * 100))
+          : 0
 
       stats = {
-        total_visits: totalVisits,
-        today_visits: todayVisits,
-        total_time: totalMs,
-        today_time: todayMs,
-        active_time: totalActiveMs,
-        today_active_time: todayActiveMs,
+        total_visits: total.visits,
+        today_visits: today.visits,
+        total_time: total.wallMs,
+        today_time: today.wallMs,
+        active_time: total.activeMs,
+        today_active_time: today.activeMs,
         efficiency
       }
     }

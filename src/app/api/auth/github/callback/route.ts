@@ -1,18 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabaseServer'
 import crypto from 'crypto'
 import { resolveAppUrl, resolveGithubRedirectUri } from '@/lib/appUrl'
 import { isAllowlistedAdmin } from '@/lib/adminAuth'
+import { checkRateLimit, rateLimitConfigs } from '@/lib/rateLimit'
 
 export const dynamic = 'force-dynamic'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabase = createServiceClient()
 
 export async function GET(request: NextRequest) {
   const appUrl = resolveAppUrl(request)
+
+  // Same convention as the init route: OAuth callbacks are navigations, so
+  // rate-limited attempts land on /login with an error instead of a raw 429.
+  const rateLimitResult = checkRateLimit(request, rateLimitConfigs.auth)
+  if (!rateLimitResult.success) {
+    return NextResponse.redirect(`${appUrl}/login?error=github_rate_limited`)
+  }
 
   try {
     const { searchParams } = new URL(request.url)
@@ -51,8 +56,8 @@ export async function GET(request: NextRequest) {
     })
 
     if (!tokenRes.ok) {
-      const text = await tokenRes.text()
-      console.error('GitHub token exchange failed:', text)
+      // Never log the response body: it can carry tokens or account details.
+      console.error(`GitHub token exchange failed with status ${tokenRes.status}`)
       return NextResponse.redirect(`${appUrl}/login?error=github_token_failed`)
     }
 
@@ -67,8 +72,8 @@ export async function GET(request: NextRequest) {
       headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/vnd.github+json' }
     })
     if (!userRes.ok) {
-      const text = await userRes.text()
-      console.error('GitHub user fetch failed:', text)
+      // Never log the response body: it can carry tokens or account details.
+      console.error(`GitHub user fetch failed with status ${userRes.status}`)
       return NextResponse.redirect(`${appUrl}/login?error=github_user_failed`)
     }
     const ghUser = await userRes.json()

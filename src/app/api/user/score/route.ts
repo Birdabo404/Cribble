@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabaseServer'
+import { scoreFromEvents, fetchAllUserEvents } from '@/lib/scoring'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+// Legacy score endpoint. Kept for compatibility, but now computes through
+// the shared scoring library (it previously used a dead formula — 50/visit,
+// no sessions — and a hardcoded user_id filter that errors on deployments
+// where events_raw.user_id is a UUID, so it always answered 0 there).
+
+const supabase = createServiceClient()
 
 // Helper to validate session and return userId
 async function getAuthenticatedUserId(request: NextRequest): Promise<number | null> {
@@ -19,6 +22,11 @@ async function getAuthenticatedUserId(request: NextRequest): Promise<number | nu
     .single()
 
   return session?.user_id ?? null
+}
+
+async function computeScore(userId: number): Promise<number> {
+  const { events } = await fetchAllUserEvents(supabase, userId)
+  return scoreFromEvents(events || [])
 }
 
 export async function POST(request: NextRequest) {
@@ -36,13 +44,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const { data: events } = await supabase
-      .from('events_raw')
-      .select('active_ms, visits')
-      .eq('user_id', userId)
-
-    const eventsScore = events?.reduce((sum, e) => sum + (e.active_ms || 0) * 0.001 + (e.visits || 0) * 50, 0) || 0
-    const score = Math.round(eventsScore)
+    const score = await computeScore(authenticatedUserId)
     return NextResponse.json({ success: true, score })
   } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -66,13 +68,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const { data: events } = await supabase
-      .from('events_raw')
-      .select('active_ms, visits')
-      .eq('user_id', idNum)
-
-    const eventsScore = events?.reduce((sum, e) => sum + (e.active_ms || 0) * 0.001 + (e.visits || 0) * 50, 0) || 0
-    const score = Math.round(eventsScore)
+    const score = await computeScore(authenticatedUserId)
     return NextResponse.json({ success: true, score })
   } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

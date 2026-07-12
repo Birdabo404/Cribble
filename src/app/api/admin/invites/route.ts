@@ -1,17 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabaseServer'
 import { getAdminUser } from '@/lib/adminAuth'
 import { generateInviteCode } from '@/lib/inviteCodes'
+import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
 
 export const dynamic = 'force-dynamic'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabase = createServiceClient()
 
 export async function GET(request: NextRequest) {
   try {
+    const rateLimitResult = checkRateLimit(request, rateLimitConfigs.admin)
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded. Please try again later.' },
+        { status: 429, headers: createRateLimitResponse(rateLimitResult) }
+      )
+    }
+
     const admin = await getAdminUser(request)
     if (!admin.ok) {
       return NextResponse.json({ error: admin.error }, { status: admin.status })
@@ -39,6 +45,14 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const rateLimitResult = checkRateLimit(request, rateLimitConfigs.admin)
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded. Please try again later.' },
+        { status: 429, headers: createRateLimitResponse(rateLimitResult) }
+      )
+    }
+
     const admin = await getAdminUser(request)
     if (!admin.ok) {
       return NextResponse.json({ error: admin.error }, { status: admin.status })

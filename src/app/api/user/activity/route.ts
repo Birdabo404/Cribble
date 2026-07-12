@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { applyEventsUserEq } from '@/lib/eventsIdentity'
-import { eventScore } from '@/lib/scoring'
+import { createServiceClient } from '@/lib/supabaseServer'
+import { getEventsIdentityColumn } from '@/lib/eventsIdentity'
+import { fetchAllEventPages } from '@/lib/eventsFetch'
+import { scoreFromEvents, type ScoreEventWithTimestamp } from '@/lib/scoring'
 import { getSessionUserId } from '@/lib/sessionAuth'
 
 export const dynamic = 'force-dynamic'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabase = createServiceClient()
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 
@@ -42,18 +40,28 @@ export async function GET(request: NextRequest) {
     const endDate = utcDayStart(new Date())
     const startDate = new Date(endDate.getTime() - (days - 1) * ONE_DAY_MS)
 
-    let eventsQuery = supabase
-      .from('events_raw')
-      .select('timestamp, active_ms, total_ms, visits, domain')
-      .gte('timestamp', startDate.toISOString())
-      .lt('timestamp', new Date(endDate.getTime() + ONE_DAY_MS).toISOString())
-      .order('timestamp', { ascending: true })
+    const eventsUserColumn = await getEventsIdentityColumn(supabase)
+    if (!eventsUserColumn) {
+      console.warn('[Activity API] No compatible events_raw user column found')
+    }
 
-    const { query: scopedEventsQuery, column: eventsUserColumn } =
-      await applyEventsUserEq(supabase, eventsQuery, session.userId)
-    eventsQuery = scopedEventsQuery
-
-    const { data: events, error: eventsError } = await eventsQuery
+    const { rows: events, error: eventsError } = eventsUserColumn
+      ? await fetchAllEventPages<ScoreEventWithTimestamp>(
+          (from, to) =>
+            supabase
+              .from('events_raw')
+              .select('timestamp, active_ms, total_ms, visits, domain')
+              .eq(eventsUserColumn, session.userId)
+              .gte('timestamp', startDate.toISOString())
+              .lt('timestamp', new Date(endDate.getTime() + ONE_DAY_MS).toISOString())
+              .order('timestamp', { ascending: true })
+              .order('id', { ascending: true })
+              .range(from, to) as PromiseLike<{
+                data: ScoreEventWithTimestamp[] | null
+                error: { message: string } | null
+              }>
+        )
+      : { rows: [] as ScoreEventWithTimestamp[], error: null }
 
     if (eventsError) {
       console.error('[Activity API] Error fetching events:', eventsError)
@@ -64,8 +72,13 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    if (!eventsUserColumn) {
-      console.warn('[Activity API] No compatible events_raw user column found')
+    // Group each day's events and score them as sessions, so a day's cell
+    // agrees with how the same activity is scored everywhere else.
+    const dayEvents: Record<string, ScoreEventWithTimestamp[]> = {}
+    for (const event of events) {
+      const dateKey = toDateKeyUtc(new Date(String(event.timestamp)))
+      if (!dayEvents[dateKey]) dayEvents[dateKey] = []
+      dayEvents[dateKey].push(event)
     }
 
     const dailyScores: Record<string, number> = {}
@@ -73,16 +86,14 @@ export async function GET(request: NextRequest) {
       const date = new Date(endDate.getTime() - i * ONE_DAY_MS)
       dailyScores[toDateKeyUtc(date)] = 0
     }
-
-    if (events && events.length > 0) {
-      for (const event of events) {
-        const dateKey = toDateKeyUtc(new Date(event.timestamp))
-        dailyScores[dateKey] = (dailyScores[dateKey] || 0) + eventScore(event)
+    for (const [dateKey, group] of Object.entries(dayEvents)) {
+      if (dateKey in dailyScores) {
+        dailyScores[dateKey] = scoreFromEvents(group)
       }
     }
 
     const activityData = Object.entries(dailyScores)
-      .map(([date, score]) => ({ date, score: Math.round(score) }))
+      .map(([date, score]) => ({ date, score }))
       .sort((a, b) => a.date.localeCompare(b.date))
 
     const totalScore = activityData.reduce((sum, d) => sum + d.score, 0)

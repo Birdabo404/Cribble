@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { createServiceClient } from '@/lib/supabaseServer'
+
+// The service client bypasses RLS. Required here: migration 015 removed the
+// anon role's blanket read access to waitlist (emails/IPs were publicly
+// readable), so the IP-dedupe check and the exact count need service access.
+const supabase = createServiceClient()
 
 // Check if environment variables are configured
 const isConfigured = () => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
   return url && key && !url.includes('placeholder') && url !== 'undefined'
 }
 
