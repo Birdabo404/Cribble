@@ -12,7 +12,6 @@ import { usePathname } from 'next/navigation'
 import { formatRelative } from '@/components/dashboard-v2/format'
 import { AccountMenu } from '@/components/dashboard-v3/AccountMenu'
 import { NotificationBell } from '@/components/dashboard-v3/NotificationBell'
-import { ThemeToggle } from '@/components/ThemeToggle'
 import { NavIcon } from './NavIcon'
 import { connectionMeta, useNavStatus } from './NavStatusContext'
 import { NAV_ITEMS, isNavItemActive } from './navItems'
@@ -73,17 +72,6 @@ export function NavTopBar({
             CRIBBLE<span className="text-accent">.</span>
           </Link>
 
-          {status && meta && (
-            <div className="ml-2 hidden items-center gap-2 whitespace-nowrap rounded-full border border-zinc-800 bg-zinc-950/70 px-2.5 py-1 lg:flex">
-              <span className={`h-1.5 w-1.5 rounded-full ${meta.dotClass}`} />
-              <span className="text-[10px] tracking-[0.3em] text-zinc-400">{meta.label}</span>
-              <span className="text-[10px] text-zinc-700">·</span>
-              <span className="text-[10px] tracking-[0.2em] text-zinc-500">
-                SYNC {formatRelative(status.lastSync)}
-              </span>
-            </div>
-          )}
-
           <div className="ml-auto flex items-center gap-2">
             <nav className="hidden items-center gap-2 md:flex" aria-label="Primary navigation">
               {NAV_ITEMS.filter((item) => item.topBar).map((item) => {
@@ -93,9 +81,7 @@ export function NavTopBar({
                     key={item.href}
                     href={item.href}
                     aria-current={active ? 'page' : undefined}
-                    className={`${CHIP_BASE} ${active ? CHIP_ACTIVE : CHIP_IDLE} ${
-                      item.href === '/dashboard/achievements' ? 'hidden lg:block' : ''
-                    }`}
+                    className={`${CHIP_BASE} ${active ? CHIP_ACTIVE : CHIP_IDLE}`}
                   >
                     {item.label}
                   </Link>
@@ -103,18 +89,21 @@ export function NavTopBar({
               })}
             </nav>
 
-            {status && (
+            {/* One sync control instead of a status pill + button pair: the
+                connection dot rides inside the button, details in the title. */}
+            {status && meta && (
               <button
                 type="button"
                 onClick={status.onSync}
                 disabled={status.syncing}
-                className={`${CHIP_BASE} ${CHIP_IDLE} hidden sm:block disabled:opacity-50`}
+                title={`${meta.label} · last sync ${formatRelative(status.lastSync)}`}
+                className={`${CHIP_BASE} ${CHIP_IDLE} hidden items-center gap-2 sm:flex disabled:opacity-50`}
               >
+                <span className={`h-1.5 w-1.5 rounded-full ${meta.dotClass}`} />
                 {status.syncing ? 'SYNCING…' : 'SYNC'}
               </button>
             )}
 
-            <ThemeToggle className="hidden sm:flex" />
             <NotificationBell />
 
             {!navUser.loaded ? (

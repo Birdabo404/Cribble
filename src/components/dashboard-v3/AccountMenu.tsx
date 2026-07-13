@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import Link from 'next/link'
 import { formatRelative, tierAccent } from '@/components/dashboard-v2/format'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { DeleteAccountModal } from '@/components/dashboard-v3/DeleteAccountModal'
@@ -350,7 +351,11 @@ export function AccountMenu({
   }
 
   const itemCls =
-    'w-full flex items-center gap-3 px-3.5 py-2.5 text-left text-[11px] tracking-[0.2em] text-zinc-300 hover:text-zinc-50 hover:bg-white/[0.05] transition-colors'
+    'group w-full flex items-center gap-3 px-3.5 py-2.5 text-left text-[11px] tracking-[0.2em] text-zinc-300 hover:text-zinc-50 hover:bg-white/[0.05] transition-colors'
+  // Icons sit quiet in zinc and only take the accent on their own row's
+  // hover — a wall of accent-tinted glyphs read as noise.
+  const iconCls = 'text-zinc-500 transition-colors group-hover:text-accent'
+  const arrowCls = 'ml-auto text-zinc-600 transition-colors group-hover:text-zinc-300'
 
   const renderModal = () => {
     if (modal === null) return null
@@ -450,31 +455,49 @@ export function AccountMenu({
           </span>
         </button>
       ) : (
-        <button
-          onClick={() => setOpen((v) => !v)}
-          className={`flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-full border bg-zinc-950/70 transition-colors ${
-            open ? 'border-accent/50' : 'border-zinc-800 hover:border-accent/40 hover:bg-zinc-900/80'
+        /* Split pill: the identity half is a straight link to the profile,
+           only the chevron half opens the menu. */
+        <div
+          className={`flex items-stretch overflow-hidden rounded-full border bg-zinc-950/70 transition-colors ${
+            open ? 'border-accent/50' : 'border-zinc-800 hover:border-accent/40'
           }`}
-          aria-label="Open account menu"
-          aria-expanded={open}
-          aria-haspopup="menu"
         >
-          {avatar('h-7 w-7')}
-          <span className="hidden sm:inline text-[11px] text-zinc-100">
-            @{user.twitter_username || 'user'}
-          </span>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 20 20"
-            className={`h-3 w-3 text-zinc-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
-            aria-hidden
+          <Link
+            href="/profile"
+            onClick={() => setOpen(false)}
+            title="View profile"
+            aria-label="View profile"
+            className="flex items-center gap-2 py-1 pl-1.5 pr-2.5 transition-colors hover:bg-zinc-900/80"
           >
-            <path
-              fill="currentColor"
-              d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.06l3.71-3.83a.75.75 0 1 1 1.08 1.04l-4.25 4.39a.75.75 0 0 1-1.08 0L5.21 8.27a.75.75 0 0 1 .02-1.06z"
-            />
-          </svg>
-        </button>
+            {avatar('h-7 w-7')}
+            <span className="hidden sm:inline text-[11px] text-zinc-100">
+              @{user.twitter_username || 'user'}
+            </span>
+          </Link>
+          <span className="my-1.5 w-px shrink-0 bg-zinc-800" aria-hidden />
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-label="Open account menu"
+            aria-expanded={open}
+            aria-haspopup="menu"
+            className={`flex items-center px-2 transition-colors hover:bg-zinc-900/80 ${
+              open ? 'bg-zinc-900/80 text-zinc-300' : 'text-zinc-500 hover:text-zinc-300'
+            }`}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              className={`h-3 w-3 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+              aria-hidden
+            >
+              <path
+                fill="currentColor"
+                d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.06l3.71-3.83a.75.75 0 1 1 1.08 1.04l-4.25 4.39a.75.75 0 0 1-1.08 0L5.21 8.27a.75.75 0 0 1 .02-1.06z"
+              />
+            </svg>
+          </button>
+        </div>
       )}
 
       {open && (
@@ -511,36 +534,42 @@ export function AccountMenu({
           </div>
 
           <div className="py-1.5">
-            <a
+            <Link
               href={
                 user.twitter_username
                   ? `/u/${encodeURIComponent(user.twitter_username)}`
                   : '/profile'
               }
+              onClick={() => setOpen(false)}
               role="menuitem"
               className={itemCls}
             >
-              <span className="text-accent/70">
+              <span className={iconCls}>
                 <Icon d={ICONS.profile} />
               </span>
               PROFILE
-              <span className="ml-auto text-zinc-600">→</span>
-            </a>
-            <a href="/dashboard/achievements" role="menuitem" className={itemCls}>
-              <span className="text-accent/70">
+              <span className={arrowCls}>→</span>
+            </Link>
+            <Link
+              href="/dashboard/achievements"
+              onClick={() => setOpen(false)}
+              role="menuitem"
+              className={itemCls}
+            >
+              <span className={iconCls}>
                 <Icon d={ICONS.award} />
               </span>
               ACHIEVEMENTS
-              <span className="ml-auto text-zinc-600">→</span>
-            </a>
+              <span className={arrowCls}>→</span>
+            </Link>
             <button role="menuitem" onClick={() => openModal('store')} className={itemCls}>
-              <span className="text-accent/70">
+              <span className={iconCls}>
                 <Icon d={ICONS.store} />
               </span>
               STORE
             </button>
             <button role="menuitem" onClick={() => openModal('settings')} className={itemCls}>
-              <span className="text-accent/70">
+              <span className={iconCls}>
                 <Icon d={ICONS.settings} />
               </span>
               SETTINGS
@@ -554,12 +583,12 @@ export function AccountMenu({
                 <Icon d={ICONS.monetization} />
               </span>
               MONETIZATION
-              <span className="ml-auto text-[8px] tracking-[0.25em] px-1.5 py-0.5 rounded border border-accent/30 text-accent/80 bg-accent/5">
+              <span className="ml-auto text-[8px] tracking-[0.25em] px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500 bg-white/[0.03]">
                 SOON
               </span>
             </button>
             <button role="menuitem" onClick={() => openModal('privacy')} className={itemCls}>
-              <span className="text-accent/70">
+              <span className={iconCls}>
                 <Icon d={ICONS.privacy} />
               </span>
               PRIVACY & SECURITY
@@ -570,9 +599,11 @@ export function AccountMenu({
             <button
               role="menuitem"
               onClick={onLogout}
-              className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left text-[11px] tracking-[0.2em] text-rose-300 hover:text-rose-200 hover:bg-rose-500/10 transition-colors"
+              className="group w-full flex items-center gap-3 px-3.5 py-2.5 text-left text-[11px] tracking-[0.2em] text-rose-300 hover:text-rose-200 hover:bg-rose-500/10 transition-colors"
             >
-              <Icon d={ICONS.signout} />
+              <span className="text-rose-400/60 transition-colors group-hover:text-rose-300">
+                <Icon d={ICONS.signout} />
+              </span>
               SIGN OUT
             </button>
           </div>

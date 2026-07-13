@@ -16,7 +16,10 @@ export const NAV_ITEMS: NavItemDef[] = [
   { href: '/profile', label: 'PROFILE', icon: 'pilot' },
   { href: '/dashboard', label: 'DASHBOARD', icon: 'console', exact: true, topBar: true },
   { href: '/leaderboard', label: 'LEADERBOARD', icon: 'standings', topBar: true },
-  { href: '/dashboard/achievements', label: 'ACHIEVEMENTS', icon: 'award', topBar: true }
+  // Achievements stays out of the top bar on purpose — it is one click away
+  // in the account menu (and in the rail/drawer), and a third chip crowded
+  // the bar without earning its place.
+  { href: '/dashboard/achievements', label: 'ACHIEVEMENTS', icon: 'award' }
 ]
 
 export function isNavItemActive(item: NavItemDef, pathname: string): boolean {

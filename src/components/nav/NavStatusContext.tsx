@@ -1,8 +1,8 @@
 'use client'
 
 // Page → nav status channel. The dashboard owns the extension sync flow
-// (connection state, last sync, the sync action itself) but the button and
-// status pill render inside the persistent nav shell. Pages publish their
+// (connection state, last sync, the sync action itself) but the sync
+// control renders inside the persistent nav shell. Pages publish their
 // status through this context; the nav consumes it. Pages that publish
 // nothing simply get a nav without the sync cluster.
 
