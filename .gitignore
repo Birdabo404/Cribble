@@ -50,3 +50,7 @@ Desktop.ini
 .claude/
 .cursor/
 .eslintcache
+.vercel
+
+# Local visual-check screenshots
+.shots/

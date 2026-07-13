@@ -14,7 +14,9 @@ import WorldwideText from '@/components/WorldwideText'
 
 const Globe = dynamic(() => import('@/components/Globe'), {
   ssr: false,
-  loading: () => <div className="w-full h-full" />
+  // Square placeholder reserves the canvas box, so the hero copy doesn't
+  // jump down when the globe chunk lands (mobile stacks it on top).
+  loading: () => <div className="w-full aspect-square" />
 })
 
 type Status = 'idle' | 'submitting' | 'success' | 'error'
@@ -54,7 +56,7 @@ export default function HomeV2() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 font-mono selection:bg-accent/20 flex flex-col relative overflow-hidden">
+    <div className="min-h-screen-safe bg-black text-zinc-100 font-mono selection:bg-accent/20 flex flex-col relative overflow-hidden">
       {/* faint hacker-green wash on the right side — sits behind the globe */}
       <div
         aria-hidden
@@ -77,8 +79,8 @@ export default function HomeV2() {
       <div className="page-zoom-out relative z-10 max-w-6xl w-full mx-auto px-6 flex-1 flex flex-col">
         <Header />
 
-        <main className="flex-1 flex items-center py-8">
-          <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_1fr] gap-10 lg:gap-16 items-center w-full">
+        <main className="flex-1 flex items-center py-6 sm:py-8">
+          <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_1fr] gap-6 sm:gap-10 lg:gap-16 items-center w-full">
             {/* LEFT — hero copy */}
             <div className="order-2 lg:order-1">
               <span
@@ -379,7 +381,7 @@ function GlobeStage() {
         </div>
       </div>
 
-      <div className="relative z-[1]">
+      <div className="relative z-[1] w-full max-w-[400px]">
         <Globe size={400} />
       </div>
 

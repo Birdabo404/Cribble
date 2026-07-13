@@ -222,7 +222,14 @@ const FRAGMENT_SHADER = `
         discard;
       }
 
-      gl_FragColor = vec4(glow / max(alpha, 0.003), alpha);
+      // Premultiplied output. iOS WebKit composites WebGL canvases as
+      // premultiplied no matter what the context's premultipliedAlpha flag
+      // says, so the previous straight-alpha output (glow / alpha) skipped
+      // the re-multiply on iPhones and blew the faint outer haze up to full
+      // saturation — a hard-edged blue octagon clipped by the square canvas.
+      // min(glow, alpha) is exactly what desktop showed before: glow / alpha
+      // clamped to 1.0 by the framebuffer, times alpha at composite time.
+      gl_FragColor = vec4(min(glow, vec3(alpha)), alpha);
       return;
     }
 
@@ -562,7 +569,9 @@ export async function createEarthRenderer(
     alpha: true,
     antialias: true,
     depth: false,
-    premultipliedAlpha: false,
+    // Must stay true: the fragment shader writes premultiplied colors, and
+    // iOS WebKit composites as premultiplied regardless of this flag.
+    premultipliedAlpha: true,
     powerPreference: 'high-performance',
     preserveDrawingBuffer: false,
     stencil: false,

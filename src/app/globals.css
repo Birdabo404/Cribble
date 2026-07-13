@@ -240,6 +240,15 @@ body {
   .page-zoom-out {
     zoom: 0.9;
   }
+
+  /* Full-height hero that respects mobile browser chrome: 100vh on iOS
+     includes the collapsed URL bar, pushing the fold; svh tracks the
+     *visible* viewport. Declared as one utility so the vh fallback and the
+     svh override keep a guaranteed cascade order. */
+  .min-h-screen-safe {
+    min-height: 100vh;
+    min-height: 100svh;
+  }
   
   /* International font classes */
   .font-english {
