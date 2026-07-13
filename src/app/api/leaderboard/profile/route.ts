@@ -4,7 +4,7 @@ import { loadPublicProfile } from '@/lib/publicProfile'
 
 // Public player profile for the leaderboard's profile cards. Assembly
 // lives in src/lib/publicProfile.ts, shared with /api/profile/[username]
-// (the full dossier page) so the two surfaces can't drift apart.
+// (the full profile page) so the two surfaces can't drift apart.
 
 export const dynamic = 'force-dynamic'
 

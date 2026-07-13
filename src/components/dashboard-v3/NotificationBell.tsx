@@ -259,7 +259,7 @@ export function NotificationBell({
             ) : (
               notifications.map((n) => {
                 const fresh = isNew(n.id, n.read_at)
-                // Social events deep-link to the actor's dossier so a
+                // Social events deep-link to the actor's profile so a
                 // "started following you" lands one click from FOLLOW BACK.
                 const actorUsername =
                   n.type === 'social' && typeof n.data?.username === 'string'

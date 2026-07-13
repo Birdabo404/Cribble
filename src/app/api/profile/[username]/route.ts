@@ -8,7 +8,7 @@ import {
   loadPublicProfile
 } from '@/lib/publicProfile'
 
-// Full public dossier for /u/[username]. Superset of the leaderboard
+// Full public profile for /u/[username]. Superset of the leaderboard
 // profile card payload: adds follow counts and — when the request
 // carries a valid session — the viewer relationship (isFollowing /
 // followsYou) plus mutual-follow social proof. Anonymous visitors

@@ -1,18 +1,21 @@
 'use client'
 
-// Public pilot dossier — /u/[username].
+// Public pilot profile — /u/[username].
 //
 // Reads like an X profile (banner → avatar → identity → bio → meta →
 // counts) so nobody has to learn it, but every material is Cribble's
-// own: Space Grotesk identity, Press Start 2P numerals, Instrument
-// Serif italic for the mission statement, synthwave banner duotone,
-// pixel-art service record.
+// own: Space Grotesk identity, Press Start 2P numerals, synthwave
+// banner duotone, pixel-art service record.
 //
-// Follow psychology, deliberately placed: the FOLLOW button is the
-// only filled-accent element on the page; FOLLOWS YOU sits beside the
+// Follow psychology, deliberately placed: FOLLOWS YOU sits beside the
 // handle to trigger reciprocity; follower counts render in the score
 // font (a stat worth growing); "Followed by @a and @b" lends social
 // proof; both counts open rosters with inline follow buttons.
+//
+// Backdrop: no starfield here (AppShell skips it on /u/*). Instead the
+// pilot's banner is blown up into a blurred aurora behind the page —
+// see ProfileAmbience. It mounts OUTSIDE .page-zoom-out because zoom
+// distorts fixed-position descendants.
 
 import { use, useCallback, useEffect, useMemo, useState } from 'react'
 import AnimatedCounter from '@/components/AnimatedCounter'
@@ -37,31 +40,11 @@ import { medalA, medalFor, ROLE_META } from '@/components/leaderboard/types'
 import { EditProfileModal, type EditableProfile } from '@/components/profile/EditProfileModal'
 import { FollowButton, FollowsYouChip, type FollowChange } from '@/components/profile/FollowButton'
 import { FollowListModal, type FollowListKind } from '@/components/profile/FollowListModal'
+import { ProfileAmbience } from '@/components/profile/ProfileAmbience'
 import { ACHIEVEMENTS } from '@/lib/achievements'
 import type { Tier } from '@/types/dashboard'
 import type { PublicProfileData } from '@/types/profile'
-import {
-  IconCode,
-  IconCompass,
-  IconFeather,
-  IconFlask,
-  IconGraduationCap,
-  IconPenTool,
-  IconRocket,
-  IconSparkles,
-  type IconProps
-} from '@/components/welcome/icons'
-
-const ROLE_ICONS: Record<string, (p: IconProps) => JSX.Element> = {
-  student: IconGraduationCap,
-  researcher: IconFlask,
-  developer: IconCode,
-  designer: IconPenTool,
-  founder: IconRocket,
-  product: IconCompass,
-  writer: IconFeather,
-  other: IconSparkles
-}
+import { ROLE_ICONS } from '@/components/roleIcons'
 
 const SOCIAL_KINDS: SocialKind[] = ['x', 'github', 'youtube', 'linkedin']
 
@@ -111,7 +94,7 @@ const PATH_EDIT =
 /* ===================================================================== */
 
 // Next 15: route params arrive as a Promise; unwrap with React.use().
-export default function PilotDossierPage({ params }: { params: Promise<{ username: string }> }) {
+export default function PilotProfilePage({ params }: { params: Promise<{ username: string }> }) {
   const { username } = use(params)
 
   const [profile, setProfile] = useState<PublicProfileData | null>(null)
@@ -198,6 +181,7 @@ export default function PilotDossierPage({ params }: { params: Promise<{ usernam
         location: saved?.location || '',
         website: saved?.website || '',
         banner_image: saved?.banner_image || '',
+        role: saved?.role || null,
         socials: {
           x: saved?.socials?.x || '',
           github: saved?.socials?.github || '',
@@ -212,6 +196,7 @@ export default function PilotDossierPage({ params }: { params: Promise<{ usernam
         location: '',
         website: '',
         banner_image: '',
+        role: null,
         socials: { x: '', github: '', youtube: '', linkedin: '' }
       })
       setEditing(true)
@@ -245,13 +230,26 @@ export default function PilotDossierPage({ params }: { params: Promise<{ usernam
 
   /* ---------------- render ---------------- */
 
-  if (status === 'loading') return <DossierSkeleton />
-  if (status === 'missing') return <MissingPilot username={username} />
-  if (status === 'error' || !profile) return <DossierError />
+  if (status !== 'ready' || !profile) {
+    const fallback =
+      status === 'missing' ? (
+        <MissingPilot username={username} />
+      ) : status === 'loading' ? (
+        <ProfileSkeleton />
+      ) : (
+        <ProfileError />
+      )
+    return (
+      <>
+        <ProfileAmbience src={null} />
+        {fallback}
+      </>
+    )
+  }
 
   const bannerEdge = medal ? medal.rgb : 'var(--banner-a)'
 
-  return (
+  const page = (
     <div className="page-zoom-out relative mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6">
       {/* ---------- hero card ---------- */}
       <section className="pf-reveal overflow-hidden rounded-2xl glass-pop" style={{ ['--rv' as string]: '0ms' }}>
@@ -335,8 +333,8 @@ export default function PilotDossierPage({ params }: { params: Promise<{ usernam
                     type="button"
                     onClick={copyLink}
                     className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-800 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-accent"
-                    aria-label="Copy dossier link"
-                    title={copied ? 'Copied' : 'Copy dossier link'}
+                    aria-label="Copy profile link"
+                    title={copied ? 'Copied' : 'Copy profile link'}
                   >
                     {copied ? (
                       <span className="text-[8px] tracking-[0.1em] text-accent">OK</span>
@@ -350,7 +348,7 @@ export default function PilotDossierPage({ params }: { params: Promise<{ usernam
                     className="flex items-center gap-2 rounded-lg border border-zinc-700 px-4 py-2 text-[10px] font-semibold tracking-[0.3em] text-zinc-200 transition-colors hover:border-accent/50 hover:text-accent"
                   >
                     <Stroke d={PATH_EDIT} size={11} />
-                    EDIT DOSSIER
+                    EDIT PROFILE
                   </button>
                 </>
               ) : (
@@ -399,18 +397,18 @@ export default function PilotDossierPage({ params }: { params: Promise<{ usernam
             </div>
           </div>
 
-          {/* mission statement — editorial serif, unmistakably not a tweet */}
+          {/* bio — plain body copy, reads like any other profile */}
           {profile.bio ? (
-            <p className="mt-4 max-w-xl font-serif text-[17px] italic leading-relaxed text-zinc-200">
-              “{profile.bio}”
+            <p className="mt-4 max-w-xl text-[13px] leading-relaxed text-zinc-200">
+              {profile.bio}
             </p>
           ) : isYou ? (
             <button
               type="button"
               onClick={openEditor}
-              className="mt-4 block text-left font-serif text-[15px] italic text-zinc-600 transition-colors hover:text-zinc-400"
+              className="mt-4 block text-left text-[13px] text-zinc-600 transition-colors hover:text-zinc-400"
             >
-              “No mission statement yet — tell the fleet who you are.”
+              No bio yet — tell people what you do.
             </button>
           ) : null}
 
@@ -669,7 +667,7 @@ export default function PilotDossierPage({ params }: { params: Promise<{ usernam
 
       <footer className="mt-10 flex items-center justify-between text-[10px] tracking-[0.3em] text-zinc-600">
         <span>CRIBBLE · {new Date().getFullYear()}</span>
-        <span className="text-zinc-700">{'// pilot dossier'}</span>
+        <span className="text-zinc-700">{'// pilot profile'}</span>
       </footer>
 
       {/* ---------- overlays ---------- */}
@@ -724,6 +722,13 @@ export default function PilotDossierPage({ params }: { params: Promise<{ usernam
       `}</style>
     </div>
   )
+
+  return (
+    <>
+      <ProfileAmbience src={profile.banner_image} />
+      {page}
+    </>
+  )
 }
 
 /* ================= supporting screens ================= */
@@ -752,7 +757,7 @@ function StatCell({
   )
 }
 
-function DossierSkeleton() {
+function ProfileSkeleton() {
   return (
     <div className="page-zoom-out relative mx-auto max-w-3xl animate-pulse px-4 pb-16 pt-6 sm:px-6">
       <div className="overflow-hidden rounded-2xl glass-pop">
@@ -783,7 +788,7 @@ function MissingPilot({ username }: { username: string }) {
       <div className="text-4xl text-zinc-800 [font-family:var(--font-pixel)]">404</div>
       <h1 className="mt-6 text-[11px] tracking-[0.4em] text-zinc-300">PILOT NOT FOUND</h1>
       <p className="mt-3 max-w-sm text-xs leading-relaxed text-zinc-500">
-        No dossier on file for <span className="text-zinc-300">@{username}</span>. The callsign may
+        No profile on file for <span className="text-zinc-300">@{username}</span>. The callsign may
         have changed, or this pilot never enlisted.
       </p>
       <a
@@ -796,12 +801,12 @@ function MissingPilot({ username }: { username: string }) {
   )
 }
 
-function DossierError() {
+function ProfileError() {
   return (
     <div className="page-zoom-out relative mx-auto flex max-w-3xl flex-col items-center px-6 pb-16 pt-24 text-center">
       <h1 className="text-[11px] tracking-[0.4em] text-zinc-300">RECORD UNAVAILABLE</h1>
       <p className="mt-3 max-w-sm text-xs leading-relaxed text-zinc-500">
-        The dossier could not be retrieved. Give it a moment and try again.
+        The profile could not be retrieved. Give it a moment and try again.
       </p>
       <button
         type="button"

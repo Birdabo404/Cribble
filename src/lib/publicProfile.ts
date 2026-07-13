@@ -1,9 +1,9 @@
 // Shared public-profile assembly. One builder feeds both profile
 // endpoints (/api/leaderboard/profile by id, /api/profile/[username]
-// by handle) so the leaderboard card and the full dossier page can
+// by handle) so the leaderboard card and the full profile page can
 // never drift apart. Exposes only data already visible on the
 // leaderboard plus persisted achievement unlocks and the user's own
-// published dossier fields (bio, location, website, socials) —
+// published profile fields (bio, location, website, socials) —
 // never tokens, emails, devices or admin fields.
 
 import type { SupabaseClient } from '@supabase/supabase-js'

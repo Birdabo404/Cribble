@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { isRoleId } from '@/lib/roles'
 import { createServiceClient } from '@/lib/supabaseServer'
 import { getSessionUserId } from '@/lib/sessionAuth'
 
-// Self-service dossier fields. Everything here is public-by-design
-// (it renders on /u/[username]), stored in users.metadata JSONB —
-// the same keys the profile/leaderboard readers already consume.
+// Self-service profile fields. Everything here is public-by-design
+// (it renders on /u/[username]). Text fields live in users.metadata
+// JSONB — the same keys the profile/leaderboard readers already
+// consume. The role/status also writes users.user_type, the column
+// every badge surface reads, so changing it here updates system-wide.
 
 export const dynamic = 'force-dynamic'
 
@@ -87,7 +90,7 @@ export async function GET(request: NextRequest) {
 
     const { data: user, error } = await supabase
       .from('users')
-      .select('id, twitter_username, metadata')
+      .select('id, twitter_username, user_type, metadata')
       .eq('id', session.userId)
       .single()
 
@@ -107,6 +110,7 @@ export async function GET(request: NextRequest) {
         location: str(meta.location),
         website: str(meta.website),
         banner_image: str(meta.banner_image),
+        role: isRoleId(user.user_type) ? user.user_type : null,
         socials: {
           x: str(socials.x),
           github: str(socials.github),
@@ -126,6 +130,7 @@ interface ProfilePatchPayload {
   location?: unknown
   website?: unknown
   banner_image?: unknown
+  role?: unknown
   socials?: Record<string, unknown>
 }
 
@@ -180,9 +185,22 @@ export async function PATCH(request: NextRequest) {
       merged.socials = nextSocials
     }
 
+    const update: { metadata: Record<string, unknown>; user_type?: string | null } = {
+      metadata: merged
+    }
+
+    // Role/status: null clears it, anything outside the vocabulary is
+    // ignored rather than saved. Mirrored into metadata.role, which the
+    // onboarding wizard also writes, so the two paths stay consistent.
+    if ('role' in body && (body.role === null || isRoleId(body.role))) {
+      const role = body.role as string | null
+      merged.role = role
+      update.user_type = role
+    }
+
     const { error: updateError } = await supabase
       .from('users')
-      .update({ metadata: merged })
+      .update(update)
       .eq('id', session.userId)
 
     if (updateError) {

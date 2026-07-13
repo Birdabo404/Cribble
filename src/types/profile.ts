@@ -1,4 +1,4 @@
-// Client-side shapes for the public dossier surfaces (/u/[username],
+// Client-side shapes for the public profile surfaces (/u/[username],
 // follow lists). The base profile type is shared with the server
 // builder so the page can never drift from what the API assembles.
 

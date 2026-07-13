@@ -21,17 +21,7 @@ import { ACHIEVEMENTS } from '@/lib/achievements'
 import { prefersReducedMotion } from '@/lib/motion'
 import type { Tier } from '@/types/dashboard'
 import { Avatar, SafeBannerImg } from './Avatar'
-import {
-  IconCode,
-  IconCompass,
-  IconFeather,
-  IconFlask,
-  IconGraduationCap,
-  IconPenTool,
-  IconRocket,
-  IconSparkles,
-  type IconProps
-} from '@/components/welcome/icons'
+import { ROLE_ICONS } from '@/components/roleIcons'
 import {
   IconClose,
   IconCrown,
@@ -52,17 +42,6 @@ import {
   type LeaderRow,
   type PlayerProfile
 } from './types'
-
-const ROLE_ICONS: Record<string, (p: IconProps) => JSX.Element> = {
-  student: IconGraduationCap,
-  researcher: IconFlask,
-  developer: IconCode,
-  designer: IconPenTool,
-  founder: IconRocket,
-  product: IconCompass,
-  writer: IconFeather,
-  other: IconSparkles
-}
 
 const SOCIAL_KINDS: SocialKind[] = ['x', 'github', 'youtube', 'linkedin']
 
@@ -123,7 +102,7 @@ export function PlayerCard({
   }, [closing])
 
   // ---- extended profile hydration ----------------------------------
-  // Hydrates from the dossier endpoint: same payload as the leaderboard
+  // Hydrates from the profile endpoint: same payload as the leaderboard
   // profile plus follow counts and the viewer relationship, so the card
   // can offer FOLLOW right at the point of discovery.
   useEffect(() => {
@@ -708,7 +687,7 @@ export function PlayerCard({
             </div>
           </div>
 
-          {/* ---------- full dossier link ---------- */}
+          {/* ---------- full profile link ---------- */}
           <div className="mt-5 px-6">
             <a
               href={`/u/${encodeURIComponent(row.username)}`}
@@ -718,7 +697,7 @@ export function PlayerCard({
                 background: 'rgb(var(--lb-panel-edge) / 0.03)'
               }}
             >
-              OPEN FULL DOSSIER
+              OPEN FULL PROFILE
               <span aria-hidden>→</span>
             </a>
           </div>

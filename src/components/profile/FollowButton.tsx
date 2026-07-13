@@ -1,9 +1,9 @@
 'use client'
 
 // The follow CTA, tuned for follow-through:
-//  - FOLLOW / FOLLOW BACK render filled in the accent — the loudest
-//    element wherever they appear. "FOLLOW BACK" names the reciprocity
-//    so a returned visit converts.
+//  - FOLLOW / FOLLOW BACK render as a neutral filled button (no accent
+//    color) — solid but quiet, like X. "FOLLOW BACK" names the
+//    reciprocity so a returned visit converts.
 //  - FOLLOWING goes quiet (outline) and only threatens UNFOLLOW in
 //    rose on hover — undoing is possible but never invited.
 //  - Clicks apply optimistically and roll back on failure; signed-out
@@ -98,7 +98,7 @@ export function FollowButton({
       onClick={toggle}
       disabled={pending}
       aria-pressed={false}
-      className={`rounded-lg bg-accent font-bold text-black shadow-[0_0_18px_rgb(var(--accent-rgb)/0.35)] transition-all hover:shadow-[0_0_26px_rgb(var(--accent-rgb)/0.55)] hover:brightness-110 disabled:opacity-60 ${sizeCls}`}
+      className={`rounded-lg bg-zinc-100 font-semibold text-zinc-900 transition-colors hover:bg-zinc-300 disabled:opacity-60 ${sizeCls}`}
     >
       {followsYou ? 'FOLLOW BACK' : 'FOLLOW'}
     </button>

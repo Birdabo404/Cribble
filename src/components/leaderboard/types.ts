@@ -1,6 +1,11 @@
 import type { AchievementIcon, AchievementRarity } from '@/lib/achievements'
+import { ROLE_META } from '@/lib/roles'
 import type { Tier } from '@/types/dashboard'
 import type { SocialKind } from './icons'
+
+// Re-exported so existing imports keep working; the vocabulary itself
+// lives in src/lib/roles.ts alongside the welcome wizard options.
+export { ROLE_META }
 
 export type Socials = Partial<Record<SocialKind, string | null>>
 
@@ -106,15 +111,3 @@ export const PLATE_UP = '74 222 128'
 export const PLATE_DOWN = '251 113 133'
 
 export const medalA = (rgb: string, alpha: number) => `rgb(${rgb} / ${alpha})`
-
-/** Onboarding roles — labels mirror the /welcome wizard options. */
-export const ROLE_META: Record<string, string> = {
-  student: 'STUDENT',
-  researcher: 'RESEARCHER',
-  developer: 'DEVELOPER',
-  designer: 'DESIGNER',
-  founder: 'FOUNDER',
-  product: 'PRODUCT',
-  writer: 'WRITER',
-  other: 'EXPLORER'
-}

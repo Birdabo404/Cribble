@@ -1,7 +1,7 @@
 'use client'
 
 // /profile is a stable alias: resolve the session user, then land on
-// their public dossier at /u/[username]. Kept because the nav rail,
+// their public profile at /u/[username]. Kept because the nav rail,
 // account menu, and old links all point here.
 
 import { useEffect } from 'react'
@@ -41,7 +41,7 @@ export default function ProfileRedirect() {
   return (
     <div className="relative mx-auto max-w-2xl px-6 pt-24 text-center">
       <div className="text-[10px] tracking-[0.4em] text-zinc-500 animate-pulse">
-        OPENING DOSSIER…
+        OPENING PROFILE…
       </div>
     </div>
   )

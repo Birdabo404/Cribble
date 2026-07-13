@@ -1,22 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { isRoleId } from '@/lib/roles'
 import { createServiceClient } from '@/lib/supabaseServer'
 import { getSessionUserId } from '@/lib/sessionAuth'
 
 export const dynamic = 'force-dynamic'
 
 const supabase = createServiceClient()
-
-const ROLES = [
-  'student',
-  'researcher',
-  'developer',
-  'designer',
-  'founder',
-  'product',
-  'writer',
-  'other'
-] as const
-type Role = (typeof ROLES)[number]
 
 const GOALS = [
   'learn',
@@ -45,7 +34,7 @@ const ACCOUNT_TYPES = ['solo', 'team'] as const
 type AccountType = (typeof ACCOUNT_TYPES)[number]
 
 interface OnboardingPayload {
-  role?: Role | null
+  role?: string | null
   goal?: Goal | null
   topTools?: string[]
   accountType?: AccountType | null
@@ -97,10 +86,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const role: Role | null =
-    body.role && (ROLES as readonly string[]).includes(body.role)
-      ? (body.role as Role)
-      : null
+  const role: string | null = isRoleId(body.role) ? body.role : null
 
   const goal: Goal | null =
     body.goal && (GOALS as readonly string[]).includes(body.goal)

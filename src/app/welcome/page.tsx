@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import SpaceBackdrop from '@/components/SpaceBackdrop'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { ROLE_ICONS } from '@/components/roleIcons'
+import { ROLE_OPTIONS } from '@/lib/roles'
 import {
   BrandClaude,
   BrandCopilot,
@@ -18,16 +20,9 @@ import {
   IconAsterisk,
   IconBookOpen,
   IconCheck,
-  IconCode,
-  IconCompass,
-  IconFeather,
-  IconFlask,
-  IconGraduationCap,
   IconGrid,
   IconMicroscope,
   IconOrbit,
-  IconPenTool,
-  IconRocket,
   IconShieldCheck,
   IconSolo,
   IconSparkles,
@@ -55,16 +50,15 @@ const STEP_META: Record<
 
 type IconComponent = (p: IconProps) => JSX.Element
 
-const ROLES: { id: string; label: string; hint: string; icon: IconComponent }[] = [
-  { id: 'student', label: 'Student', hint: 'classes, papers, projects', icon: IconGraduationCap },
-  { id: 'researcher', label: 'Researcher', hint: 'theses, labs, science', icon: IconFlask },
-  { id: 'developer', label: 'Developer', hint: 'shipping code daily', icon: IconCode },
-  { id: 'designer', label: 'Designer', hint: 'pixels, vectors, taste', icon: IconPenTool },
-  { id: 'founder', label: 'Founder', hint: 'building a thing', icon: IconRocket },
-  { id: 'product', label: 'Product', hint: 'specs to shipping', icon: IconCompass },
-  { id: 'writer', label: 'Writer', hint: 'words for a living', icon: IconFeather },
-  { id: 'other', label: 'Other', hint: 'something else cool', icon: IconSparkles }
-]
+// Shared vocabulary (src/lib/roles.ts) + glyphs — the same list the
+// profile editor offers, so a role picked here can always be changed later.
+const ROLES: { id: string; label: string; hint: string; icon: IconComponent }[] =
+  ROLE_OPTIONS.map((r) => ({
+    id: r.id,
+    label: r.label,
+    hint: r.hint,
+    icon: ROLE_ICONS[r.id] ?? IconSparkles
+  }))
 
 const GOALS: { id: string; label: string; hint: string; icon: IconComponent }[] = [
   { id: 'learn', label: 'Learn a skill', hint: 'study, practice, level up', icon: IconBookOpen },
@@ -717,7 +711,7 @@ function RoleStage({
           what do you <em className="text-zinc-50">do</em>?
         </>
       }
-      subtitle="Pick whatever fits best — we use it to tune leaderboards and recap copy. It's not a permanent label."
+      subtitle="Pick whatever fits best — we use it to tune leaderboards and recap copy. You can change it anytime from your profile."
     >
       <div className="mt-9 grid grid-cols-2 md:grid-cols-4 gap-2.5">
         {ROLES.map((r, i) => (

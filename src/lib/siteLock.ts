@@ -30,7 +30,7 @@ export function isAllowedDuringLock(pathname: string): boolean {
   if (pathname === '/admin' || pathname.startsWith('/admin/')) return true
   if (pathname.startsWith('/api/admin/')) return true
   if (pathname === '/leaderboard' || pathname.startsWith('/leaderboard/')) return true
-  // Public pilot dossiers (+ the /profile redirect into your own).
+  // Public pilot profiles (+ the /profile redirect into your own).
   if (pathname === '/profile' || pathname.startsWith('/u/')) return true
   if (/^\/api\/waitlist\/?$/.test(pathname)) return true
   if (pathname.startsWith('/api/auth/')) return true
