@@ -4,10 +4,11 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { formatRelative, tierAccent } from '@/components/dashboard-v2/format'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { DeleteAccountModal } from '@/components/dashboard-v3/DeleteAccountModal'
 import { useNavPrefs, type NavPosition } from '@/components/nav/NavPrefsContext'
 import type { ActiveDevice, MeUser } from '@/types/dashboard'
 
-type ModalId = 'store' | 'settings' | 'privacy'
+type ModalId = 'store' | 'settings' | 'privacy' | 'delete'
 
 /* ---------- icons (14px, stroke) ---------- */
 
@@ -39,7 +40,11 @@ const ICONS = {
     'M12 22c5.52 0 10-4.48 10-10S17.52 2 12 2 2 6.48 2 12s4.48 10 10 10z M15 9.35A3.5 3.5 0 0 0 12.5 8.5h-1a2 2 0 0 0 0 4h1a2 2 0 0 1 0 4h-1A3.5 3.5 0 0 1 9 15.65 M12 6.5v2 M12 15.5v2',
   privacy:
     'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z M9 12l2 2 4-4',
-  signout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9'
+  signout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9',
+  key: 'M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4',
+  activity: 'M22 12h-4l-3 9L9 3l-3 9H2',
+  trash:
+    'M3 6h18 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2 M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6 M10 11v6 M14 11v6'
 }
 
 /* ---------- modal shell ---------- */
@@ -65,7 +70,7 @@ function MenuModal({
   // which turns it into the containing block for position:fixed children —
   // without the portal this overlay would be trapped inside the nav.
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} aria-hidden />
       <div
         className="relative w-full max-w-md rounded-2xl glass-pop overflow-hidden"
@@ -101,6 +106,19 @@ function SettingRow({ label, children }: { label: string; children: ReactNode })
     <div className="flex items-center justify-between gap-3 px-4 py-3">
       <span className="text-[10px] tracking-[0.3em] text-zinc-500">{label}</span>
       <span className="text-xs text-zinc-200 flex items-center gap-2 min-w-0">{children}</span>
+    </div>
+  )
+}
+
+/** Section header + bordered card. Structure comes from grouping and
+ *  hairlines, not from color — the accent stays out of it on purpose. */
+function SettingSection({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <div className="px-1.5 pb-1.5 text-[8px] tracking-[0.35em] text-zinc-600">{label}</div>
+      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] divide-y divide-white/[0.06]">
+        {children}
+      </div>
     </div>
   )
 }
@@ -173,60 +191,119 @@ function NavPositionToggle() {
 function SettingsModal({
   user,
   activeDevice,
-  onClose
+  onClose,
+  onDeleteAccount
 }: {
   user: MeUser
   activeDevice: ActiveDevice | null
   onClose: () => void
+  onDeleteAccount: () => void
 }) {
   return (
     <MenuModal title="SETTINGS" onClose={onClose}>
-      <div className="p-3 divide-y divide-white/[0.06]">
-        <SettingRow label="ACCOUNT">
-          <span className="truncate">@{user.twitter_username || 'user'}</span>
-        </SettingRow>
-        <SettingRow label="APPEARANCE">
-          <ThemeToggle />
-        </SettingRow>
-        <SettingRow label="NAV BAR">
-          <NavPositionToggle />
-        </SettingRow>
-        <SettingRow label="DEVICE">
-          {activeDevice ? `${activeDevice.device_uuid.slice(0, 8)}…` : 'Not linked'}
-        </SettingRow>
-        <SettingRow label="LAST SYNC">
-          {formatRelative(activeDevice?.last_sync_at || user.last_extension_sync)}
-        </SettingRow>
-        <SettingRow label="VERSION">v3 · private beta</SettingRow>
+      <div className="space-y-4 p-4">
+        <SettingSection label="PREFERENCES">
+          <SettingRow label="APPEARANCE">
+            <ThemeToggle />
+          </SettingRow>
+          <SettingRow label="NAV BAR">
+            <NavPositionToggle />
+          </SettingRow>
+        </SettingSection>
+
+        <SettingSection label="ACCOUNT">
+          <SettingRow label="SIGNED IN AS">
+            <span className="truncate">@{user.twitter_username || 'user'}</span>
+          </SettingRow>
+          <SettingRow label="DEVICE">
+            {activeDevice ? `${activeDevice.device_uuid.slice(0, 8)}…` : 'Not linked'}
+          </SettingRow>
+          <SettingRow label="LAST SYNC">
+            {formatRelative(activeDevice?.last_sync_at || user.last_extension_sync)}
+          </SettingRow>
+        </SettingSection>
+
+        <SettingSection label="DATA">
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <div className="min-w-0">
+              <div className="text-[10px] tracking-[0.3em] text-zinc-400">DELETE ACCOUNT</div>
+              <p className="mt-1 text-[10px] leading-relaxed text-zinc-600">
+                Erase your account and every trace of your data. Permanent.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onDeleteAccount}
+              className="shrink-0 rounded-lg border border-rose-400/30 px-3 py-1.5 text-[9px] tracking-[0.3em] text-rose-300 transition-colors hover:border-rose-400/50 hover:bg-rose-500/10"
+            >
+              DELETE…
+            </button>
+          </div>
+        </SettingSection>
+
+        <div className="pt-1 text-center text-[9px] tracking-[0.3em] text-zinc-600">
+          v3 · PRIVATE BETA
+        </div>
       </div>
     </MenuModal>
   )
 }
 
-function PrivacyModal({ onClose }: { onClose: () => void }) {
-  const items: { title: string; body: string }[] = [
+function PrivacyModal({
+  onClose,
+  onDeleteAccount
+}: {
+  onClose: () => void
+  onDeleteAccount: () => void
+}) {
+  const items: { title: string; icon: string; body: string }[] = [
     {
       title: 'SESSION',
-      body: 'You are signed in via X (Twitter) OAuth. Sessions expire automatically and can be ended anytime with Sign Out.'
+      icon: ICONS.key,
+      body: 'You sign in through X or GitHub OAuth — Cribble never sees a password and stores no email address. Signing out invalidates the session immediately.'
     },
     {
       title: 'TELEMETRY',
+      icon: ICONS.activity,
       body: 'The extension records domain-level activity only — which AI tools you use and for how long. Page content, prompts, and conversations are never captured.'
-    },
-    {
-      title: 'DATA CONTROL',
-      body: 'Full data export and account deletion are coming to this panel. Until then, reach out on X @cribbledotdev.'
     }
   ]
   return (
     <MenuModal title="PRIVACY & SECURITY" onClose={onClose}>
-      <div className="p-5 space-y-3">
+      <div className="space-y-2.5 p-4">
         {items.map((it) => (
-          <div key={it.title} className="rounded-lg liquid-glass-inset px-3.5 py-3">
-            <div className="text-[9px] tracking-[0.3em] text-accent/80">{it.title}</div>
-            <p className="mt-1 text-xs text-zinc-300 leading-relaxed">{it.body}</p>
+          <div
+            key={it.title}
+            className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3"
+          >
+            <div className="flex items-center gap-2 text-zinc-500">
+              <Icon d={it.icon} className="h-3 w-3" />
+              <span className="text-[9px] tracking-[0.3em]">{it.title}</span>
+            </div>
+            <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">{it.body}</p>
           </div>
         ))}
+
+        <div className="rounded-xl border border-rose-500/[0.16] bg-rose-500/[0.03] px-3.5 py-3">
+          <div className="flex items-center gap-2 text-zinc-500">
+            <span className="text-rose-300/70">
+              <Icon d={ICONS.trash} className="h-3 w-3" />
+            </span>
+            <span className="text-[9px] tracking-[0.3em]">DATA CONTROL</span>
+          </div>
+          <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
+            Deleting your account erases your profile, scores, devices, and activity history —
+            immediately and permanently, as required by GDPR Art. 17. Waitlist emails can be
+            removed in the same step.
+          </p>
+          <button
+            type="button"
+            onClick={onDeleteAccount}
+            className="mt-2.5 w-full rounded-lg border border-rose-400/30 px-3 py-2 text-[9px] tracking-[0.3em] text-rose-300 transition-colors hover:border-rose-400/50 hover:bg-rose-500/10"
+          >
+            DELETE MY ACCOUNT…
+          </button>
+        </div>
       </div>
     </MenuModal>
   )
@@ -282,10 +359,27 @@ export function AccountMenu({
         return <StoreModal onClose={() => setModal(null)} />
       case 'settings':
         return (
-          <SettingsModal user={user} activeDevice={activeDevice} onClose={() => setModal(null)} />
+          <SettingsModal
+            user={user}
+            activeDevice={activeDevice}
+            onClose={() => setModal(null)}
+            onDeleteAccount={() => setModal('delete')}
+          />
         )
       case 'privacy':
-        return <PrivacyModal onClose={() => setModal(null)} />
+        return (
+          <PrivacyModal
+            onClose={() => setModal(null)}
+            onDeleteAccount={() => setModal('delete')}
+          />
+        )
+      case 'delete':
+        return (
+          <DeleteAccountModal
+            username={user.twitter_username || 'user'}
+            onClose={() => setModal(null)}
+          />
+        )
       default: {
         const exhaustive: never = modal
         return exhaustive

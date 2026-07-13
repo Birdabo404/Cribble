@@ -58,7 +58,7 @@ async function userIdAcceptsUuidValue(supabase: SupabaseClient) {
   return cachedUserIdUuidMode
 }
 
-function toCompatUserUuid(userId: number) {
+export function toCompatUserUuid(userId: number) {
   const normalized = Math.max(0, Math.trunc(userId))
     .toString()
     .padStart(12, '0')
