@@ -6,6 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
+    "predev": "node scripts/guard-dev-server.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -13,9 +14,14 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:run": "vitest run",
-    "audit:prod": "npm audit --omit=dev"
+    "audit:prod": "npm audit --omit=dev",
+    "setup:polar": "vite-node scripts/setup-polar.ts",
+    "setup:polar:check": "vite-node scripts/setup-polar.ts --check"
   },
   "dependencies": {
+    "@paper-design/shaders-react": "^0.0.77",
+    "@polar-sh/nextjs": "^0.9.6",
+    "@polar-sh/sdk": "^0.48.1",
     "@prisma/client": "^5.19.1",
     "@supabase/supabase-js": "^2.50.0",
     "@types/uuid": "^10.0.0",

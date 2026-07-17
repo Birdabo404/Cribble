@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 
 export default defineConfig({
   resolve: {
@@ -8,5 +8,14 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    // Stale agent worktrees under .claude/worktrees carry duplicate
+    // *.test.ts copies of old code; without the exclude vitest runs
+    // them alongside the real suite.
+    exclude: [
+      ...configDefaults.exclude,
+      '**/.claude/**',
+      '**/.next/**',
+      '**/.next-dev/**',
+    ],
   },
 })
