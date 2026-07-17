@@ -80,9 +80,9 @@ jobs:
                 '/login',
                 '/welcome',
                 '/dashboard',
-                '/dashboard/legacy',
                 '/leaderboard',
                 '/profile',
+                '/shop',
                 '/admin/invites'
               ]
               for (const pathname of pages) {
