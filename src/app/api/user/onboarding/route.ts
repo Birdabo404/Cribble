@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { grantBetaTesterPlate } from '@/lib/entitlementGrant'
 import { isRoleId } from '@/lib/roles'
 import { createServiceClient } from '@/lib/supabaseServer'
 import { getSessionUserId } from '@/lib/sessionAuth'
@@ -145,6 +146,11 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     )
   }
+
+  // Invite-code signups get the beta tester plate the moment they finish
+  // welcome. Idempotent and never throws, so re-saving onboarding can't
+  // double-grant and a failed gift can't fail the save.
+  await grantBetaTesterPlate(supabase, auth.userId)
 
   return NextResponse.json({ ok: true, onboarded: true })
 }
