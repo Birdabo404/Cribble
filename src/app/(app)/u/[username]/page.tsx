@@ -24,6 +24,7 @@ import {
   formatDuration,
   formatNumber,
   formatRelative,
+  formatScore,
   tierAccent
 } from '@/components/dashboard-v2/format'
 import { Avatar, SafeBannerImg } from '@/components/leaderboard/Avatar'
@@ -37,11 +38,14 @@ import {
   type SocialKind
 } from '@/components/leaderboard/icons'
 import { medalA, medalFor, ROLE_META } from '@/components/leaderboard/types'
+import { BannerStudioModal } from '@/components/profile/BannerStudioModal'
 import { EditProfileModal, type EditableProfile } from '@/components/profile/EditProfileModal'
 import { FollowButton, FollowsYouChip, type FollowChange } from '@/components/profile/FollowButton'
 import { FollowListModal, type FollowListKind } from '@/components/profile/FollowListModal'
 import { ProfileAmbience } from '@/components/profile/ProfileAmbience'
+import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { ACHIEVEMENTS } from '@/lib/achievements'
+import { isProTier } from '@/lib/entitlements'
 import type { Tier } from '@/types/dashboard'
 import type { PublicProfileData } from '@/types/profile'
 import { ROLE_ICONS } from '@/components/roleIcons'
@@ -90,6 +94,8 @@ const PATH_SHARE =
   'M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8 M16 6l-4-4-4 4 M12 2v13'
 const PATH_EDIT =
   'M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z'
+const PATH_LOCK =
+  'M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z M7 11V7a5 5 0 0 1 10 0v4'
 
 /* ===================================================================== */
 
@@ -102,6 +108,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
   const [roster, setRoster] = useState<FollowListKind | null>(null)
   const [editing, setEditing] = useState(false)
   const [editInitial, setEditInitial] = useState<EditableProfile | null>(null)
+  const [bannerStudio, setBannerStudio] = useState(false)
   const [copied, setCopied] = useState(false)
 
   const fetchProfile = useCallback(async () => {
@@ -151,22 +158,33 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
     if (profile) document.title = `@${profile.username} — Cribble`
   }, [profile])
 
-  const handleFollowChange = useCallback((change: FollowChange) => {
-    setProfile((p) => {
-      if (!p || !p.viewer) return p
-      const wasFollowing = p.viewer.isFollowing
-      const followers =
-        change.followers !== null
-          ? change.followers
-          : p.followers +
-            (change.following === wasFollowing ? 0 : change.following ? 1 : -1)
-      return {
-        ...p,
-        followers: Math.max(0, followers),
-        viewer: { ...p.viewer, isFollowing: change.following }
+  const isPrivateAccount = profile?.isPrivate ?? false
+
+  const handleFollowChange = useCallback(
+    (change: FollowChange) => {
+      setProfile((p) => {
+        if (!p || !p.viewer) return p
+        const wasFollowing = p.viewer.isFollowing
+        const followers =
+          change.followers !== null
+            ? change.followers
+            : p.followers +
+              (change.following === wasFollowing ? 0 : change.following ? 1 : -1)
+        return {
+          ...p,
+          followers: Math.max(0, followers),
+          viewer: { ...p.viewer, isFollowing: change.following }
+        }
+      })
+      // Private accounts gate tools/badges on the follow edge, so once
+      // the server confirms a follow (or unfollow) refetch to unlock —
+      // or re-lock — the gated sections without a manual reload.
+      if (isPrivateAccount && change.followers !== null) {
+        refreshProfile()
       }
-    })
-  }, [])
+    },
+    [isPrivateAccount, refreshProfile]
+  )
 
   const openEditor = useCallback(async () => {
     // Edit from the user's *saved* values, not the profile view — the view
@@ -180,8 +198,9 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
         bio: saved?.bio || '',
         location: saved?.location || '',
         website: saved?.website || '',
-        banner_image: saved?.banner_image || '',
+        equipped_plate: saved?.equipped_plate || null,
         role: saved?.role || null,
+        is_private: saved?.is_private === true,
         socials: {
           x: saved?.socials?.x || '',
           github: saved?.socials?.github || '',
@@ -195,8 +214,9 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
         bio: '',
         location: '',
         website: '',
-        banner_image: '',
+        equipped_plate: null,
         role: null,
+        is_private: false,
         socials: { x: '', github: '', youtube: '', linkedin: '' }
       })
       setEditing(true)
@@ -287,10 +307,23 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
             className="absolute inset-x-0 bottom-0 h-16"
             style={{ background: 'linear-gradient(180deg, transparent, rgb(0 0 0 / 0.55))' }}
           />
+          {/* banner editing lives in its own studio, not the profile
+              form — always visible on your own profile (no hover on
+              mobile), scrimmed so it reads over any banner */}
+          {isYou && (
+            <button
+              type="button"
+              onClick={() => setBannerStudio(true)}
+              className="absolute right-3 top-3 flex items-center gap-1.5 rounded-lg border border-white/[0.14] bg-black/45 px-2.5 py-1.5 text-[9px] tracking-[0.3em] text-zinc-300 backdrop-blur-sm transition-colors hover:border-accent/50 hover:text-accent"
+            >
+              <Stroke d={PATH_EDIT} size={10} />
+              EDIT BANNER
+            </button>
+          )}
         </div>
 
         {/* identity */}
-        <div className="px-5 pb-6 sm:px-7">
+        <div className="relative px-5 pb-6 sm:px-7">
           <div className="flex items-end justify-between gap-3">
             {/* avatar overlapping the banner */}
             <div className="relative -mt-12 sm:-mt-14">
@@ -305,7 +338,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
                     boxShadow: medal ? `0 0 22px ${medalA(medal.rgb, 0.35)}` : undefined
                   }}
                 />
-                <span aria-hidden className="absolute inset-0 rounded-full" style={{ boxShadow: 'inset 0 0 0 4px rgb(var(--background))' }} />
+                <span aria-hidden className="absolute inset-0 rounded-full" style={{ boxShadow: 'inset 0 0 0 4px var(--background)' }} />
                 <Avatar
                   src={profile.profile_image}
                   char={profile.username[0]?.toUpperCase() ?? '?'}
@@ -317,7 +350,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
                     className="absolute bottom-1.5 right-1.5 h-3.5 w-3.5 rounded-full"
                     style={{
                       background: 'rgb(var(--lb-up))',
-                      boxShadow: '0 0 8px rgb(var(--lb-up) / 0.8), inset 0 0 0 2.5px rgb(var(--background))'
+                      boxShadow: '0 0 8px rgb(var(--lb-up) / 0.8), inset 0 0 0 2.5px var(--background)'
                     }}
                     title="Online"
                   />
@@ -326,7 +359,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
             </div>
 
             {/* action cluster */}
-            <div className="flex items-center gap-2 pb-1">
+            <div className="relative flex items-center gap-2 pb-1">
               {isYou ? (
                 <>
                   <button
@@ -364,11 +397,12 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
           </div>
 
           {/* name + handle */}
-          <div className="mt-3.5">
+          <div className="relative mt-3.5">
             <div className="flex flex-wrap items-center gap-2.5">
               <h1 className="font-display text-2xl font-semibold tracking-tight text-zinc-50">
                 {profile.display_name}
               </h1>
+              {isProTier(profile.tier) && <VerifiedBadge size={18} />}
               {medal && (
                 <span
                   className="rounded border px-2 py-0.5 text-[9px] tracking-[0.25em]"
@@ -383,7 +417,14 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
               )}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <span className="text-[12px] text-zinc-500">@{profile.username}</span>
+              <span className="flex items-center gap-1.5 text-[12px] text-zinc-500">
+                @{profile.username}
+                {profile.isPrivate && (
+                  <span className="text-zinc-500" title="Private account — tools and badges are follower-only">
+                    <Stroke d={PATH_LOCK} size={11} />
+                  </span>
+                )}
+              </span>
               {profile.viewer?.followsYou && !isYou && <FollowsYouChip />}
               <span className={`rounded border px-1.5 py-0.5 text-[8px] tracking-[0.25em] ${tierAccent(profile.tier as Tier)}`}>
                 {profile.tier}
@@ -399,14 +440,14 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
 
           {/* bio — plain body copy, reads like any other profile */}
           {profile.bio ? (
-            <p className="mt-4 max-w-xl text-[13px] leading-relaxed text-zinc-200">
+            <p className="relative mt-4 max-w-xl text-[13px] leading-relaxed text-zinc-200">
               {profile.bio}
             </p>
           ) : isYou ? (
             <button
               type="button"
               onClick={openEditor}
-              className="mt-4 block text-left text-[13px] text-zinc-600 transition-colors hover:text-zinc-400"
+              className="relative mt-4 block text-left text-[13px] text-zinc-600 transition-colors hover:text-zinc-400"
             >
               No bio yet — tell people what you do.
             </button>
@@ -433,15 +474,13 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
             )}
             <span className="flex items-center gap-1.5">
               <IconCalendar size={12} className="text-zinc-600" />
-              PILOT SINCE {monthYear(profile.memberSince)}
+              JOINED SINCE {monthYear(profile.memberSince)}
             </span>
-            <span className="flex items-center gap-1.5">
-              {profile.isActive ? (
-                <span style={{ color: 'rgb(var(--lb-up))' }}>ONLINE NOW</span>
-              ) : (
-                <span>SEEN {formatRelative(profile.lastSeen).toUpperCase()}</span>
-              )}
-            </span>
+            {!profile.isActive && (
+              <span className="flex items-center gap-1.5">
+                SEEN {formatRelative(profile.lastSeen).toUpperCase()}
+              </span>
+            )}
           </div>
 
           {/* follow counts + social proof */}
@@ -511,16 +550,33 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
         </div>
       </section>
 
-      {/* ---------- flight record (KPI strip) ---------- */}
+      {/* ---------- flight record (KPI strip) ----------
+          One scoreboard anatomy for all five cells: 9px label, pixel-font
+          numeral on a shared baseline, 9px context line (always reserved,
+          so every cell is the same height). Scores compact past 5 digits
+          (142.5k → 143K) — the exact value lives in the title tooltip. */}
       <section
-        className="pf-reveal mt-4 grid grid-cols-2 overflow-hidden rounded-2xl liquid-glass sm:grid-cols-3 md:grid-cols-5"
+        className="pf-reveal mt-4 overflow-hidden rounded-2xl liquid-glass"
         style={{ ['--rv' as string]: '110ms' }}
       >
-        <StatCell label="RANK" divider={false}>
-          {profile.rank !== null ? (
-            <span className="flex items-baseline gap-2">
+        <div className="-ml-px -mt-px grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5">
+          <StatCell
+            label="RANK"
+            sub={
+              profile.rank !== null && profile.rankDelta !== 0 ? (
+                <span
+                  className="flex items-center gap-1 font-semibold"
+                  style={{ color: profile.rankDelta > 0 ? 'rgb(var(--lb-up))' : 'rgb(var(--lb-down))' }}
+                >
+                  <MoveGlyph dir={profile.rankDelta > 0 ? 'up' : 'down'} size={7} />
+                  {Math.abs(profile.rankDelta)} {Math.abs(profile.rankDelta) === 1 ? 'PLACE' : 'PLACES'}
+                </span>
+              ) : null
+            }
+          >
+            {profile.rank !== null ? (
               <span
-                className="text-base tabular-nums [font-family:var(--font-pixel)]"
+                className="text-[15px] leading-none tabular-nums [font-family:var(--font-pixel)]"
                 style={{
                   color: medal ? medal.fg : 'rgb(var(--z50))',
                   textShadow: medal ? `0 0 14px ${medalA(medal.rgb, 0.5)}` : undefined
@@ -528,45 +584,46 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
               >
                 #{profile.rank}
               </span>
-              {profile.rankDelta !== 0 && (
-                <span
-                  className="flex items-center gap-0.5 text-[9px] font-semibold tabular-nums"
-                  style={{ color: profile.rankDelta > 0 ? 'rgb(var(--lb-up))' : 'rgb(var(--lb-down))' }}
-                >
-                  <MoveGlyph dir={profile.rankDelta > 0 ? 'up' : 'down'} size={7} />
-                  {Math.abs(profile.rankDelta)}
-                </span>
-              )}
+            ) : (
+              <span className="text-[15px] leading-none text-zinc-600 [font-family:var(--font-pixel)]">—</span>
+            )}
+          </StatCell>
+
+          <StatCell
+            label="SCORE"
+            sub={`+${formatScore(profile.todayScore)} TODAY`}
+            title={`${formatNumber(profile.score)} lifetime points`}
+          >
+            <span className="cribble-score-glow text-[15px] leading-none tabular-nums text-zinc-50 [font-family:var(--font-pixel)]">
+              <AnimatedCounter value={profile.score} duration={900} formatter={(v) => formatScore(Math.round(v))} />
             </span>
-          ) : (
-            <span className="text-base text-zinc-600 [font-family:var(--font-pixel)]">—</span>
-          )}
-        </StatCell>
+          </StatCell>
 
-        <StatCell label="LIFETIME SCORE" sub={`+${formatNumber(profile.todayScore)} TODAY`}>
-          <span className="cribble-score-glow text-base tabular-nums text-zinc-50 [font-family:var(--font-pixel)]">
-            <AnimatedCounter value={profile.score} duration={900} formatter={(v) => formatNumber(Math.round(v))} />
-          </span>
-        </StatCell>
+          <StatCell label="ACTIVE DAYS" sub={`SINCE ${monthYear(profile.memberSince)}`}>
+            <span className="text-[15px] leading-none tabular-nums text-zinc-100 [font-family:var(--font-pixel)]">
+              {formatScore(profile.activeDays)}
+            </span>
+          </StatCell>
 
-        <StatCell label="ACTIVE DAYS">
-          <span className="font-display text-base font-semibold tabular-nums text-zinc-100">
-            {formatNumber(profile.activeDays)}
-          </span>
-        </StatCell>
+          <StatCell label="BEST STREAK" sub="DAYS IN A ROW">
+            <span className="text-[15px] leading-none tabular-nums text-zinc-100 [font-family:var(--font-pixel)]">
+              {formatScore(profile.longestStreak)}
+            </span>
+          </StatCell>
 
-        <StatCell label="BEST STREAK">
-          <span className="font-display text-base font-semibold tabular-nums text-zinc-100">
-            {formatNumber(profile.longestStreak)}
-            <span className="ml-0.5 text-[10px] font-normal text-zinc-500">d</span>
-          </span>
-        </StatCell>
-
-        <StatCell label="FOCUS TIME">
-          <span className="font-display text-base font-semibold tabular-nums text-zinc-100">
-            {formatDuration(profile.totalActiveMs)}
-          </span>
-        </StatCell>
+          <StatCell
+            label="FOCUS TIME"
+            sub={
+              profile.activeDays > 0
+                ? `${formatDuration(profile.totalActiveMs / profile.activeDays)} / DAY`
+                : null
+            }
+          >
+            <span className="text-[15px] leading-none tabular-nums text-zinc-100 [font-family:var(--font-pixel)]">
+              {formatDuration(profile.totalActiveMs)}
+            </span>
+          </StatCell>
+        </div>
       </section>
 
       {/* ---------- tools + service record ---------- */}
@@ -576,8 +633,18 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
             <h2 className="text-[10px] tracking-[0.4em] text-zinc-300">
               <span className="text-accent/80">{'// '}</span>TOP TOOLS
             </h2>
-            <span className="text-[9px] tracking-[0.25em] text-zinc-600">SHARE OF SORTIES</span>
+            {profile.restricted ? (
+              <span className="flex items-center gap-1 text-[9px] tracking-[0.25em] text-zinc-600">
+                <Stroke d={PATH_LOCK} size={9} />
+                PRIVATE
+              </span>
+            ) : (
+              <span className="text-[9px] tracking-[0.25em] text-zinc-600">SHARE OF SCORE</span>
+            )}
           </div>
+          {profile.restricted ? (
+            <LockedPanel className="mt-4" hint={`Follow @${profile.username} to see their loadout.`} />
+          ) : (
           <div className="mt-4 space-y-3">
             {profile.topTools.length === 0 && (
               <div className="py-4 text-center text-[10px] tracking-[0.2em] text-zinc-600">
@@ -614,6 +681,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
               </div>
             ))}
           </div>
+          )}
         </section>
 
         <section className="pf-reveal rounded-2xl glass-lite p-5" style={{ ['--rv' as string]: '260ms' }}>
@@ -621,13 +689,22 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
             <h2 className="text-[10px] tracking-[0.4em] text-zinc-300">
               <span className="text-accent/80">{'// '}</span>SERVICE RECORD
             </h2>
-            <span className="text-[9px] tabular-nums tracking-[0.25em] text-zinc-600">
-              {profile.badges.length}
-              <span className="text-zinc-700">/{ACHIEVEMENTS.length}</span>
-            </span>
+            {profile.restricted ? (
+              <span className="flex items-center gap-1 text-[9px] tracking-[0.25em] text-zinc-600">
+                <Stroke d={PATH_LOCK} size={9} />
+                PRIVATE
+              </span>
+            ) : (
+              <span className="text-[9px] tabular-nums tracking-[0.25em] text-zinc-600">
+                {profile.badges.length}
+                <span className="text-zinc-700">/{ACHIEVEMENTS.length}</span>
+              </span>
+            )}
           </div>
           <div className="mt-4">
-            {profile.badges.length === 0 ? (
+            {profile.restricted ? (
+              <LockedPanel hint={`Follow @${profile.username} to see their decorations.`} />
+            ) : profile.badges.length === 0 ? (
               <div className="py-4 text-center text-[10px] tracking-[0.2em] text-zinc-600">
                 NO DECORATIONS YET
               </div>
@@ -692,6 +769,16 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
           }}
         />
       )}
+      {bannerStudio && (
+        <BannerStudioModal
+          initialUrl={profile.banner_image || ''}
+          onClose={() => setBannerStudio(false)}
+          onSaved={() => {
+            setBannerStudio(false)
+            refreshProfile()
+          }}
+        />
+      )}
 
       <style jsx>{`
         .pf-reveal {
@@ -733,26 +820,47 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
 
 /* ================= supporting screens ================= */
 
+/** Follower-only section body for private accounts. The follow CTA
+ *  already sits in the hero, so this stays informational. */
+function LockedPanel({ hint, className = '' }: { hint: string; className?: string }) {
+  return (
+    <div
+      className={`flex flex-col items-center rounded-xl border border-dashed border-white/[0.08] bg-white/[0.015] px-4 py-6 text-center ${className}`}
+    >
+      <span className="flex h-9 w-9 items-center justify-center rounded-full liquid-glass-inset text-zinc-500">
+        <Stroke d={PATH_LOCK} size={15} />
+      </span>
+      <div className="mt-3 text-[9px] tracking-[0.35em] text-zinc-400">FOLLOWERS ONLY</div>
+      <p className="mt-1.5 max-w-[240px] text-[11px] leading-relaxed text-zinc-600">{hint}</p>
+    </div>
+  )
+}
+
+/** Fixed three-row anatomy (label / numeral / context) so all cells sit on
+ * the same baselines regardless of content. Cells own their top+left
+ * hairlines; the grid's -1px offset hides the outer edge, which makes the
+ * dividers correct at every column count. */
 function StatCell({
   label,
   sub,
-  divider = true,
+  title,
   children
 }: {
   label: string
-  sub?: string
-  divider?: boolean
+  sub?: React.ReactNode
+  title?: string
   children: React.ReactNode
 }) {
   return (
     <div
-      className={`px-4 py-4 transition-colors hover:bg-white/[0.03] ${
-        divider ? 'border-l border-white/[0.06]' : ''
-      }`}
+      title={title}
+      className="border-l border-t border-white/[0.06] px-4 py-4 transition-colors hover:bg-white/[0.03]"
     >
-      <div className="text-[9px] tracking-[0.35em] text-zinc-500">{label}</div>
-      <div className="mt-2">{children}</div>
-      {sub && <div className="mt-1 text-[9px] tracking-[0.15em] text-zinc-600">{sub}</div>}
+      <div className="truncate text-[9px] tracking-[0.35em] text-zinc-500">{label}</div>
+      <div className="mt-2.5 flex h-4 items-end">{children}</div>
+      <div className="mt-2 h-3 truncate text-[9px] tracking-[0.15em] text-zinc-600">
+        {sub ?? '\u00A0'}
+      </div>
     </div>
   )
 }

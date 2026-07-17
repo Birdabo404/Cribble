@@ -36,3 +36,13 @@ export interface FollowListUser {
   isFollowing: boolean
   followsYou: boolean
 }
+
+/** One row of GET /api/users/search (the nav search box). */
+export interface UserSearchResult {
+  userId: number
+  username: string
+  display_name: string
+  profile_image: string | null
+  score: number
+  isPrivate: boolean
+}

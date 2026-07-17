@@ -10,15 +10,10 @@
 // Deliberately static — one composited layer, zero animation loops (the
 // old backdrop ran 70+ twinkle animations plus an asteroid streak). The
 // only motion is a one-time cross-fade from the duotone tint to the
-// banner once the image decodes. A faint grain layer dithers the blurred
-// gradient so it doesn't band on pure black.
+// banner once the image decodes. A whisper of monochrome grain dithers
+// the blurred gradients so they don't band on pure black.
 
-import { useEffect, useState } from 'react'
-
-// 120px tile of SVG fractal noise, blended over the aurora only (the
-// container mask clips it with everything else).
-const GRAIN =
-  `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`
+import { useCallback, useEffect, useState } from 'react'
 
 export function ProfileAmbience({ src }: { src: string | null }) {
   const [dead, setDead] = useState(false)
@@ -28,6 +23,15 @@ export function ProfileAmbience({ src }: { src: string | null }) {
     setDead(false)
     setLoaded(false)
   }, [src])
+
+  // Cache-hit races can complete the image before React wires up onLoad
+  // (the hero card requests the same URL), so also probe `complete` when
+  // the node mounts.
+  const probe = useCallback((node: HTMLImageElement | null) => {
+    if (!node || !node.complete) return
+    if (node.naturalWidth > 0) setLoaded(true)
+    else setDead(true)
+  }, [])
 
   const banner = src && !dead ? src : null
   const showBanner = Boolean(banner) && loaded
@@ -40,9 +44,9 @@ export function ProfileAmbience({ src }: { src: string | null }) {
       {banner && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
+          ref={probe}
           src={banner}
           alt=""
-          loading="lazy"
           decoding="async"
           onLoad={() => setLoaded(true)}
           onError={() => setDead(true)}
@@ -74,15 +78,41 @@ export function ProfileAmbience({ src }: { src: string | null }) {
             transparent 82%
           );
         }
+        :global(html.light) .pf-amb {
+          /* deeper mask for light: tint-on-white has half the contrast of
+             glow-on-black, so the low-alpha tail vanishes — hold the mask
+             open longer to carry the aurora as far down as dark mode. */
+          mask-image: radial-gradient(
+            140% 115% at 50% 0%,
+            rgb(0 0 0) 20%,
+            rgb(0 0 0 / 0.62) 50%,
+            rgb(0 0 0 / 0.28) 70%,
+            transparent 90%
+          );
+          -webkit-mask-image: radial-gradient(
+            140% 115% at 50% 0%,
+            rgb(0 0 0) 20%,
+            rgb(0 0 0 / 0.62) 50%,
+            rgb(0 0 0 / 0.28) 70%,
+            transparent 90%
+          );
+        }
         .pf-amb-img {
-          filter: blur(88px) saturate(0.85);
+          /* brightness lift keeps dark, moody banners from disappearing
+             entirely once blurred down and masked */
+          filter: blur(72px) saturate(0.9) brightness(1.18);
           /* overscan hides the blur's translucent edge ring */
           transform: scale(1.35);
-          opacity: 0.26;
+          opacity: 0.38;
           transition: opacity 1200ms ease;
         }
         :global(html.light) .pf-amb-img {
-          opacity: 0.15;
+          /* dark-mode parity. On white the aurora can't glow, only tint,
+             and a blurred banner at dark-mode opacity barely moves the
+             page — so run it much stronger and let saturation carry the
+             color. Text is unaffected: it all sits on card surfaces. */
+          filter: blur(72px) saturate(1.4);
+          opacity: 0.8;
         }
         .pf-amb-tint {
           background:
@@ -91,16 +121,17 @@ export function ProfileAmbience({ src }: { src: string | null }) {
           transition: opacity 1200ms ease;
         }
         :global(html.light) .pf-amb-tint {
-          opacity: 0.55;
+          opacity: 0.85;
         }
         .pf-amb-grain {
-          background-image: ${GRAIN};
+          /* 120px tile of desaturated SVG fractal noise; the container
+             mask already clips it to the aurora region. */
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
           background-size: 120px 120px;
-          mix-blend-mode: overlay;
-          opacity: 0.5;
+          opacity: 0.03;
         }
         :global(html.light) .pf-amb-grain {
-          opacity: 0.2;
+          opacity: 0.05;
         }
       `}</style>
     </div>

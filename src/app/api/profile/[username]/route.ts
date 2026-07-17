@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabaseServer'
 import { getSessionUserId } from '@/lib/sessionAuth'
 import {
+  gateProfileForViewer,
   getFollowCounts,
   getMutualFollowerProof,
   getViewerFollowContext,
@@ -13,6 +14,8 @@ import {
 // carries a valid session — the viewer relationship (isFollowing /
 // followsYou) plus mutual-follow social proof. Anonymous visitors
 // still get the whole public profile; viewer fields come back null.
+// Private accounts get their top tools / badges stripped server-side
+// unless the viewer is the owner or a follower.
 
 export const dynamic = 'force-dynamic'
 
@@ -60,7 +63,7 @@ export async function GET(
     return NextResponse.json({
       success: true,
       profile: {
-        ...profile,
+        ...gateProfileForViewer(profile, viewerContext),
         followers: counts.followers,
         following: counts.following,
         viewer: viewerContext,
