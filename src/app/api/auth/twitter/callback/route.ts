@@ -113,6 +113,12 @@ export async function GET(request: NextRequest) {
 
     let user
     if (existingUser) {
+      // Banned accounts stop at the door: no profile refresh, no session.
+      // (Their live sessions were already destroyed when the ban landed.)
+      if (existingUser.status === 'banned') {
+        return NextResponse.redirect(`${appUrl}/login?error=account_banned`)
+      }
+
       // Like the GitHub flow, the access token is deliberately not stored:
       // the app never uses it after login. Empty string also scrubs tokens
       // persisted by the old Twitter flow.

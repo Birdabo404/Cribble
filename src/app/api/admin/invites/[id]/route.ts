@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
 import { createServiceClient } from '@/lib/supabaseServer'
-import { getAdminUser } from '@/lib/adminAuth'
+import { cleanReason, getStaffUser } from '@/lib/staffAuth'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,9 +13,17 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const admin = await getAdminUser(request)
-    if (!admin.ok) {
-      return NextResponse.json({ error: admin.error }, { status: admin.status })
+    const rateLimitResult = checkRateLimit(request, rateLimitConfigs.admin)
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded. Please try again later.' },
+        { status: 429, headers: createRateLimitResponse(rateLimitResult) }
+      )
+    }
+
+    const staff = await getStaffUser(request, 'invite.manage')
+    if (!staff.ok) {
+      return NextResponse.json({ error: staff.error }, { status: staff.status })
     }
 
     const { id } = await params
@@ -23,13 +32,23 @@ export async function DELETE(
       return NextResponse.json({ error: 'Invalid invite id' }, { status: 400 })
     }
 
-    const { data: invite, error } = await supabase
-      .from('invite_codes')
-      .update({ revoked_at: new Date().toISOString() })
-      .eq('id', inviteId)
-      .is('revoked_at', null)
-      .select('id, code, revoked_at')
-      .maybeSingle()
+    const body = await request.json().catch(() => ({}))
+    const reason = cleanReason(body.reason)
+    if (!reason) {
+      return NextResponse.json(
+        { error: 'A reason of at least 10 characters is required' },
+        { status: 400 }
+      )
+    }
+
+    // Migration 020 locks the invite row and commits revoke + audit in
+    // one transaction. An audit failure rolls back the revocation.
+    const { data, error } = await supabase.rpc('revoke_staff_invite', {
+      p_admin_user_id: staff.staff.userId,
+      p_invite_id: inviteId,
+      p_reason: reason
+    })
+    const invite = Array.isArray(data) ? data[0] : data
 
     if (error) {
       console.error('Failed to revoke invite:', error)

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { ReasonDialog } from '@/components/admin/ReasonDialog'
 
 interface Redemption {
   user_id: number | null
@@ -45,6 +46,7 @@ export default function AdminInvitesPage() {
   const [note, setNote] = useState('')
   const [creating, setCreating] = useState(false)
   const [copiedId, setCopiedId] = useState<number | null>(null)
+  const [revokeTarget, setRevokeTarget] = useState<Invite | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const fetchInvites = useCallback(async () => {
@@ -97,18 +99,20 @@ export default function AdminInvitesPage() {
     }
   }
 
-  const revokeInvite = async (id: number) => {
+  const revokeInvite = async (id: number, reason: string): Promise<string | null> => {
     setError(null)
     const res = await fetch(`/api/admin/invites/${id}`, {
       method: 'DELETE',
-      credentials: 'include'
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason })
     })
     if (!res.ok) {
       const data = await res.json().catch(() => null)
-      setError(data?.error ?? 'Failed to revoke invite.')
-      return
+      return data?.error ?? 'Failed to revoke invite.'
     }
     await fetchInvites()
+    return null
   }
 
   const copyCode = async (invite: Invite) => {
@@ -119,7 +123,7 @@ export default function AdminInvitesPage() {
 
   if (loadState === 'loading') {
     return (
-      <main className="min-h-screen bg-black text-white flex items-center justify-center font-mono">
+      <main className="dossier-canvas min-h-screen bg-black text-white flex items-center justify-center font-mono">
         <p className="text-sm text-zinc-500 tracking-[0.2em]">LOADING…</p>
       </main>
     )
@@ -127,7 +131,7 @@ export default function AdminInvitesPage() {
 
   if (loadState === 'forbidden') {
     return (
-      <main className="min-h-screen bg-black text-white flex items-center justify-center font-mono">
+      <main className="dossier-canvas min-h-screen bg-black text-white flex items-center justify-center font-mono">
         <div className="text-center space-y-2">
           <p className="text-lg text-red-400">403 — admin only</p>
           <p className="text-sm text-zinc-500">Your account does not have invite access.</p>
@@ -137,7 +141,7 @@ export default function AdminInvitesPage() {
   }
 
   return (
-    <main className="min-h-screen bg-black text-white px-4 py-10 font-mono">
+    <main className="dossier-canvas min-h-screen bg-black text-white px-4 py-10 font-mono">
       <div className="mx-auto w-full max-w-3xl space-y-8">
         <header className="space-y-1">
           <div className="inline-flex items-center gap-2 rounded-md border border-accent/25 px-3 py-1 text-[10px] tracking-[0.22em] text-gray-400">
@@ -178,19 +182,19 @@ export default function AdminInvitesPage() {
               />
             </label>
             <label className="space-y-1 text-xs text-zinc-400">
-              <span>Note (optional)</span>
+              <span>Recipient / reason (required, 10+ chars)</span>
               <input
                 type="text"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="who is this for?"
+                placeholder="who is this for, and why?"
                 className="w-full rounded-md border border-white/10 bg-black/50 px-3 py-2 text-sm text-white placeholder:text-zinc-700 focus:border-accent/50 focus:outline-none"
               />
             </label>
           </div>
           <button
             onClick={createInvite}
-            disabled={creating}
+            disabled={creating || note.trim().length < 10}
             className="rounded-md bg-white px-5 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {creating ? 'Generating…' : 'Generate invite code'}
@@ -236,7 +240,7 @@ export default function AdminInvitesPage() {
                       )}
                       {!invite.revoked_at && (
                         <button
-                          onClick={() => revokeInvite(invite.id)}
+                          onClick={() => setRevokeTarget(invite)}
                           className="ml-auto rounded border border-red-500/30 px-2 py-1 text-[10px] tracking-[0.15em] text-red-400 transition-colors hover:bg-red-950/40"
                         >
                           REVOKE
@@ -261,6 +265,16 @@ export default function AdminInvitesPage() {
           )}
         </section>
       </div>
+      {revokeTarget && (
+        <ReasonDialog
+          title={`REVOKE ${revokeTarget.code}`}
+          description="The code stops working immediately. Existing redemptions remain in the audit history."
+          confirmLabel="REVOKE INVITE"
+          danger
+          onConfirm={(reason) => revokeInvite(revokeTarget.id, reason)}
+          onClose={() => setRevokeTarget(null)}
+        />
+      )}
     </main>
   )
 }

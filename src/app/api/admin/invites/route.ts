@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabaseServer'
-import { getAdminUser } from '@/lib/adminAuth'
 import { generateInviteCode } from '@/lib/inviteCodes'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
+import { cleanReason, getStaffUser } from '@/lib/staffAuth'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,9 +18,12 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const admin = await getAdminUser(request)
-    if (!admin.ok) {
-      return NextResponse.json({ error: admin.error }, { status: admin.status })
+    // Owner-only: invite codes create accounts. Runs through
+    // resolveStaffRole, so an explicit staff_role='moderator' can't be
+    // overridden by a stale is_admin flag or the env allowlist.
+    const staff = await getStaffUser(request, 'invite.manage')
+    if (!staff.ok) {
+      return NextResponse.json({ error: staff.error }, { status: staff.status })
     }
 
     const { data: invites, error } = await supabase
@@ -53,9 +56,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const admin = await getAdminUser(request)
-    if (!admin.ok) {
-      return NextResponse.json({ error: admin.error }, { status: admin.status })
+    const staff = await getStaffUser(request, 'invite.manage')
+    if (!staff.ok) {
+      return NextResponse.json({ error: staff.error }, { status: staff.status })
     }
 
     const body = await request.json().catch(() => ({}))
@@ -65,7 +68,13 @@ export async function POST(request: NextRequest) {
     const expiresInDays = Number.isFinite(body.expiresInDays) && body.expiresInDays > 0
       ? Math.min(body.expiresInDays, 365)
       : null
-    const note = typeof body.note === 'string' ? body.note.slice(0, 500) : null
+    const note = cleanReason(body.note)
+    if (!note) {
+      return NextResponse.json(
+        { error: 'A recipient/reason of at least 10 characters is required' },
+        { status: 400 }
+      )
+    }
 
     const expiresAt = expiresInDays
       ? new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString()
@@ -74,20 +83,23 @@ export async function POST(request: NextRequest) {
     // Retry on the (unlikely) code collision.
     for (let attempt = 0; attempt < 3; attempt++) {
       const code = generateInviteCode()
-      const { data: invite, error } = await supabase
-        .from('invite_codes')
-        .insert({
-          code,
-          created_by: admin.userId,
-          note,
-          max_uses: maxUses,
-          expires_at: expiresAt
-        })
-        .select('id, code, note, max_uses, use_count, expires_at, revoked_at, created_at')
-        .single()
+      // Migration 020 inserts the invite and its audit row in one
+      // transaction. Neither can exist without the other.
+      const { data, error } = await supabase.rpc('create_staff_invite', {
+        p_admin_user_id: staff.staff.userId,
+        p_code: code,
+        p_note: note,
+        p_max_uses: maxUses,
+        p_expires_at: expiresAt
+      })
+      const invite = Array.isArray(data) ? data[0] : data
 
-      if (!error) {
+      if (!error && invite) {
         return NextResponse.json({ invite }, { status: 201 })
+      }
+      if (!error) {
+        console.error('Failed to create invite: RPC returned no row')
+        return NextResponse.json({ error: 'Failed to create invite' }, { status: 500 })
       }
       if (error.code !== '23505') {
         console.error('Failed to create invite:', error)
