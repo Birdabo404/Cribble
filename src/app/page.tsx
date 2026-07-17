@@ -23,6 +23,8 @@ type Status = 'idle' | 'submitting' | 'success' | 'error'
 
 import { ACCENT, accentA } from '@/lib/theme'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { LiquidMark } from '@/components/brand/LiquidMark'
+import { Descent } from '@/components/landing/Descent'
 const IS_PUBLIC_SITE_LOCKED = process.env.NEXT_PUBLIC_SITE_LOCKED === 'true'
 
 export default function HomeV2() {
@@ -56,7 +58,8 @@ export default function HomeV2() {
   }
 
   return (
-    <div className="min-h-screen-safe bg-black text-zinc-100 font-mono selection:bg-accent/20 flex flex-col relative overflow-hidden">
+    <>
+    <div className="min-h-screen-safe lx-hero text-zinc-100 font-mono selection:bg-accent/20 flex flex-col relative overflow-hidden">
       {/* faint hacker-green wash on the right side — sits behind the globe */}
       <div
         aria-hidden
@@ -98,11 +101,15 @@ export default function HomeV2() {
               </span>
 
               <h1
-                className="hero-item mt-7 font-semibold tracking-tight leading-none text-zinc-50 text-5xl md:text-6xl lg:text-[4.75rem]"
+                className="hero-item mt-7 flex items-center gap-4 font-semibold tracking-tight leading-none text-zinc-50 text-5xl md:text-6xl lg:text-[4.75rem]"
                 style={{ ['--hr' as string]: '90ms' }}
               >
-                cribble
-                <span style={{ color: ACCENT }}>.</span>
+                {/* liquid-metal hive mark, sized to the cap height */}
+                <LiquidMark size="0.92em" />
+                <span>
+                  cribble
+                  <span style={{ color: ACCENT }}>.</span>
+                </span>
               </h1>
 
               {/* Editorial serif tagline — deliberate contrast against the
@@ -236,15 +243,23 @@ export default function HomeV2() {
       </div>
 
     </div>
+
+    {/* THE DESCENT — hero stays exactly as it was; the story continues
+        below the fold: arena → cockpit → identity → honors → flight plan. */}
+    <Descent />
+    </>
   )
 }
 
 function Header() {
   return (
     <header className="pt-8 flex items-center justify-between">
-      <div className="text-sm tracking-[0.4em] text-zinc-100 font-semibold">
-        CRIBBLE
-        <span style={{ color: ACCENT }}>.</span>
+      <div className="flex items-center gap-2.5 text-sm tracking-[0.4em] text-zinc-100 font-semibold">
+        <LiquidMark size={22} />
+        <span>
+          CRIBBLE
+          <span style={{ color: ACCENT }}>.</span>
+        </span>
       </div>
       <nav className="flex items-center gap-1">
         <ThemeToggle className="mr-2" />
