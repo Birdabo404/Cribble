@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { PixelIcon } from '@/components/achievements/PixelIcon'
 import { formatRelative } from '@/components/dashboard-v2/format'
+import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { useNotifications } from '@/hooks/useNotifications'
 import { ACHIEVEMENTS_BY_ID } from '@/lib/achievements'
 import type { AppNotification, NotificationType } from '@/types/notifications'
@@ -18,6 +19,7 @@ import type { AppNotification, NotificationType } from '@/types/notifications'
 const ICON_PATHS = {
   bell: 'M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9 M13.73 21a2 2 0 0 1-3.46 0',
   trendingUp: 'M22 7 13.5 15.5 8.5 10.5 2 17 M16 7h6v6',
+  trendingDown: 'M22 17 13.5 8.5 8.5 13.5 2 7 M16 17h6v-6',
   trophy:
     'M6 9H4.5a2.5 2.5 0 0 1 0-5H6 M18 9h1.5a2.5 2.5 0 0 0 0-5H18 M4 22h16 M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22 M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22 M18 2H6v7a6 6 0 0 0 12 0V2z',
   award:
@@ -26,7 +28,8 @@ const ICON_PATHS = {
   users:
     'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75',
   info: 'M12 22c5.52 0 10-4.48 10-10S17.52 2 12 2 2 6.48 2 12s4.48 10 10 10z M12 16v-4 M12 8h.01',
-  check: 'M22 11.08V12a10 10 0 1 1-5.93-9.14 M22 4 12 14.01l-3-3'
+  check: 'M22 11.08V12a10 10 0 1 1-5.93-9.14 M22 4 12 14.01l-3-3',
+  crown: 'M2 20h20 M4 20 2 7l5.5 4L12 4l4.5 7L22 7l-2 13z'
 }
 
 interface TypeMeta {
@@ -34,10 +37,13 @@ interface TypeMeta {
   cls: string
 }
 
-function typeMeta(type: NotificationType): TypeMeta {
+function typeMeta(type: NotificationType, data: Record<string, unknown>): TypeMeta {
   switch (type) {
     case 'rank':
-      return { icon: ICON_PATHS.trendingUp, cls: 'text-accent' }
+      // Rank covers both directions; demotions flip to a red down-arrow.
+      return data.kind === 'demotion'
+        ? { icon: ICON_PATHS.trendingDown, cls: 'text-red-400' }
+        : { icon: ICON_PATHS.trendingUp, cls: 'text-accent' }
     case 'milestone':
       return { icon: ICON_PATHS.trophy, cls: 'text-amber-300' }
     case 'achievement':
@@ -46,6 +52,11 @@ function typeMeta(type: NotificationType): TypeMeta {
       return { icon: ICON_PATHS.flag, cls: 'text-accent' }
     case 'social':
       return { icon: ICON_PATHS.users, cls: 'text-cyan-300' }
+    case 'premium':
+      // Unreachable in practice — NotificationGlyph intercepts 'premium'
+      // and renders the pixel blue check. Kept so the switch stays
+      // exhaustive; the crown is the nominal fallback.
+      return { icon: ICON_PATHS.crown, cls: 'text-amber-300' }
     case 'system':
       return { icon: ICON_PATHS.info, cls: 'text-zinc-400' }
     default: {
@@ -74,11 +85,19 @@ function StrokeIcon({ d, className = 'h-3.5 w-3.5' }: { d: string; className?: s
 
 /**
  * Feed glyph. Achievement unlocks render their own pixel badge in the
- * rarity hue (matching the achievements page); every other type keeps
- * its stroke icon — graph for rank, trophy for milestones, flag for
- * season updates.
+ * rarity hue (matching the achievements page) and premium grants render
+ * the pixel blue check; every other type keeps its stroke icon — graph
+ * for rank, trophy for milestones, flag for season updates.
  */
 function NotificationGlyph({ notification }: { notification: AppNotification }) {
+  if (notification.type === 'premium') {
+    return (
+      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg liquid-glass-inset">
+        <VerifiedBadge size={16} />
+      </span>
+    )
+  }
+
   if (notification.type === 'achievement') {
     const def = ACHIEVEMENTS_BY_ID.get(String(notification.data?.achievementId ?? ''))
     if (def) {
@@ -93,7 +112,7 @@ function NotificationGlyph({ notification }: { notification: AppNotification }) 
     }
   }
 
-  const meta = typeMeta(notification.type)
+  const meta = typeMeta(notification.type, notification.data)
   return (
     <span
       className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg liquid-glass-inset ${meta.cls}`}
@@ -167,10 +186,10 @@ export function NotificationBell({
       {variant === 'rail' ? (
         <button
           onClick={toggle}
-          className={`nav-row relative mx-2 flex h-10 w-[calc(100%-16px)] shrink-0 items-center rounded-lg transition-colors ${
+          className={`nav-row relative mx-2 flex h-10 w-[calc(100%-16px)] shrink-0 items-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 ${
             open
               ? 'bg-white/[0.06] text-zinc-100'
-              : 'text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-100'
+              : 'text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-100 active:bg-white/[0.08]'
           }`}
           aria-label={ariaLabel}
           aria-expanded={open}
@@ -179,7 +198,7 @@ export function NotificationBell({
           <span className="relative flex w-12 shrink-0 items-center justify-center">
             <StrokeIcon d={ICON_PATHS.bell} className="h-[17px] w-[17px]" />
             {unreadCount > 0 && (
-              <span className="absolute right-2 top-1 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-accent px-[3px] text-[8px] font-bold leading-none text-black shadow-[0_0_10px_rgb(var(--accent-rgb)/0.6)]">
+              <span className="absolute right-2 top-1 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-accent px-[3px] text-[8px] font-bold leading-none text-black">
                 {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}
@@ -201,10 +220,10 @@ export function NotificationBell({
       ) : (
         <button
           onClick={toggle}
-          className={`relative flex items-center justify-center px-2.5 py-[5px] rounded border transition-colors ${
+          className={`relative flex items-center justify-center px-2.5 py-[5px] rounded border transition-[color,background-color,border-color,transform] duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 ${
             open
-              ? 'border-accent/50 text-zinc-100'
-              : 'border-zinc-800 hover:border-zinc-600 text-zinc-300 hover:text-zinc-100'
+              ? 'border-zinc-500 bg-white/[0.06] text-zinc-100'
+              : 'border-zinc-800 text-zinc-300 hover:border-zinc-600 hover:bg-white/[0.04] hover:text-zinc-100 active:bg-white/[0.07]'
           }`}
           aria-label={ariaLabel}
           aria-expanded={open}
@@ -212,7 +231,7 @@ export function NotificationBell({
         >
           <StrokeIcon d={ICON_PATHS.bell} className="h-3.5 w-3.5" />
           {unreadCount > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-accent px-[3px] text-[8px] font-bold leading-none text-black shadow-[0_0_10px_rgb(var(--accent-rgb)/0.6)]">
+            <span className="absolute -top-1.5 -right-1.5 flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-accent px-[3px] text-[8px] font-bold leading-none text-black">
               {unreadCount > 9 ? '9+' : unreadCount}
             </span>
           )}

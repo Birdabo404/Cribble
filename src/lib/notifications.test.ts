@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEMOTION_COOLDOWN_MS,
+  demotionDedupeKey,
   formatMilestoneLabel,
+  pickLostBucket,
   pickRankBucket,
   pickScoreMilestone
 } from './notifications'
@@ -22,6 +25,46 @@ describe('pickRankBucket', () => {
     expect(pickRankBucket(0)).toBeNull()
     expect(pickRankBucket(-3)).toBeNull()
     expect(pickRankBucket(NaN)).toBeNull()
+  })
+})
+
+describe('pickLostBucket', () => {
+  it('returns the tightest bucket lost when a drop crosses its boundary', () => {
+    expect(pickLostBucket(1, 2)).toBe(1)
+    expect(pickLostBucket(3, 4)).toBe(3)
+    expect(pickLostBucket(10, 11)).toBe(10)
+    expect(pickLostBucket(10, 25)).toBe(10)
+    expect(pickLostBucket(3, 51)).toBe(3)
+    expect(pickLostBucket(11, 26)).toBe(25)
+  })
+
+  it('returns null when no bucket was lost', () => {
+    expect(pickLostBucket(4, 10)).toBeNull() // same bucket
+    expect(pickLostBucket(12, 5)).toBeNull() // promotion
+    expect(pickLostBucket(51, 120)).toBeNull() // no bucket held
+  })
+
+  it('returns null for invalid ranks', () => {
+    expect(pickLostBucket(NaN, 5)).toBeNull()
+    expect(pickLostBucket(0, 5)).toBeNull()
+    expect(pickLostBucket(-1, 5)).toBeNull()
+  })
+})
+
+describe('demotionDedupeKey', () => {
+  it('is stable for two timestamps inside the same 48h window', () => {
+    const windowStart = new Date(10 * DEMOTION_COOLDOWN_MS)
+    const windowEnd = new Date(11 * DEMOTION_COOLDOWN_MS - 1)
+    expect(demotionDedupeKey(10, windowStart)).toBe('rank_drop_10_10')
+    expect(demotionDedupeKey(10, windowEnd)).toBe(demotionDedupeKey(10, windowStart))
+  })
+
+  it('changes across the window boundary', () => {
+    const beforeBoundary = new Date(11 * DEMOTION_COOLDOWN_MS - 1)
+    const afterBoundary = new Date(11 * DEMOTION_COOLDOWN_MS)
+    expect(demotionDedupeKey(10, afterBoundary)).not.toBe(
+      demotionDedupeKey(10, beforeBoundary)
+    )
   })
 })
 

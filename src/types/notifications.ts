@@ -4,6 +4,7 @@ export const NOTIFICATION_TYPES = [
   'achievement',
   'season',
   'social',
+  'premium',
   'system'
 ] as const
 

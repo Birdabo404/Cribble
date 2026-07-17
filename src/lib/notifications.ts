@@ -27,9 +27,26 @@ const SCORE_MILESTONES = [
 const DAY_MS = 86_400_000
 const SEASON_CLOSING_WINDOW_DAYS = 7
 
+/** Cooldown matching MOVEMENT_WINDOW_MS in leaderboardEngine. */
+export const DEMOTION_COOLDOWN_MS = 48 * 3_600_000
+
 export function pickRankBucket(rank: number): number | null {
   if (!Number.isFinite(rank) || rank < 1) return null
   return RANK_MILESTONES.find((bucket) => rank <= bucket) ?? null
+}
+
+/** Tightest bucket held at fromRank that is no longer held at toRank, or null. */
+export function pickLostBucket(fromRank: number, toRank: number): number | null {
+  const prevBucket = pickRankBucket(fromRank)
+  if (prevBucket === null) return null
+  const newBucket = pickRankBucket(toRank)
+  if (newBucket !== null && newBucket <= prevBucket) return null
+  return prevBucket
+}
+
+/** Deterministic across concurrent reads in the same window (race safety). */
+export function demotionDedupeKey(bucket: number, now: Date): string {
+  return `rank_drop_${bucket}_${Math.floor(now.getTime() / DEMOTION_COOLDOWN_MS)}`
 }
 
 export function pickScoreMilestone(totalScore: number): number | null {
@@ -174,6 +191,81 @@ export async function evaluateScoreNotifications(
     await insertMissingNotifications(supabase, userId, candidates)
   } catch (error) {
     console.error('[Notifications] Score evaluation failed:', error)
+  }
+}
+
+export interface DemotionEvent {
+  userId: number
+  fromRank: number
+  toRank: number
+}
+
+/**
+ * Called from the leaderboard rank-diff pass with the users who dropped
+ * this read. Notifies each user who lost a milestone bucket, at most once
+ * per bucket per 48 hours: a rolling pre-check against recent rank_drop_*
+ * notifications gives the true cooldown spacing, and the time-windowed
+ * dedupe key (unique index on user_id + dedupe_key) backstops races
+ * between concurrent leaderboard reads. Never throws.
+ */
+export async function evaluateDemotionNotifications(
+  supabase: SupabaseClient,
+  demotions: DemotionEvent[],
+  now: Date
+): Promise<void> {
+  try {
+    const losses: (DemotionEvent & { bucket: number })[] = []
+    for (const demotion of demotions) {
+      const bucket = pickLostBucket(demotion.fromRank, demotion.toRank)
+      if (bucket !== null) losses.push({ ...demotion, bucket })
+    }
+    if (losses.length === 0) return
+
+    const userIds = [...new Set(losses.map((loss) => loss.userId))]
+    const windowStart = new Date(now.getTime() - DEMOTION_COOLDOWN_MS)
+    const { data: recent, error } = await supabase
+      .from('notifications')
+      .select('user_id, dedupe_key')
+      .in('user_id', userIds)
+      .eq('type', 'rank')
+      .gte('created_at', windowStart.toISOString())
+      .like('dedupe_key', 'rank_drop_%')
+
+    if (error) {
+      console.error('[Notifications] Demotion cooldown lookup failed:', error)
+      return
+    }
+
+    // dedupe_key shape: rank_drop_{bucket}_{window} — parse the bucket out
+    // so a fresh drop of the same bucket inside the cooldown is skipped.
+    const recentlyNotified = new Set(
+      (recent || []).map(
+        (row) => `${row.user_id}:${String(row.dedupe_key).split('_')[2]}`
+      )
+    )
+
+    for (const { userId, fromRank, toRank, bucket } of losses) {
+      if (recentlyNotified.has(`${userId}:${bucket}`)) continue
+      await insertMissingNotifications(supabase, userId, [
+        bucket === 1
+          ? {
+              type: 'rank',
+              title: 'DETHRONED',
+              body: `You lost the #1 spot — now #${toRank}. Take it back.`,
+              data: { kind: 'demotion', bucket, fromRank, toRank },
+              dedupeKey: demotionDedupeKey(bucket, now)
+            }
+          : {
+              type: 'rank',
+              title: `KNOCKED OUT OF TOP ${bucket}`,
+              body: `You dropped from #${fromRank} to #${toRank}. Reclaim your spot.`,
+              data: { kind: 'demotion', bucket, fromRank, toRank },
+              dedupeKey: demotionDedupeKey(bucket, now)
+            }
+      ])
+    }
+  } catch (error) {
+    console.error('[Notifications] Demotion evaluation failed:', error)
   }
 }
 
