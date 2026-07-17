@@ -31,8 +31,12 @@ export interface LeaderRow {
   memberSince?: string | null
   tier: Tier
   topTools?: TopTool[]
+  /** Private account — topTools arrive empty unless the viewer follows them. */
+  isPrivate?: boolean
   provider?: 'x' | 'github' | 'other'
   banner_image?: string | null
+  /** Equipped leaderboard plate id — already validated server-side. */
+  plate?: string | null
   socials?: Socials
   role?: string | null
   /** prev rank − current rank at the last movement. Positive = climbed. */
@@ -59,6 +63,8 @@ export interface PlayerProfile {
   display_name: string
   profile_image: string | null
   banner_image: string | null
+  /** Equipped leaderboard plate id — already validated server-side. */
+  plate?: string | null
   bio?: string | null
   location?: string | null
   website?: string | null
@@ -78,6 +84,9 @@ export interface PlayerProfile {
   totalActiveMs: number
   topTools: TopTool[]
   badges: PlayerBadge[]
+  isPrivate?: boolean
+  /** Viewer may not see tools/badges (private account, not following). */
+  restricted?: boolean
   followers?: number
   following?: number
   viewer?: { isYou: boolean; isFollowing: boolean; followsYou: boolean } | null

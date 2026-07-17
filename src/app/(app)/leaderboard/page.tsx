@@ -44,14 +44,26 @@ import {
   MoveGlyph,
   ToolIcon
 } from '@/components/leaderboard/icons'
+import { PlateLayer } from '@/components/cosmetics/PlateLayer'
+import { AiBoard } from '@/components/leaderboard/AiBoard'
 import { Avatar } from '@/components/leaderboard/Avatar'
 import { PlayerCard, type ChaseInfo } from '@/components/leaderboard/PlayerCard'
 import { Podium } from '@/components/leaderboard/Podium'
 import { medalA, medalFor, type LeaderRow } from '@/components/leaderboard/types'
+import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
+import { isProTier } from '@/lib/entitlements'
 
 const PAGE_SIZE = 25
 const POLL_MS = 15_000
 const FLASH_MS = 2_400
+
+/** Which board is on stage: pilots (global) or the machines (ai). */
+type BoardView = 'global' | 'ai'
+
+const BOARD_TABS: { id: BoardView; label: string }[] = [
+  { id: 'global', label: 'GLOBAL' },
+  { id: 'ai', label: 'AI' }
+]
 
 export default function LeaderboardArena() {
   const [rows, setRows] = useState<LeaderRow[]>([])
@@ -63,6 +75,12 @@ export default function LeaderboardArena() {
   const [refreshing, setRefreshing] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null)
+  const [view, setView] = useState<BoardView>('global')
+
+  // The poll callbacks read the current view through a ref so the
+  // mount effect below never has to re-subscribe on view flips.
+  const viewRef = useRef<BoardView>(view)
+  viewRef.current = view
 
   // score-gain pops: userId -> points gained between two polls
   const [flashes, setFlashes] = useState<ReadonlyMap<number, number>>(new Map())
@@ -119,14 +137,18 @@ export default function LeaderboardArena() {
 
   // initial load + poll + refetch when the tab regains focus.
   // Hidden tabs skip the poll entirely — the visibility handler refetches
-  // the moment the player comes back.
+  // the moment the player comes back. The AI view skips it too (its data
+  // is a 5-minute server cache; AiBoard refetches itself), and switching
+  // back to GLOBAL refetches immediately so the pause never shows.
   useEffect(() => {
     Promise.all([fetchData(), fetchMe()]).finally(() => setLoading(false))
     const id = setInterval(() => {
-      if (!document.hidden) void fetchData()
+      if (!document.hidden && viewRef.current === 'global') void fetchData()
     }, POLL_MS)
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void fetchData()
+      if (document.visibilityState === 'visible' && viewRef.current === 'global') {
+        void fetchData()
+      }
     }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onVisible)
@@ -137,6 +159,17 @@ export default function LeaderboardArena() {
       if (flashTimer.current) clearTimeout(flashTimer.current)
     }
   }, [fetchData, fetchMe])
+
+  const handleViewChange = useCallback(
+    (next: BoardView) => {
+      setView((prev) => {
+        if (prev === next) return prev
+        return next
+      })
+      if (next === 'global' && viewRef.current !== 'global') void fetchData()
+    },
+    [fetchData]
+  )
 
   const totals = useMemo(
     () => ({
@@ -264,7 +297,9 @@ export default function LeaderboardArena() {
         <div className="flex items-center gap-2.5 text-[rgb(var(--lb-gold))]">
           <span className="h-px w-8 bg-gradient-to-r from-transparent to-[rgb(var(--lb-gold)/0.6)]" />
           <IconCrown size={13} />
-          <span className="font-display text-[10px] font-semibold tracking-[0.55em]">GLOBAL</span>
+          <span className="font-display text-[10px] font-semibold tracking-[0.55em]">
+            {view === 'global' ? 'GLOBAL' : 'THE AI'}
+          </span>
           <IconCrown size={13} className="-scale-x-100" />
           <span className="h-px w-8 bg-gradient-to-l from-transparent to-[rgb(var(--lb-gold)/0.6)]" />
         </div>
@@ -274,53 +309,108 @@ export default function LeaderboardArena() {
         <p className="mt-4 text-[10px] tracking-[0.3em] text-zinc-600">
           <span className="text-[rgb(var(--lb-gold)/0.85)]">{SEASON.name}</span>
           <span className="mx-2 text-zinc-800">·</span>
-          ranked by lifetime score
-          <span className="mx-2 text-zinc-800">·</span>
-          <SyncStatus lastSyncAt={lastSyncAt} />
+          {view === 'global' ? (
+            <>
+              ranked by lifetime score
+              <span className="mx-2 text-zinc-800">·</span>
+              <SyncStatus lastSyncAt={lastSyncAt} />
+            </>
+          ) : (
+            'the machines, ranked by pilot usage'
+          )}
         </p>
       </header>
 
       <main className="mt-8 space-y-5">
         {/* ---------- stat bar ---------- */}
-        <section className="lb4-reveal" style={{ ['--rv' as string]: '90ms' }}>
-          <StatBar
-            totalPlayers={totals.totalPlayers}
-            activePlayers={totals.activePlayers}
-            topScore={topScore}
-            leaderName={leader?.username ?? null}
-          />
-        </section>
+        {view === 'global' && (
+          <section className="lb4-reveal" style={{ ['--rv' as string]: '90ms' }}>
+            <StatBar
+              totalPlayers={totals.totalPlayers}
+              activePlayers={totals.activePlayers}
+              topScore={topScore}
+              leaderName={leader?.username ?? null}
+            />
+          </section>
+        )}
 
         {/* ---------- view controls ---------- */}
-        <div className="lb4-reveal !mt-3 flex items-center justify-end gap-2" style={{ ['--rv' as string]: '150ms' }}>
-          <button
-            type="button"
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="lb-inset flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100 disabled:cursor-wait"
-            aria-label="Refresh leaderboard"
+        <div
+          className={`lb4-reveal flex items-center justify-between gap-2 ${
+            view === 'global' ? '!mt-3' : ''
+          }`}
+          style={{ ['--rv' as string]: '150ms' }}
+        >
+          {/* board switch — pilots or the machines */}
+          <div
+            className="lb-inset flex items-center gap-0.5 rounded-lg p-0.5"
+            role="tablist"
+            aria-label="Leaderboard view"
           >
-            <IconRefresh size={11} className={refreshing ? 'animate-spin' : ''} />
-            {refreshing ? 'SYNCING' : 'REFRESH'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowPodium((v) => !v)}
-            className="lb-inset flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100"
-            aria-expanded={showPodium}
-          >
-            PODIUM
-            <IconChevronDown
-              size={11}
-              className={`transition-transform duration-300 ${showPodium ? '' : '-rotate-90'}`}
-            />
-          </button>
+            {BOARD_TABS.map((tab) => {
+              const active = view === tab.id
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => handleViewChange(tab.id)}
+                  className={`rounded-md px-3 py-1 text-[10px] tracking-[0.3em] transition-colors ${
+                    active ? '' : 'text-zinc-500 hover:text-zinc-100'
+                  }`}
+                  style={
+                    active
+                      ? {
+                          border: '1px solid rgb(var(--lb-gold) / 0.5)',
+                          color: 'rgb(var(--lb-gold))',
+                          background: 'rgb(var(--lb-gold) / 0.07)'
+                        }
+                      : { border: '1px solid transparent' }
+                  }
+                >
+                  {tab.label}
+                </button>
+              )
+            })}
+          </div>
+
+          {view === 'global' && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="lb-inset flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100 disabled:cursor-wait"
+                aria-label="Refresh leaderboard"
+              >
+                <IconRefresh size={11} className={refreshing ? 'animate-spin' : ''} />
+                {refreshing ? 'SYNCING' : 'REFRESH'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowPodium((v) => !v)}
+                className="lb-inset flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100"
+                aria-expanded={showPodium}
+              >
+                PODIUM
+                <IconChevronDown
+                  size={11}
+                  className={`transition-transform duration-300 ${showPodium ? '' : '-rotate-90'}`}
+                />
+              </button>
+            </div>
+          )}
         </div>
+
+        {/* ---------- THE AI LEADERBOARD ---------- */}
+        {view === 'ai' && <AiBoard />}
 
         {/* ---------- podium (collapsible) ---------- */}
         {/* visibility joins the transition so the collapsed podium drops out
             of paint, tab order and screen readers; lb4-pod-off freezes its
             infinite FX so they stop burning frames while hidden */}
+        {view === 'global' && (
         <div
           className={`lb4-reveal grid transition-[grid-template-rows,opacity,margin,visibility] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${
             showPodium ? '' : 'lb4-pod-off'
@@ -343,8 +433,10 @@ export default function LeaderboardArena() {
             </div>
           </div>
         </div>
+        )}
 
         {/* ---------- standings ---------- */}
+        {view === 'global' && (
         <section className="lb4-reveal relative" style={{ ['--rv' as string]: '300ms' }}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-baseline gap-3">
@@ -399,6 +491,7 @@ export default function LeaderboardArena() {
             </div>
           )}
         </section>
+        )}
       </main>
 
       <footer className="mt-10 flex items-center justify-between text-[10px] tracking-[0.3em] text-zinc-600">
@@ -538,6 +631,36 @@ export default function LeaderboardArena() {
             opacity: 0;
             transform: translateY(8px);
           }
+        }
+
+        /* Plated rows are physical nameplates. The art is a fixed dark
+           product (authored against the dark arena panel), so in light mode
+           the whole row keeps the dark arena palette: the row paints its
+           own dark surface and every palette var used by its cells (zinc
+           text scale, medal hues, movement colors, hairlines) is re-declared
+           to the dark-theme value. The plate reads identically in both
+           themes — vivid art, light text — instead of washing out against
+           the white panel. */
+        html.light .lb4-plated {
+          --z50: 250 250 250;
+          --z100: 244 244 245;
+          --z200: 228 228 231;
+          --z300: 212 212 216;
+          --z400: 161 161 170;
+          --z500: 113 113 122;
+          --z600: 82 82 91;
+          --z700: 63 63 70;
+          --z800: 39 39 42;
+          --z900: 24 24 27;
+          --z950: 9 9 11;
+          --lb-gold: 255 214 68;
+          --lb-gold-hi: 255 240 160;
+          --lb-silver: 216 228 242;
+          --lb-bronze: 255 145 77;
+          --lb-up: 74 222 128;
+          --lb-down: 251 113 133;
+          --lb-panel-bg: 9 10 13;
+          --lb-panel-edge: 255 255 255;
         }
 
         /* CPU guards — freeze every infinite animation when it can't be
@@ -804,30 +927,91 @@ function Row({
   const medal = medalFor(user.rank)
   const topTool = user.topTools?.[0]
   const pct = topScore > 0 ? Math.max(2, Math.round((user.score / topScore) * 100)) : 0
+  const plated = Boolean(user.plate)
 
   return (
     <li
       ref={(el) => setRef(user.userId, el)}
       className={`lb4-row-in relative border-b border-[rgb(var(--lb-panel-edge)/0.05)] last:border-b-0 ${
-        flash ? 'lb4-row-flash' : ''
-      }`}
+        plated ? 'lb4-plated' : ''
+      } ${flash ? 'lb4-row-flash' : ''}`}
       style={{
         ['--rd' as string]: `${Math.min(index, 12) * 34}ms`,
-        background: isYou ? 'rgb(var(--accent-rgb) / 0.045)' : undefined,
-        boxShadow: isYou ? 'inset 2px 0 0 rgb(var(--accent-rgb))' : undefined
+        background: isYou && !plated ? 'rgb(var(--accent-rgb) / 0.045)' : undefined,
+        boxShadow: isYou && !plated ? 'inset 2px 0 0 rgb(var(--accent-rgb))' : undefined
       }}
     >
+      {/* Row geometry: py-4 padding + h-9 avatar ⇒ ~68px rows. The plate
+          art scenes are tuned against this height — keep the two in sync. */}
       <button
         type="button"
         onClick={() => onSelect(user)}
         aria-label={`Open profile — @${user.username}, rank ${user.rank}`}
-        className={`${ROW_GRID} w-full py-3 text-left transition-colors hover:bg-[rgb(var(--lb-panel-edge)/0.045)] focus-visible:bg-[rgb(var(--lb-panel-edge)/0.045)] focus-visible:outline-none`}
+        className={`${ROW_GRID} group relative w-full py-4 text-left transition-colors focus-visible:outline-none ${
+          plated
+            ? ''
+            : 'hover:bg-[rgb(var(--lb-panel-edge)/0.045)] focus-visible:bg-[rgb(var(--lb-panel-edge)/0.045)]'
+        }`}
       >
+        {user.plate && (
+          <>
+            {/* Nameplate surface — plate art is authored against the dark
+                arena panel, so it always paints over an opaque dark base
+                (same treatment as the shop preview). Without it, light
+                mode bled the white panel through the art's rest opacity +
+                left fade and washed the whole product gray. Overlaid text
+                stays readable because .lb4-plated re-declares the row's
+                palette vars to their dark-theme values in light mode. */}
+            <div
+              aria-hidden
+              className="absolute inset-0"
+              style={{ background: 'rgb(var(--lb-panel-bg))' }}
+            />
+            {/* the art rests dimmed (a page of 25 plated rows must stay
+                scannable) and blooms to full strength on hover/focus — the
+                single hover effect on a plated row, so no gray veil ever
+                crosses the artwork. PlateLayer clips itself, so the
+                score-gain pop can still float past the row's top edge;
+                lives inside the FLIP-measured <li>, so reordering carries
+                it along. */}
+            <div
+              aria-hidden
+              className="absolute inset-0 opacity-[0.55] transition-opacity duration-300 group-hover:opacity-100 group-focus-visible:opacity-100"
+            >
+              <PlateLayer plateId={user.plate} />
+            </div>
+            {isYou && (
+              <>
+                {/* the YOU marker stays OFF the art: an accent keyline plus
+                    a short glow over the left fade zone (clean panel),
+                    replacing the full-row accent wash that muddied the
+                    plate colors */}
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-y-0 left-0 w-36 max-w-[45%]"
+                  style={{
+                    background:
+                      'linear-gradient(90deg, rgb(var(--accent-rgb) / 0.13), transparent)'
+                  }}
+                />
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-y-0 left-0 w-[2px]"
+                  style={{ background: 'rgb(var(--accent-rgb))' }}
+                />
+              </>
+            )}
+            {/* score-flash repainted above the plate (the li background
+                sits underneath the opaque nameplate surface) */}
+            {flash && <div aria-hidden className="lb4-row-flash pointer-events-none absolute inset-0" />}
+          </>
+        )}
+
         {/* rank + movement */}
-        <div className="flex items-center gap-2">
+        <div className="relative flex items-center gap-2">
           {medal ? (
             <span
-              className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-[11px] [font-family:var(--font-pixel)]"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[11px] [font-family:var(--font-pixel)]"
               style={{
                 color: medal.fg,
                 border: `1px solid ${medalA(medal.rgb, 0.5)}`,
@@ -838,7 +1022,7 @@ function Row({
               {user.rank}
             </span>
           ) : (
-            <span className="inline-flex h-7 w-7 items-center justify-center text-[11px] tabular-nums text-zinc-500 [font-family:var(--font-pixel)]">
+            <span className="inline-flex h-8 w-8 items-center justify-center text-[11px] tabular-nums text-zinc-500 [font-family:var(--font-pixel)]">
               {user.rank}
             </span>
           )}
@@ -846,12 +1030,12 @@ function Row({
         </div>
 
         {/* pilot */}
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="relative flex min-w-0 items-center gap-3">
           <Avatar
             src={user.profile_image}
             char={user.username[0]?.toUpperCase() ?? '?'}
-            imgClassName="h-7 w-7 shrink-0 rounded-full border border-zinc-800 object-cover"
-            fallbackClassName="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900 font-display text-[11px] text-zinc-400"
+            imgClassName="h-9 w-9 shrink-0 rounded-full border border-zinc-800 object-cover"
+            fallbackClassName="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900 font-display text-[11px] text-zinc-400"
           />
           <span className="flex min-w-0 items-center gap-2">
             <span
@@ -860,6 +1044,7 @@ function Row({
             >
               {user.display_name || `@${user.username}`}
             </span>
+            {isProTier(user.tier) && <VerifiedBadge size={13} />}
             <span className="hidden shrink-0 text-[10px] text-zinc-600 lg:inline">
               @{user.username}
             </span>
@@ -870,7 +1055,7 @@ function Row({
         </div>
 
         {/* top tool */}
-        <div className="hidden min-w-0 items-center gap-2 md:flex">
+        <div className="relative hidden min-w-0 items-center gap-2 md:flex">
           {topTool ? (
             <>
               <ToolIcon name={topTool.name} size={13} className="shrink-0 text-zinc-400" />
@@ -885,7 +1070,7 @@ function Row({
         </div>
 
         {/* 24h gain */}
-        <div className="hidden text-right text-[11px] tabular-nums md:block">
+        <div className="relative hidden text-right text-[11px] tabular-nums md:block">
           {user.todayScore > 0 ? (
             <span style={{ color: 'rgb(var(--lb-up))' }}>+{formatCompact(user.todayScore)}</span>
           ) : (
@@ -926,7 +1111,7 @@ function Row({
         </div>
 
         {/* status */}
-        <div className="hidden items-center justify-end gap-1.5 text-[10px] tabular-nums md:flex">
+        <div className="relative hidden items-center justify-end gap-1.5 text-[10px] tabular-nums md:flex">
           {user.isActive ? (
             <>
               <span
@@ -956,10 +1141,12 @@ function SkeletonRow({ index }: { index: number }) {
       className="lb4-row-in border-b border-[rgb(var(--lb-panel-edge)/0.05)]"
       style={{ ['--rd' as string]: `${index * 50}ms` }}
     >
-      <div className={`${ROW_GRID} animate-pulse py-3.5`}>
-        <span className="h-7 w-7 rounded-lg bg-white/[0.05]" />
+      {/* mirrors the live Row geometry (py-4 + h-9 avatar ⇒ ~68px) so the
+          table doesn't jump when data lands */}
+      <div className={`${ROW_GRID} animate-pulse py-4`}>
+        <span className="h-8 w-8 rounded-lg bg-white/[0.05]" />
         <span className="flex items-center gap-3">
-          <span className="h-7 w-7 rounded-full bg-white/[0.05]" />
+          <span className="h-9 w-9 rounded-full bg-white/[0.05]" />
           <span className="h-3 w-32 rounded bg-white/[0.05]" />
         </span>
         <span className="hidden h-3 w-20 rounded bg-white/[0.04] md:block" />

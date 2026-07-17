@@ -15,9 +15,12 @@ import {
   formatDuration,
   formatNumber,
   formatRelative,
+  formatScore,
   tierAccent
 } from '@/components/dashboard-v2/format'
+import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { ACHIEVEMENTS } from '@/lib/achievements'
+import { isProTier } from '@/lib/entitlements'
 import { prefersReducedMotion } from '@/lib/motion'
 import type { Tier } from '@/types/dashboard'
 import { Avatar, SafeBannerImg } from './Avatar'
@@ -25,6 +28,7 @@ import { ROLE_ICONS } from '@/components/roleIcons'
 import {
   IconClose,
   IconCrown,
+  IconLock,
   IconTarget,
   MoveGlyph,
   SocialIcon,
@@ -105,28 +109,29 @@ export function PlayerCard({
   // Hydrates from the profile endpoint: same payload as the leaderboard
   // profile plus follow counts and the viewer relationship, so the card
   // can offer FOLLOW right at the point of discovery.
+  const loadProfile = useCallback(async (isCancelled?: () => boolean) => {
+    try {
+      const res = await fetch(`/api/profile/${encodeURIComponent(row.username)}`, {
+        cache: 'no-store',
+        credentials: 'include'
+      })
+      if (!res.ok) throw new Error('profile fetch failed')
+      const data = await res.json()
+      if (isCancelled?.()) return
+      if (data.success && data.profile) setProfile(data.profile as PlayerProfile)
+      else setProfileFailed(true)
+    } catch {
+      if (!isCancelled?.()) setProfileFailed(true)
+    }
+  }, [row.username])
+
   useEffect(() => {
     let cancelled = false
-    const load = async () => {
-      try {
-        const res = await fetch(`/api/profile/${encodeURIComponent(row.username)}`, {
-          cache: 'no-store',
-          credentials: 'include'
-        })
-        if (!res.ok) throw new Error('profile fetch failed')
-        const data = await res.json()
-        if (cancelled) return
-        if (data.success && data.profile) setProfile(data.profile as PlayerProfile)
-        else setProfileFailed(true)
-      } catch {
-        if (!cancelled) setProfileFailed(true)
-      }
-    }
-    void load()
+    void loadProfile(() => cancelled)
     return () => {
       cancelled = true
     }
-  }, [row.username])
+  }, [loadProfile])
 
   // ---- escape / scroll lock -----------------------------------------
   useEffect(() => {
@@ -207,22 +212,32 @@ export function PlayerCard({
   const viewer = profile?.viewer ?? null
   const followerCount = profile?.followers ?? null
 
-  const handleFollowChange = useCallback((change: FollowChange) => {
-    setProfile((p) => {
-      if (!p || !p.viewer) return p
-      const wasFollowing = p.viewer.isFollowing
-      const base = p.followers ?? 0
-      const followers =
-        change.followers !== null
-          ? change.followers
-          : base + (change.following === wasFollowing ? 0 : change.following ? 1 : -1)
-      return {
-        ...p,
-        followers: Math.max(0, followers),
-        viewer: { ...p.viewer, isFollowing: change.following }
+  const isPrivateAccount = profile?.isPrivate === true
+
+  const handleFollowChange = useCallback(
+    (change: FollowChange) => {
+      setProfile((p) => {
+        if (!p || !p.viewer) return p
+        const wasFollowing = p.viewer.isFollowing
+        const base = p.followers ?? 0
+        const followers =
+          change.followers !== null
+            ? change.followers
+            : base + (change.following === wasFollowing ? 0 : change.following ? 1 : -1)
+        return {
+          ...p,
+          followers: Math.max(0, followers),
+          viewer: { ...p.viewer, isFollowing: change.following }
+        }
+      })
+      // Following a private pilot unlocks their tools/badges — refetch
+      // once the server confirms so the card fills in live.
+      if (isPrivateAccount && change.followers !== null) {
+        void loadProfile()
       }
-    })
-  }, [])
+    },
+    [isPrivateAccount, loadProfile]
+  )
 
   const statCells: { label: string; value: string | null }[] = [
     {
@@ -427,6 +442,7 @@ export function PlayerCard({
               <span className="truncate font-display text-lg font-semibold tracking-tight text-zinc-50">
                 {row.display_name || `@${row.username}`}
               </span>
+              {isProTier(row.tier) && <VerifiedBadge size={15} />}
               {isYou && (
                 <span className="shrink-0 rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-[8px] tracking-[0.25em] text-accent">
                   YOU
@@ -435,6 +451,11 @@ export function PlayerCard({
             </div>
             <span className="mt-0.5 flex items-center gap-2 text-[11px] text-zinc-500">
               @{row.username}
+              {(profile?.isPrivate ?? row.isPrivate) && (
+                <span className="text-zinc-600" title="Private account">
+                  <IconLock size={10} />
+                </span>
+              )}
               {viewer?.followsYou && !isYou && <FollowsYouChip />}
             </span>
 
@@ -491,6 +512,7 @@ export function PlayerCard({
           <div className="mt-5 flex flex-col items-center px-6">
             <span className="text-[9px] tracking-[0.4em] text-zinc-500">LIFETIME SCORE</span>
             <span
+              title={`${formatNumber(row.score)} pts`}
               className="mt-2 text-[26px] leading-none tabular-nums [font-family:var(--font-pixel)]"
               style={{
                 color: medal ? medal.fg : 'rgb(var(--z50))',
@@ -502,7 +524,7 @@ export function PlayerCard({
               <AnimatedCounter
                 value={row.score}
                 duration={900}
-                formatter={(v) => formatNumber(Math.round(v))}
+                formatter={(v) => formatScore(Math.round(v))}
               />
             </span>
             <div className="mt-2.5 flex items-center gap-3 text-[10px] tabular-nums">
@@ -573,14 +595,20 @@ export function PlayerCard({
           <div className="mt-5 px-6">
             <div className="flex items-center justify-between text-[9px] tracking-[0.35em] text-zinc-500">
               <span>TOP TOOLS</span>
-              <span className="text-zinc-700">SHARE OF SORTIES</span>
+              <span className="text-zinc-700">SHARE OF SCORE</span>
             </div>
             <div className="mt-2.5 space-y-2">
-              {tools.length === 0 && (
-                <div className="py-2 text-center text-[10px] tracking-[0.2em] text-zinc-600">
-                  NO FIELD DATA YET
-                </div>
-              )}
+              {tools.length === 0 &&
+                (profile?.restricted ? (
+                  <div className="flex items-center justify-center gap-1.5 py-2 text-[10px] tracking-[0.2em] text-zinc-600">
+                    <IconLock size={10} />
+                    FOLLOWERS ONLY
+                  </div>
+                ) : (
+                  <div className="py-2 text-center text-[10px] tracking-[0.2em] text-zinc-600">
+                    NO FIELD DATA YET
+                  </div>
+                ))}
               {tools.slice(0, 3).map((tool, i) => (
                 <div key={tool.name} className="flex items-center gap-3">
                   <span
@@ -625,11 +653,18 @@ export function PlayerCard({
           <div className="mt-5 px-6">
             <div className="flex items-center justify-between text-[9px] tracking-[0.35em] text-zinc-500">
               <span>BADGES</span>
-              {badges !== null && (
-                <span className="tabular-nums text-zinc-600">
-                  {badges.length}
-                  <span className="text-zinc-700">/{ACHIEVEMENTS.length}</span>
+              {profile?.restricted ? (
+                <span className="flex items-center gap-1 text-zinc-600">
+                  <IconLock size={9} />
+                  PRIVATE
                 </span>
+              ) : (
+                badges !== null && (
+                  <span className="tabular-nums text-zinc-600">
+                    {badges.length}
+                    <span className="text-zinc-700">/{ACHIEVEMENTS.length}</span>
+                  </span>
+                )
               )}
             </div>
             <div className="mt-2.5">
@@ -645,11 +680,18 @@ export function PlayerCard({
                   RECORD UNAVAILABLE
                 </div>
               )}
-              {badges !== null && badges.length === 0 && (
-                <div className="py-2 text-center text-[10px] tracking-[0.2em] text-zinc-600">
-                  NO DECORATIONS YET
-                </div>
-              )}
+              {badges !== null &&
+                badges.length === 0 &&
+                (profile?.restricted ? (
+                  <div className="flex items-center justify-center gap-1.5 py-2 text-[10px] tracking-[0.2em] text-zinc-600">
+                    <IconLock size={10} />
+                    FOLLOWERS ONLY
+                  </div>
+                ) : (
+                  <div className="py-2 text-center text-[10px] tracking-[0.2em] text-zinc-600">
+                    NO DECORATIONS YET
+                  </div>
+                ))}
               {badges !== null && badges.length > 0 && (
                 <div className="grid grid-cols-8 gap-1.5">
                   {badges.slice(0, 15).map((badge) => (
@@ -726,14 +768,10 @@ export function PlayerCard({
               </div>
             )}
             <div className="flex items-center justify-between text-[9px] tracking-[0.25em] text-zinc-600 tabular-nums">
-              <span>PILOT SINCE {monthYear(profile?.memberSince ?? row.memberSince)}</span>
-              <span>
-                {row.isActive ? (
-                  <span style={{ color: 'rgb(var(--lb-up))' }}>ONLINE NOW</span>
-                ) : (
-                  `SEEN ${formatRelative(row.lastSeen).toUpperCase()}`
-                )}
-              </span>
+              <span>JOINED SINCE {monthYear(profile?.memberSince ?? row.memberSince)}</span>
+              {!row.isActive && (
+                <span>SEEN {formatRelative(row.lastSeen).toUpperCase()}</span>
+              )}
             </div>
           </div>
 
@@ -748,7 +786,8 @@ export function PlayerCard({
           animation: pc-backdrop-in 260ms ease backwards;
         }
         html.light .pc-backdrop {
-          background: rgb(255 255 255 / 0.72);
+          /* paper veil — matches the dossier canvas instead of cooling it */
+          background: rgb(246 244 238 / 0.72);
         }
         @keyframes pc-backdrop-in {
           from {

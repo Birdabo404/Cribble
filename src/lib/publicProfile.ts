@@ -13,8 +13,9 @@ import {
   type AchievementIcon,
   type AchievementRarity
 } from '@/lib/achievements'
+import { getOwnedPlateIds, isProTier, resolveEquippedPlate } from '@/lib/entitlements'
 import { fetchAllUserEvents, normalizeLegacyEventValues } from '@/lib/scoring'
-import { resolveToolName } from '@/lib/toolNames'
+import { rankToolsFromEvents } from '@/lib/topTools'
 
 export interface PublicProfileTool {
   name: string
@@ -38,6 +39,8 @@ export interface PublicProfile {
   display_name: string
   profile_image: string | null
   banner_image: string | null
+  /** Equipped leaderboard plate, already ownership/tier-validated server-side. */
+  plate: string | null
   bio: string | null
   location: string | null
   website: string | null
@@ -62,6 +65,11 @@ export interface PublicProfile {
   totalActiveMs: number
   topTools: PublicProfileTool[]
   badges: PublicProfileBadge[]
+  /** Account is in private mode (owner opted in via profile settings). */
+  isPrivate: boolean
+  /** True when the current viewer cannot see the gated sections
+   *  (topTools/badges are emptied server-side in that case). */
+  restricted: boolean
 }
 
 interface ProfileUserRow {
@@ -123,6 +131,13 @@ const metaString = (meta: Record<string, unknown>, key: string): string | null =
   return typeof v === 'string' && v.trim() ? v.trim() : null
 }
 
+/** Account privacy flag lives in users.metadata alongside the other
+ *  self-service profile fields. Anything other than literal true reads
+ *  as public, so legacy rows need no backfill. */
+export const readAccountIsPrivate = (
+  meta: Record<string, unknown> | null | undefined
+): boolean => Boolean(meta) && (meta as Record<string, unknown>).is_private === true
+
 export type ProfileLookup = { userId: number } | { username: string }
 
 export type PublicProfileResult =
@@ -163,10 +178,10 @@ export async function loadPublicProfile(
   const row = user as unknown as ProfileUserRow
   const totalScore = Math.round(row.user_scores?.total_score || 0)
 
-  // Rank + movement, unlocked badges, and this player's events — all in
-  // parallel. Events are fetched with pagination so profiles of heavy
-  // users aren't computed from a 1000-row subset.
-  const [rankRes, snapshotRes, badgesRes, eventsRes] = await Promise.all([
+  // Rank + movement, unlocked badges, this player's events, and their
+  // owned plates — all in parallel. Events are fetched with pagination so
+  // profiles of heavy users aren't computed from a 1000-row subset.
+  const [rankRes, snapshotRes, badgesRes, eventsRes, ownedPlateIds] = await Promise.all([
     totalScore > 0
       ? supabase
           .from('user_scores')
@@ -183,7 +198,8 @@ export async function loadPublicProfile(
       .select('achievement_id, unlocked_at')
       .eq('user_id', row.id)
       .order('unlocked_at', { ascending: false }),
-    fetchAllUserEvents(supabase, row.id, 'timestamp, domain, visits, active_ms')
+    fetchAllUserEvents(supabase, row.id),
+    getOwnedPlateIds(supabase, row.id)
   ])
 
   const rank =
@@ -219,38 +235,31 @@ export async function loadPublicProfile(
     })
     .filter((b): b is PublicProfileBadge => b !== null)
 
-  // Tools + consistency stats from raw events in a single pass. Counting
-  // goes through the scoring normalizer: heartbeat rows are not visits,
-  // and visit rows carry no verified active time.
+  // Consistency stats from raw events. Counting goes through the scoring
+  // normalizer: heartbeat rows are not visits, and visit rows carry no
+  // verified active time.
   const events = eventsRes.events || []
 
-  const toolCounts: Record<string, { v: number; a: number }> = {}
   const dayKeys = new Set<string>()
   let totalActiveMs = 0
   for (const ev of events) {
-    const normalized = normalizeLegacyEventValues(ev)
-    const d = String(ev.domain || '').toLowerCase()
-    if (d) {
-      const name = resolveToolName(d)
-      if (!toolCounts[name]) toolCounts[name] = { v: 0, a: 0 }
-      toolCounts[name].v += normalized.visits
-      toolCounts[name].a += normalized.activeMs
-    }
-    totalActiveMs += normalized.activeMs
+    totalActiveMs += normalizeLegacyEventValues(ev).activeMs
     const t = ev.timestamp ? Date.parse(String(ev.timestamp)) : NaN
     if (Number.isFinite(t)) {
       dayKeys.add(new Date(t).toISOString().split('T')[0])
     }
   }
-  const visitTotal = Object.values(toolCounts).reduce((s, v) => s + v.v, 0)
-  const topTools = Object.entries(toolCounts)
-    .sort((a, b) => (b[1].v - a[1].v) || (b[1].a - a[1].a))
+
+  // Top tools via the shared score-first ranker — identical output to the
+  // dashboard tools API and the leaderboard, so surfaces never disagree
+  // about a player's #1 tool.
+  const topTools: PublicProfileTool[] = rankToolsFromEvents(events)
     .slice(0, 3)
-    .map(([name, val]) => ({
+    .map(({ name, visits, active_ms, percent }) => ({
       name,
-      visits: val.v,
-      active_ms: val.a,
-      percent: visitTotal > 0 ? Math.round((val.v / visitTotal) * 100) : 0
+      visits,
+      active_ms,
+      percent
     }))
 
   const now = new Date()
@@ -283,6 +292,18 @@ export async function loadPublicProfile(
     ? Date.now() - new Date(lastSync).getTime() < 24 * 3_600_000
     : false
 
+  // Read-time Pro gates: an animated banner goes dark the moment the
+  // subscription lapses, and the equipped plate must still be usable.
+  const bannerImage =
+    meta.banner_animated === true && !isProTier(row.subscription_tier)
+      ? null
+      : metaString(meta, 'banner_image')
+  const plate = resolveEquippedPlate({
+    equippedPlateId: meta.equipped_plate,
+    tier: row.subscription_tier,
+    ownedPlateIds
+  })
+
   return {
     ok: true,
     profile: {
@@ -290,7 +311,8 @@ export async function loadPublicProfile(
       username,
       display_name: row.twitter_name || username,
       profile_image: row.twitter_profile_image || null,
-      banner_image: metaString(meta, 'banner_image'),
+      banner_image: bannerImage,
+      plate,
       bio: metaString(meta, 'bio'),
       location: metaString(meta, 'location'),
       website: metaString(meta, 'website'),
@@ -314,9 +336,32 @@ export async function loadPublicProfile(
       longestStreak: longestStreakFromDayKeys(dayKeys),
       totalActiveMs,
       topTools,
-      badges
+      badges,
+      isPrivate: readAccountIsPrivate(meta),
+      restricted: false
     }
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Account privacy                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Enforce private-mode gating for a viewer. Private accounts keep their
+ * identity, bio and score public (they are on the leaderboard anyway),
+ * but top tools and the service record are follower-only: anyone who
+ * isn't the owner or a follower gets them emptied plus restricted=true
+ * so clients can render a locked state instead of "no data".
+ */
+export function gateProfileForViewer(
+  profile: PublicProfile,
+  viewer: ViewerFollowContext | null
+): PublicProfile {
+  const canSee =
+    !profile.isPrivate || viewer?.isYou === true || viewer?.isFollowing === true
+  if (canSee) return profile
+  return { ...profile, topTools: [], badges: [], restricted: true }
 }
 
 /* ------------------------------------------------------------------ */

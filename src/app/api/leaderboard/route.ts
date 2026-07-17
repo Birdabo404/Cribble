@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { getOwnedPlateIdsBatch, isProTier, resolveEquippedPlate } from '@/lib/entitlements'
 import { getEventsIdentityColumn } from '@/lib/eventsIdentity'
 import { fetchAllEventPages } from '@/lib/eventsFetch'
 import {
@@ -7,9 +8,14 @@ import {
   type RankMovement,
   type RankSnapshotRow
 } from '@/lib/leaderboardEngine'
-import { normalizeLegacyEventValues } from '@/lib/scoring'
+import {
+  evaluateDemotionNotifications,
+  type DemotionEvent
+} from '@/lib/notifications'
+import { isMissingFollowsTable, readAccountIsPrivate } from '@/lib/publicProfile'
+import { getSessionUserId } from '@/lib/sessionAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
-import { resolveToolName } from '@/lib/toolNames'
+import { rankToolsFromEvents } from '@/lib/topTools'
 
 export const dynamic = 'force-dynamic'
 
@@ -80,7 +86,8 @@ async function resolveMovements(
       ])
     )
 
-    const { movements, inserts, updates } = diffStandings(previous, standings)
+    const now = new Date()
+    const { movements, inserts, updates } = diffStandings(previous, standings, now)
 
     // Inserts must not clobber a concurrent read's write; updates are
     // idempotent (same diff produces the same row values).
@@ -101,6 +108,28 @@ async function resolveMovements(
       }
     }
 
+    // Demotion pass: rank_moved_at === now means the drop happened on this
+    // diff (score-only updates keep their old timestamp). Awaited because
+    // serverless; it never throws, so it cannot break the response.
+    const nowIso = now.toISOString()
+    const demotions: DemotionEvent[] = []
+    for (const update of updates) {
+      if (
+        update.rank_moved_at === nowIso &&
+        update.prev_rank !== null &&
+        update.rank > update.prev_rank
+      ) {
+        demotions.push({
+          userId: update.user_id,
+          fromRank: update.prev_rank,
+          toRank: update.rank
+        })
+      }
+    }
+    if (demotions.length > 0) {
+      await evaluateDemotionNotifications(supabase, demotions, now)
+    }
+
     return movements
   } catch (err) {
     console.warn('[Leaderboard] Movement tracking unavailable:', err)
@@ -108,11 +137,48 @@ async function resolveMovements(
   }
 }
 
-export async function GET() {
+/**
+ * Which of the given private accounts is the viewer allowed to see
+ * tools for? Owner always; otherwise only accounts they follow. A
+ * missing follows table (migration 013 not applied) degrades to
+ * "none", which fails private — never open.
+ */
+async function resolveVisiblePrivateIds(
+  supabase: SupabaseClient,
+  viewerId: number | null,
+  privateIds: number[]
+): Promise<Set<number>> {
+  const visible = new Set<number>()
+  if (viewerId === null || privateIds.length === 0) return visible
+  if (privateIds.includes(viewerId)) visible.add(viewerId)
+
+  const followCandidates = privateIds.filter((id) => id !== viewerId)
+  if (followCandidates.length === 0) return visible
+
+  const { data, error } = await supabase
+    .from('follows')
+    .select('followee_id')
+    .eq('follower_id', viewerId)
+    .in('followee_id', followCandidates)
+
+  if (error) {
+    if (!isMissingFollowsTable(error)) {
+      console.warn('[Leaderboard] Privacy follow lookup failed:', error.message)
+    }
+    return visible
+  }
+  for (const row of data || []) visible.add(Number(row.followee_id))
+  return visible
+}
+
+export async function GET(request: NextRequest) {
   const supabase = createServiceClient()
 
   try {
-    // Batch query 1: all users with scores and devices in one query
+    // Batch query 1: all users with scores and devices in one query.
+    // Banned and suspended accounts are filtered in the query itself so
+    // they never occupy one of the 100 board slots (status is NULL on
+    // rows that predate migration 003 — treated as active).
     const { data: users, error: usersError } = await supabase
       .from('users')
       .select(`
@@ -128,6 +194,7 @@ export async function GET() {
         user_scores(total_score, today_score, week_score, last_calculated_at),
         user_devices(is_active, last_sync_at)
       `)
+      .or('status.is.null,status.eq.active')
       .order('total_score', { ascending: false, referencedTable: 'user_scores', nullsFirst: false })
       .limit(100)
 
@@ -146,29 +213,39 @@ export async function GET() {
     const userIds = users.map((u) => u.id)
     const eventsUserColumn = await getEventsIdentityColumn(supabase)
 
+    // timestamp/total_ms ride along because tool ranking scores each tool's
+    // events as sessions — the same math as the dashboard tools API.
     type LeaderboardEventRow = {
       user_id: number | string | null
       twitter_user_id: number | null
       domain: string | null
       visits: number | null
       active_ms: number | null
+      total_ms: number | null
+      timestamp: string | null
     }
 
-    const { rows: allEvents, error: eventsError } = eventsUserColumn
-      ? await fetchAllEventPages<LeaderboardEventRow>(
-          (from, to) =>
-            supabase
-              .from('events_raw')
-              .select('user_id, twitter_user_id, domain, visits, active_ms')
-              .in(eventsUserColumn, userIds)
-              .order('timestamp', { ascending: true })
-              .order('id', { ascending: true })
-              .range(from, to) as PromiseLike<{
-                data: LeaderboardEventRow[] | null
-                error: { message: string } | null
-              }>
-        )
-      : { rows: [] as LeaderboardEventRow[], error: null }
+    // Owned plates for the whole board ride alongside the events fetch —
+    // one user_cosmetics query for all 100 ranked users.
+    const [eventsResult, ownedPlatesByUser] = await Promise.all([
+      eventsUserColumn
+        ? fetchAllEventPages<LeaderboardEventRow>(
+            (from, to) =>
+              supabase
+                .from('events_raw')
+                .select('user_id, twitter_user_id, domain, visits, active_ms, total_ms, timestamp')
+                .in(eventsUserColumn, userIds)
+                .order('timestamp', { ascending: true })
+                .order('id', { ascending: true })
+                .range(from, to) as PromiseLike<{
+                  data: LeaderboardEventRow[] | null
+                  error: { message: string } | null
+                }>
+          )
+        : Promise.resolve({ rows: [] as LeaderboardEventRow[], error: null }),
+      getOwnedPlateIdsBatch(supabase, userIds)
+    ])
+    const { rows: allEvents, error: eventsError } = eventsResult
 
     if (eventsError) {
       console.error('[Leaderboard] Events query error:', eventsError)
@@ -189,6 +266,20 @@ export async function GET() {
 
     const now = new Date()
 
+    // Private-mode pass: tools are follower-only for private accounts, so
+    // resolve who the viewer is and which private pilots they follow —
+    // one session read plus at most one follows query for the whole board.
+    const privateIds = (users as unknown as UserRow[])
+      .filter((u) => readAccountIsPrivate(u.metadata))
+      .map((u) => u.id)
+    const session = privateIds.length > 0 ? await getSessionUserId(request) : null
+    const viewerId = session?.ok ? session.userId : null
+    const visiblePrivateIds = await resolveVisiblePrivateIds(
+      supabase,
+      viewerId,
+      privateIds
+    )
+
     // Build leaderboard data — no per-user DB calls
     const leaderboardData = (users as unknown as UserRow[]).map((user) => {
       const score = Math.round(user.user_scores?.total_score || 0)
@@ -204,31 +295,16 @@ export async function GET() {
           ? Math.round(user.user_scores?.week_score || 0)
           : 0
 
-      // Top tools from pre-fetched events, named via the shared resolver so
-      // the leaderboard, tools API and achievements all agree. Counting goes
-      // through the scoring normalizer: heartbeat rows are NOT visits (the
-      // old `visits || active_ms ? 1 : 0` fallback counted every 5s tick as
-      // a visit, inflating counts ~8x) and visit rows carry no active time.
+      // Top tools from pre-fetched events via the shared score-first ranker,
+      // so the podium's "top weapon" always matches the player's dashboard.
       const userEvents = eventsByUser[user.id] || []
-      const counts: Record<string, { v: number; a: number }> = {}
-      for (const ev of userEvents) {
-        const d = String(ev.domain || '').toLowerCase()
-        if (!d) continue
-        const name = resolveToolName(d)
-        if (!counts[name]) counts[name] = { v: 0, a: 0 }
-        const normalized = normalizeLegacyEventValues(ev)
-        counts[name].v += normalized.visits
-        counts[name].a += normalized.activeMs
-      }
-      const visitTotal = Object.values(counts).reduce((s, v) => s + v.v, 0)
-      const topTools = Object.entries(counts)
-        .sort((a, b) => (b[1].v - a[1].v) || (b[1].a - a[1].a))
+      const topTools = rankToolsFromEvents(userEvents)
         .slice(0, 3)
-        .map(([name, val]) => ({
+        .map(({ name, visits, active_ms, percent }) => ({
           name,
-          visits: val.v,
-          active_ms: val.a,
-          percent: visitTotal > 0 ? Math.round((val.v / visitTotal) * 100) : 0
+          visits,
+          active_ms,
+          percent
         }))
 
       // Active status
@@ -263,10 +339,23 @@ export async function GET() {
         youtube: socialOr('youtube'),
         linkedin: socialOr('linkedin')
       }
+      // Read-time Pro gates (same rules as publicProfile): animated
+      // banners go dark when the subscription lapses, and the equipped
+      // plate is re-validated against ownership/tier on every read.
+      const bannerGated =
+        meta.banner_animated === true && !isProTier(user.subscription_tier)
       const bannerImage =
-        typeof meta.banner_image === 'string' && meta.banner_image.trim()
+        !bannerGated && typeof meta.banner_image === 'string' && meta.banner_image.trim()
           ? meta.banner_image.trim()
           : null
+      const plate = resolveEquippedPlate({
+        equippedPlateId: meta.equipped_plate,
+        tier: user.subscription_tier,
+        ownedPlateIds: ownedPlatesByUser.get(user.id) ?? new Set<string>()
+      })
+
+      const isPrivate = readAccountIsPrivate(meta)
+      const toolsHidden = isPrivate && !visiblePrivateIds.has(user.id)
 
       return {
         username,
@@ -280,9 +369,11 @@ export async function GET() {
         memberSince: user.created_at,
         tier: normalizeTier(user.subscription_tier),
         userId: user.id,
-        topTools,
+        topTools: toolsHidden ? [] : topTools,
+        isPrivate,
         provider,
         banner_image: bannerImage,
+        plate,
         socials,
         role: user.user_type || null
       }

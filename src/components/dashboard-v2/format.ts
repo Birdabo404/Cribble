@@ -16,11 +16,31 @@ export const formatCompact = (n: number) => {
   return String(n)
 }
 
+/** Scoreboard numerals: exact with grouping while short, compact once the
+ * grouped form would blow past ~6 glyphs (pixel-font stat cells have room
+ * for about that many). 99,999 → "99,999"; 142,500 → "143K";
+ * 1,234,567 → "1.23M". Never longer than 5 characters once compacted. */
+export const formatScore = (n: number) => {
+  const abs = Math.abs(n)
+  if (abs < 100_000) return formatNumber(n)
+  const sig = (v: number) => {
+    const a = Math.abs(v)
+    const s = a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : v.toFixed(2)
+    return s.replace(/\.0+$/, '').replace(/(\.\d)0$/, '$1')
+  }
+  // Unit thresholds sit at 999,500 so rounding never yields "1000K".
+  if (abs < 999_500) return `${sig(n / 1_000)}K`
+  if (abs < 999_500_000) return `${sig(n / 1_000_000)}M`
+  return `${sig(n / 1_000_000_000)}B`
+}
+
 export const formatDuration = (ms: number) => {
   if (!ms || ms < 1000) return '0s'
   const seconds = Math.floor(ms / 1000)
   const hours = Math.floor(seconds / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)
+  // Past 100h the minutes are noise and the string stops fitting stat cells.
+  if (hours >= 100) return `${hours}h`
   if (hours > 0) return `${hours}h ${minutes}m`
   if (minutes > 0) return `${minutes}m`
   return `${seconds}s`

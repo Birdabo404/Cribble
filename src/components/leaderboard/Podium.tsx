@@ -6,7 +6,10 @@
 // ember pulse. Every card is a button that opens the player profile card.
 
 import AnimatedCounter from '@/components/AnimatedCounter'
-import { formatNumber } from '@/components/dashboard-v2/format'
+import { PlateLayer } from '@/components/cosmetics/PlateLayer'
+import { formatNumber, formatScore } from '@/components/dashboard-v2/format'
+import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
+import { isProTier } from '@/lib/entitlements'
 import { Avatar, SafeBannerImg } from './Avatar'
 import { IconCrown, MoveGlyph, ToolIcon } from './icons'
 import { medalA, medalFor, PLATE_DOWN, PLATE_UP, type LeaderRow } from './types'
@@ -103,9 +106,28 @@ function PodiumCard({
         />
       )}
 
-      {/* banner — default always paints; a live banner_image covers it */}
-      <div className={`relative overflow-hidden ${champion ? 'h-[92px]' : 'h-[72px]'}`}>
+      {/* banner — default always paints; an equipped plate layers above it,
+          and a live banner_image wins over both in this block (the plate
+          still shows on the standings row) */}
+      <div className={`relative overflow-hidden ${champion ? 'h-[112px]' : 'h-[88px]'}`}>
         <DefaultBanner rankRgb={medal.rgb} champion={champion} />
+        {user.plate && (
+          <>
+            <PlateLayer plateId={user.plate} fade="none" />
+            {/* melt-into-the-body scrim, confined to the bottom band: it
+                only has to seat the overlapping avatar, and any higher
+                start visibly washes the art toward white in light mode.
+                60% of the taller banner keeps the fade band at roughly the
+                same absolute height it had at 52% of the old one. */}
+            <span
+              aria-hidden
+              className="absolute inset-0"
+              style={{
+                background: `linear-gradient(180deg, transparent 60%, rgb(var(--lb-panel-bg) / 0.92))`
+              }}
+            />
+          </>
+        )}
         {user.banner_image && (
           <>
             <SafeBannerImg
@@ -116,7 +138,7 @@ function PodiumCard({
               aria-hidden
               className="absolute inset-0"
               style={{
-                background: `linear-gradient(180deg, transparent 30%, rgb(var(--lb-panel-bg) / 0.9))`
+                background: `linear-gradient(180deg, transparent 60%, rgb(var(--lb-panel-bg) / 0.92))`
               }}
             />
           </>
@@ -220,11 +242,13 @@ function PodiumCard({
           >
             {user.display_name || `@${user.username}`}
           </span>
+          {isProTier(user.tier) && <VerifiedBadge size={champion ? 16 : 14} />}
         </div>
         <span className="mt-0.5 text-[10px] text-zinc-500">@{user.username}</span>
 
-        {/* THE SCORE */}
+        {/* THE SCORE — compacts past 5 digits; exact value in the tooltip */}
         <div
+          title={`${formatNumber(user.score)} pts`}
           className={`mt-3 leading-none tabular-nums [font-family:var(--font-pixel)] ${
             champion ? 'pod-score-gold text-[27px] md:text-[30px]' : 'text-[18px] md:text-[20px]'
           }`}
@@ -238,7 +262,7 @@ function PodiumCard({
           <AnimatedCounter
             value={user.score}
             duration={1300}
-            formatter={(v) => formatNumber(Math.round(v))}
+            formatter={(v) => formatScore(Math.round(v))}
           />
         </div>
         <span className="mt-1.5 text-[8px] tracking-[0.4em] text-zinc-600">PTS</span>
