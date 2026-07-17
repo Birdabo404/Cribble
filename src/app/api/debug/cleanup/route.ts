@@ -1,43 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { logAdminAction } from '@/lib/adminAudit'
+import { getDebugStaffUser, hasValidDebugToken } from '@/lib/debugRouteAuth'
+import { cleanReason } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
 const supabase = createServiceClient()
 
 export async function POST(request: NextRequest) {
   try {
-    // Layer 1: Dev-only
-    if (process.env.NODE_ENV !== 'development') {
-      return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 })
+    const staff = await getDebugStaffUser(request)
+    if (!staff.ok) {
+      return NextResponse.json({ success: false, error: staff.error }, { status: staff.status })
     }
 
-    // Layer 2: Must be authenticated
-    const sessionToken = request.cookies.get('cribble_session')?.value
-    if (!sessionToken) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    }
+    const body = await request.json().catch(() => ({}))
+    const { action, confirmToken } = body
+    const reason = cleanReason(body.reason)
 
-    const { data: session } = await supabase
-      .from('user_sessions')
-      .select('user_id')
-      .eq('session_token', sessionToken)
-      .gt('expires_at', new Date().toISOString())
-      .single()
-
-    if (!session) {
-      return NextResponse.json({ success: false, error: 'Invalid session' }, { status: 401 })
-    }
-
-    // Layer 3: Confirmation token (env var if set, otherwise static phrase for dev)
-    const debugToken = process.env.DEBUG_CLEANUP_TOKEN || 'CLEAN_ANOMALOUS_DATA_CONFIRMED'
-
-    const { action, confirmToken } = await request.json()
-
-    // Safety check - require confirmation token
-    if (confirmToken !== debugToken) {
+    if (!hasValidDebugToken(confirmToken, 'DEBUG_CLEANUP_TOKEN')) {
       return NextResponse.json({ 
         success: false, 
         error: 'Invalid confirmation token' 
       }, { status: 400 })
+    }
+    if (!reason) {
+      return NextResponse.json(
+        { success: false, error: 'A reason of at least 10 characters is required' },
+        { status: 400 }
+      )
     }
     
     if (action === 'clean_anomalous') {
@@ -79,6 +69,20 @@ export async function POST(request: NextRequest) {
       
       // Delete anomalous events
       const eventIds = anomalousEvents.map(e => e.id)
+      // Fail closed: no destructive cleanup happens unless the attempt is
+      // durably attributed to the owner first.
+      await logAdminAction(supabase, {
+        adminUserId: staff.staff.userId,
+        targetUserId: null,
+        action: 'debug.clean_anomalous',
+        oldValues: {
+          event_count: eventIds.length,
+          event_ids: eventIds.slice(0, 100)
+        },
+        newValues: { intended_result: 'delete anomalous events' },
+        reason
+      })
+
       const { error: deleteError } = await supabase
         .from('events_raw')
         .delete()
@@ -119,7 +123,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       success: false, 
       error: 'Internal server error',
-      details: error instanceof Error ? error.message : String(error)
     }, { status: 500 })
   }
 }

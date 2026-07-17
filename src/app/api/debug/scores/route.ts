@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabaseServer'
-import { getSessionUserId } from '@/lib/sessionAuth'
+import { getDebugStaffUser } from '@/lib/debugRouteAuth'
 import {
   calculateScoreBuckets,
   fetchAllUserEvents,
@@ -12,13 +12,9 @@ const supabase = createServiceClient()
 
 export async function GET(request: NextRequest) {
   try {
-    if (process.env.NODE_ENV !== 'development') {
-      return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 })
-    }
-
-    const session = await getSessionUserId(request)
-    if (!session.ok) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    const staff = await getDebugStaffUser(request)
+    if (!staff.ok) {
+      return NextResponse.json({ success: false, error: staff.error }, { status: staff.status })
     }
 
     // Get all users
@@ -91,8 +87,7 @@ export async function GET(request: NextRequest) {
     console.error('Debug API error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : String(error)
+      error: 'Internal server error'
     }, { status: 500 })
   }
 }

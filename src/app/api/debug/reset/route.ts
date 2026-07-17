@@ -1,41 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { logAdminAction } from '@/lib/adminAudit'
+import { getDebugStaffUser, hasValidDebugToken } from '@/lib/debugRouteAuth'
+import { cleanReason } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
 const supabase = createServiceClient()
 
 /**
- * Dangerous reset endpoint - DEVELOPMENT ONLY.
- * Protected by: NODE_ENV check + session auth + confirmation token.
+ * Dangerous reset endpoint - explicit local opt-in only.
+ * Protected by: development + feature flag + owner role + unique token.
  */
 export async function POST(request: NextRequest) {
   try {
-    // Layer 1: Dev-only
-    if (process.env.NODE_ENV !== 'development') {
-      return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 })
+    const staff = await getDebugStaffUser(request)
+    if (!staff.ok) {
+      return NextResponse.json({ success: false, error: staff.error }, { status: staff.status })
     }
 
-    // Layer 2: Must be authenticated
-    const sessionToken = request.cookies.get('cribble_session')?.value
-    if (!sessionToken) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    }
+    const body = await request.json().catch(() => ({}))
+    const { action, confirmToken } = body
+    const reason = cleanReason(body.reason)
 
-    const { data: session } = await supabase
-      .from('user_sessions')
-      .select('user_id')
-      .eq('session_token', sessionToken)
-      .gt('expires_at', new Date().toISOString())
-      .single()
-
-    if (!session) {
-      return NextResponse.json({ success: false, error: 'Invalid session' }, { status: 401 })
-    }
-
-    // Layer 3: Confirmation token (env var if set, otherwise static phrase for dev)
-    const expectedToken = process.env.DEBUG_RESET_TOKEN || 'RESET_ALL_DATA'
-    const { action, confirmToken } = await request.json()
-
-    if (confirmToken !== expectedToken) {
+    if (!hasValidDebugToken(confirmToken, 'DEBUG_RESET_TOKEN')) {
       return NextResponse.json(
         { success: false, error: 'Invalid confirmation token' },
         { status: 400 }
@@ -45,6 +31,12 @@ export async function POST(request: NextRequest) {
     if (action !== 'reset_all') {
       return NextResponse.json(
         { success: false, error: 'Invalid action' },
+        { status: 400 }
+      )
+    }
+    if (!reason) {
+      return NextResponse.json(
+        { success: false, error: 'A reason of at least 10 characters is required' },
         { status: 400 }
       )
     }
@@ -63,26 +55,42 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Audit first and fail closed. This reset is intentionally multi-step,
+    // so the row records the attempt even if a later table operation only
+    // partially succeeds.
+    await logAdminAction(supabase, {
+      adminUserId: staff.staff.userId,
+      targetUserId: null,
+      action: 'debug.reset_all',
+      oldValues: { scope: ['events_raw', 'user_devices', 'user_scores', 'user_sessions'] },
+      newValues: { intended_result: 'clear development analytics data' },
+      reason
+    })
+
     // Delete dependent rows first
     await safeExec('events_raw', async () => {
-      await supabase.from('events_raw').delete().neq('id', 0)
+      const { error } = await supabase.from('events_raw').delete().neq('id', 0)
+      if (error) throw new Error(error.message)
     })
 
     await safeExec('user_devices', async () => {
-      await supabase.from('user_devices').delete().neq('id', 0)
+      const { error } = await supabase.from('user_devices').delete().neq('id', 0)
+      if (error) throw new Error(error.message)
     })
 
     await safeExec('user_scores', async () => {
-      await supabase.from('user_scores').delete().neq('user_id', 0)
+      const { error } = await supabase.from('user_scores').delete().neq('user_id', 0)
+      if (error) throw new Error(error.message)
     })
 
     await safeExec('user_sessions', async () => {
-      await supabase.from('user_sessions').delete().neq('user_id', 0)
+      const { error } = await supabase.from('user_sessions').delete().neq('user_id', 0)
+      if (error) throw new Error(error.message)
     })
 
     // Reset users.total_score and last_extension_sync
     await safeExec('users_reset', async () => {
-      await supabase
+      const { error } = await supabase
         .from('users')
         .update({
           total_score: 0,
@@ -90,6 +98,7 @@ export async function POST(request: NextRequest) {
           active_device_uuid: null
         })
         .neq('id', 0)
+      if (error) throw new Error(error.message)
     })
 
     return NextResponse.json({
@@ -97,12 +106,11 @@ export async function POST(request: NextRequest) {
       results,
       errors: errors.length ? errors : undefined
     })
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       {
         success: false,
-        error: 'Internal server error',
-        details: error instanceof Error ? error.message : String(error)
+        error: 'Internal server error'
       },
       { status: 500 }
     )

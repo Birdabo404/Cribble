@@ -1,18 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getDebugStaffUser } from '@/lib/debugRouteAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
-import { getSessionUserId } from '@/lib/sessionAuth'
 
 const supabase = createServiceClient()
 
 export async function GET(request: NextRequest) {
   try {
-    if (process.env.NODE_ENV !== 'development') {
-      return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 })
-    }
-
-    const session = await getSessionUserId(request)
-    if (!session.ok) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    const staff = await getDebugStaffUser(request)
+    if (!staff.ok) {
+      return NextResponse.json({ success: false, error: staff.error }, { status: staff.status })
     }
 
     console.log('[Table Info] Checking events_raw schema...')
@@ -72,7 +68,7 @@ export async function GET(request: NextRequest) {
     console.error('[Table Info] Error:', error)
     return NextResponse.json({ 
       success: false, 
-      error: error instanceof Error ? error.message : String(error)
+      error: 'Internal server error'
     }, { status: 500 })
   }
 }
