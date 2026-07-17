@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getPlate } from '@/lib/cosmetics/plates'
+import { getOwnedPlateIds, isProTier } from '@/lib/entitlements'
+import { detectAnimatedImage, isPublicHostname } from '@/lib/imageAnimation'
 import { isRoleId } from '@/lib/roles'
 import { createServiceClient } from '@/lib/supabaseServer'
 import { getSessionUserId } from '@/lib/sessionAuth'
@@ -8,6 +11,14 @@ import { getSessionUserId } from '@/lib/sessionAuth'
 // JSONB — the same keys the profile/leaderboard readers already
 // consume. The role/status also writes users.user_type, the column
 // every badge surface reads, so changing it here updates system-wide.
+//
+// Two gated fields ride along:
+//   equipped_plate — must exist in the plate catalog and be usable by
+//     this account (owned in user_cosmetics — purchases and founder
+//     grants alike — or Pro-exclusive while a Pro tier is active).
+//   banner_image  — animated banners (GIF/animated WebP/APNG) are a Pro
+//     perk; new URLs are byte-sniffed and rejected for non-Pro savers.
+//     Undetectable URLs fail open with banner_animated stored as null.
 
 export const dynamic = 'force-dynamic'
 
@@ -49,7 +60,11 @@ const cleanHttpUrl = (v: unknown, max: number): string | null => {
   try {
     const url = new URL(raw)
     if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+    if (url.username || url.password) return null
     if (!url.hostname.includes('.')) return null
+    // Prevent saved banners/websites from turning every viewer's browser
+    // into a requester for loopback, LAN or metadata destinations.
+    if (!isPublicHostname(url.hostname)) return null
     return url.toString()
   } catch {
     return null
@@ -110,7 +125,9 @@ export async function GET(request: NextRequest) {
         location: str(meta.location),
         website: str(meta.website),
         banner_image: str(meta.banner_image),
+        equipped_plate: str(meta.equipped_plate),
         role: isRoleId(user.user_type) ? user.user_type : null,
+        is_private: meta.is_private === true,
         socials: {
           x: str(socials.x),
           github: str(socials.github),
@@ -130,7 +147,9 @@ interface ProfilePatchPayload {
   location?: unknown
   website?: unknown
   banner_image?: unknown
+  equipped_plate?: unknown
   role?: unknown
+  is_private?: unknown
   socials?: Record<string, unknown>
 }
 
@@ -149,10 +168,10 @@ export async function PATCH(request: NextRequest) {
     }
 
     // Fetch current metadata so unrelated keys (onboarding answers etc.)
-    // survive the merge.
+    // survive the merge. The tier rides along for the plate/banner gates.
     const { data: existing, error: fetchError } = await supabase
       .from('users')
-      .select('metadata')
+      .select('metadata, subscription_tier')
       .eq('id', session.userId)
       .single()
 
@@ -161,6 +180,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to load profile' }, { status: 500 })
     }
 
+    const tier = (existing?.subscription_tier as string | null | undefined) ?? null
     const currentMeta =
       existing?.metadata && typeof existing.metadata === 'object'
         ? (existing.metadata as Record<string, unknown>)
@@ -175,7 +195,59 @@ export async function PATCH(request: NextRequest) {
     if ('bio' in body) merged.bio = cleanText(body.bio, BIO_MAX)
     if ('location' in body) merged.location = cleanText(body.location, LOCATION_MAX)
     if ('website' in body) merged.website = cleanHttpUrl(body.website, WEBSITE_MAX)
-    if ('banner_image' in body) merged.banner_image = cleanHttpUrl(body.banner_image, BANNER_MAX)
+
+    if ('banner_image' in body) {
+      const nextBanner = cleanHttpUrl(body.banner_image, BANNER_MAX)
+      const currentBanner =
+        typeof currentMeta.banner_image === 'string' ? currentMeta.banner_image : null
+      merged.banner_image = nextBanner
+
+      if (!nextBanner) {
+        merged.banner_animated = null
+      } else if (nextBanner !== currentBanner) {
+        // New URL: sniff for animation. true blocks non-Pro savers; null
+        // (unreachable/unknown format) fails open and is stored as null so
+        // the read-time gate leaves it alone.
+        const animated = await detectAnimatedImage(nextBanner)
+        if (animated === true && !isProTier(tier)) {
+          return NextResponse.json(
+            { error: 'Animated banners are a PRO perk' },
+            { status: 400 }
+          )
+        }
+        merged.banner_animated = animated
+      }
+    }
+
+    if ('equipped_plate' in body) {
+      const raw = body.equipped_plate
+      if (raw === null || (typeof raw === 'string' && raw.trim() === '')) {
+        merged.equipped_plate = null
+      } else if (typeof raw !== 'string' || !getPlate(raw.trim())) {
+        return NextResponse.json({ error: 'Unknown plate' }, { status: 400 })
+      } else {
+        const plateId = raw.trim()
+        const plate = getPlate(plateId)!
+        // Usable = owned in user_cosmetics (purchases, founder grants and
+        // champion grants alike) or Pro-exclusive while a Pro tier is
+        // active.
+        const ownedPlateIds = await getOwnedPlateIds(supabase, session.userId)
+        const usable =
+          ownedPlateIds.includes(plateId) ||
+          (plate.proExclusive === true && isProTier(tier))
+        if (!usable) {
+          return NextResponse.json(
+            { error: 'You do not own this plate' },
+            { status: 400 }
+          )
+        }
+        merged.equipped_plate = plateId
+      }
+    }
+
+    // Private mode: strict boolean — anything that isn't literal true
+    // stores false, so a malformed payload can never lock an account.
+    if ('is_private' in body) merged.is_private = body.is_private === true
 
     if (body.socials && typeof body.socials === 'object') {
       const nextSocials: Record<string, unknown> = { ...currentSocials }
