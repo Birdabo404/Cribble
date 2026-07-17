@@ -134,6 +134,15 @@ export function IconSearch(p: IconProps) {
   )
 }
 
+export function IconLock(p: IconProps) {
+  return (
+    <Stroke {...p}>
+      <rect width="18" height="11" x="3" y="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </Stroke>
+  )
+}
+
 export function IconRefresh(p: IconProps) {
   return (
     <Stroke {...p}>
@@ -329,6 +338,22 @@ export function SocialIcon({
 /* AI tool marks — brand icon where we have one, monogram otherwise    */
 /* ------------------------------------------------------------------ */
 
+/** Grok ships under the X brand — the X mark is its recognizable face. */
+function BrandGrok({ size = 16, className = '' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="currentColor"
+      className={className}
+      aria-hidden
+    >
+      <path d={SOCIAL_PATHS.x} />
+    </svg>
+  )
+}
+
 const TOOL_BRANDS: Record<string, (p: IconProps) => JSX.Element> = {
   ChatGPT: BrandOpenAI,
   OpenAI: BrandOpenAI,
@@ -343,6 +368,7 @@ const TOOL_BRANDS: Record<string, (p: IconProps) => JSX.Element> = {
   Cursor: BrandCursor,
   Copilot: BrandCopilot,
   'GitHub Copilot': BrandCopilot,
+  Grok: BrandGrok,
   Bolt: IconBolt
 }
 
