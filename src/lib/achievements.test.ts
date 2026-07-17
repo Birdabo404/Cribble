@@ -126,14 +126,14 @@ describe('computeAchievementStats', () => {
   it('counts distinct tools by resolved name, merging alias domains', () => {
     const stats = computeAchievementStats(
       [
-        event({ domain: 'claude.ai' }),
-        event({ domain: 'anthropic.com' }),
+        event({ domain: 'chat.openai.com' }),
         event({ domain: 'chatgpt.com' }),
+        event({ domain: 'claude.ai' }),
         event({ domain: 'cursor.com' })
       ],
       { totalScore: 100, rank: null }
     )
-    // claude.ai + anthropic.com both resolve to Claude
+    // chat.openai.com + chatgpt.com both resolve to ChatGPT
     expect(stats.distinctTools).toBe(3)
     expect(stats.totalVisits).toBe(4)
     expect(stats.totalEvents).toBe(4)

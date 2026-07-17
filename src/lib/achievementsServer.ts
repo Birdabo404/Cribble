@@ -16,6 +16,10 @@ import {
 import { insertMissingNotifications } from './notifications'
 import { fetchAllUserEvents } from './scoring'
 
+/** The trophy plate minted alongside the APEX (#1) achievement. */
+const CHAMPION_ACHIEVEMENT_ID = 'rank_1'
+const CHAMPION_PLATE_ID = 'champions-gold'
+
 export interface AchievementEvaluation {
   stats: AchievementStats
   /** achievement id -> unlocked_at ISO, including unlocks from this pass. */
@@ -44,6 +48,43 @@ async function fetchUserEvents(
     return null
   }
   return events as AchievementEvent[]
+}
+
+/** Mint the Champion's Gold plate for a user whose APEX achievement is
+ *  unlocked. Never sold — this grant is the only path to owning it. Runs
+ *  on every evaluation where APEX is unlocked (not just the unlocking
+ *  pass), so champions from before this feature existed self-heal; the
+ *  unique (user_id, item_type, item_id) index makes the upsert a no-op
+ *  after the first mint. Like the founder grant, the row is permanent:
+ *  losing the throne keeps the trophy. */
+async function grantChampionPlate(
+  supabase: SupabaseClient,
+  userId: number
+): Promise<void> {
+  const { error } = await supabase.from('user_cosmetics').upsert(
+    {
+      user_id: userId,
+      item_type: 'plate',
+      item_id: CHAMPION_PLATE_ID,
+      acquired_via: 'champion_grant'
+    },
+    { onConflict: 'user_id,item_type,item_id', ignoreDuplicates: true }
+  )
+
+  if (error) {
+    console.error('[Achievements] Champion plate grant failed:', error)
+    return
+  }
+
+  await insertMissingNotifications(supabase, userId, [
+    {
+      type: 'system',
+      title: "CHAMPION'S GOLD",
+      body: 'Trophy plate minted — never sold, taken at #1. Equip it from your profile editor.',
+      data: { plateId: CHAMPION_PLATE_ID },
+      dedupeKey: `plate_${CHAMPION_PLATE_ID}`
+    }
+  ])
 }
 
 async function fetchScoreAndRank(
@@ -146,6 +187,10 @@ export async function evaluateAchievements(
           }))
         )
       }
+    }
+
+    if (unlockedAt.has(CHAMPION_ACHIEVEMENT_ID)) {
+      await grantChampionPlate(supabase, userId)
     }
 
     return {

@@ -3,7 +3,7 @@ import { createServiceClient } from '@/lib/supabaseServer'
 import { z } from 'zod'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
 import { getSessionUserId } from '@/lib/sessionAuth'
-import { isTrackedAiDomain } from '@/lib/aiDomains'
+import { resolveTrackedAiDomain } from '@/lib/aiDomains'
 import { evaluateAchievements } from '@/lib/achievementsServer'
 import { evaluateScoreNotifications } from '@/lib/notifications'
 import { recalculateUserScore } from '@/lib/scoring'
@@ -35,7 +35,11 @@ interface ExtensionEvent {
 }
 
 const extensionEventSchema = z.object({
-  type: z.string(),
+  // Strict enum: the 30-min per-event bound and the 24h anti-inflation
+  // ceilings key on the type, while inserts store active_ms for any
+  // non-visit type — an unknown type ("foo") would bank uncapped active
+  // time. The extension only ever emits these two.
+  type: z.enum(['visit', 'active_time']),
   domain: z.string().min(1),
   timestamp: z.number().int().nonnegative(),
   duration: z.number().int().nonnegative().optional(),
@@ -199,14 +203,18 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
   // Validation constants
   const MAX_ACTIVE_TIME_MS = 30 * 60 * 1000 // 30 minutes max per event
 
-  // Filter and validate events
-  const validEvents = events.filter(event => {
+  // Filter, validate, and canonicalize events
+  const validEvents = events.flatMap<ExtensionEvent>(event => {
     const duration = event.duration || 0
 
-    // Server-side allowlist: only accept events for known AI tool domains
-    if (!isTrackedAiDomain(event.domain)) {
+    // Server-side allowlist: only accept events for known AI tool usage
+    // surfaces. The reported hostname is normalized to its canonical
+    // registry key ("www.kimi.com" → "kimi.com", "chat.z.ai" → "z.ai") so
+    // stored rows group exactly under one domain per tool surface.
+    const canonicalDomain = resolveTrackedAiDomain(event.domain)
+    if (!canonicalDomain) {
       console.warn(`[Extension Sync] Rejecting event with untracked domain: ${event.domain}`)
-      return false
+      return []
     }
 
     // Only active-time events are duration-bounded: their duration earns
@@ -215,7 +223,7 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
     // cost the user the visit itself.
     if (event.type === 'active_time' && duration > MAX_ACTIVE_TIME_MS) {
       console.warn(`[Extension Sync] Rejecting event with excessive duration: ${duration}ms on ${event.domain}`)
-      return false
+      return []
     }
 
     // Ensure reasonable timestamp
@@ -226,10 +234,10 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
 
     if (eventTime < oneWeekAgo || eventTime > oneHourFuture) {
       console.warn(`[Extension Sync] Rejecting event with invalid timestamp: ${event.timestamp} on ${event.domain}`)
-      return false
+      return []
     }
 
-    return true
+    return [{ ...event, domain: canonicalDomain }]
   })
 
   if (validEvents.length !== events.length) {
