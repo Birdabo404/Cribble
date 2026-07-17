@@ -72,7 +72,7 @@ export function ThemeToggle({
         onClick={toggleTheme}
         aria-label={ariaLabel}
         title={ariaLabel}
-        className="nav-row relative mx-2 flex h-10 w-[calc(100%-16px)] shrink-0 items-center rounded-lg font-mono text-zinc-400 transition-colors hover:bg-white/[0.05] hover:text-zinc-100"
+        className="nav-row relative mx-2 flex h-10 w-[calc(100%-16px)] shrink-0 items-center rounded-lg font-mono text-zinc-400 transition-colors duration-150 hover:bg-white/[0.05] hover:text-zinc-100 active:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
       >
         <span className="flex w-12 shrink-0 items-center justify-center">
           {mounted && <ThemeIcon isLight={isLight} className="h-[15px] w-[15px]" />}
@@ -95,7 +95,7 @@ export function ThemeToggle({
       onClick={toggleTheme}
       aria-label={ariaLabel}
       title={ariaLabel}
-      className={`flex items-center gap-1.5 text-[10px] tracking-[0.3em] px-3 py-1.5 rounded border border-zinc-800 hover:border-zinc-600 text-zinc-300 hover:text-zinc-100 transition-colors font-mono ${className}`}
+      className={`flex items-center gap-1.5 text-[10px] tracking-[0.3em] px-3 py-1.5 rounded border border-zinc-800 text-zinc-300 transition-[color,background-color,border-color,transform] duration-150 hover:border-zinc-600 hover:bg-white/[0.04] hover:text-zinc-100 active:scale-[0.98] active:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 font-mono ${className}`}
     >
       {!mounted ? (
         <span className="opacity-0">DARK</span>

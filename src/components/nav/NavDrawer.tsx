@@ -8,6 +8,7 @@ import { useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { formatRelative } from '@/components/dashboard-v2/format'
+import { LiquidMark } from '@/components/brand/LiquidMark'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { NavIcon } from './NavIcon'
 import { connectionMeta, useNavStatus } from './NavStatusContext'
@@ -39,10 +40,15 @@ export function NavDrawer({
     }
   }, [open, onClose])
 
-  const itemState = (i: number) =>
-    open
-      ? { className: 'translate-x-0 opacity-100', delay: `${100 + i * 40}ms` }
-      : { className: '-translate-x-2 opacity-0', delay: '0ms' }
+  // Delay staggers the entrance only — background/color hover transitions
+  // stay at 0ms delay so rows respond instantly once the drawer is open.
+  const itemState = (i: number) => {
+    const delay = open ? `${100 + i * 40}ms` : '0ms'
+    return {
+      className: open ? 'translate-x-0 opacity-100' : '-translate-x-2 opacity-0',
+      delay: `${delay}, ${delay}, 0ms, 0ms`
+    }
+  }
 
   return (
     <div
@@ -66,14 +72,17 @@ export function NavDrawer({
         }`}
       >
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/[0.08] px-4">
-          <span className="text-sm font-semibold tracking-[0.4em] text-zinc-100">
-            CRIBBLE<span className="text-accent">.</span>
+          <span className="flex items-center gap-2.5 text-sm font-semibold tracking-[0.4em] text-zinc-100">
+            <LiquidMark size={20} />
+            <span>
+              CRIBBLE<span className="text-accent">.</span>
+            </span>
           </span>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close navigation"
-            className="flex h-8 w-8 items-center justify-center rounded text-zinc-500 transition-colors hover:text-zinc-100"
+            className="flex h-8 w-8 items-center justify-center rounded text-zinc-500 transition-colors duration-150 hover:bg-white/[0.05] hover:text-zinc-100 active:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
           >
             <NavIcon name="close" className="h-4 w-4" />
           </button>
@@ -90,18 +99,16 @@ export function NavDrawer({
                 onClick={onClose}
                 aria-current={active ? 'page' : undefined}
                 style={{ transitionDelay: state.delay }}
-                className={`relative mx-2 mb-1 flex h-11 items-center rounded-lg transition-[opacity,transform,background-color,color] duration-300 ${state.className} ${
+                className={`relative mx-2 mb-1 flex h-11 items-center rounded-lg transition-[opacity,transform,background-color,color] duration-[300ms,300ms,150ms,150ms] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 ${state.className} ${
                   active
-                    ? 'bg-accent/[0.07] text-zinc-50'
-                    : 'text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-100'
+                    ? 'bg-white/[0.06] text-zinc-50'
+                    : 'text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-100 active:bg-white/[0.08]'
                 }`}
               >
                 {active && (
-                  <span className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-full bg-accent shadow-[0_0_10px_rgb(var(--accent-rgb)/0.8)]" />
+                  <span className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-full bg-accent" />
                 )}
-                <span
-                  className={`flex w-12 shrink-0 items-center justify-center ${active ? 'text-accent' : ''}`}
-                >
+                <span className="flex w-12 shrink-0 items-center justify-center">
                   <NavIcon name={item.icon} className="h-[17px] w-[17px]" />
                 </span>
                 <span className="text-[10px] tracking-[0.3em]">{item.label}</span>
@@ -123,7 +130,7 @@ export function NavDrawer({
                 type="button"
                 onClick={status.onSync}
                 disabled={status.syncing}
-                className="rounded border border-zinc-800 px-2.5 py-1 text-[9px] tracking-[0.3em] text-zinc-300 transition-colors hover:border-zinc-600 disabled:opacity-50"
+                className="rounded border border-zinc-800 px-2.5 py-1 text-[9px] tracking-[0.3em] text-zinc-300 transition-[color,background-color,border-color,transform] duration-150 hover:border-zinc-600 hover:bg-white/[0.04] hover:text-zinc-100 active:scale-[0.98] active:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 disabled:opacity-50"
               >
                 {status.syncing ? 'SYNCING…' : 'SYNC'}
               </button>

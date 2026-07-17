@@ -33,10 +33,7 @@ export interface ConnectionMeta {
 export function connectionMeta(connection: ConnectionState): ConnectionMeta {
   switch (connection) {
     case 'online':
-      return {
-        label: 'LIVE',
-        dotClass: 'bg-accent shadow-[0_0_10px_rgb(var(--accent-rgb)/0.7)]'
-      }
+      return { label: 'LIVE', dotClass: 'bg-accent' }
     case 'idle':
       return { label: 'IDLE', dotClass: 'bg-amber-400' }
     case 'offline':

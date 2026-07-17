@@ -12,15 +12,19 @@ import { usePathname } from 'next/navigation'
 import { formatRelative } from '@/components/dashboard-v2/format'
 import { AccountMenu } from '@/components/dashboard-v3/AccountMenu'
 import { NotificationBell } from '@/components/dashboard-v3/NotificationBell'
+import { LiquidMark } from '@/components/brand/LiquidMark'
 import { NavIcon } from './NavIcon'
 import { connectionMeta, useNavStatus } from './NavStatusContext'
 import { NAV_ITEMS, isNavItemActive } from './navItems'
 import { NavDrawer } from './NavDrawer'
+import { UserSearch, isUserSearchRoute } from './UserSearch'
 import type { NavUserState } from './useNavUser'
 
-const CHIP_BASE = 'text-[10px] tracking-[0.3em] px-3 py-1.5 rounded border transition-colors'
-const CHIP_IDLE = 'border-zinc-800 hover:border-zinc-600 text-zinc-300 hover:text-zinc-100'
-const CHIP_ACTIVE = 'border-accent/40 bg-accent/[0.06] text-accent'
+const CHIP_BASE =
+  'text-[10px] tracking-[0.3em] px-3 py-1.5 rounded border transition-[color,background-color,border-color,transform] duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500'
+const CHIP_IDLE =
+  'border-zinc-800 text-zinc-300 hover:border-zinc-600 hover:bg-white/[0.04] hover:text-zinc-100 active:bg-white/[0.07]'
+const CHIP_ACTIVE = 'border-zinc-500 bg-white/[0.06] text-zinc-50'
 
 export function NavTopBar({
   navUser,
@@ -60,16 +64,19 @@ export function NavTopBar({
             type="button"
             onClick={() => setDrawerOpen(true)}
             aria-label="Open navigation"
-            className="md:hidden -ml-1 flex h-8 w-8 items-center justify-center rounded border border-zinc-800 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-zinc-100"
+            className="md:hidden -ml-1 flex h-8 w-8 items-center justify-center rounded border border-zinc-800 text-zinc-300 transition-[color,background-color,border-color,transform] duration-150 hover:border-zinc-600 hover:bg-white/[0.04] hover:text-zinc-100 active:scale-[0.98] active:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
           >
             <NavIcon name="menu" className="h-4 w-4" />
           </button>
 
           <Link
             href="/dashboard"
-            className="text-sm font-semibold tracking-[0.4em] text-zinc-100 transition-opacity hover:opacity-80"
+            className="flex items-center gap-2.5 text-sm font-semibold tracking-[0.4em] text-zinc-100 transition-opacity hover:opacity-80"
           >
-            CRIBBLE<span className="text-accent">.</span>
+            <LiquidMark size={20} />
+            <span>
+              CRIBBLE<span className="text-accent">.</span>
+            </span>
           </Link>
 
           <div className="ml-auto flex items-center gap-2">
@@ -103,6 +110,11 @@ export function NavTopBar({
                 {status.syncing ? 'SYNCING…' : 'SYNC'}
               </button>
             )}
+
+            {/* user search — an icon chip, and only where finding people is
+                the page's job (profiles + leaderboard); everywhere else the
+                bar stays clean */}
+            {isUserSearchRoute(pathname) && <UserSearch variant="chip" />}
 
             <NotificationBell />
 

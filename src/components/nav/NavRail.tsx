@@ -16,18 +16,21 @@ import { usePathname } from 'next/navigation'
 import { formatRelative } from '@/components/dashboard-v2/format'
 import { AccountMenu } from '@/components/dashboard-v3/AccountMenu'
 import { NotificationBell } from '@/components/dashboard-v3/NotificationBell'
+import { LiquidMark } from '@/components/brand/LiquidMark'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { animDelay } from '@/components/dashboard-v3/anim'
 import { NavIcon } from './NavIcon'
 import { connectionMeta, useNavStatus, type NavStatus } from './NavStatusContext'
 import { useNavPrefs } from './NavPrefsContext'
 import { NAV_ITEMS, isNavItemActive } from './navItems'
+import { UserSearch } from './UserSearch'
 import type { NavUserState } from './useNavUser'
 
 const ROW_BASE =
-  'nav-row relative mx-2 flex h-10 shrink-0 items-center rounded-lg transition-colors'
-const ROW_IDLE = 'text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.05]'
-const ROW_ACTIVE = 'text-zinc-50 bg-accent/[0.07]'
+  'nav-row relative mx-2 flex h-10 shrink-0 items-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500'
+const ROW_IDLE =
+  'text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.05] active:bg-white/[0.08]'
+const ROW_ACTIVE = 'text-zinc-50 bg-white/[0.06]'
 
 function RowTip({ children }: { children: React.ReactNode }) {
   return (
@@ -56,7 +59,7 @@ function SyncRow({ status }: { status: NavStatus }) {
         {/* dot only while the extension link is live — an always-on status
             dot reads as an unexplained alert */}
         {live && (
-          <span className="absolute right-2.5 top-2 h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_10px_rgb(var(--accent-rgb)/0.7)]" />
+          <span className="absolute right-2.5 top-2 h-1.5 w-1.5 rounded-full bg-accent" />
         )}
       </span>
       <span className="nav-label-clip">
@@ -112,11 +115,9 @@ export function NavRail({ navUser }: { navUser: NavUserState }) {
         style={animDelay(80 + i * 50)}
       >
         {active && (
-          <span className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-full bg-accent shadow-[0_0_10px_rgb(var(--accent-rgb)/0.8)]" />
+          <span className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-full bg-accent" />
         )}
-        <span
-          className={`flex w-12 shrink-0 items-center justify-center ${active ? 'text-accent' : ''}`}
-        >
+        <span className="flex w-12 shrink-0 items-center justify-center">
           <NavIcon name={item.icon} className="h-[17px] w-[17px]" />
         </span>
         <span className="nav-label-clip">
@@ -133,8 +134,9 @@ export function NavRail({ navUser }: { navUser: NavUserState }) {
       className="app-nav-rail app-nav-glass-rail app-nav-enter-left fixed inset-y-0 left-0 z-40 hidden md:flex cursor-pointer flex-col"
       aria-label="Primary navigation"
     >
-      {/* wordmark — doubles as the expand/collapse toggle; mini "C." and
-          full "CRIBBLE." crossfade with the width */}
+      {/* wordmark — doubles as the expand/collapse toggle. The liquid-metal
+          hive mark holds the icon column in both widths; the "CRIBBLE."
+          label slides in beside it when expanded. */}
       <div className="relative h-14 shrink-0 overflow-hidden border-b border-white/[0.06]">
         <button
           type="button"
@@ -142,12 +144,12 @@ export function NavRail({ navUser }: { navUser: NavUserState }) {
           aria-label={expanded ? 'Collapse navigation' : 'Expand navigation'}
           aria-expanded={expanded}
           title="Toggle nav · ["
-          className="absolute inset-0 text-left"
+          className="absolute inset-0 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-zinc-500"
         >
-          <span className="nav-wordmark-mini absolute left-0 top-0 flex h-full w-16 items-center justify-center text-sm font-semibold tracking-[0.1em] text-zinc-100">
-            C<span className="text-accent">.</span>
+          <span className="absolute left-0 top-0 flex h-full w-16 items-center justify-center">
+            <LiquidMark size={24} title="Cribble" />
           </span>
-          <span className="nav-wordmark-full absolute left-5 top-0 flex h-full items-center whitespace-nowrap text-sm font-semibold tracking-[0.4em] text-zinc-100">
+          <span className="nav-wordmark-full absolute left-14 top-0 flex h-full items-center whitespace-nowrap text-sm font-semibold tracking-[0.4em] text-zinc-100">
             CRIBBLE<span className="text-accent">.</span>
           </span>
         </button>
@@ -181,6 +183,7 @@ export function NavRail({ navUser }: { navUser: NavUserState }) {
           </Link>
         )}
         {renderItem(NAV_ITEMS[0], 1)}
+        <UserSearch variant="rail" />
         <NotificationBell variant="rail" placement="side" />
         {NAV_ITEMS.slice(1).map((item, i) => renderItem(item, i + 3))}
       </nav>

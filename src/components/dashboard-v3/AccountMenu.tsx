@@ -7,9 +7,10 @@ import { formatRelative, tierAccent } from '@/components/dashboard-v2/format'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { DeleteAccountModal } from '@/components/dashboard-v3/DeleteAccountModal'
 import { useNavPrefs, type NavPosition } from '@/components/nav/NavPrefsContext'
+import { PremiumSettingsModal } from '@/components/premium/PremiumSettingsModal'
 import type { ActiveDevice, MeUser } from '@/types/dashboard'
 
-type ModalId = 'store' | 'settings' | 'privacy' | 'delete'
+type ModalId = 'settings' | 'premium' | 'privacy' | 'delete'
 
 /* ---------- icons (14px, stroke) ---------- */
 
@@ -34,13 +35,12 @@ const ICONS = {
   profile: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
   award:
     'M12 15a7 7 0 1 0 0-14 7 7 0 0 0 0 14z M8.21 13.89 7 23l5-3 5 3-1.21-9.12',
-  store: 'M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z M3 6h18 M16 10a4 4 0 0 1-8 0',
   settings:
     'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z',
-  monetization:
-    'M12 22c5.52 0 10-4.48 10-10S17.52 2 12 2 2 6.48 2 12s4.48 10 10 10z M15 9.35A3.5 3.5 0 0 0 12.5 8.5h-1a2 2 0 0 0 0 4h1a2 2 0 0 1 0 4h-1A3.5 3.5 0 0 1 9 15.65 M12 6.5v2 M12 15.5v2',
+  crown: 'M2 20h20 M4 20 2 7l5.5 4L12 4l4.5 7L22 7l-2 13z',
   privacy:
     'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z M9 12l2 2 4-4',
+  shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z M12 8v4 M12 15h.01',
   signout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9',
   key: 'M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4',
   activity: 'M22 12h-4l-3 9L9 3l-3 9H2',
@@ -125,33 +125,6 @@ function SettingSection({ label, children }: { label: string; children: ReactNod
 }
 
 /* ---------- modal bodies ---------- */
-
-function StoreModal({ onClose }: { onClose: () => void }) {
-  const shelves = ['BOOSTS', 'THEMES', 'SEASON PASS']
-  return (
-    <MenuModal title="STORE" onClose={onClose}>
-      <div className="p-5">
-        <p className="text-xs text-zinc-400 leading-relaxed">
-          The Cribble store is being stocked. Boosts, cosmetics, and season passes will land here.
-        </p>
-        <div className="mt-4 grid grid-cols-3 gap-3">
-          {shelves.map((s) => (
-            <div
-              key={s}
-              className="rounded-lg liquid-glass-inset px-3 py-4 text-center"
-            >
-              <div className="text-lg text-zinc-600">???</div>
-              <div className="mt-1.5 text-[9px] tracking-[0.25em] text-zinc-500">{s}</div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-4 text-center text-[9px] tracking-[0.35em] text-accent/70">
-          COMING SOON
-        </div>
-      </div>
-    </MenuModal>
-  )
-}
 
 /** LEFT / TOP segmented control. Hidden entirely outside the app shell
  *  (useNavPrefs returns null without a provider). */
@@ -327,7 +300,20 @@ export function AccountMenu({
 }) {
   const [open, setOpen] = useState(false)
   const [modal, setModal] = useState<ModalId | null>(null)
+  const [isStaff, setIsStaff] = useState(false)
+  const staffCheckedRef = useRef(false)
   const rootRef = useRef<HTMLDivElement>(null)
+
+  // Staff check is lazy (first menu open only) and self-scoped: the
+  // endpoint 403s for regular users and only ever reveals the caller's
+  // own role, so nothing about other admins leaks to the client.
+  useEffect(() => {
+    if (!open || staffCheckedRef.current) return
+    staffCheckedRef.current = true
+    fetch('/api/admin/me', { credentials: 'include' })
+      .then((res) => setIsStaff(res.ok))
+      .catch(() => setIsStaff(false))
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -360,8 +346,6 @@ export function AccountMenu({
   const renderModal = () => {
     if (modal === null) return null
     switch (modal) {
-      case 'store':
-        return <StoreModal onClose={() => setModal(null)} />
       case 'settings':
         return (
           <SettingsModal
@@ -371,6 +355,8 @@ export function AccountMenu({
             onDeleteAccount={() => setModal('delete')}
           />
         )
+      case 'premium':
+        return <PremiumSettingsModal onClose={() => setModal(null)} />
       case 'privacy':
         return (
           <PrivacyModal
@@ -418,10 +404,10 @@ export function AccountMenu({
       {variant === 'rail' ? (
         <button
           onClick={() => setOpen((v) => !v)}
-          className={`nav-row relative mx-2 flex h-10 w-[calc(100%-16px)] shrink-0 items-center rounded-lg transition-colors ${
+          className={`nav-row relative mx-2 flex h-10 w-[calc(100%-16px)] shrink-0 items-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 ${
             open
               ? 'bg-white/[0.06] text-zinc-100'
-              : 'text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-100'
+              : 'text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-100 active:bg-white/[0.08]'
           }`}
           aria-label="Open account menu"
           aria-expanded={open}
@@ -458,8 +444,8 @@ export function AccountMenu({
         /* Split pill: the identity half is a straight link to the profile,
            only the chevron half opens the menu. */
         <div
-          className={`flex items-stretch overflow-hidden rounded-full border bg-zinc-950/70 transition-colors ${
-            open ? 'border-accent/50' : 'border-zinc-800 hover:border-accent/40'
+          className={`flex items-stretch overflow-hidden rounded-full border bg-zinc-950/70 transition-colors duration-150 ${
+            open ? 'border-zinc-500' : 'border-zinc-800 hover:border-zinc-600'
           }`}
         >
           <Link
@@ -467,7 +453,7 @@ export function AccountMenu({
             onClick={() => setOpen(false)}
             title="View profile"
             aria-label="View profile"
-            className="flex items-center gap-2 py-1 pl-1.5 pr-2.5 transition-colors hover:bg-zinc-900/80"
+            className="flex items-center gap-2 py-1 pl-1.5 pr-2.5 transition-colors duration-150 hover:bg-zinc-900/80 active:bg-zinc-900 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-zinc-500"
           >
             {avatar('h-7 w-7')}
             <span className="hidden sm:inline text-[11px] text-zinc-100">
@@ -481,7 +467,7 @@ export function AccountMenu({
             aria-label="Open account menu"
             aria-expanded={open}
             aria-haspopup="menu"
-            className={`flex items-center px-2 transition-colors hover:bg-zinc-900/80 ${
+            className={`flex items-center px-2 transition-colors duration-150 hover:bg-zinc-900/80 active:bg-zinc-900 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-zinc-500 ${
               open ? 'bg-zinc-900/80 text-zinc-300' : 'text-zinc-500 hover:text-zinc-300'
             }`}
           >
@@ -562,12 +548,6 @@ export function AccountMenu({
               ACHIEVEMENTS
               <span className={arrowCls}>→</span>
             </Link>
-            <button role="menuitem" onClick={() => openModal('store')} className={itemCls}>
-              <span className={iconCls}>
-                <Icon d={ICONS.store} />
-              </span>
-              STORE
-            </button>
             <button role="menuitem" onClick={() => openModal('settings')} className={itemCls}>
               <span className={iconCls}>
                 <Icon d={ICONS.settings} />
@@ -576,16 +556,13 @@ export function AccountMenu({
             </button>
             <button
               role="menuitem"
-              disabled
-              className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left text-[11px] tracking-[0.2em] text-zinc-600 cursor-not-allowed"
+              onClick={() => openModal('premium')}
+              className="group w-full flex items-center gap-3 px-3.5 py-2.5 text-left text-[11px] tracking-[0.2em] text-zinc-300 hover:text-zinc-50 hover:bg-amber-300/[0.06] transition-colors"
             >
-              <span className="text-zinc-700">
-                <Icon d={ICONS.monetization} />
+              <span className="text-zinc-500 transition-colors group-hover:text-amber-300">
+                <Icon d={ICONS.crown} />
               </span>
-              MONETIZATION
-              <span className="ml-auto text-[8px] tracking-[0.25em] px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500 bg-white/[0.03]">
-                SOON
-              </span>
+              CRIBBLE PREMIUM
             </button>
             <button role="menuitem" onClick={() => openModal('privacy')} className={itemCls}>
               <span className={iconCls}>
@@ -593,6 +570,20 @@ export function AccountMenu({
               </span>
               PRIVACY & SECURITY
             </button>
+            {isStaff && (
+              <Link
+                href="/admin"
+                onClick={() => setOpen(false)}
+                role="menuitem"
+                className={itemCls}
+              >
+                <span className={iconCls}>
+                  <Icon d={ICONS.shield} />
+                </span>
+                ADMIN PANEL
+                <span className={arrowCls}>→</span>
+              </Link>
+            )}
           </div>
 
           <div className="border-t border-white/[0.08] py-1.5">

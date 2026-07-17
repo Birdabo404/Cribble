@@ -2,10 +2,16 @@
 
 // Persistent chrome for all authenticated pages, mounted once by the
 // (app) route-group layout. Because the layout survives client-side
-// navigation, the nav, starfield, and ambient glow never remount between
-// pages — route changes only swap the content inside .app-nav-inset.
+// navigation, the nav and backdrop never remount between pages — route
+// changes only swap the content inside .app-nav-inset.
+//
+// Exception: profile routes drop the animated starfield + glow. The
+// profile page mounts its own static banner-derived aurora
+// (ProfileAmbience), so the two backdrops would fight — and the ~70
+// looping twinkle animations made the profile feel heavy.
 
 import type { ReactNode } from 'react'
+import { usePathname } from 'next/navigation'
 import SpaceBackdrop from '@/components/SpaceBackdrop'
 import { AmbientGlow } from '@/components/dashboard-v3/AmbientGlow'
 import { GlassTilt } from '@/components/dashboard-v3/GlassTilt'
@@ -14,12 +20,15 @@ import { NavPrefsProvider } from './NavPrefsContext'
 import { NavStatusProvider } from './NavStatusContext'
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname() ?? ''
+  const profileRoute = pathname === '/profile' || pathname.startsWith('/u/')
+
   return (
     <NavPrefsProvider>
       <NavStatusProvider>
-        <div className="min-h-screen bg-black font-mono text-zinc-100 selection:bg-accent/20">
-          <SpaceBackdrop />
-          <AmbientGlow />
+        <div className="dossier-canvas min-h-screen bg-black font-mono text-zinc-100 selection:bg-accent/20">
+          {!profileRoute && <SpaceBackdrop />}
+          {!profileRoute && <AmbientGlow />}
           <GlassTilt />
           {/* horizon line — thin accent scanline at the bottom for retro hint */}
           <div

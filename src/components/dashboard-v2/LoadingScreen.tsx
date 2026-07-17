@@ -2,7 +2,7 @@ import { ACCENT, accentA } from './format'
 
 export function LoadingScreen() {
   return (
-    <div className="min-h-screen bg-black text-zinc-100 font-mono flex items-center justify-center">
+    <div className="dossier-canvas min-h-screen bg-black text-zinc-100 font-mono flex items-center justify-center">
       <div className="flex flex-col items-center gap-3">
         <div className="flex items-center gap-2 text-[10px] tracking-[0.4em] text-zinc-500">
           <span

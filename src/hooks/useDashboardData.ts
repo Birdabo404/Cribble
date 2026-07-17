@@ -53,17 +53,34 @@ export function useDashboardData(): DashboardData {
   const [leaderboard, setLeaderboard] = useState<LeaderUser[]>([])
   const [profile, setProfile] = useState<OnboardingProfile>({ role: null, goal: null })
 
+  // True once a /api/user/me response has populated state. Transient
+  // failures after that point must keep the last good data on screen
+  // instead of tearing the dashboard down to an error state.
+  const hasDataRef = useRef(false)
+
   const fetchMe = useCallback(async (): Promise<MeFetchResult> => {
-    const res = await fetch('/api/user/me', { credentials: 'include' })
-    if (res.status === 401) {
-      router.push('/login')
+    let data: MeResponsePayload
+    try {
+      const res = await fetch('/api/user/me', { credentials: 'include' })
+      // 401 means the session is genuinely gone (the API returns 503 for
+      // transient lookup failures) — only then is a login bounce correct.
+      if (res.status === 401) {
+        router.push('/login')
+        return { ok: false }
+      }
+      if (!res.ok) throw new Error(`me fetch failed (${res.status})`)
+      data = await res.json()
+    } catch {
+      // Network blips (dev-server rebuilds, wake from sleep) and 5xx land
+      // here. Callers run from intervals and fire-and-forget listeners, so
+      // this must resolve — a throw becomes an unhandled rejection. Only
+      // surface the error when there is no data yet; a later successful
+      // poll clears it.
+      if (!hasDataRef.current) setError('Failed to load profile')
       return { ok: false }
     }
-    if (!res.ok) {
-      setError('Failed to load profile')
-      return { ok: false }
-    }
-    const data: MeResponsePayload = await res.json()
+    hasDataRef.current = true
+    setError(null)
     setUser(data.user)
     if (data.scores) setScores(data.scores)
     if (data.stats) setStats(data.stats)
@@ -176,13 +193,16 @@ export function useDashboardData(): DashboardData {
     totalScoreRef.current = scores.total_score
   }, [scores.total_score])
 
+  // Keyed on the id, not the object: `user` is replaced by every poll, and
+  // an object dependency would tear down and recreate the interval each tick.
+  const userId = user?.id ?? null
   useEffect(() => {
-    if (!user) return
+    if (userId === null) return
     const id = setInterval(() => {
       void refreshRef.current({ scope: 'core' })
     }, POLL_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [user])
+  }, [userId])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
