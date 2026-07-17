@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import SpaceBackdrop from '@/components/SpaceBackdrop'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { LiquidMark } from '@/components/brand/LiquidMark'
 import { ROLE_ICONS } from '@/components/roleIcons'
 import { ROLE_OPTIONS } from '@/lib/roles'
 import {
@@ -241,7 +242,7 @@ export default function WelcomePage() {
   }, [stage])
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 relative overflow-hidden selection:bg-accent/20">
+    <div className="dossier-canvas min-h-screen bg-black text-zinc-100 relative overflow-hidden selection:bg-accent/20">
       <SpaceBackdrop />
 
       {devMode && <DevBar stage={stage} onJump={setStage} />}
@@ -468,8 +469,11 @@ function TopBar({
   return (
     <header className="relative z-10 px-6 pt-6">
       <div className="max-w-3xl mx-auto flex items-center justify-between">
-        <div className="font-mono text-sm tracking-[0.4em] text-zinc-100 font-semibold">
-          CRIBBLE<span className="text-accent">.</span>
+        <div className="flex items-center gap-2.5 font-mono text-sm tracking-[0.4em] text-zinc-100 font-semibold">
+          <LiquidMark size={22} />
+          <span>
+            CRIBBLE<span className="text-accent">.</span>
+          </span>
         </div>
         <div className="flex items-center gap-3">
           <div className="hidden sm:block font-mono text-[10px] tracking-[0.3em] text-zinc-500 tabular-nums">
@@ -510,8 +514,14 @@ function IntroStage() {
   return (
     <div className="relative w-full max-w-md px-2 text-center">
       <div
-        className="intro-rise font-mono text-[10px] tracking-[0.5em] text-zinc-500"
+        className="intro-rise mx-auto mb-7 flex justify-center"
         style={{ ['--wd' as string]: '0ms' }}
+      >
+        <LiquidMark size={88} title="Cribble" />
+      </div>
+      <div
+        className="intro-rise font-mono text-[10px] tracking-[0.5em] text-zinc-500"
+        style={{ ['--wd' as string]: '60ms' }}
       >
         WELCOME TO
       </div>

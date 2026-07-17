@@ -13,9 +13,11 @@ import {
   useRef,
   useState
 } from 'react'
+import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import SpaceBackdrop from '@/components/SpaceBackdrop'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { LiquidMark } from '@/components/brand/LiquidMark'
 
 type Mode = 'signin' | 'register'
 type Phase = 'idle' | 'checking' | 'granted'
@@ -35,7 +37,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   twitter_not_configured: 'X sign-in is not available right now. Use GitHub instead.',
   session_creation_failed: 'Something went wrong creating your session. Please try again.',
   github_rate_limited: 'Too many sign-in attempts. Wait a few minutes and try again.',
-  twitter_rate_limited: 'Too many sign-in attempts. Wait a few minutes and try again.'
+  twitter_rate_limited: 'Too many sign-in attempts. Wait a few minutes and try again.',
+  account_banned: 'This account has been banned. Contact support if you believe this is a mistake.'
 }
 
 const GENERIC_GITHUB_ERROR = 'GitHub sign-in failed. Please try again in a moment.'
@@ -537,12 +540,12 @@ function LoginExperience() {
         style={{ ['--d' as string]: '320ms' }}
       >
         No key yet?{' '}
-        <a
+        <Link
           href="/"
           className="text-zinc-300 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-accent hover:decoration-accent/60"
         >
           Join the waitlist
-        </a>
+        </Link>
         <span className="text-zinc-600"> — seats open in waves.</span>
       </p>
     </div>
@@ -700,7 +703,7 @@ function SpinnerLight() {
 
 export default function LoginPage() {
   return (
-    <main className="relative min-h-screen bg-background text-foreground selection:bg-accent/20">
+    <main className="dossier-canvas relative min-h-screen bg-background text-foreground selection:bg-accent/20">
       <SpaceBackdrop />
 
       {/* ── atmosphere: orbit ring + planet limb on the horizon ── */}
@@ -747,12 +750,15 @@ export default function LoginPage() {
 
       {/* ── chrome ── */}
       <header className="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-5 py-5 sm:px-8 sm:py-6">
-        <a
+        <Link
           href="/"
-          className="font-mono text-sm font-semibold tracking-[0.4em] text-zinc-100"
+          className="flex items-center gap-2.5 font-mono text-sm font-semibold tracking-[0.4em] text-zinc-100"
         >
-          CRIBBLE<span className="text-accent">.</span>
-        </a>
+          <LiquidMark size={22} />
+          <span>
+            CRIBBLE<span className="text-accent">.</span>
+          </span>
+        </Link>
         <ThemeToggle />
       </header>
 
