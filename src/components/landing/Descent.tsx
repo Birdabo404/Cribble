@@ -30,6 +30,7 @@ const SECTIONS = [
 
 function DescentHud({ rootRef }: { rootRef: React.RefObject<HTMLDivElement> }) {
   const [visible, setVisible] = useState(false)
+  const [barVisible, setBarVisible] = useState(false)
   const [alt, setAlt] = useState(100)
   const [active, setActive] = useState<string>('arena')
   const raf = useRef(0)
@@ -43,6 +44,9 @@ function DescentHud({ rootRef }: { rootRef: React.RefObject<HTMLDivElement> }) {
       if (!root) return
       const vh = window.innerHeight
       setVisible(window.scrollY > vh * 0.55)
+      // The phone chip overlays page content (no free margin on small
+      // screens), so it waits until the hero is fully cleared.
+      setBarVisible(window.scrollY > vh * 1.05)
 
       const r = root.getBoundingClientRect()
       const total = r.height - vh
@@ -78,6 +82,55 @@ function DescentHud({ rootRef }: { rootRef: React.RefObject<HTMLDivElement> }) {
   }, [rootRef])
 
   return (
+    <>
+    {/* Phone HUD — the right rail has no room on small screens, so the
+        same telemetry compresses into a hairline descent-progress bar
+        pinned to the top edge (plus the live altitude readout). */}
+    <div
+      aria-hidden
+      className="hud-bar pointer-events-none fixed inset-x-0 z-40 lg:hidden"
+      style={{
+        top: 'env(safe-area-inset-top, 0px)',
+        opacity: barVisible ? 1 : 0
+      }}
+    >
+      <div className="h-[2px] w-full bg-zinc-900/60">
+        <div
+          className="h-full"
+          style={{
+            width: `${100 - alt}%`,
+            background:
+              'linear-gradient(90deg, rgb(var(--accent-rgb) / 0.4), var(--accent))',
+            boxShadow: '0 0 12px rgb(var(--accent-rgb) / 0.7)'
+          }}
+        />
+      </div>
+    </div>
+
+    {/* altitude chip — bottom corner, clear of the reading line */}
+    <div
+      aria-hidden
+      className="hud-bar pointer-events-none fixed right-3 z-40 lg:hidden"
+      style={{
+        bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+        opacity: barVisible ? 1 : 0
+      }}
+    >
+      <span
+        className="block rounded-md border px-2 py-1.5 text-[9px] leading-none tabular-nums tracking-[0.2em] [font-family:var(--font-pixel)]"
+        style={{
+          color: 'var(--accent)',
+          borderColor: 'rgb(var(--accent-rgb) / 0.25)',
+          background: 'rgb(0 0 0 / 0.72)',
+          textShadow: '0 0 10px rgb(var(--accent-rgb) / 0.5)',
+          backdropFilter: 'blur(6px)',
+          WebkitBackdropFilter: 'blur(6px)'
+        }}
+      >
+        ALT {alt.toFixed(1).padStart(5, '0')} KM
+      </span>
+    </div>
+
     <div
       aria-hidden
       className="hud-rail pointer-events-none fixed right-5 top-1/2 z-40 hidden -translate-y-1/2 flex-col items-end gap-5 lg:flex"
@@ -132,12 +185,17 @@ function DescentHud({ rootRef }: { rootRef: React.RefObject<HTMLDivElement> }) {
         })}
       </div>
 
-      <style jsx>{`
-        .hud-rail {
-          transition: opacity 500ms ease, transform 500ms cubic-bezier(0.22, 1, 0.36, 1);
-        }
-      `}</style>
     </div>
+
+    <style jsx>{`
+      .hud-rail {
+        transition: opacity 500ms ease, transform 500ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .hud-bar {
+        transition: opacity 500ms ease;
+      }
+    `}</style>
+    </>
   )
 }
 
@@ -147,7 +205,7 @@ function DescentHud({ rootRef }: { rootRef: React.RefObject<HTMLDivElement> }) {
 
 function DescentGate() {
   return (
-    <Stage className="page-zoom-out mx-auto flex w-full max-w-6xl flex-col items-center px-6 pt-16 pb-4 text-center">
+    <Stage className="page-zoom-out mx-auto flex w-full max-w-6xl flex-col items-center px-6 pt-12 pb-2 sm:pt-16 sm:pb-4 text-center">
       <span
         className="st text-[9px] tracking-[0.45em] text-zinc-600"
         style={{ '--d': '0ms' } as CSSProperties}
@@ -200,7 +258,7 @@ function Finale() {
         }}
       />
 
-      <Stage className="page-zoom-out relative mx-auto flex w-full max-w-6xl flex-col items-center px-6 pb-24 pt-28 text-center md:pt-36">
+      <Stage className="page-zoom-out relative mx-auto flex w-full max-w-6xl flex-col items-center px-6 pb-20 pt-20 text-center sm:pb-24 sm:pt-28 md:pt-36">
         <span
           className="st text-[9px] tracking-[0.45em] text-zinc-600"
           style={{ '--d': '0ms' } as CSSProperties}
@@ -239,7 +297,7 @@ function Finale() {
           <button
             type="button"
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-            className="text-xs tracking-[0.2em] text-zinc-400 transition-colors hover:text-[color:var(--accent)]"
+            className="px-2 py-2 text-[13px] sm:px-0 sm:py-0 sm:text-xs tracking-[0.2em] text-zinc-400 transition-colors hover:text-[color:var(--accent)]"
           >
             back to orbit ↑
           </button>
@@ -295,6 +353,10 @@ export function Descent() {
             radial-gradient(1px 1px at 141px 158px, rgb(255 255 255 / 0.14) 50%, transparent 55%),
             var(--space-deep);
           background-size: 240px 240px, 300px 300px, auto;
+          /* decorative glows/beams may poke past the viewport on phones;
+             clip (not hidden) keeps this from becoming a scroll container,
+             so page scroll + the roadmap's sticky column stay intact */
+          overflow-x: clip;
         }
 
         html.light .lx-descent {

@@ -278,7 +278,7 @@ function PhaseNode({
                   {item.title}
                 </span>
               </span>
-              <p className="mt-1.5 font-sans text-[12px] leading-relaxed text-zinc-500">
+              <p className="mt-1.5 font-sans text-[13px] leading-relaxed text-zinc-500 sm:text-[12px]">
                 {item.detail}
               </p>
             </li>
@@ -298,7 +298,7 @@ function RoadmapBody() {
     <>
       <Seam alt="00 KM" note="TOUCHDOWN · FLIGHT PLAN LOADED" />
 
-      <div className="mt-14 grid grid-cols-1 gap-12 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
+      <div className="mt-10 sm:mt-14 grid grid-cols-1 gap-12 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
         <div className="lg:sticky lg:top-24 lg:self-start">
           <SectionHeader
             index="05"
@@ -464,7 +464,7 @@ export function RoadmapSection() {
     <section id="descent-roadmap" data-sec="roadmap" className="relative">
       <Stage
         scrub
-        className="page-zoom-out mx-auto w-full max-w-6xl px-6 py-24 md:py-32"
+        className="page-zoom-out mx-auto w-full max-w-6xl px-6 py-16 sm:py-24 md:py-32"
       >
         <RoadmapBody />
       </Stage>

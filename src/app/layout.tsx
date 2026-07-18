@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Instrument_Serif, Inter, Noto_Sans_Arabic, Noto_Sans_JP, Noto_Sans_KR, Noto_Sans_SC, Press_Start_2P, Roboto, Space_Grotesk } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/react'
 import { ThemeProvider } from '@/components/ThemeProvider'
@@ -65,6 +65,19 @@ const roboto = Roboto({
   variable: '--font-international',
   display: 'swap',
 })
+
+// Mobile browser chrome: tint the URL bar / status area to match the
+// deep-space backdrop instead of default white, and let the page extend
+// into the safe areas on notched phones.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: [
+    { media: '(prefers-color-scheme: dark)', color: '#05060a' },
+    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
+  ],
+}
 
 export const metadata: Metadata = {
   title: 'Cribble - AI Usage Leaderboard for Developers',

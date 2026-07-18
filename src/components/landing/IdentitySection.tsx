@@ -258,7 +258,7 @@ function IdentityBody() {
     <>
       <Seam alt="11 KM" note="TROPOSPHERE · IDENTITY CONFIRMED" />
 
-      <div className="mt-14 grid grid-cols-1 items-start gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16">
+      <div className="mt-10 sm:mt-14 grid grid-cols-1 items-start gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16">
         <div className="lg:pt-4">
           <SectionHeader
             index="03"
@@ -365,7 +365,7 @@ function IdentityBody() {
         <div className="id-stage relative">
           <div
             aria-hidden
-            className="pointer-events-none absolute -inset-x-10 -top-16 bottom-0 opacity-60"
+            className="pointer-events-none absolute -inset-x-4 -top-16 bottom-0 opacity-60 sm:-inset-x-10"
             style={{
               background:
                 'radial-gradient(55% 45% at 50% 30%, rgb(var(--accent-rgb) / 0.07), transparent 70%)'
@@ -375,7 +375,12 @@ function IdentityBody() {
             <PilotCard plateId={plateId} />
           </div>
           <p className="mt-4 text-center text-[9px] tracking-[0.3em] text-zinc-700">
-            {'// HOVER TO TILT · PLATES FROM THE LIVE CATALOG'}
+            <span className="sm:hidden">
+              {'// PLATES FROM THE LIVE CATALOG'}
+            </span>
+            <span className="hidden sm:inline">
+              {'// HOVER TO TILT · PLATES FROM THE LIVE CATALOG'}
+            </span>
           </p>
         </div>
       </div>
@@ -450,7 +455,7 @@ export function IdentitySection() {
     <section id="descent-identity" data-sec="identity" className="relative">
       <Stage
         scrub
-        className="page-zoom-out mx-auto w-full max-w-6xl px-6 py-24 md:py-32"
+        className="page-zoom-out mx-auto w-full max-w-6xl px-6 py-16 sm:py-24 md:py-32"
       >
         <IdentityBody />
       </Stage>

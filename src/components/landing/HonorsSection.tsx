@@ -179,7 +179,7 @@ function ApexCenterpiece() {
               LEGENDARY
             </span>
           </div>
-          <p className="mt-2 font-sans text-[13.5px] leading-relaxed text-zinc-400">
+          <p className="mt-2 font-sans text-[14px] leading-relaxed text-zinc-400 sm:text-[13.5px]">
             {APEX.description} Exactly one copy exists at any moment — take the
             top slot and it transfers to you, along with the Champion&apos;s
             Gold plate. Lose the slot, lose the crown.
@@ -203,7 +203,7 @@ function HonorsBody() {
     <>
       <Seam alt="02 KM" note="FINAL APPROACH · SERVICE RECORD" />
 
-      <div className="mt-14">
+      <div className="mt-10 sm:mt-14">
         <SectionHeader
           align="center"
           index="04"
@@ -221,7 +221,7 @@ function HonorsBody() {
       </div>
 
       {/* the wall */}
-      <div className="mx-auto mt-14 max-w-3xl">
+      <div className="mx-auto mt-10 sm:mt-14 max-w-3xl">
         <div
           className="st mb-3 flex items-center justify-between text-[9px] tracking-[0.3em] text-zinc-600"
           style={{ '--d': '340ms' } as CSSProperties}
@@ -233,6 +233,7 @@ function HonorsBody() {
               /25
             </span>
           </span>
+          <span className="sm:hidden">TAP TO INSPECT</span>
           <span className="hidden sm:block">HOVER TO INSPECT</span>
         </div>
 
@@ -367,7 +368,7 @@ function HonorsBody() {
 export function HonorsSection() {
   return (
     <section id="descent-honors" data-sec="honors" className="relative">
-      <Stage className="page-zoom-out mx-auto w-full max-w-6xl px-6 py-24 md:py-32">
+      <Stage className="page-zoom-out mx-auto w-full max-w-6xl px-6 py-16 sm:py-24 md:py-32">
         <HonorsBody />
       </Stage>
     </section>

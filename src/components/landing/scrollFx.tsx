@@ -150,8 +150,16 @@ export function Stage({
         @keyframes st-rise {
           from {
             opacity: 0;
-            transform: translateY(16px);
-            filter: blur(6px);
+            transform: translateY(var(--st-rise, 16px));
+            filter: blur(var(--st-blur, 6px));
+          }
+        }
+        /* Phones: dozens of staggered blur animations per stage overwhelm
+           mobile GPUs mid-scroll — keep the rise, shrink the blur. */
+        @media (max-width: 639px) {
+          .stage-live .st {
+            --st-blur: 3px;
+            --st-rise: 12px;
           }
         }
         .stage-live .st-cell {
@@ -368,7 +376,7 @@ export function SectionHeader({
 
       {body && (
         <p
-          className={`st mt-6 max-w-xl font-sans text-[15px] leading-[1.8] text-zinc-400 ${
+          className={`st mt-6 max-w-xl font-sans text-base leading-[1.75] text-zinc-400 sm:text-[15px] sm:leading-[1.8] ${
             center ? 'mx-auto' : ''
           }`}
           style={{ '--d': '280ms' } as CSSProperties}
@@ -381,17 +389,19 @@ export function SectionHeader({
 }
 
 /** Telemetry seam — the thin HUD chatter line that opens each section and
- * keeps score of the descent (altitude falls section by section). */
+ * keeps score of the descent (altitude falls section by section). The
+ * readout may wrap on narrow phones (nowrap used to push it past the
+ * viewport edge and give the whole page a horizontal wobble). */
 export function Seam({ alt, note }: { alt: string; note: string }) {
   return (
     <div
-      className="st flex items-center gap-4 text-[9px] tracking-[0.3em] text-zinc-600"
+      className="st flex items-center gap-3 sm:gap-4 text-[9px] tracking-[0.3em] text-zinc-600"
       style={{ '--d': '0ms' } as CSSProperties}
     >
       <span className="lx-seamline h-px flex-1 bg-zinc-800/70" />
-      <span className="flex items-center gap-3 whitespace-nowrap">
+      <span className="flex min-w-0 items-center gap-3">
         <span style={{ color: 'rgb(var(--accent-rgb) / 0.65)' }}>+</span>
-        <span>
+        <span className="text-center leading-relaxed sm:whitespace-nowrap">
           ALT {alt} · {note}
         </span>
         <span style={{ color: 'rgb(var(--accent-rgb) / 0.65)' }}>+</span>

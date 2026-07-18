@@ -210,6 +210,15 @@ html.light {
   --lb-panel-edge: 47 41 28;
 }
 
+html {
+  /* Mobile browsers: keep our type scale authoritative (no landscape
+     auto-inflation) and drop the gray tap flash on interactive elements —
+     buttons/links carry their own pressed states. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
 body {
   color: var(--foreground);
   background: var(--background);
@@ -258,6 +267,17 @@ body {
      (not the root) so full-bleed backdrops keep filling the viewport. */
   .page-zoom-out {
     zoom: 0.9;
+  }
+
+  /* Phones: the pull-back reads as shrunken type and sub-size tap targets
+     on an already small screen, so the landing surfaces render 1:1 below
+     md. (Scoped to the landing hero + descent; the app shell pre-scales
+     its fixed chrome against the 0.9 zoom and keeps it everywhere.) */
+  @media (max-width: 767px) {
+    .lx-hero .page-zoom-out,
+    .lx-descent .page-zoom-out {
+      zoom: 1;
+    }
   }
 
   /* Full-height hero that respects mobile browser chrome: 100vh on iOS

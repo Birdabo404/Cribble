@@ -137,7 +137,7 @@ function Row({
         </>
       )}
 
-      <div className="relative z-10 grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-2.5 px-3 py-2.5 sm:grid-cols-[44px_minmax(0,1fr)_80px_62px_auto] sm:px-4">
+      <div className="relative z-10 grid grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-2 px-3 py-3 sm:grid-cols-[44px_minmax(0,1fr)_80px_62px_auto] sm:gap-2.5 sm:px-4 sm:py-2.5">
         {/* rank */}
         <span
           className="leading-none tabular-nums [font-family:var(--font-pixel)]"
@@ -280,7 +280,7 @@ function ArenaBody() {
     <>
       <Seam alt="82 KM" note="MESOSPHERE · ENTERING THE ARENA" />
 
-      <div className="mt-14 grid grid-cols-1 gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:gap-14">
+      <div className="mt-10 sm:mt-14 grid grid-cols-1 gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:gap-14">
         <div>
           <SectionHeader
             index="01"
@@ -517,7 +517,7 @@ export function ArenaSection() {
     <section id="descent-arena" data-sec="arena" className="relative">
       <Stage
         scrub
-        className="page-zoom-out mx-auto w-full max-w-6xl px-6 py-24 md:py-32"
+        className="page-zoom-out mx-auto w-full max-w-6xl px-6 py-16 sm:py-24 md:py-32"
       >
         <ArenaBody />
       </Stage>

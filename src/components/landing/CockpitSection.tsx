@@ -177,7 +177,7 @@ function CockpitBody() {
     <>
       <Seam alt="34 KM" note="STRATOSPHERE · COCKPIT PRESSURIZED" />
 
-      <div className="mt-14 grid grid-cols-1 gap-10 lg:grid-cols-[1.15fr_0.85fr] lg:gap-14">
+      <div className="mt-10 sm:mt-14 grid grid-cols-1 gap-10 lg:grid-cols-[1.15fr_0.85fr] lg:gap-14">
         {/* the console — scroll-scrubbed dock-in, headers on the right.
             lx-hw: dark emissive hardware in both themes (see Descent). */}
         <div className="ck-console lx-hw order-2 lg:order-1">
@@ -374,7 +374,7 @@ function CockpitBody() {
                   <span className="block text-[10px] tracking-[0.28em] text-zinc-200">
                     {head}
                   </span>
-                  <span className="mt-0.5 block font-sans text-[13px] leading-relaxed text-zinc-500">
+                  <span className="mt-0.5 block font-sans text-[14px] leading-relaxed text-zinc-500 sm:text-[13px]">
                     {sub}
                   </span>
                 </span>
@@ -438,7 +438,7 @@ export function CockpitSection() {
     <section id="descent-cockpit" data-sec="cockpit" className="relative">
       <Stage
         scrub
-        className="page-zoom-out mx-auto w-full max-w-6xl px-6 py-24 md:py-32"
+        className="page-zoom-out mx-auto w-full max-w-6xl px-6 py-16 sm:py-24 md:py-32"
       >
         <CockpitBody />
       </Stage>

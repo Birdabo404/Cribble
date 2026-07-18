@@ -82,8 +82,8 @@ export default function HomeV2() {
       <div className="page-zoom-out relative z-10 max-w-6xl w-full mx-auto px-6 flex-1 flex flex-col">
         <Header />
 
-        <main className="flex-1 flex items-center py-6 sm:py-8">
-          <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_1fr] gap-6 sm:gap-10 lg:gap-16 items-center w-full">
+        <main className="flex-1 flex items-center py-4 sm:py-8">
+          <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_1fr] gap-4 sm:gap-10 lg:gap-16 items-center w-full">
             {/* LEFT — hero copy */}
             <div className="order-2 lg:order-1">
               <span
@@ -126,7 +126,7 @@ export default function HomeV2() {
               </div>
 
               <p
-                className="hero-item mt-8 max-w-md font-sans text-[15px] leading-[1.8] text-zinc-400"
+                className="hero-item mt-8 max-w-md font-sans text-base leading-[1.75] text-zinc-400 sm:text-[15px] sm:leading-[1.8]"
                 style={{ ['--hr' as string]: '280ms' }}
               >
                 Every prompt you send counts here. Cribble tallies your usage
@@ -143,7 +143,7 @@ export default function HomeV2() {
                 {!IS_PUBLIC_SITE_LOCKED ? (
                   <Link
                     href="/login"
-                    className="group inline-flex items-center gap-2.5 bg-white text-black text-sm font-medium px-5 py-2.5 rounded-md hover:bg-zinc-200 transition-colors"
+                    className="group inline-flex items-center gap-2.5 bg-white text-black text-sm font-medium px-5 py-3 sm:py-2.5 rounded-md hover:bg-zinc-200 transition-colors"
                   >
                     <span>Register</span>
                     <span className="text-zinc-500 group-hover:translate-x-0.5 transition-transform">
@@ -162,7 +162,7 @@ export default function HomeV2() {
                 {!showForm && status !== 'success' && (
                   <button
                     onClick={() => setShowForm(true)}
-                    className="text-xs tracking-[0.2em] text-zinc-400 hover:text-[color:var(--hg)] transition-colors"
+                    className="py-2 text-[13px] sm:py-0 sm:text-xs tracking-[0.2em] text-zinc-400 hover:text-[color:var(--hg)] transition-colors"
                     style={{ ['--hg' as string]: ACCENT }}
                   >
                     join the waitlist →
@@ -190,7 +190,7 @@ export default function HomeV2() {
                         setEmail(e.target.value)
                         if (status === 'error') setStatus('idle')
                       }}
-                      className="flex-1 bg-transparent px-2 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+                      className="flex-1 bg-transparent px-2 py-3 text-base sm:py-2.5 sm:text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
                     />
                     <button
                       type="submit"
@@ -253,7 +253,7 @@ export default function HomeV2() {
 
 function Header() {
   return (
-    <header className="pt-8 flex items-center justify-between">
+    <header className="pt-6 sm:pt-8 flex items-center justify-between">
       <div className="flex items-center gap-2.5 text-sm tracking-[0.4em] text-zinc-100 font-semibold">
         <LiquidMark size={22} />
         <span>
@@ -340,11 +340,13 @@ function CursorMark({ size = 11 }: { size?: number }) {
 
 function GlobeStage() {
   // The orbit ring + satellite share these dimensions so the satellite
-  // always traces exactly the visible dashed circle.
-  const ORBIT_SIZE = 'min(470px, 92vw)'
+  // always traces exactly the visible dashed circle. Both derive from
+  // --orbit (set on .globe-stage below), which steps down on phones so
+  // the stacked hero leaves room for the headline above the fold.
+  const ORBIT_SIZE = 'var(--orbit)'
 
   return (
-    <div className="relative w-full flex items-center justify-center">
+    <div className="globe-stage relative w-full flex items-center justify-center">
       {/* outer thin orbit ring */}
       <div
         aria-hidden
@@ -362,8 +364,8 @@ function GlobeStage() {
         aria-hidden
         className="absolute inset-0 m-auto rounded-full blur-3xl opacity-30 pointer-events-none transition-[background] duration-700"
         style={{
-          width: 'min(430px, 88vw)',
-          height: 'min(430px, 88vw)',
+          width: 'calc(var(--orbit) * 0.915)',
+          height: 'calc(var(--orbit) * 0.915)',
           background: 'radial-gradient(circle, rgb(var(--globe-glow-rgb) / 0.19), transparent 70%)'
         }}
       />
@@ -396,7 +398,7 @@ function GlobeStage() {
         </div>
       </div>
 
-      <div className="relative z-[1] w-full max-w-[400px]">
+      <div className="relative z-[1] w-full" style={{ maxWidth: 'var(--globe)' }}>
         <Globe size={400} />
       </div>
 
@@ -427,6 +429,19 @@ function GlobeStage() {
       </div>
 
       <style jsx global>{`
+        /* One knob sizes the whole stage: ring + satellites trace --orbit,
+           the Earth fills --globe (same 400/470 ratio at every step, so
+           the polar sat still clips at the planet's limb). Phones get a
+           smaller stage so the stacked hero copy stays near the fold. */
+        .globe-stage {
+          --orbit: min(470px, 92vw);
+          --globe: min(400px, calc(var(--orbit) * 0.851));
+        }
+        @media (max-width: 639px) {
+          .globe-stage {
+            --orbit: min(360px, 88vw);
+          }
+        }
         .cribble-satellite {
           transform-origin: 50% 50%;
           will-change: transform;
@@ -456,9 +471,11 @@ function GlobeStage() {
           }
         }
         .cribble-polar-sat {
-          /* one orbit unit; the track spans ±196 units against a planet
-             radius of ~146, so limb crossings happen well inside the frame */
-          --pu: min(1px, 0.21vw);
+          /* one orbit unit, scaled off the stage size (470px orbit = 1px
+             unit); the track spans ±196 units against the planet radius,
+             so limb crossings keep happening inside the frame at every
+             viewport, including the smaller phone stage */
+          --pu: calc(var(--orbit, 470px) / 470);
           z-index: 2;
           will-change: transform;
           animation: cribble-polar 26s linear infinite;
@@ -1030,8 +1047,17 @@ function AsteroidField() {
         @keyframes hero-rise-in {
           from {
             opacity: 0;
-            transform: translateY(16px);
-            filter: blur(8px);
+            transform: translateY(var(--hero-rise, 16px));
+            filter: blur(var(--hero-blur, 8px));
+          }
+        }
+        /* Phones: animating a large blur radius across the whole cascade
+           drops frames on mobile GPUs (the WebGL globe is booting at the
+           same moment) — keep the motion, shrink the expensive part. */
+        @media (max-width: 639px) {
+          .hero-item {
+            --hero-blur: 4px;
+            --hero-rise: 12px;
           }
         }
         @media (prefers-reduced-motion: reduce) {
