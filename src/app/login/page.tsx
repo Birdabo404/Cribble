@@ -18,6 +18,7 @@ import { useSearchParams } from 'next/navigation'
 import SpaceBackdrop from '@/components/SpaceBackdrop'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { LiquidMark } from '@/components/brand/LiquidMark'
+import { MobileDeviceNotice } from '@/components/login/MobileDeviceNotice'
 
 type Mode = 'signin' | 'register'
 type Phase = 'idle' | 'checking' | 'granted'
@@ -335,9 +336,14 @@ function LoginExperience() {
         </span>
       </p>
 
+      {/* mobile heads-up — the extension is desktop-only */}
+      <div className="mt-9">
+        <MobileDeviceNotice />
+      </div>
+
       {/* auth panel */}
       <section
-        className="lg-rise glass-pop mt-9 rounded-2xl"
+        className="lg-rise glass-pop rounded-2xl"
         style={{ ['--d' as string]: '230ms' }}
       >
         {/* mode switch — sliding pill */}
