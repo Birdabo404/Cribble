@@ -24,6 +24,8 @@ const STATIC_ASSET_RE = /\.(png|jpe?g|gif|webp|avif|svg|ico|mp3|mp4|webm|woff2?)
 export function isAllowedDuringLock(pathname: string): boolean {
   if (pathname === '/') return true
   if (pathname === '/welcome' || pathname === '/login') return true
+  // The screen locked sectors rewrite into — must stay reachable itself.
+  if (pathname === '/maintenance') return true
   if (pathname.startsWith('/audio/')) return true
   if (!pathname.startsWith('/api/') && STATIC_ASSET_RE.test(pathname)) return true
   if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) return true

@@ -69,3 +69,43 @@ describe('middleware security headers', () => {
     expect(response.headers.get('content-security-policy')).toContain("frame-ancestors 'none'")
   })
 })
+
+describe('middleware site lock', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  const request = (path: string) => new NextRequest(`https://cribble.dev${path}`)
+
+  const rewriteTarget = (path: string) => {
+    const rewrite = middleware(request(path)).headers.get('x-middleware-rewrite')
+    return rewrite ? new URL(rewrite).pathname : null
+  }
+
+  it('rewrites locked sectors to the maintenance screen', () => {
+    vi.stubEnv('SITE_LOCKED', '1')
+    expect(rewriteTarget('/shop')).toBe('/maintenance')
+  })
+
+  it('keeps the maintenance screen itself reachable while locked', () => {
+    vi.stubEnv('SITE_LOCKED', '1')
+    expect(rewriteTarget('/maintenance')).toBeNull()
+    expect(middleware(request('/maintenance')).status).toBe(200)
+  })
+
+  it('still 404s locked API routes', () => {
+    vi.stubEnv('SITE_LOCKED', '1')
+    expect(middleware(request('/api/shop/checkout')).status).toBe(404)
+  })
+
+  it('leaves allowlisted pages alone while locked', () => {
+    vi.stubEnv('SITE_LOCKED', '1')
+    expect(rewriteTarget('/leaderboard')).toBeNull()
+  })
+
+  it('does not rewrite anything when unlocked', () => {
+    vi.stubEnv('SITE_LOCKED', '')
+    vi.stubEnv('NEXT_PUBLIC_SITE_LOCKED', 'false')
+    expect(rewriteTarget('/shop')).toBeNull()
+  })
+})

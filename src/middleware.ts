@@ -56,7 +56,12 @@ export function middleware(request: NextRequest) {
       return new NextResponse('Not found', { status: 404, headers: response.headers })
     }
 
-    return NextResponse.redirect(new URL('/', request.url))
+    // Locked sectors (e.g. /shop before launch) render the maintenance
+    // screen in place — the URL is preserved so the visitor knows where
+    // they are, and refreshing after launch lands on the real page.
+    const url = request.nextUrl.clone()
+    url.pathname = '/maintenance'
+    return NextResponse.rewrite(url, { headers: response.headers })
   }
 
   // Handle preflight requests
