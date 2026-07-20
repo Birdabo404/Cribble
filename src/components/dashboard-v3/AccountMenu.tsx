@@ -453,28 +453,25 @@ export function AccountMenu({
             onClick={() => setOpen(false)}
             title="View profile"
             aria-label="View profile"
-            className="flex items-center gap-2 py-1 pl-1.5 pr-2.5 transition-colors duration-150 hover:bg-zinc-900/80 active:bg-zinc-900 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-zinc-500"
+            className="flex items-center py-1 pl-1 pr-1.5 transition-colors duration-150 hover:bg-zinc-900/80 active:bg-zinc-900 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-zinc-500"
           >
-            {avatar('h-7 w-7')}
-            <span className="hidden sm:inline text-[11px] text-zinc-100">
-              @{user.twitter_username || 'user'}
-            </span>
+            {avatar('h-8 w-8')}
           </Link>
-          <span className="my-1.5 w-px shrink-0 bg-zinc-800" aria-hidden />
+          <span className="my-2 w-px shrink-0 bg-zinc-800" aria-hidden />
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
             aria-label="Open account menu"
             aria-expanded={open}
             aria-haspopup="menu"
-            className={`flex items-center px-2 transition-colors duration-150 hover:bg-zinc-900/80 active:bg-zinc-900 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-zinc-500 ${
+            className={`flex items-center pl-2 pr-2.5 transition-colors duration-150 hover:bg-zinc-900/80 active:bg-zinc-900 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-zinc-500 ${
               open ? 'bg-zinc-900/80 text-zinc-300' : 'text-zinc-500 hover:text-zinc-300'
             }`}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 20 20"
-              className={`h-3 w-3 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+              className={`h-3.5 w-3.5 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
               aria-hidden
             >
               <path

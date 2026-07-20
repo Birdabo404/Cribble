@@ -102,6 +102,9 @@ export function AdminShell({
               <Link href="/admin/audit" className={navLink}>
                 AUDIT LOG
               </Link>
+              <Link href="/admin/feedback" className={navLink}>
+                FEEDBACK
+              </Link>
               {/* Invites create accounts — owner-only, matching the API gate.
                   Hiding it for moderators is cosmetic; the route still 403s. */}
               {me.role === 'owner' && (

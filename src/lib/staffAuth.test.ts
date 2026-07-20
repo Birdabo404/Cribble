@@ -60,7 +60,9 @@ describe('minRoleFor', () => {
       'user.set_status',
       'user.moderate_content',
       'user.edit_notes',
-      'audit.view'
+      'audit.view',
+      'feedback.view',
+      'feedback.manage'
     ]
     for (const action of moderatorActions) {
       expect(minRoleFor(action)).toBe('moderator')

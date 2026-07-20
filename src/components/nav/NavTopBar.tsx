@@ -119,7 +119,8 @@ export function NavTopBar({
             <NotificationBell />
 
             {!navUser.loaded ? (
-              <span className="h-8 w-8 animate-pulse rounded-full border border-zinc-800 bg-zinc-900" />
+              /* mirrors the account pill footprint (avatar + chevron halves) */
+              <span className="h-[42px] w-[77px] animate-pulse rounded-full border border-zinc-800 bg-zinc-900" />
             ) : navUser.user ? (
               <AccountMenu
                 user={navUser.user}

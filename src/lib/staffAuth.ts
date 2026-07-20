@@ -25,6 +25,8 @@ export type StaffAction =
   | 'user.moderate_content'
   | 'user.edit_notes'
   | 'audit.view'
+  | 'feedback.view'
+  | 'feedback.manage'
   | 'entitlement.grant_pro'
   | 'entitlement.revoke_pro'
   | 'entitlement.grant_plate'
@@ -40,6 +42,8 @@ export function minRoleFor(action: StaffAction): StaffRole {
     case 'user.moderate_content':
     case 'user.edit_notes':
     case 'audit.view':
+    case 'feedback.view':
+    case 'feedback.manage':
       return 'moderator'
     case 'entitlement.grant_pro':
     case 'entitlement.revoke_pro':
