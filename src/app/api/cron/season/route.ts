@@ -1,6 +1,5 @@
 import { timingSafeEqual } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
-import { env } from '@/lib/env'
 import { createServiceClient } from '@/lib/supabaseServer'
 
 // Backup trigger for the season lifecycle. pg_cron (migration 025) runs
@@ -15,7 +14,14 @@ export const dynamic = 'force-dynamic'
 const supabase = createServiceClient()
 
 function secretMatches(supplied: string | null): boolean {
-  const expected = env.CRON_SECRET
+  // Read at request time, NOT via @/lib/env: that module validates the
+  // whole env eagerly at import, which detonates during Next's page-data
+  // collection (production NODE_ENV, no NEXT_PHASE) and would also make
+  // every build/boot hard-require CRON_SECRET. Absent secret here means
+  // the endpoint stays locked (401), never a build failure.
+  const expected =
+    process.env.CRON_SECRET ??
+    (process.env.NODE_ENV !== 'production' ? 'dev-cron-secret' : null)
   if (!expected || !supplied) return false
   const suppliedBytes = Buffer.from(supplied)
   const expectedBytes = Buffer.from(expected)
