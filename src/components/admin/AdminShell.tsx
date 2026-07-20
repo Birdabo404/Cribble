@@ -105,12 +105,18 @@ export function AdminShell({
               <Link href="/admin/feedback" className={navLink}>
                 FEEDBACK
               </Link>
-              {/* Invites create accounts — owner-only, matching the API gate.
-                  Hiding it for moderators is cosmetic; the route still 403s. */}
+              {/* Invites create accounts and seasons control everyone's
+                  scores — owner-only, matching the API gates. Hiding them
+                  for moderators is cosmetic; the routes still 403. */}
               {me.role === 'owner' && (
-                <Link href="/admin/invites" className={navLink}>
-                  INVITES
-                </Link>
+                <>
+                  <Link href="/admin/invites" className={navLink}>
+                    INVITES
+                  </Link>
+                  <Link href="/admin/seasons" className={navLink}>
+                    SEASONS
+                  </Link>
+                </>
               )}
               <Link href="/dashboard" className={navLink}>
                 EXIT

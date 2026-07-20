@@ -43,6 +43,7 @@ import { EditProfileModal, type EditableProfile } from '@/components/profile/Edi
 import { FollowButton, FollowsYouChip, type FollowChange } from '@/components/profile/FollowButton'
 import { FollowListModal, type FollowListKind } from '@/components/profile/FollowListModal'
 import { ProfileAmbience } from '@/components/profile/ProfileAmbience'
+import { ReferralPlate } from '@/components/profile/ReferralPlate'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { ACHIEVEMENTS } from '@/lib/achievements'
 import { isProTier } from '@/lib/entitlements'
@@ -625,6 +626,13 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
           </StatCell>
         </div>
       </section>
+
+      {/* ---------- referral plate (owner only) ---------- */}
+      {isYou && (
+        <section className="pf-reveal mt-4" style={{ ['--rv' as string]: '160ms' }}>
+          <ReferralPlate />
+        </section>
+      )}
 
       {/* ---------- tools + service record ---------- */}
       <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">

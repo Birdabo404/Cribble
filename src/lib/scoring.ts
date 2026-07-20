@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getEventsIdentityColumn } from './eventsIdentity'
 import { fetchAllEventPages } from './eventsFetch'
+import { fetchActiveSeasonWindow, type SeasonWindowMs } from './seasonServer'
 
 // ============================================================================
 // Cribble scoring — policy v3 (session-based)
@@ -45,6 +46,9 @@ type ScoreWindow = {
   today: ScoreEventWithTimestamp[]
   week: ScoreEventWithTimestamp[]
   month: ScoreEventWithTimestamp[]
+  /** Events inside the active season's [start, end) window; empty during
+   *  intermission or when no season window was supplied. */
+  season: ScoreEventWithTimestamp[]
 }
 
 export type ScorePolicy = {
@@ -299,7 +303,11 @@ function toUtcDayStartIso(baseDate: Date) {
   )).toISOString()
 }
 
-function splitScoreWindows(events: ScoreEventWithTimestamp[], now: Date): ScoreWindow {
+function splitScoreWindows(
+  events: ScoreEventWithTimestamp[],
+  now: Date,
+  seasonWindow: SeasonWindowMs | null = null
+): ScoreWindow {
   const todayStartMs = Date.parse(toUtcDayStartIso(now))
   const weekStartMs = now.getTime() - 7 * 24 * 60 * 60 * 1000
   const monthStartMs = now.getTime() - 30 * 24 * 60 * 60 * 1000
@@ -310,26 +318,45 @@ function splitScoreWindows(events: ScoreEventWithTimestamp[], now: Date): ScoreW
       return Number.isFinite(ts) && ts >= startMs
     })
 
+  // The season window is bounded on both sides: a sync that lands after
+  // ends_at (but before the tick closes the season) must not move the
+  // final standings, so trailing events fall outside the bucket.
+  const season = seasonWindow
+    ? events.filter((event) => {
+        const ts = Date.parse(String(event.timestamp || ''))
+        return (
+          Number.isFinite(ts) && ts >= seasonWindow.startMs && ts < seasonWindow.endMs
+        )
+      })
+    : []
+
   return {
     total: events,
     today: since(todayStartMs),
     week: since(weekStartMs),
-    month: since(monthStartMs)
+    month: since(monthStartMs),
+    season
   }
 }
 
-export function calculateScoreBuckets(events: ScoreEventWithTimestamp[], now: Date = new Date()) {
-  const windows = splitScoreWindows(events, now)
+export function calculateScoreBuckets(
+  events: ScoreEventWithTimestamp[],
+  now: Date = new Date(),
+  seasonWindow: SeasonWindowMs | null = null
+) {
+  const windows = splitScoreWindows(events, now, seasonWindow)
   const total = aggregateWindow(windows.total)
   const today = aggregateWindow(windows.today)
   const week = aggregateWindow(windows.week)
   const month = aggregateWindow(windows.month)
+  const season = aggregateWindow(windows.season)
   return {
     totalScore: total.score,
     todayScore: today.score,
     weekScore: week.score,
     monthScore: month.score,
-    aggregates: { total, today, week, month },
+    seasonScore: season.score,
+    aggregates: { total, today, week, month, season },
     windows
   }
 }
@@ -372,8 +399,33 @@ export async function fetchAllUserEvents(
   return { events: rows, column }
 }
 
+/**
+ * Referral bonus points (migration 026) live outside event math: the
+ * recalc rebuilds total_score from events_raw, so a raw increment would
+ * be wiped on the next sync. When the column is missing (migration not
+ * applied) the read errors and the recalc behaves exactly as before.
+ */
+async function fetchUserBonusScore(
+  supabase: SupabaseClient,
+  userId: number
+): Promise<number> {
+  const { data, error } = await supabase
+    .from('user_scores')
+    .select('bonus_score')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (error) return 0
+  const bonus = Math.round(Number(data?.bonus_score ?? 0))
+  return Number.isFinite(bonus) && bonus > 0 ? bonus : 0
+}
+
 async function recalculateUserScoreFallback(supabase: SupabaseClient, userId: number) {
-  const { events, column } = await fetchAllUserEvents(supabase, userId)
+  const [{ events, column }, seasonLookup, bonusScore] = await Promise.all([
+    fetchAllUserEvents(supabase, userId),
+    fetchActiveSeasonWindow(supabase),
+    fetchUserBonusScore(supabase, userId)
+  ])
 
   if (!column) {
     console.warn(
@@ -384,17 +436,26 @@ async function recalculateUserScoreFallback(supabase: SupabaseClient, userId: nu
   if (events === null) return false
 
   const now = new Date()
-  const scoreBuckets = calculateScoreBuckets(events, now)
+  const scoreBuckets = calculateScoreBuckets(events, now, seasonLookup.window)
 
   const nowIso = now.toISOString()
-  const payload = {
+  const payload: Record<string, number | string> = {
     user_id: userId,
-    total_score: scoreBuckets.totalScore,
+    // Lifetime total carries the referral bonus; today/week/month/season
+    // buckets stay pure event competition.
+    total_score: scoreBuckets.totalScore + bonusScore,
     today_score: scoreBuckets.todayScore,
     week_score: scoreBuckets.weekScore,
     month_score: scoreBuckets.monthScore,
     last_calculated_at: nowIso,
     updated_at: nowIso
+  }
+  // Season score is written whenever the calendar is reachable: the live
+  // window's score during a season, 0 during intermission. When the
+  // seasons table is missing (migration 025 not applied) the column is
+  // missing too, so it must stay out of the upsert entirely.
+  if (seasonLookup.available) {
+    payload.season_score = seasonLookup.window ? scoreBuckets.seasonScore : 0
   }
 
   const { error: upsertError } = await supabase

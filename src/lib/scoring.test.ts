@@ -269,6 +269,33 @@ describe('calculateScoreBuckets', () => {
     expect(buckets.monthScore).toBe(0)
     expect(buckets.todayScore).toBe(0)
   })
+
+  it('scores the season bucket from the bounded [start, end) window', () => {
+    const now = new Date('2026-07-02T12:00:00.000Z')
+    const seasonWindow = {
+      startMs: T0 - 86_400_000,
+      endMs: T0 + 86_400_000
+    }
+    const events = [
+      // before the season started — lifetime only
+      visit(-2 * 86_400_000),
+      // inside the window
+      visit(0),
+      // exactly at the end boundary — a post-close sync must not move
+      // the archived standings, so this stays out of the season bucket
+      visit(86_400_000)
+    ]
+    const buckets = calculateScoreBuckets(events, now, seasonWindow)
+    expect(buckets.seasonScore).toBe(40)
+    expect(buckets.totalScore).toBe(120)
+  })
+
+  it('scores the season bucket as 0 when no window is supplied (intermission)', () => {
+    const now = new Date('2026-07-02T12:00:00.000Z')
+    const buckets = calculateScoreBuckets([visit(0)], now)
+    expect(buckets.seasonScore).toBe(0)
+    expect(buckets.aggregates.season.sessions).toBe(0)
+  })
 })
 
 describe('fetchAllEventPages', () => {

@@ -7,6 +7,8 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 import { LiquidMark } from '@/components/brand/LiquidMark'
 import { ROLE_ICONS } from '@/components/roleIcons'
 import { ROLE_OPTIONS } from '@/lib/roles'
+import { EXTENSION_INSTALL_URL } from '@/lib/extensionInstall'
+import { useExtensionDetection } from '@/hooks/useExtensionDetection'
 import {
   BrandClaude,
   BrandCopilot,
@@ -24,6 +26,7 @@ import {
   IconGrid,
   IconMicroscope,
   IconOrbit,
+  IconPuzzle,
   IconShieldCheck,
   IconSolo,
   IconSparkles,
@@ -34,9 +37,16 @@ import {
   type IconProps
 } from '@/components/welcome/icons'
 
-type Stage = 'intro' | 'mode' | 'privacy' | 'role' | 'goal' | 'tools'
+type Stage = 'intro' | 'mode' | 'privacy' | 'role' | 'goal' | 'tools' | 'extension'
 
-const STEPS: Stage[] = ['mode', 'privacy', 'role', 'goal', 'tools']
+// EXTENSION_INSTALL_URL is a build-time env constant, so the step list can
+// be fixed once at module level: no store listing → no extension step, and
+// the wizard behaves exactly as it did before that step existed.
+const EXTENSION_STEP_ENABLED = EXTENSION_INSTALL_URL !== null
+
+const STEPS: Stage[] = EXTENSION_STEP_ENABLED
+  ? ['mode', 'privacy', 'role', 'goal', 'tools', 'extension']
+  : ['mode', 'privacy', 'role', 'goal', 'tools']
 
 const STEP_META: Record<
   Exclude<Stage, 'intro'>,
@@ -46,7 +56,8 @@ const STEP_META: Record<
   privacy: { eyebrow: 'Privacy' },
   role: { eyebrow: 'About you' },
   goal: { eyebrow: 'Mission' },
-  tools: { eyebrow: 'Loadout' }
+  tools: { eyebrow: 'Loadout' },
+  extension: { eyebrow: 'Extension' }
 }
 
 type IconComponent = (p: IconProps) => JSX.Element
@@ -207,7 +218,9 @@ export default function WelcomePage() {
     if (idx > 0) goTo(STEPS[idx - 1])
   }, [stage, goTo])
 
-  // Save + straight to dashboard. No interstitial.
+  // Save, then either the extension step (when a store listing is live) or
+  // straight to the dashboard. Saving first means onboarding is already
+  // persisted even if the user bails on the extension step.
   const submit = useCallback(async () => {
     if (saving) return
     setSaving(true)
@@ -229,8 +242,13 @@ export default function WelcomePage() {
         // intentionally swallow — we'd rather land the user than block them
       }
     }
-    router.replace('/dashboard')
-  }, [role, goal, topTools, mode, saving, devMode, router])
+    if (EXTENSION_STEP_ENABLED) {
+      setSaving(false)
+      goTo('extension')
+    } else {
+      router.replace('/dashboard')
+    }
+  }, [role, goal, topTools, mode, saving, devMode, router, goTo])
 
   const skip = useCallback(() => {
     router.replace('/dashboard')
@@ -297,6 +315,7 @@ export default function WelcomePage() {
                   saving={saving}
                 />
               )}
+              {stage === 'extension' && <ExtensionStage onDone={skip} />}
             </div>
           )}
         </main>
@@ -426,7 +445,7 @@ export default function WelcomePage() {
    DEV BAR — stage jumper, only shown with ?dev=1 for allowed accounts
    ============================================================ */
 
-const DEV_STAGES: Stage[] = ['intro', 'mode', 'privacy', 'role', 'goal', 'tools']
+const DEV_STAGES: Stage[] = ['intro', ...STEPS]
 
 function DevBar({
   stage,
@@ -872,6 +891,89 @@ function ToolsStage({
 }
 
 /* ============================================================
+   STEP 6 — Install the extension (only when the store listing is live)
+   ============================================================ */
+
+function ExtensionStage({ onDone }: { onDone: () => void }) {
+  const { detected } = useExtensionDetection(true)
+
+  return (
+    <StageShell
+      step={STEPS.length}
+      title={
+        <>
+          one last thing — the <em className="text-zinc-50">tracker</em>{' '}
+          itself.
+        </>
+      }
+      subtitle="Install the Chrome extension once. It links itself the moment your dashboard loads — no setup, no keys, nothing to configure."
+    >
+      <div
+        className="card-enter glass-lite mt-9 rounded-2xl p-6"
+        style={{
+          ['--wd' as string]: '0ms',
+          borderColor: detected ? 'rgb(var(--accent-rgb) / 0.5)' : undefined
+        }}
+      >
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
+            <CardIcon icon={IconPuzzle} selected={detected} />
+            <div>
+              <div className="text-sm font-semibold text-zinc-100">
+                Cribble for Chrome
+              </div>
+              <div className="mt-0.5 text-xs text-zinc-500">
+                counts your minutes on AI tools — never reads a word
+              </div>
+            </div>
+          </div>
+          <a
+            href={EXTENSION_INSTALL_URL ?? undefined}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-full border border-zinc-700 text-zinc-100 hover:border-zinc-500 hover:-translate-y-px transition-all duration-300"
+          >
+            Add to Chrome
+            <IconArrowRight size={14} />
+          </a>
+        </div>
+
+        <div className="mt-6 border-t border-zinc-800/80 pt-4">
+          {detected ? (
+            <div className="flex items-center gap-3">
+              <span className="check-pop inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-black">
+                <IconCheck size={11} />
+              </span>
+              <span className="font-mono text-[10px] tracking-[0.3em] text-accent">
+                EXTENSION DETECTED
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <span className="inline-flex h-5 w-5 items-center justify-center">
+                <span className="h-1.5 w-1.5 rounded-full bg-zinc-600 animate-pulse" />
+              </span>
+              <span className="font-mono text-[10px] tracking-[0.3em] text-zinc-500">
+                WAITING FOR INSTALL…
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <StageActions>
+        <GhostButton onClick={onDone} noIcon>
+          Skip for now
+        </GhostButton>
+        <PrimaryButton onClick={onDone} emphasized={detected}>
+          Enter dashboard
+        </PrimaryButton>
+      </StageActions>
+    </StageShell>
+  )
+}
+
+/* ============================================================
    SHARED PIECES
    ============================================================ */
 
@@ -914,11 +1016,13 @@ function StageActions({ children }: { children: React.ReactNode }) {
 function PrimaryButton({
   children,
   onClick,
-  disabled
+  disabled,
+  emphasized
 }: {
   children: React.ReactNode
   onClick?: () => void
   disabled?: boolean
+  emphasized?: boolean
 }) {
   return (
     <button
@@ -928,7 +1032,10 @@ function PrimaryButton({
       className="group inline-flex items-center gap-2.5 text-[13px] font-semibold px-6 py-3 rounded-full transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed enabled:hover:-translate-y-px enabled:active:translate-y-0"
       style={{
         background: 'var(--foreground)',
-        color: 'var(--background)'
+        color: 'var(--background)',
+        boxShadow: emphasized
+          ? '0 0 26px rgb(var(--accent-rgb) / 0.35)'
+          : undefined
       }}
     >
       {children}
@@ -942,10 +1049,12 @@ function PrimaryButton({
 
 function GhostButton({
   children,
-  onClick
+  onClick,
+  noIcon
 }: {
   children: React.ReactNode
   onClick?: () => void
+  noIcon?: boolean
 }) {
   return (
     <button
@@ -953,7 +1062,7 @@ function GhostButton({
       onClick={onClick}
       className="inline-flex items-center gap-2 text-[13px] px-5 py-3 rounded-full border border-zinc-800 text-zinc-400 hover:text-zinc-100 hover:border-zinc-600 transition-colors"
     >
-      <IconArrowLeft size={15} />
+      {!noIcon && <IconArrowLeft size={15} />}
       {children}
     </button>
   )

@@ -26,12 +26,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: staff.error }, { status: staff.status })
     }
 
+    // Staff-minted codes only: personal referral codes (kind='referral',
+    // migration 026) are one-per-user and would flood this page.
     const { data: invites, error } = await supabase
       .from('invite_codes')
       .select(
         `id, code, note, max_uses, use_count, expires_at, revoked_at, created_at,
          invite_redemptions ( user_id, redeemed_at, users ( twitter_username ) )`
       )
+      .eq('kind', 'staff')
       .order('created_at', { ascending: false })
 
     if (error) {

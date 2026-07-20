@@ -93,6 +93,23 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Referral bonus (migration 026) lives outside event math; add it to
+    // the lifetime total so the dashboard matches the leaderboard, which
+    // ranks on user_scores.total_score = events + bonus. A read error
+    // (column not migrated yet) degrades to events-only, same as before.
+    const { data: bonusRow, error: bonusError } = await supabase
+      .from('user_scores')
+      .select('bonus_score')
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (!bonusError) {
+      const bonus = Math.round(Number(bonusRow?.bonus_score ?? 0))
+      if (Number.isFinite(bonus) && bonus > 0) {
+        scores.total_score += bonus
+      }
+    }
+
     const { data: activeDevice } = await supabase
       .from('user_devices')
       .select('*')

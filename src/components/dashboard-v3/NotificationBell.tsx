@@ -51,7 +51,10 @@ function typeMeta(type: NotificationType, data: Record<string, unknown>): TypeMe
     case 'season':
       return { icon: ICON_PATHS.flag, cls: 'text-accent' }
     case 'social':
-      return { icon: ICON_PATHS.users, cls: 'text-cyan-300' }
+      // Referral rewards are points events — accent, not follow-cyan.
+      return data.kind === 'referral'
+        ? { icon: ICON_PATHS.users, cls: 'text-accent' }
+        : { icon: ICON_PATHS.users, cls: 'text-cyan-300' }
     case 'premium':
       // Unreachable in practice — NotificationGlyph intercepts 'premium'
       // and renders the pixel blue check. Kept so the switch stays

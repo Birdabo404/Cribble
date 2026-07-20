@@ -85,8 +85,18 @@ function LoginExperience() {
   const urlError = useMemo(() => resolveErrorMessage(errorKey), [errorKey])
   const isInviteError = errorKey !== null && INVITE_ERRORS.has(errorKey)
 
-  const [mode, setMode] = useState<Mode>(isInviteError ? 'register' : 'signin')
-  const [chars, setChars] = useState<string[]>(Array(KEY_LENGTH).fill(''))
+  // A /join/CODE referral link lands here with ?invite= — open the redeem
+  // pane with the key prefilled; the auto-verify effect takes it from there.
+  const invitePrefill = preparePaste(searchParams.get('invite') || '')
+
+  const [mode, setMode] = useState<Mode>(
+    isInviteError || invitePrefill ? 'register' : 'signin'
+  )
+  const [chars, setChars] = useState<string[]>(() => {
+    const cells: string[] = Array(KEY_LENGTH).fill('')
+    for (let i = 0; i < invitePrefill.length; i++) cells[i] = invitePrefill[i]
+    return cells
+  })
   const [phase, setPhase] = useState<Phase>('idle')
   // Which provider button kicked off a redirect (signin or claim), if any.
   const [busyProvider, setBusyProvider] = useState<Provider | null>(null)

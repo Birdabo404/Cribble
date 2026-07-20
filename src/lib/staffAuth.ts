@@ -33,6 +33,7 @@ export type StaffAction =
   | 'entitlement.revoke_plate'
   | 'staff.manage'
   | 'invite.manage'
+  | 'season.manage'
   | 'debug.manage'
 
 export function minRoleFor(action: StaffAction): StaffRole {
@@ -55,6 +56,9 @@ export function minRoleFor(action: StaffAction): StaffRole {
     // through resolveStaffRole, so a demoted moderator can't reach it
     // via a stale is_admin flag.
     case 'invite.manage':
+    // The season calendar controls every player's scores and standings —
+    // rescheduling or force-ending a season is an owner power.
+    case 'season.manage':
     case 'debug.manage':
       return 'owner'
     default: {

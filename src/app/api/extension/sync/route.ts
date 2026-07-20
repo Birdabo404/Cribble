@@ -6,6 +6,7 @@ import { getSessionUserId } from '@/lib/sessionAuth'
 import { resolveTrackedAiDomain } from '@/lib/aiDomains'
 import { evaluateAchievements } from '@/lib/achievementsServer'
 import { evaluateScoreNotifications } from '@/lib/notifications'
+import { maybeGrantReferralReward } from '@/lib/referrals'
 import { recalculateUserScore } from '@/lib/scoring'
 import { applyEventsUserEq, buildEventsUserInsertFields } from '@/lib/eventsIdentity'
 import {
@@ -76,13 +77,34 @@ function parseUserAgent(userAgent: string): DeviceInfo {
 }
 
 // Register or update device atomically via the register_user_device RPC.
-// The RPC (migrations 002/007) deactivates the user's other devices and
-// refuses to steal a device that is actively bound to a different account.
+// The RPC (migrations 002/007/027) deactivates the user's other devices and,
+// since migration 027, treats a session-authorized registration by a
+// DIFFERENT user as an atomic transfer: it rebinds the row, revokes the
+// previous owner's sync token (hash cleared in the same statement), and
+// clears the previous owner's active_device_uuid pointer.
 // There is deliberately NO manual fallback: replaying the registration with
-// raw table writes on RPC failure would bypass the DB-level no-steal guard
-// and could rebind a device across accounts on any transient error. If the
+// raw table writes on RPC failure would bypass the DB-level transfer
+// semantics and could corrupt the binding on any transient error. If the
 // RPC fails, registration fails closed.
-async function registerDevice(userId: number, deviceUuid: string, deviceInfo: DeviceInfo) {
+type RegisterDeviceResult =
+  | { ok: true }
+  // The deployed RPC is still the pre-027 version, which raises
+  // check_violation (23514) instead of transferring. Surfaced as a 409 so
+  // the client sees a clear, retryable-after-migration signal instead of a
+  // generic 500.
+  | { ok: false; reason: 'transfer_blocked' }
+  | { ok: false; reason: 'rpc_failed' }
+
+function isLegacyNoStealViolation(error: { code?: string; message?: string }): boolean {
+  if (error.code === '23514') return true
+  return (error.message || '').includes('already linked to another active account')
+}
+
+async function registerDevice(
+  userId: number,
+  deviceUuid: string,
+  deviceInfo: DeviceInfo
+): Promise<RegisterDeviceResult> {
   console.log(`[Extension Sync] Registering device ${deviceUuid.slice(0, 8)}... for user ${userId}`)
 
   const { error } = await supabase.rpc('register_user_device', {
@@ -94,11 +116,18 @@ async function registerDevice(userId: number, deviceUuid: string, deviceInfo: De
   })
 
   if (error) {
+    if (isLegacyNoStealViolation(error)) {
+      console.warn(
+        `[Extension Sync] Device transfer blocked by pre-027 RPC for ${deviceUuid.slice(0, 8)}...` +
+        ' — apply migrations/027_device_relink_transfer.sql to enable account switching.'
+      )
+      return { ok: false, reason: 'transfer_blocked' }
+    }
     console.error(`[Extension Sync] Device registration RPC failed:`, error)
-    return false
+    return { ok: false, reason: 'rpc_failed' }
   }
 
-  return true
+  return { ok: true }
 }
 
 // Validate device is active for user
@@ -400,6 +429,12 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
 //    token in the response, so nobody can attach devices (or events) to
 //    another person's account, and possession of a device UUID alone is not
 //    enough to submit events.
+//
+//    Re-registration by the CURRENT owner is an idempotent success (binding
+//    unchanged, token rotated). Registration by a DIFFERENT signed-in user
+//    is an account switch: the RPC transfers the binding atomically and
+//    revokes the previous account's sync token, so the old extension state
+//    starts receiving 401 REGISTRATION_REQUIRED and knows to re-link.
 export async function POST(request: NextRequest) {
   try {
     // Rate limiting - allow higher limits for data ingestion
@@ -459,29 +494,50 @@ export async function POST(request: NextRequest) {
       if (claimedUserId && claimedUserId !== session.userId) {
         return NextResponse.json({
           success: false,
-          error: 'User mismatch: you can only link devices to your own account.'
+          error: 'User mismatch: you can only link devices to your own account.',
+          code: 'USER_MISMATCH'
         }, { status: 403 })
       }
 
-      // Never let one account take over a device that is actively bound to a
-      // different account. The rightful owner must deactivate it first.
-      if (device && device.is_active && Number(device.user_id) !== session.userId) {
-        return NextResponse.json({
-          success: false,
-          error: 'This device is already linked to another account.'
-        }, { status: 409 })
+      // Account switch on the same browser (device bound to a different
+      // user): this is a first-class RELINK. The register_user_device RPC
+      // transfers the binding atomically and revokes the previous account's
+      // sync token, so the old account stops ingesting the moment ownership
+      // changes. Relinking to the same account is an idempotent success.
+      if (device && Number(device.user_id) !== session.userId) {
+        console.log(
+          `[Extension Sync] Relinking device ${deviceUuid.slice(0, 8)}... ` +
+          `from user ${device.user_id} to user ${session.userId}`
+        )
       }
 
       finalUserId = session.userId
 
       const userAgent = request.headers.get('user-agent') || ''
-      const registered = await registerDevice(finalUserId, deviceUuid, parseUserAgent(userAgent))
-      if (!registered) {
-        console.error(`[Extension Sync] Device registration failed for ${deviceUuid.slice(0, 8)}...`)
-        return NextResponse.json({
-          success: false,
-          error: 'Device registration failed'
-        }, { status: 500 })
+      const registration = await registerDevice(finalUserId, deviceUuid, parseUserAgent(userAgent))
+      if (!registration.ok) {
+        switch (registration.reason) {
+          case 'transfer_blocked':
+            // Deployed database still runs the pre-027 RPC, which refuses
+            // cross-account rebinds. Distinguishable so the client can show
+            // a real message instead of a generic failure.
+            return NextResponse.json({
+              success: false,
+              error: 'This device is still linked to another account. Relink is temporarily unavailable.',
+              code: 'DEVICE_TRANSFER_BLOCKED'
+            }, { status: 409 })
+          case 'rpc_failed':
+            console.error(`[Extension Sync] Device registration failed for ${deviceUuid.slice(0, 8)}...`)
+            return NextResponse.json({
+              success: false,
+              error: 'Device registration failed',
+              code: 'REGISTRATION_FAILED'
+            }, { status: 500 })
+          default: {
+            const exhaustive: never = registration
+            throw new Error(`Unhandled registration failure: ${JSON.stringify(exhaustive)}`)
+          }
+        }
       }
 
       // Rotate the device's sync token on every (re-)registration. The
@@ -497,7 +553,8 @@ export async function POST(request: NextRequest) {
         console.error('[Extension Sync] Failed to store sync token hash:', tokenError)
         return NextResponse.json({
           success: false,
-          error: 'Device registration failed'
+          error: 'Device registration failed',
+          code: 'REGISTRATION_FAILED'
         }, { status: 500 })
       }
     }
@@ -507,7 +564,8 @@ export async function POST(request: NextRequest) {
     if (!isValidDevice) {
       return NextResponse.json({
         success: false,
-        error: 'Device not active for this user'
+        error: 'Device not active for this user',
+        code: 'DEVICE_INACTIVE'
       }, { status: 403 })
     }
 
@@ -527,11 +585,13 @@ export async function POST(request: NextRequest) {
       if (scoresStale) {
         console.error(`[Extension Sync] Score recalculation failed for user ${finalUserId}`)
       } else {
-        // Rank buckets, score milestones, and achievement unlocks are all
-        // deduped server-side, so these are safe to run on every sync.
-        // Neither call throws.
+        // Rank buckets, score milestones, achievement unlocks, and the
+        // referral reward are all deduped server-side, so these are safe
+        // to run on every sync. None of these calls throw. The first sync
+        // with real events is the referral activation moment.
         await evaluateScoreNotifications(supabase, finalUserId)
         await evaluateAchievements(supabase, finalUserId)
+        await maybeGrantReferralReward(supabase, finalUserId)
       }
     }
 

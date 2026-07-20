@@ -18,10 +18,12 @@
   --accent-rgb: 2 254 1;
 
   /* Achievement rarity palette (used by the achievements page and the
-     notification bell). Dark: zinc / hacker green / synthwave pink /
-     neon gold — light overrides below. */
+     notification bell). Dark: zinc / signal blue / synthwave pink /
+     neon gold — light overrides below. Rare is deliberately NOT the
+     accent: green means "live signal" everywhere else, and the classic
+     loot ladder (gray → blue → purple → gold) reads instantly. */
   --r-common: 161 161 170;
-  --r-rare: var(--accent-rgb);
+  --r-rare: 56 189 248;
   --r-epic: 255 45 149;
   --r-legendary: 255 214 68;
 
@@ -129,8 +131,9 @@ html.light {
   --accent: #ff5e00;
   --accent-rgb: 255 94 0;
 
-  /* rarity palette: archival slate / neon orange / violet / burnt gold */
+  /* rarity palette: archival slate / print blue / violet / burnt gold */
   --r-common: 124 116 98;
+  --r-rare: 2 132 199;
   --r-epic: 147 51 234;
   --r-legendary: 202 138 4;
 
@@ -1075,6 +1078,207 @@ html.light .lb-panel {
   .anim-sweep,
   .anim-ignite {
     animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Referral plate + modal (ReferralPlate.tsx) — the profile's recruit CTA.
+   Slot-machine marquee in an electric-lime duotone (#FCFF00 over near-black
+   glass) that is deliberately NOT the site accent: --ref-lime is scoped to
+   .referral-scope so the global green/orange stays untouched. The marquee
+   pulse lives in the letters themselves (headline and +500 breathe on
+   offset phases); the shell keeps only a faint static glow. All loops run
+   under prefers-reduced-motion: no-preference; without it the plate
+   settles into static type + a static lime hairline.
+--------------------------------------------------------------------------- */
+
+.referral-scope {
+  /* #FCFF00 */
+  --ref-lime: 252 255 0;
+  /* text-glow alphas for the marquee pulse (rest / peak / peak halo) */
+  --ref-glow-lo: 0.2;
+  --ref-glow-hi: 0.65;
+  --ref-glow-halo: 0.25;
+}
+
+html.light .referral-scope {
+  /* #FCFF00 vanishes on cream — darkened chartreuse ink holds the duotone
+     and keeps AA contrast on the headline (~5.3:1 on the paper canvas) */
+  --ref-lime: 96 108 0;
+  --ref-glow-lo: 0.08;
+  --ref-glow-hi: 0.22;
+  --ref-glow-halo: 0.08;
+}
+
+/* Plate shell — static presence only; the pulse moved into the type */
+.referral-plate {
+  --rr-base: 0.2;
+  --rr-tail: 0.5;
+  --rr-head: 0.95;
+  box-shadow: 0 0 26px -12px rgb(var(--ref-lime) / 0.3);
+}
+
+html.light .referral-plate {
+  --rr-base: 0.32;
+  --rr-tail: 0.5;
+  --rr-head: 0.9;
+  box-shadow: 0 0 22px -14px rgb(var(--ref-lime) / 0.25);
+}
+
+/* Marquee stars — lime type with a breathing glow. The resting shadow
+   doubles as the reduced-motion state. */
+.ref-star {
+  color: rgb(var(--ref-lime));
+  text-shadow: 0 0 8px rgb(var(--ref-lime) / var(--ref-glow-lo));
+}
+
+.ref-dot {
+  background: rgb(var(--ref-lime));
+  box-shadow: 0 0 8px rgb(var(--ref-lime) / 0.7);
+}
+
+@keyframes ref-star-pulse {
+  0%,
+  100% {
+    text-shadow: 0 0 4px rgb(var(--ref-lime) / var(--ref-glow-lo));
+    filter: brightness(0.9);
+  }
+  50% {
+    text-shadow:
+      0 0 12px rgb(var(--ref-lime) / var(--ref-glow-hi)),
+      0 0 32px rgb(var(--ref-lime) / var(--ref-glow-halo));
+    filter: brightness(1.1);
+  }
+}
+
+/* Conic comet behind the 1px border gap. The element is a centered square
+   at 200% of the plate's width (>= its diagonal) so the rotation covers
+   every corner at every angle — an -inset-based rectangle stops covering
+   the full width near 90°/270°. The base alpha keeps a resting accent
+   hairline; the head is a crisp full-strength point with a long tail. */
+.referral-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 200%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  background: conic-gradient(
+    from 0deg,
+    rgb(var(--ref-lime) / var(--rr-base)) 0deg,
+    rgb(var(--ref-lime) / var(--rr-base)) 240deg,
+    rgb(var(--ref-lime) / var(--rr-tail)) 320deg,
+    rgb(var(--ref-lime) / var(--rr-head)) 352deg,
+    rgb(var(--ref-lime) / var(--rr-base)) 353deg
+  );
+}
+
+/* Plate surface — near-black glass with a whisper of lime at the top edge
+   plus the shared glass highlight so it reads as material, not a flat
+   fill. Light theme: paper with a chartreuse-ink wash. */
+.referral-surface {
+  background:
+    linear-gradient(
+      180deg,
+      rgb(var(--ref-lime) / 0.07),
+      rgb(var(--ref-lime) / 0.02) 55%,
+      transparent
+    ),
+    var(--background);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+
+html.light .referral-surface {
+  background:
+    linear-gradient(
+      180deg,
+      rgb(var(--ref-lime) / 0.07),
+      rgb(var(--ref-lime) / 0.02) 55%,
+      transparent
+    ),
+    var(--background);
+}
+
+/* Sheen strip — parked off-canvas by its base transform, so with the
+   loop disabled it simply never shows */
+.referral-sheen {
+  position: absolute;
+  top: -40%;
+  bottom: -40%;
+  left: 0;
+  width: 45%;
+  transform: translateX(-180%) skewX(-18deg);
+  background: linear-gradient(
+    105deg,
+    transparent,
+    rgb(255 255 255 / 0.1) 40%,
+    rgb(var(--ref-lime) / 0.14) 60%,
+    transparent
+  );
+  pointer-events: none;
+}
+
+html.light .referral-sheen {
+  background: linear-gradient(
+    105deg,
+    transparent,
+    rgb(255 255 255 / 0.55) 45%,
+    rgb(var(--ref-lime) / 0.08) 60%,
+    transparent
+  );
+}
+
+@keyframes referral-ring {
+  to {
+    transform: translate(-50%, -50%) rotate(1turn);
+  }
+}
+
+/* Casino-badge glint: hold off-canvas ~86% of the loop, then a fast
+   (~1s) linear strip across the plate — not a slow ambient shimmer */
+@keyframes referral-sheen {
+  0%,
+  86% {
+    transform: translateX(-180%) skewX(-18deg);
+  }
+  100% {
+    transform: translateX(340%) skewX(-18deg);
+  }
+}
+
+/* Modal cap bar draws its fill in after the modal lands */
+@keyframes referral-cap-in {
+  from {
+    width: 0;
+  }
+}
+
+/* Copy button acknowledges with a quick pop */
+@keyframes referral-copy-pop {
+  50% {
+    transform: scale(1.06);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* the two stars breathe alternately: same 3s rhythm, half-cycle apart */
+  .ref-star-a {
+    animation: ref-star-pulse 3s ease-in-out infinite;
+  }
+  .ref-star-b {
+    animation: ref-star-pulse 3s ease-in-out infinite 1.5s;
+  }
+  .referral-ring {
+    animation: referral-ring 7s linear infinite;
+  }
+  .referral-sheen {
+    animation: referral-sheen 7s linear infinite 1.6s;
+  }
+  .referral-cap-fill {
+    animation: referral-cap-in 700ms cubic-bezier(0.22, 1, 0.36, 1) 200ms backwards;
+  }
+  .referral-copied {
+    animation: referral-copy-pop 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 }
 

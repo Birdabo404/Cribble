@@ -12,13 +12,15 @@ import type { AchievementDef } from '@/lib/achievements'
 import { APEX, HONOR_TILES, RARITY_COLOR } from './data'
 import { CountUp, Seam, SectionHeader, Stage } from './scrollFx'
 
-/** The story the wall tells: a mid-ladder pilot's record. */
+/** The story the wall tells: a mid-ladder pilot's record — commons banked,
+ * rares coming in, exactly one epic to prove the ladder keeps going. */
 const UNLOCKED = new Set([
   'score_1k',
   'score_10k',
   'score_50k',
   'streak_3',
   'streak_7',
+  'streak_14',
   'first_sync',
   'tools_3',
   'tools_5',
@@ -54,7 +56,7 @@ function Tile({
       type="button"
       onPointerEnter={() => onHover(def)}
       onFocus={() => onHover(def)}
-      aria-label={`${def.name} — ${def.description}`}
+      aria-label={`${def.name}: ${def.description}`}
       className="st-cell hn-tile group relative flex aspect-square items-center justify-center rounded-lg"
       style={
         {
@@ -180,9 +182,10 @@ function ApexCenterpiece() {
             </span>
           </div>
           <p className="mt-2 font-sans text-[14px] leading-relaxed text-zinc-400 sm:text-[13.5px]">
-            {APEX.description} Exactly one copy exists at any moment — take the
-            top slot and it transfers to you, along with the Champion&apos;s
-            Gold plate. Lose the slot, lose the crown.
+            One exists, and it isn&apos;t minted. It&apos;s confiscated.
+            Overtake the holder and the crown moves to your account,
+            Champion&apos;s Gold plate and all. Get overtaken, and it leaves
+            without saying goodbye.
           </p>
           <p className="mt-2.5 text-[9px] tracking-[0.3em] text-zinc-600">
             1 OF 1 IN CIRCULATION · CURRENTLY HELD BY{' '}
@@ -212,9 +215,11 @@ function HonorsBody() {
           serif={<>earned in the field, never bought.</>}
           body={
             <>
-              Milestones, streaks, arsenal, operations — every medal is cut
-              from real usage stats. Most pilots retire a handful. One medal
-              is different: it can&apos;t be kept, only defended.
+              Milestones, streaks, arsenal, operations. Every medal is cut
+              from real usage stats, so the case fills at the speed you
+              actually work. Most collections stall in single digits. The
+              last one can&apos;t be collected at all: it&apos;s held, and
+              only for as long as you can defend it.
             </>
           }
         />

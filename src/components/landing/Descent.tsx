@@ -379,7 +379,7 @@ export function Descent() {
           --accent: #02fe01;
           --accent-rgb: 2 254 1;
           --r-common: 161 161 170;
-          --r-rare: var(--accent-rgb);
+          --r-rare: 56 189 248;
           --r-epic: 255 45 149;
           --r-legendary: 255 214 68;
           --c-black: 0 0 0;

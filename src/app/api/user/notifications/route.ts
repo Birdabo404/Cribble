@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabaseServer'
 import { z } from 'zod'
-import { ensureSeasonNotifications } from '@/lib/notifications'
 import { getSessionUserId } from '@/lib/sessionAuth'
 
 export const dynamic = 'force-dynamic'
@@ -17,10 +16,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: session.error }, { status: session.status })
     }
 
-    // Time-based season notifications are generated lazily on read
-    // (idempotent via dedupe keys) since there is no scheduler yet.
-    await ensureSeasonNotifications(supabase, session.userId)
-
+    // Season notifications arrive via the season_tick() cron fan-out
+    // (migration 025) — the feed is a pure read.
     const { data: notifications, error } = await supabase
       .from('notifications')
       .select('id, type, title, body, data, read_at, created_at')

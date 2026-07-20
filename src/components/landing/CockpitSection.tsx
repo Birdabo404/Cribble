@@ -15,6 +15,11 @@ import { CountUp, Seam, SectionHeader, Stage, useStageLive } from './scrollFx'
 const WEEKS = 12
 const DAYS = 7
 
+/* Heat runs ember, not accent-green: on a real console green means "live
+   signal" (score, sync feed) while accumulated heat glows amber — and the
+   two-hue instrument palette keeps the cockpit from washing monochrome. */
+const EMBER = '255 138 42'
+
 function Heatmap() {
   return (
     <div className="flex gap-[3px]">
@@ -33,10 +38,10 @@ function Heatmap() {
                     background:
                       level === 0
                         ? 'rgb(var(--z900) / 0.9)'
-                        : `rgb(var(--accent-rgb) / ${0.16 + level * 0.21})`,
+                        : `rgb(${EMBER} / ${0.16 + level * 0.21})`,
                     boxShadow:
                       level >= 3
-                        ? `0 0 7px rgb(var(--accent-rgb) / ${level * 0.14})`
+                        ? `0 0 7px rgb(${EMBER} / ${level * 0.14})`
                         : undefined
                   } as CSSProperties
                 }
@@ -220,7 +225,7 @@ function CockpitBody() {
                     </span>
                   </div>
                   <span className="mt-1 block text-[9px] tracking-[0.25em] text-zinc-600">
-                    OF 2,104 PILOTS
+                    OF 2,929 PILOTS
                   </span>
                 </div>
               </div>
@@ -241,7 +246,7 @@ function CockpitBody() {
               <div className="mt-3 flex items-center justify-between text-[9px] text-zinc-600">
                 <span className="tracking-[0.2em]">
                   STREAK{' '}
-                  <span style={{ color: 'var(--accent)' }} className="tabular-nums">
+                  <span style={{ color: `rgb(${EMBER})` }} className="tabular-nums">
                     {COCKPIT.streakDays}D
                   </span>
                 </span>
@@ -254,7 +259,7 @@ function CockpitBody() {
                         background:
                           l === 0
                             ? 'rgb(var(--z900))'
-                            : `rgb(var(--accent-rgb) / ${0.16 + l * 0.21})`
+                            : `rgb(${EMBER} / ${0.16 + l * 0.21})`
                       }}
                     />
                   ))}
@@ -262,7 +267,8 @@ function CockpitBody() {
               </div>
             </Panel>
 
-            {/* tool split */}
+            {/* tool split — only the daily driver earns the signal color;
+                the rest of the rack reads in brushed steel */}
             <Panel delay={380} className="col-span-2 p-5 sm:col-span-1">
               <span className={PANEL_LABEL}>ARSENAL SPLIT</span>
               <div className="mt-4 flex flex-col gap-2.5">
@@ -279,8 +285,14 @@ function CockpitBody() {
                           {
                             '--d': `${560 + i * 110}ms`,
                             width: `${t.pct}%`,
-                            background: `linear-gradient(90deg, rgb(var(--accent-rgb) / ${0.9 - i * 0.14}), rgb(var(--accent-rgb) / ${0.45 - i * 0.06}))`,
-                            boxShadow: '0 0 8px rgb(var(--accent-rgb) / 0.35)'
+                            background:
+                              i === 0
+                                ? 'linear-gradient(90deg, rgb(var(--accent-rgb) / 0.9), rgb(var(--accent-rgb) / 0.45))'
+                                : `linear-gradient(90deg, rgb(var(--z400) / ${0.75 - i * 0.11}), rgb(var(--z500) / ${0.4 - i * 0.05}))`,
+                            boxShadow:
+                              i === 0
+                                ? '0 0 8px rgb(var(--accent-rgb) / 0.35)'
+                                : undefined
                           } as CSSProperties
                         }
                       />
@@ -334,18 +346,19 @@ function CockpitBody() {
             code="PILOT_DASHBOARD"
             title={
               <>
-                Your cockpit.
+                Nothing to log.
                 <br />
-                Zero effort.
+                Plenty to read.
               </>
             }
-            serif={<>the extension flies. you just read the gauges.</>}
+            serif={<>the extension does the counting. you do the flying.</>}
             body={
               <>
-                Install once and forget it exists. Every AI session you run
-                lands here as score, streaks and a twelve-week heat trail —
-                sessionized, deduped, and weighted toward deep work instead of
-                tab-flicking. No timers to start. Nothing to log.
+                Install it once and it vanishes into the browser. Sessions
+                land here on their own: score, streaks, a twelve-week heat
+                trail, all fused from heartbeats and weighted toward deep
+                work instead of tab-flicking. No timers. No check-ins. No
+                honor system. The gauges just move.
               </>
             }
             annotation="TELEMETRY · PASSIVE"
@@ -353,9 +366,9 @@ function CockpitBody() {
 
           <ul className="mt-8 flex flex-col gap-3.5">
             {[
-              ['SESSIONIZED', 'Heartbeats fuse into sessions; ten focused minutes outscore a hundred idle tabs.'],
-              ['SEASONAL', `Season resets every quarter — ${COCKPIT.seasonDaysLeft} days left in Ignition.`],
-              ['PRIVATE BY DEFAULT', 'Lurk mode hides your loadout while your rank keeps climbing.']
+              ['DEPTH OVER VOLUME', 'Ten locked-in minutes outscore a hundred idle tabs. Doomscrolling pays zero.'],
+              ['SEASONS', `Every quarter the board wipes and the knives come out. ${COCKPIT.seasonDaysLeft} days left in Ignition.`],
+              ['LURK MODE', 'Hide your loadout, keep your rank. Nobody has to know Gemini is your main.']
             ].map(([head, sub], i) => (
               <li
                 key={head}
@@ -365,9 +378,8 @@ function CockpitBody() {
                 <span
                   className="mt-[3px] h-3.5 w-3.5 shrink-0 rounded-sm border"
                   style={{
-                    borderColor: 'rgb(var(--accent-rgb) / 0.5)',
-                    background: 'rgb(var(--accent-rgb) / 0.08)',
-                    boxShadow: '0 0 10px rgb(var(--accent-rgb) / 0.2)'
+                    borderColor: 'rgb(var(--z600) / 0.7)',
+                    background: 'rgb(var(--z800) / 0.35)'
                   }}
                 />
                 <span>

@@ -2,12 +2,6 @@ import type { Tier } from '@/types/dashboard'
 
 export { ACCENT, accentA } from '@/lib/theme'
 
-export const SEASON = {
-  name: 'SEASON 01',
-  startISO: '2026-04-01T00:00:00.000Z',
-  endISO: '2026-07-01T00:00:00.000Z'
-}
-
 export const formatNumber = (n: number) => n.toLocaleString('en-US')
 
 export const formatCompact = (n: number) => {

@@ -8,9 +8,9 @@ import { useCallback, useMemo, useState } from 'react'
 import { AsciiBanner } from '@/components/dashboard-v2/AsciiBanner'
 import { ErrorScreen } from '@/components/dashboard-v2/ErrorScreen'
 import { LoadingScreen } from '@/components/dashboard-v2/LoadingScreen'
-import { SEASON } from '@/components/dashboard-v2/format'
 import { ActivityCard } from '@/components/dashboard-v3/ActivityCard'
 import { AsteroidShower } from '@/components/dashboard-v3/AsteroidShower'
+import { ExtensionNudge } from '@/components/dashboard-v3/ExtensionNudge'
 import { HeroCard } from '@/components/dashboard-v3/HeroCard'
 import { KpiStrip } from '@/components/dashboard-v3/KpiStrip'
 import { SeasonRail } from '@/components/dashboard-v3/SeasonRail'
@@ -22,7 +22,9 @@ import {
 } from '@/components/nav/NavStatusContext'
 import { useDashboardData } from '@/hooks/useDashboardData'
 import { useExtensionSync } from '@/hooks/useExtensionSync'
+import { useSeason } from '@/hooks/useSeason'
 import { calculateStreak } from '@/lib/activity'
+import { daysUntil, seasonProgress } from '@/lib/season'
 import type { RankInfo } from '@/types/dashboard'
 
 export default function DashboardV3() {
@@ -40,7 +42,7 @@ export default function DashboardV3() {
     refreshDashboard
   } = useDashboardData()
 
-  const { syncing, handleSync } = useExtensionSync({
+  const { phase, syncing, handleSync } = useExtensionSync({
     user,
     activeDevice,
     fetchMe,
@@ -66,16 +68,34 @@ export default function DashboardV3() {
     return { position: idx + 1, total: leaderboard.length }
   }, [user, leaderboard])
 
-  const seasonProgress = useMemo(() => {
-    const start = new Date(SEASON.startISO).getTime()
-    const end = new Date(SEASON.endISO).getTime()
-    const now = Date.now()
-    const total = end - start
-    const elapsed = Math.max(0, Math.min(now - start, total))
-    const pct = total > 0 ? Math.round((elapsed / total) * 100) : 0
-    const daysLeft = Math.max(0, Math.ceil((end - now) / 86400_000))
-    return { pct, daysLeft }
-  }, [])
+  const { state: seasonState } = useSeason()
+
+  // The rail's story depends on the phase: a live season shows progress
+  // toward its lock; an intermission counts down to the next launch.
+  const seasonRail = useMemo(() => {
+    if (seasonState?.phase === 'active' && seasonState.current) {
+      const { pct, daysLeft } = seasonProgress(
+        seasonState.current.startsAt,
+        seasonState.current.endsAt
+      )
+      return { name: seasonState.current.name, pct, daysLeft, daysLabel: 'D LEFT' }
+    }
+    if (seasonState?.phase === 'intermission' && seasonState.next) {
+      return {
+        name: 'INTERMISSION',
+        pct: 100,
+        daysLeft: daysUntil(seasonState.next.startsAt),
+        daysLabel: 'D TO LAUNCH'
+      }
+    }
+    // Calendar still loading (or none exists yet) — neutral placeholder.
+    return {
+      name: seasonState?.current?.name ?? 'SEASON',
+      pct: 0,
+      daysLeft: 0,
+      daysLabel: 'D LEFT'
+    }
+  }, [seasonState])
 
   const connectionState: ConnectionState = useMemo(() => {
     const last = activeDevice?.last_sync_at || user?.last_extension_sync
@@ -109,6 +129,7 @@ export default function DashboardV3() {
         <AsciiBanner username={user.twitter_username} />
 
         <main className="mt-8 grid grid-cols-12 gap-5">
+          <ExtensionNudge user={user} activeDevice={activeDevice} phase={phase} />
           <HeroCard
             scores={scores}
             rank={rankInfo}
@@ -118,8 +139,10 @@ export default function DashboardV3() {
             refreshing={refreshing}
           />
           <SeasonRail
-            pct={seasonProgress.pct}
-            daysLeft={seasonProgress.daysLeft}
+            name={seasonRail.name}
+            pct={seasonRail.pct}
+            daysLeft={seasonRail.daysLeft}
+            daysLabel={seasonRail.daysLabel}
             streak={streak}
             activity={activity}
           />

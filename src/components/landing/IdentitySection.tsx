@@ -14,30 +14,32 @@ import {
 } from 'react'
 import { PlateLayer } from '@/components/cosmetics/PlateLayer'
 import { PixelIcon } from '@/components/achievements/PixelIcon'
-import { ToolIcon } from '@/components/leaderboard/icons'
+import { SocialIcon, ToolIcon } from '@/components/leaderboard/icons'
 import { getPlate, PLATE_RARITY_META } from '@/lib/cosmetics/plates'
 import { prefersReducedMotion } from '@/lib/motion'
 import { SHOWCASE_PLATES } from './data'
 import { Seam, SectionHeader, Stage, useStageLive } from './scrollFx'
 
+/* The demo card is the founder's real profile — same numbers the arena sim
+   above puts him at, so the two sections corroborate each other. */
 const CARD_STATS = [
-  { label: 'RANK', value: '#47' },
-  { label: 'SCORE', value: '84,209' },
-  { label: 'STREAK', value: '12D' },
-  { label: 'FOCUS', value: '96H' }
+  { label: 'RANK', value: '#1' },
+  { label: 'SCORE', value: '929,369' },
+  { label: 'STREAK', value: '92D' },
+  { label: 'FOCUS', value: '369H' }
 ] as const
 
 const CARD_BADGES = [
   { icon: 'rocket', rarity: 'rare', name: 'ESCAPE VELOCITY' },
-  { icon: 'terminal', rarity: 'rare', name: 'ALL SYSTEMS NOMINAL' },
   { icon: 'starfield', rarity: 'epic', name: 'DEEP SPACE' },
-  { icon: 'wings', rarity: 'epic', name: 'SQUADRON LEADER' }
+  { icon: 'wings', rarity: 'epic', name: 'SQUADRON LEADER' },
+  { icon: 'crown', rarity: 'legendary', name: 'APEX' }
 ] as const
 
 const CARD_TOOLS = [
-  { name: 'Cursor', pct: 34 },
-  { name: 'Claude', pct: 21 },
-  { name: 'ChatGPT', pct: 27 }
+  { name: 'Cursor', pct: 41 },
+  { name: 'Claude', pct: 24 },
+  { name: 'ChatGPT', pct: 19 }
 ] as const
 
 const RARITY: Record<string, string> = {
@@ -122,8 +124,14 @@ function PilotCard({ plateId }: { plateId: string }) {
           >
             {plate?.name.toUpperCase() ?? 'PLATE'}
           </span>
-          <span className="absolute right-4 top-4 rounded border border-accent/50 bg-black/50 px-1.5 py-0.5 text-[8px] tracking-[0.25em] text-accent">
-            YOU
+          <span
+            className="absolute right-4 top-4 rounded bg-black/50 px-1.5 py-0.5 text-[8px] tracking-[0.25em]"
+            style={{
+              color: 'rgb(var(--lb-gold))',
+              border: '1px solid rgb(var(--lb-gold) / 0.5)'
+            }}
+          >
+            FOUNDER
           </span>
         </div>
 
@@ -144,8 +152,13 @@ function PilotCard({ plateId }: { plateId: string }) {
                 className="absolute inset-0 rounded-full"
                 style={{ boxShadow: 'inset 0 0 0 3px rgb(var(--lb-panel-bg))' }}
               />
-              <span className="absolute inset-[3px] flex items-center justify-center rounded-full bg-zinc-900 font-display text-2xl font-bold text-zinc-200">
-                Y
+              <span className="absolute inset-[3px] block overflow-hidden rounded-full bg-zinc-900">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/avatars/birdabo.jpg"
+                  alt="@birdabo"
+                  className="h-full w-full object-cover"
+                />
               </span>
               <span
                 className="absolute bottom-1 right-1 h-3 w-3 rounded-full"
@@ -161,14 +174,19 @@ function PilotCard({ plateId }: { plateId: string }) {
             </span>
           </div>
 
-          <div className="mt-3">
+          <div className="mt-3 flex items-baseline gap-2">
             <span className="font-display text-xl font-semibold tracking-tight text-zinc-50">
-              your_callsign
+              Birdabo
             </span>
-            <span className="ml-2 text-[11px] text-zinc-500">@you</span>
+            <span className="inline-flex items-center gap-1 text-[11px] text-zinc-500">
+              @birdabo
+              <span className="text-zinc-600">
+                <SocialIcon kind="x" size={9} />
+              </span>
+            </span>
           </div>
           <p className="mt-1.5 font-sans text-[12.5px] leading-relaxed text-zinc-500">
-            Shipping with agents since day one. Ask my token bill.
+            Built Cribble to settle an argument. Currently winning it.
           </p>
 
           {/* flight record */}
@@ -265,18 +283,20 @@ function IdentityBody() {
             code="PILOT_IDENTITY"
             title={
               <>
-                A profile that
+                Proof of work,
                 <br />
-                flexes for you.
+                laminated.
               </>
             }
-            serif={<>your grind, minted as a trading card.</>}
+            serif={<>your grind, pressed into a trading card.</>}
             body={
               <>
                 Every pilot gets a card: banner, callsign, flight record,
-                loadout, service medals. Equip nameplates from the shop or
-                earn the ones money can&apos;t buy — Champion&apos;s Gold only
-                exists on the account that holds #1.
+                medal rack. Skin it with plates from the shop, or with the
+                ones money can&apos;t touch. The card on the right belongs
+                to <span className="text-zinc-200">@birdabo</span>, the
+                founder, currently sitting on #1. Somebody should really do
+                something about that.
               </>
             }
             annotation="COSMETICS · CATALOG LIVE"
@@ -356,7 +376,7 @@ function IdentityBody() {
               className="st mt-1 text-[9px] tracking-[0.3em] text-zinc-700"
               style={{ '--d': '760ms' } as CSSProperties}
             >
-              {'// TAP A PLATE — THE CARD RE-SKINS LIVE'}
+              {'// TAP A PLATE · THE CARD RE-SKINS LIVE'}
             </p>
           </div>
         </div>

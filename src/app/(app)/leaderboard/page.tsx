@@ -21,9 +21,9 @@ import {
   useState
 } from 'react'
 import { prefersReducedMotion } from '@/lib/motion'
+import { countdownTo, type SeasonState } from '@/lib/season'
 import AnimatedCounter from '@/components/AnimatedCounter'
 import {
-  SEASON,
   formatCompact,
   formatNumber,
   formatRelative
@@ -57,11 +57,13 @@ const PAGE_SIZE = 25
 const POLL_MS = 15_000
 const FLASH_MS = 2_400
 
-/** Which board is on stage: pilots (global) or the machines (ai). */
-type BoardView = 'global' | 'ai'
+/** Which board is on stage: the season race, lifetime standings, or the
+ *  machines (ai). */
+type BoardView = 'season' | 'alltime' | 'ai'
 
 const BOARD_TABS: { id: BoardView; label: string }[] = [
-  { id: 'global', label: 'GLOBAL' },
+  { id: 'season', label: 'SEASON' },
+  { id: 'alltime', label: 'ALL-TIME' },
   { id: 'ai', label: 'AI' }
 ]
 
@@ -75,7 +77,8 @@ export default function LeaderboardArena() {
   const [refreshing, setRefreshing] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null)
-  const [view, setView] = useState<BoardView>('global')
+  const [view, setView] = useState<BoardView>('season')
+  const [seasonMeta, setSeasonMeta] = useState<SeasonState | null>(null)
 
   // The poll callbacks read the current view through a ref so the
   // mount effect below never has to re-subscribe on view flips.
@@ -93,12 +96,14 @@ export default function LeaderboardArena() {
 
   const fetchData = useCallback(async () => {
     const seq = ++fetchSeq.current
+    const board = viewRef.current === 'alltime' ? 'alltime' : 'season'
     try {
-      const res = await fetch('/api/leaderboard', { cache: 'no-store' })
+      const res = await fetch(`/api/leaderboard?board=${board}`, { cache: 'no-store' })
       if (!res.ok) return
       const data = await res.json()
       if (seq !== fetchSeq.current) return
       if (!data.success) return
+      if (data.season) setSeasonMeta(data.season as SeasonState)
       const next: LeaderRow[] = Array.isArray(data.data) ? data.data : []
 
       // diff scores for the +N pops
@@ -139,14 +144,14 @@ export default function LeaderboardArena() {
   // Hidden tabs skip the poll entirely — the visibility handler refetches
   // the moment the player comes back. The AI view skips it too (its data
   // is a 5-minute server cache; AiBoard refetches itself), and switching
-  // back to GLOBAL refetches immediately so the pause never shows.
+  // back to a standings board refetches immediately so the pause never shows.
   useEffect(() => {
     Promise.all([fetchData(), fetchMe()]).finally(() => setLoading(false))
     const id = setInterval(() => {
-      if (!document.hidden && viewRef.current === 'global') void fetchData()
+      if (!document.hidden && viewRef.current !== 'ai') void fetchData()
     }, POLL_MS)
     const onVisible = () => {
-      if (document.visibilityState === 'visible' && viewRef.current === 'global') {
+      if (document.visibilityState === 'visible' && viewRef.current !== 'ai') {
         void fetchData()
       }
     }
@@ -162,11 +167,17 @@ export default function LeaderboardArena() {
 
   const handleViewChange = useCallback(
     (next: BoardView) => {
-      setView((prev) => {
-        if (prev === next) return prev
-        return next
-      })
-      if (next === 'global' && viewRef.current !== 'global') void fetchData()
+      const prev = viewRef.current
+      setView((current) => (current === next ? current : next))
+      if (next !== 'ai' && prev !== next) {
+        // The two standings boards rank by different scores — a board
+        // switch must never read as everyone "gaining" the difference.
+        viewRef.current = next
+        prevScores.current = new Map()
+        setFlashes(new Map())
+        skipFlip.current = true
+        void fetchData()
+      }
     },
     [fetchData]
   )
@@ -298,7 +309,7 @@ export default function LeaderboardArena() {
           <span className="h-px w-8 bg-gradient-to-r from-transparent to-[rgb(var(--lb-gold)/0.6)]" />
           <IconCrown size={13} />
           <span className="font-display text-[10px] font-semibold tracking-[0.55em]">
-            {view === 'global' ? 'GLOBAL' : 'THE AI'}
+            {view === 'ai' ? 'THE AI' : view === 'alltime' ? 'ALL-TIME' : 'SEASON'}
           </span>
           <IconCrown size={13} className="-scale-x-100" />
           <span className="h-px w-8 bg-gradient-to-l from-transparent to-[rgb(var(--lb-gold)/0.6)]" />
@@ -307,29 +318,34 @@ export default function LeaderboardArena() {
           LEADERBOARD
         </h1>
         <p className="mt-4 text-[10px] tracking-[0.3em] text-zinc-600">
-          <span className="text-[rgb(var(--lb-gold)/0.85)]">{SEASON.name}</span>
+          <span className="text-[rgb(var(--lb-gold)/0.85)]">
+            {seasonMeta?.phase === 'intermission'
+              ? 'INTERMISSION'
+              : seasonMeta?.current?.name ?? 'SEASON'}
+          </span>
           <span className="mx-2 text-zinc-800">·</span>
-          {view === 'global' ? (
+          {view === 'ai' ? (
+            'the machines, ranked by pilot usage'
+          ) : (
             <>
-              ranked by lifetime score
+              {view === 'alltime' ? 'ranked by lifetime score' : 'ranked by season score'}
               <span className="mx-2 text-zinc-800">·</span>
               <SyncStatus lastSyncAt={lastSyncAt} />
             </>
-          ) : (
-            'the machines, ranked by pilot usage'
           )}
         </p>
       </header>
 
       <main className="mt-8 space-y-5">
         {/* ---------- stat bar ---------- */}
-        {view === 'global' && (
+        {view !== 'ai' && (
           <section className="lb4-reveal" style={{ ['--rv' as string]: '90ms' }}>
             <StatBar
               totalPlayers={totals.totalPlayers}
               activePlayers={totals.activePlayers}
               topScore={topScore}
               leaderName={leader?.username ?? null}
+              season={seasonMeta}
             />
           </section>
         )}
@@ -337,7 +353,7 @@ export default function LeaderboardArena() {
         {/* ---------- view controls ---------- */}
         <div
           className={`lb4-reveal flex items-center justify-between gap-2 ${
-            view === 'global' ? '!mt-3' : ''
+            view !== 'ai' ? '!mt-3' : ''
           }`}
           style={{ ['--rv' as string]: '150ms' }}
         >
@@ -375,7 +391,7 @@ export default function LeaderboardArena() {
             })}
           </div>
 
-          {view === 'global' && (
+          {view !== 'ai' && (
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -406,11 +422,16 @@ export default function LeaderboardArena() {
         {/* ---------- THE AI LEADERBOARD ---------- */}
         {view === 'ai' && <AiBoard />}
 
+        {/* ---------- intermission: standings locked ---------- */}
+        {view === 'season' && seasonMeta?.phase === 'intermission' && (
+          <IntermissionBanner state={seasonMeta} />
+        )}
+
         {/* ---------- podium (collapsible) ---------- */}
         {/* visibility joins the transition so the collapsed podium drops out
             of paint, tab order and screen readers; lb4-pod-off freezes its
             infinite FX so they stop burning frames while hidden */}
-        {view === 'global' && (
+        {view !== 'ai' && (
         <div
           className={`lb4-reveal grid transition-[grid-template-rows,opacity,margin,visibility] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${
             showPodium ? '' : 'lb4-pod-off'
@@ -436,7 +457,7 @@ export default function LeaderboardArena() {
         )}
 
         {/* ---------- standings ---------- */}
-        {view === 'global' && (
+        {view !== 'ai' && (
         <section className="lb4-reveal relative" style={{ ['--rv' as string]: '300ms' }}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-baseline gap-3">
@@ -712,41 +733,52 @@ function SyncStatus({ lastSyncAt }: { lastSyncAt: number | null }) {
   )
 }
 
-type Countdown = { d: number; h: number; m: number; s: number; ended: boolean }
+function SeasonCountdown({ state }: { state: SeasonState | null }) {
+  // Active season counts down to its lock; intermission counts down to the
+  // next launch. The tick that flips the phase runs every 15 minutes, so a
+  // finished countdown briefly reads CLOSING / LAUNCHING until it lands.
+  const target =
+    state?.phase === 'active'
+      ? state.current?.endsAt ?? null
+      : state?.next?.startsAt ?? null
 
-const computeCountdown = (): Countdown => {
-  const diff = new Date(SEASON.endISO).getTime() - Date.now()
-  if (diff <= 0) return { d: 0, h: 0, m: 0, s: 0, ended: true }
-  return {
-    d: Math.floor(diff / 86400_000),
-    h: Math.floor((diff % 86400_000) / 3600_000),
-    m: Math.floor((diff % 3600_000) / 60_000),
-    s: Math.floor((diff % 60_000) / 1000),
-    ended: false
-  }
-}
+  const [countdown, setCountdown] = useState(() =>
+    target ? countdownTo(target) : null
+  )
 
-function SeasonCountdown() {
-  const [countdown, setCountdown] = useState<Countdown>(computeCountdown)
-
-  // An ended season needs no clock at all.
   useEffect(() => {
-    if (countdown.ended) return
-    const id = setInterval(() => setCountdown(computeCountdown()), 1000)
+    if (!target) {
+      setCountdown(null)
+      return
+    }
+    setCountdown(countdownTo(target))
+    const id = setInterval(() => setCountdown(countdownTo(target)), 1000)
     return () => clearInterval(id)
-  }, [countdown.ended])
+  }, [target])
+
+  const label = !state
+    ? 'SEASON'
+    : state.phase === 'active'
+      ? `${state.current?.name ?? 'SEASON'} · ENDS IN`
+      : state.next
+        ? `NEXT SEASON IN`
+        : `${state.current?.name ?? 'SEASON'} · STATUS`
 
   return (
     <>
       <div className="flex items-center gap-1.5 text-[9px] tracking-[0.35em] text-zinc-500">
         <IconHourglass size={11} className="text-zinc-600" />
-        {SEASON.name} · {countdown.ended ? 'STATUS' : 'ENDS IN'}
+        {label}
       </div>
-      {countdown.ended ? (
+      {!state || !target ? (
         <div className="mt-2.5 text-sm text-rose-400 [font-family:var(--font-pixel)] md:text-base">
-          ENDED
+          {state ? 'ENDED' : '——'}
         </div>
-      ) : (
+      ) : countdown?.ended ? (
+        <div className="mt-2.5 text-sm text-amber-300 [font-family:var(--font-pixel)] md:text-base">
+          {state.phase === 'active' ? 'CLOSING' : 'LAUNCHING'}
+        </div>
+      ) : countdown ? (
         <div className="mt-2.5 flex items-baseline text-xs text-zinc-50 tabular-nums [font-family:var(--font-pixel)] md:text-sm">
           {(
             [
@@ -767,8 +799,55 @@ function SeasonCountdown() {
             </span>
           ))}
         </div>
-      )}
+      ) : null}
     </>
+  )
+}
+
+/* ================= intermission banner ================= */
+
+function IntermissionBanner({ state }: { state: SeasonState }) {
+  const startsAt = state.next ? new Date(state.next.startsAt) : null
+  return (
+    <section className="lb4-reveal" style={{ ['--rv' as string]: '180ms' }}>
+      <div
+        className="lb-panel flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-2xl px-5 py-4"
+        style={{ border: '1px solid rgb(var(--lb-gold) / 0.35)' }}
+      >
+        <div className="flex items-center gap-3">
+          <IconTrophy size={15} className="shrink-0 text-[rgb(var(--lb-gold))]" />
+          <div>
+            <div
+              className="text-[10px] font-semibold tracking-[0.4em]"
+              style={{ color: 'rgb(var(--lb-gold))' }}
+            >
+              STANDINGS LOCKED
+            </div>
+            <p className="mt-1 text-[10px] tracking-[0.2em] text-zinc-500">
+              {state.current?.name ?? 'SEASON'} final results. Activity still counts
+              toward all-time — season scores reset at launch.
+            </p>
+          </div>
+        </div>
+        {state.next && startsAt && (
+          <div className="text-right">
+            <div className="text-[9px] tracking-[0.35em] text-zinc-500">
+              {state.next.name} DEPLOYS
+            </div>
+            <div className="mt-1 text-xs text-zinc-50 [font-family:var(--font-pixel)]">
+              {startsAt
+                .toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: '2-digit',
+                  timeZone: 'UTC'
+                })
+                .toUpperCase()}{' '}
+              UTC
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
   )
 }
 
@@ -778,12 +857,14 @@ function StatBar({
   totalPlayers,
   activePlayers,
   topScore,
-  leaderName
+  leaderName,
+  season
 }: {
   totalPlayers: number
   activePlayers: number
   topScore: number
   leaderName: string | null
+  season: SeasonState | null
 }) {
   const divCls = (i: number) => {
     if (i === 0) return ''
@@ -842,7 +923,7 @@ function StatBar({
 
       {/* season countdown — self-ticking */}
       <div className={`px-4 py-4 ${divCls(3)}`}>
-        <SeasonCountdown />
+        <SeasonCountdown state={season} />
       </div>
     </div>
   )

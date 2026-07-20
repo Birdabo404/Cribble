@@ -26,6 +26,11 @@ export function isAllowedDuringLock(pathname: string): boolean {
   if (pathname === '/welcome' || pathname === '/login') return true
   // The screen locked sectors rewrite into — must stay reachable itself.
   if (pathname === '/maintenance') return true
+  // Privacy policy is the Chrome Web Store listing's privacy URL and must
+  // stay reachable while the site is locked.
+  if (pathname === '/privacy') return true
+  // Referral share links redirect into /login and must work while locked.
+  if (pathname.startsWith('/join/')) return true
   if (pathname.startsWith('/audio/')) return true
   if (!pathname.startsWith('/api/') && STATIC_ASSET_RE.test(pathname)) return true
   if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) return true
@@ -36,7 +41,13 @@ export function isAllowedDuringLock(pathname: string): boolean {
   if (pathname === '/profile' || pathname.startsWith('/u/')) return true
   if (/^\/api\/waitlist\/?$/.test(pathname)) return true
   if (pathname.startsWith('/api/auth/')) return true
-  if (/^\/api\/user\/(onboarding|me|tools|activity|follow|profile|achievements|notifications)\/?$/.test(pathname)) return true
+  // Season calendar backs the dashboard rail + leaderboard countdown, and
+  // the cron backup trigger must stay reachable while locked.
+  if (pathname === '/api/season') return true
+  if (pathname === '/api/cron/season') return true
+  if (/^\/api\/user\/(onboarding|me|tools|activity|follow|profile|achievements|notifications|referral)\/?$/.test(pathname)) return true
+  // Beta feedback comes from testers inside the locked app shell.
+  if (/^\/api\/feedback\/?$/.test(pathname)) return true
   if (pathname.startsWith('/api/profile/')) return true
   if (pathname === '/api/leaderboard' || pathname.startsWith('/api/leaderboard/')) return true
   if (pathname.startsWith('/api/extension/')) return true

@@ -13,11 +13,16 @@ import {
   type DemotionEvent
 } from '@/lib/notifications'
 import { isMissingFollowsTable, readAccountIsPrivate } from '@/lib/publicProfile'
+import { fetchSeasonState } from '@/lib/seasonServer'
 import { getSessionUserId } from '@/lib/sessionAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 import { rankToolsFromEvents } from '@/lib/topTools'
 
 export const dynamic = 'force-dynamic'
+
+/** Which standings the caller wants: the season board (default, resets
+ *  each season) or the lifetime board. */
+type BoardKind = 'season' | 'alltime'
 
 const normalizeTier = (
   t: string | null
@@ -55,9 +60,16 @@ interface UserRow {
     total_score: number | null
     today_score: number | null
     week_score: number | null
+    season_score?: number | null
     last_calculated_at: string | null
   } | null
   user_devices: { is_active: boolean; last_sync_at: string | null }[] | null
+}
+
+/** Final standing archived by season_tick() at close. */
+interface FrozenStanding {
+  rank: number
+  score: number
 }
 
 /**
@@ -175,13 +187,23 @@ export async function GET(request: NextRequest) {
   const supabase = createServiceClient()
 
   try {
-    // Batch query 1: all users with scores and devices in one query.
-    // Banned and suspended accounts are filtered in the query itself so
-    // they never occupy one of the 100 board slots (status is NULL on
-    // rows that predate migration 003 — treated as active).
-    const { data: users, error: usersError } = await supabase
-      .from('users')
-      .select(`
+    const board: BoardKind =
+      request.nextUrl.searchParams.get('board') === 'alltime' ? 'alltime' : 'season'
+
+    // Season calendar first: it decides the ranking column and whether the
+    // season board is live or frozen. A missing/empty calendar (migration
+    // 025 not applied yet) degrades every board to lifetime ordering.
+    const seasonState = await fetchSeasonState(supabase)
+    const seasonReady = seasonState.current !== null
+    const liveSeasonBoard =
+      board === 'season' && seasonReady && seasonState.phase === 'active'
+    const frozenBoard =
+      board === 'season' && seasonReady && seasonState.phase === 'intermission'
+
+    const scoresSelect = seasonReady
+      ? 'total_score, today_score, week_score, season_score, last_calculated_at'
+      : 'total_score, today_score, week_score, last_calculated_at'
+    const usersSelect = `
         id,
         twitter_username,
         twitter_name,
@@ -191,12 +213,68 @@ export async function GET(request: NextRequest) {
         subscription_tier,
         user_type,
         metadata,
-        user_scores(total_score, today_score, week_score, last_calculated_at),
+        user_scores(${scoresSelect}),
         user_devices(is_active, last_sync_at)
-      `)
-      .or('status.is.null,status.eq.active')
-      .order('total_score', { ascending: false, referencedTable: 'user_scores', nullsFirst: false })
-      .limit(100)
+      `
+
+    // Intermission: the season board serves the archived final standings,
+    // exactly as season_tick() locked them — rank and score come from
+    // season_results, not from the still-moving user_scores rows.
+    let frozenByUser: Map<number, FrozenStanding> | null = null
+    if (frozenBoard) {
+      const { data: resultRows, error: resultsError } = await supabase
+        .from('season_results')
+        .select('user_id, final_rank, final_score')
+        .eq('season_id', seasonState.current!.id)
+        .order('final_rank', { ascending: true })
+        .limit(100)
+
+      if (resultsError) {
+        console.error('[Leaderboard] Season results query error:', resultsError)
+        return NextResponse.json(
+          { success: false, error: 'Failed to load leaderboard' },
+          { status: 500 }
+        )
+      }
+
+      frozenByUser = new Map(
+        (resultRows || []).map((row) => [
+          Number(row.user_id),
+          { rank: Number(row.final_rank), score: Math.round(Number(row.final_score)) }
+        ])
+      )
+
+      if (frozenByUser.size === 0) {
+        return NextResponse.json({
+          success: true,
+          data: [],
+          serverTime: new Date().toISOString(),
+          board,
+          season: seasonState
+        })
+      }
+    }
+
+    // Batch query 1: all users with scores and devices in one query.
+    // Banned and suspended accounts are filtered in the query itself so
+    // they never occupy one of the 100 board slots (status is NULL on
+    // rows that predate migration 003 — treated as active). The frozen
+    // board instead loads exactly the archived users — the archive is
+    // history and keeps rendering whoever earned a place on it.
+    let usersQuery = supabase.from('users').select(usersSelect)
+    if (frozenByUser) {
+      usersQuery = usersQuery.in('id', [...frozenByUser.keys()])
+    } else {
+      usersQuery = usersQuery
+        .or('status.is.null,status.eq.active')
+        .order(liveSeasonBoard ? 'season_score' : 'total_score', {
+          ascending: false,
+          referencedTable: 'user_scores',
+          nullsFirst: false
+        })
+        .limit(100)
+    }
+    const { data: users, error: usersError } = await usersQuery
 
     if (usersError) {
       console.error('[Leaderboard] Users query error:', usersError)
@@ -204,13 +282,23 @@ export async function GET(request: NextRequest) {
     }
 
     if (!users || users.length === 0) {
-      return NextResponse.json({ success: true, data: [] })
+      return NextResponse.json({
+        success: true,
+        data: [],
+        serverTime: new Date().toISOString(),
+        board,
+        season: seasonState
+      })
     }
+
+    // The select string is composed at runtime, so the client can't infer
+    // a row type — same unknown hop the rest of the codebase uses.
+    const userRows = users as unknown as UserRow[]
 
     // Batch query 2: ALL events for all users at once (instead of 1 query per
     // user), paged past the PostgREST max-rows cap so heavy users' tool
     // stats aren't computed from an arbitrary 1000-row subset.
-    const userIds = users.map((u) => u.id)
+    const userIds = userRows.map((u) => u.id)
     const eventsUserColumn = await getEventsIdentityColumn(supabase)
 
     // timestamp/total_ms ride along because tool ranking scores each tool's
@@ -269,7 +357,7 @@ export async function GET(request: NextRequest) {
     // Private-mode pass: tools are follower-only for private accounts, so
     // resolve who the viewer is and which private pilots they follow —
     // one session read plus at most one follows query for the whole board.
-    const privateIds = (users as unknown as UserRow[])
+    const privateIds = userRows
       .filter((u) => readAccountIsPrivate(u.metadata))
       .map((u) => u.id)
     const session = privateIds.length > 0 ? await getSessionUserId(request) : null
@@ -280,13 +368,33 @@ export async function GET(request: NextRequest) {
       privateIds
     )
 
-    // Build leaderboard data — no per-user DB calls
-    const leaderboardData = (users as unknown as UserRow[]).map((user) => {
-      const score = Math.round(user.user_scores?.total_score || 0)
+    // Live season ranks by season_score with a staleness guard: a score
+    // row last recalculated before the season started can only be carrying
+    // a previous season's value (the start-of-season zeroing makes this a
+    // no-op in practice, but it keeps the board honest if a tick was
+    // missed across the rollover).
+    const seasonStartMs = liveSeasonBoard
+      ? Date.parse(seasonState.current!.startsAt)
+      : 0
 
+    // Build leaderboard data — no per-user DB calls
+    const leaderboardData = userRows.map((user) => {
       // today/week scores are only trustworthy if the score row was
       // recalculated inside the window it claims to describe.
       const lastCalc = user.user_scores?.last_calculated_at || null
+
+      let score: number
+      if (frozenByUser) {
+        score = frozenByUser.get(user.id)?.score ?? 0
+      } else if (liveSeasonBoard) {
+        const lastCalcMs = lastCalc ? new Date(lastCalc).getTime() : 0
+        score =
+          lastCalcMs >= seasonStartMs
+            ? Math.round(user.user_scores?.season_score || 0)
+            : 0
+      } else {
+        score = Math.round(user.user_scores?.total_score || 0)
+      }
       const todayScore = sameUtcDay(lastCalc, now)
         ? Math.round(user.user_scores?.today_score || 0)
         : 0
@@ -378,17 +486,36 @@ export async function GET(request: NextRequest) {
         role: user.user_type || null
       }
     })
-      // userId tiebreak keeps equal scores in a stable order — otherwise tied
-      // players flip-flop ranks between reads and spray bogus movement arrows.
-      .sort((a, b) => b.score - a.score || a.userId - b.userId)
-      .map((user, idx) => ({ ...user, rank: idx + 1 }))
+      // Frozen boards keep their archived ranks verbatim; live boards
+      // re-rank on every read. The userId tiebreak keeps equal scores in a
+      // stable order — otherwise tied players flip-flop ranks between
+      // reads and spray bogus movement arrows.
+      .sort((a, b) => {
+        if (frozenByUser) {
+          return (
+            (frozenByUser.get(a.userId)?.rank ?? Infinity) -
+            (frozenByUser.get(b.userId)?.rank ?? Infinity)
+          )
+        }
+        return b.score - a.score || a.userId - b.userId
+      })
+      .map((user, idx) => ({
+        ...user,
+        rank: frozenByUser ? frozenByUser.get(user.userId)?.rank ?? idx + 1 : idx + 1
+      }))
 
     // Rank-movement pass: diff against the persisted snapshots and annotate
-    // every row with its climb/drop delta and NEW status.
-    const movements = await resolveMovements(
-      supabase,
-      leaderboardData.map((u) => ({ userId: u.userId, rank: u.rank, score: u.score }))
-    )
+    // every row with its climb/drop delta and NEW status. Only the season
+    // board (the primary) diffs — the all-time board ranks by a different
+    // column and would fight over the single snapshot baseline, and a
+    // frozen board by definition doesn't move.
+    const movements =
+      board === 'season' && !frozenBoard
+        ? await resolveMovements(
+            supabase,
+            leaderboardData.map((u) => ({ userId: u.userId, rank: u.rank, score: u.score }))
+          )
+        : new Map<number, RankMovement>()
 
     const annotated = leaderboardData.map((user) => {
       const movement = movements.get(user.userId)
@@ -401,7 +528,13 @@ export async function GET(request: NextRequest) {
     })
 
     return new NextResponse(
-      JSON.stringify({ success: true, data: annotated, serverTime: now.toISOString() }),
+      JSON.stringify({
+        success: true,
+        data: annotated,
+        serverTime: now.toISOString(),
+        board,
+        season: seasonState
+      }),
       {
         headers: {
           'Content-Type': 'application/json',

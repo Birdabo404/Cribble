@@ -96,6 +96,8 @@ function AgentTerminal() {
   // The terminal is a fixed dark artifact (like the plates): its surface
   // never flips with the theme, so every hue inside is a literal — themed
   // zinc classes would invert to near-black text on the dark pane.
+  // Chrome stays neutral like a real terminal; green is reserved for the
+  // prompt, the live agents and the total — the parts that are alive.
   const INK = {
     bright: '#f4f4f5',
     row: '#e4e4e7',
@@ -112,9 +114,8 @@ function AgentTerminal() {
       className="overflow-hidden rounded-xl"
       style={{
         background: '#050505',
-        border: '1px solid rgb(2 254 1 / 0.28)',
-        boxShadow:
-          '0 24px 60px -28px rgb(0 0 0 / 0.9), 0 0 44px -16px rgb(2 254 1 / 0.22)'
+        border: '1px solid rgb(255 255 255 / 0.12)',
+        boxShadow: '0 24px 60px -28px rgb(0 0 0 / 0.9)'
       }}
     >
       {/* title bar */}
@@ -123,9 +124,9 @@ function AgentTerminal() {
         style={{ borderBottom: `1px solid ${INK.edge}` }}
       >
         <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full" style={{ background: '#3f3f46' }} />
-          <span className="h-2 w-2 rounded-full" style={{ background: '#3f3f46' }} />
-          <span className="h-2 w-2 rounded-full" style={{ background: 'rgb(2 254 1 / 0.6)' }} />
+          <span className="h-2 w-2 rounded-full" style={{ background: '#ff5f57' }} />
+          <span className="h-2 w-2 rounded-full" style={{ background: '#febc2e' }} />
+          <span className="h-2 w-2 rounded-full" style={{ background: '#28c840' }} />
         </span>
         <span className="text-[9px] tracking-[0.3em]" style={{ color: INK.sys }}>
           CRIBBLE AGENT · PREVIEW BUILD
@@ -184,7 +185,7 @@ function AgentTerminal() {
                     className="tabular-nums"
                     style={{ color: INK.green, textShadow: '0 0 12px rgb(2 254 1 / 0.5)' }}
                   >
-                    1,397 pts → global board
+                    1,369 pts → global board
                   </span>
                 </span>
               )}
@@ -314,10 +315,11 @@ function RoadmapBody() {
             body={
               <>
                 Today Cribble scores the browser. Next it scores the
-                terminal: a native tracker that meters your agentic
-                sessions — Cursor, Claude Code, Codex, every CLI agent in
-                your stack — and folds them into the same global rank.
-                Prompts, tool calls, long-running runs. All of it counts.
+                terminal: a native tracker that meters Cursor, Claude
+                Code, Codex and every other CLI agent in your stack, then
+                folds them into the same global rank. Prompts, tool
+                calls, the six-hour run you left cooking overnight. All
+                of it counts.
               </>
             }
             annotation="TRAJECTORY · PLOTTED"
@@ -366,7 +368,7 @@ function RoadmapBody() {
                   <div className="mt-6">
                     <AgentTerminal />
                     <p className="mt-3 text-[9px] tracking-[0.3em] text-zinc-700">
-                      {'// CONCEPT CAPTURE — THE CLI IS IN R&D, THE AMBITION IS NOT'}
+                      {'// CONCEPT CAPTURE · THE CLI IS IN R&D, THE AMBITION IS NOT'}
                     </p>
                   </div>
                 )}

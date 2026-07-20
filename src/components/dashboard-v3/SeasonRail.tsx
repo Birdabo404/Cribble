@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import { ACCENT, SEASON, accentA } from '@/components/dashboard-v2/format'
+import { ACCENT, accentA } from '@/components/dashboard-v2/format'
 import { animDelay } from './anim'
 import { AccentGlow, Panel } from './Panel'
 import type { ActivityDay } from '@/types/dashboard'
@@ -28,16 +28,22 @@ function last7Days(activity: ActivityDay[]) {
 
 /**
  * Right rail beside the hero: season countdown + progress on top,
- * current streak with a 7-day tracker below.
+ * current streak with a 7-day tracker below. During an intermission the
+ * dashboard passes name="INTERMISSION" and the countdown targets the next
+ * season's launch instead of the current season's lock.
  */
 export function SeasonRail({
+  name,
   pct,
   daysLeft,
+  daysLabel,
   streak,
   activity
 }: {
+  name: string
   pct: number
   daysLeft: number
+  daysLabel: string
   streak: number
   activity: ActivityDay[]
 }) {
@@ -49,7 +55,7 @@ export function SeasonRail({
         <AccentGlow className="-top-20 -right-16 h-44 w-44 opacity-20" />
         <div className="relative">
           <div className="anim-fade flex items-baseline justify-between" style={animDelay(80)}>
-            <div className="text-[10px] tracking-[0.4em] text-zinc-300">{SEASON.name}</div>
+            <div className="text-[10px] tracking-[0.4em] text-zinc-300">{name}</div>
             <div className="text-[10px] tracking-[0.3em]" style={{ color: ACCENT }}>
               {pct}%
             </div>
@@ -59,7 +65,7 @@ export function SeasonRail({
             style={animDelay(160)}
           >
             {daysLeft}
-            <span className="text-zinc-500 text-base font-normal tracking-[0.2em]"> D LEFT</span>
+            <span className="text-zinc-500 text-base font-normal tracking-[0.2em]"> {daysLabel}</span>
           </div>
         </div>
         <div className="relative mt-4">

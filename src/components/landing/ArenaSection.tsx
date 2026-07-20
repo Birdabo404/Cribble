@@ -153,7 +153,7 @@ function Row({
         {/* identity */}
         <span className="flex min-w-0 items-center gap-2.5">
           <span
-            className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-display text-[13px] font-bold"
+            className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-visible rounded-full font-display text-[13px] font-bold"
             style={{
               background: 'rgb(var(--lb-panel-edge) / 0.06)',
               border: medal
@@ -162,7 +162,17 @@ function Row({
               color: medal ? `rgb(${medal})` : 'rgb(var(--z300))'
             }}
           >
-            {pilot.name[0].toUpperCase()}
+            {pilot.avatar ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={pilot.avatar}
+                alt=""
+                aria-hidden
+                className="absolute inset-0 h-full w-full rounded-full object-cover"
+              />
+            ) : (
+              pilot.name[0].toUpperCase()
+            )}
             {pilot.online && (
               <span
                 className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full"
@@ -301,10 +311,11 @@ function ArenaBody() {
             }
             body={
               <>
-                Every ranked pilot on Earth shares one standings table. Scores
-                move as sessions sync in, and overtakes happen while you watch
-                — what you&apos;re seeing on the right is a live simulation of
-                the arena&apos;s mechanics. The real board is meaner.
+                No brackets, no regions, no casual queue. Every pilot on
+                Earth shares one table, and it re-sorts the moment anyone
+                syncs a session, so overtakes land while you scroll. The
+                board on the right is the real machinery with a staged
+                cast. The live one is meaner.
               </>
             }
           />
@@ -426,7 +437,7 @@ function ArenaBody() {
             className="st mt-3 text-right text-[9px] tracking-[0.3em] text-zinc-700"
             style={{ '--d': '860ms' } as CSSProperties}
           >
-            {'// SIMULATION — DREAM LINEUP, STAGED SCORES. THE MECHANICS ARE REAL'}
+            {'// SIMULATION · DREAM LINEUP, STAGED SCORES. THE MECHANICS ARE REAL'}
           </p>
         </div>
       </div>

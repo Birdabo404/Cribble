@@ -6,7 +6,6 @@
 // re-evaluate milestones on every sync without spamming the feed.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { SEASON } from '@/components/dashboard-v2/format'
 import type { NotificationType } from '@/types/notifications'
 
 export interface NotificationInput {
@@ -23,9 +22,6 @@ const RANK_MILESTONES = [1, 2, 3, 10, 25, 50] as const
 const SCORE_MILESTONES = [
   1_000, 5_000, 10_000, 25_000, 50_000, 100_000, 250_000, 500_000, 1_000_000
 ] as const
-
-const DAY_MS = 86_400_000
-const SEASON_CLOSING_WINDOW_DAYS = 7
 
 /** Cooldown matching MOVEMENT_WINDOW_MS in leaderboardEngine. */
 export const DEMOTION_COOLDOWN_MS = 48 * 3_600_000
@@ -269,46 +265,6 @@ export async function evaluateDemotionNotifications(
   }
 }
 
-/**
- * Lazily creates time-based season notifications when the feed is read.
- * (No cron infra yet — generate-on-read keeps these correct per user
- * without a scheduler.) Never throws.
- */
-export async function ensureSeasonNotifications(
-  supabase: SupabaseClient,
-  userId: number
-): Promise<void> {
-  try {
-    const now = Date.now()
-    const start = new Date(SEASON.startISO).getTime()
-    const end = new Date(SEASON.endISO).getTime()
-    const slug = SEASON.name.toLowerCase().replace(/\s+/g, '_')
-
-    const candidates: (NotificationInput & { dedupeKey: string })[] = []
-
-    if (now >= end) {
-      candidates.push({
-        type: 'season',
-        title: `${SEASON.name} COMPLETE`,
-        body: 'The season has ended. Final standings are locked on the leaderboard.',
-        data: { season: SEASON.name },
-        dedupeKey: `${slug}_complete`
-      })
-    } else if (now >= start) {
-      const daysLeft = Math.ceil((end - now) / DAY_MS)
-      if (daysLeft <= SEASON_CLOSING_WINDOW_DAYS) {
-        candidates.push({
-          type: 'season',
-          title: `${SEASON.name} — FINAL WEEK`,
-          body: `${daysLeft} day${daysLeft === 1 ? '' : 's'} left to climb before standings lock.`,
-          data: { season: SEASON.name, daysLeft },
-          dedupeKey: `${slug}_final_week`
-        })
-      }
-    }
-
-    await insertMissingNotifications(supabase, userId, candidates)
-  } catch (error) {
-    console.error('[Notifications] Season evaluation failed:', error)
-  }
-}
+// Season notifications (ending notices, close, placements, launch) are
+// fanned out by season_tick() in the database (migration 025) on the
+// pg_cron schedule — no lazy generate-on-read pass is needed anymore.

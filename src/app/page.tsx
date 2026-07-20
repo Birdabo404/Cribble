@@ -60,12 +60,13 @@ export default function HomeV2() {
   return (
     <>
     <div className="min-h-screen-safe lx-hero text-zinc-100 font-mono selection:bg-accent/20 flex flex-col relative overflow-hidden">
-      {/* faint hacker-green wash on the right side — sits behind the globe */}
+      {/* faint atmospheric wash behind the globe — cool blue, so the Earth
+          owns the right half and the accent stays reserved for signals */}
       <div
         aria-hidden
-        className="pointer-events-none absolute top-1/2 -translate-y-1/2 right-[-12%] h-[640px] w-[640px] rounded-full opacity-[0.12] blur-3xl"
+        className="pointer-events-none absolute top-1/2 -translate-y-1/2 right-[-12%] h-[640px] w-[640px] rounded-full opacity-[0.1] blur-3xl"
         style={{
-          background: `radial-gradient(circle, ${ACCENT}, transparent 70%)`
+          background: 'radial-gradient(circle, rgb(96 148 255), transparent 70%)'
         }}
       />
       {/* thin horizon line — single retro accent */}
@@ -129,11 +130,13 @@ export default function HomeV2() {
                 className="hero-item mt-8 max-w-md font-sans text-base leading-[1.75] text-zinc-400 sm:text-[15px] sm:leading-[1.8]"
                 style={{ ['--hr' as string]: '280ms' }}
               >
-                Every prompt you send counts here. Cribble tallies your usage
-                across <ToolChip>ChatGPT</ToolChip>, <ToolChip>Claude</ToolChip>
-                , <ToolChip>Cursor</ToolChip>, <RotatingTool />, and 30+ more,
-                then ranks you against the rest of the world. Climb loud or
-                lurk quietly. The extension never makes a sound.
+                You&apos;re in <ToolChip>ChatGPT</ToolChip>,{' '}
+                <ToolChip>Claude</ToolChip>, <ToolChip>Cursor</ToolChip> and{' '}
+                <RotatingTool />
+                {' all day anyway. Cribble just keeps score: one quiet '}
+                extension, 47 AI sites, one worldwide board. Install it,
+                forget it, and check your rank when the group chat gets
+                cocky.
               </p>
 
               <div
@@ -145,7 +148,7 @@ export default function HomeV2() {
                     href="/login"
                     className="group inline-flex items-center gap-2.5 bg-white text-black text-sm font-medium px-5 py-3 sm:py-2.5 rounded-md hover:bg-zinc-200 transition-colors"
                   >
-                    <span>Register</span>
+                    <span>Claim your callsign</span>
                     <span className="text-zinc-500 group-hover:translate-x-0.5 transition-transform">
                       →
                     </span>
@@ -289,7 +292,15 @@ function Header() {
 function Footer() {
   return (
     <footer className="pb-6 pt-10 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-[10px] tracking-[0.3em] text-zinc-600">
-      <span>CRIBBLE · 2026</span>
+      <span className="inline-flex items-center gap-4">
+        <span>CRIBBLE · 2026</span>
+        <Link
+          href="/privacy"
+          className="text-zinc-600 hover:text-zinc-300 transition-colors"
+        >
+          PRIVACY
+        </Link>
+      </span>
 
       <a
         href="https://cursor.com"
@@ -1136,9 +1147,12 @@ function RotatingTool() {
   const measureRef = useRef<HTMLSpanElement | null>(null)
 
   // Measure each word so the sentence reflows smoothly instead of jumping.
+  // offsetWidth (layout px), not getBoundingClientRect (visual px): the
+  // hero sits under `zoom: 0.9`, and a rect-based measure gets shrunk a
+  // second time when written back as style.width — clipping every word.
   useLayoutEffect(() => {
     if (measureRef.current) {
-      setWidth(Math.ceil(measureRef.current.getBoundingClientRect().width))
+      setWidth(measureRef.current.offsetWidth + 1)
     }
   }, [index])
 

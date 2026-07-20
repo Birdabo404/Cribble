@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { formatRelative, tierAccent } from '@/components/dashboard-v2/format'
+import { EXTENSION_INSTALL_URL } from '@/lib/extensionInstall'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { DeleteAccountModal } from '@/components/dashboard-v3/DeleteAccountModal'
 import { useNavPrefs, type NavPosition } from '@/components/nav/NavPrefsContext'
@@ -190,7 +191,23 @@ function SettingsModal({
             <span className="truncate">@{user.twitter_username || 'user'}</span>
           </SettingRow>
           <SettingRow label="DEVICE">
-            {activeDevice ? `${activeDevice.device_uuid.slice(0, 8)}…` : 'Not linked'}
+            {activeDevice ? (
+              `${activeDevice.device_uuid.slice(0, 8)}…`
+            ) : EXTENSION_INSTALL_URL ? (
+              <>
+                Not linked
+                <a
+                  href={EXTENSION_INSTALL_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 text-[9px] tracking-[0.3em] text-accent/80 transition-colors hover:text-accent"
+                >
+                  INSTALL EXTENSION →
+                </a>
+              </>
+            ) : (
+              'Not linked'
+            )}
           </SettingRow>
           <SettingRow label="LAST SYNC">
             {formatRelative(activeDevice?.last_sync_at || user.last_extension_sync)}
