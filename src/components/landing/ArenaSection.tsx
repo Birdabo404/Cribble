@@ -223,8 +223,10 @@ function Row({
           <span
             className="leading-none tabular-nums [font-family:var(--font-pixel)] text-[13px] sm:text-[14px]"
             style={{
-              color: medal ? `rgb(${medal})` : 'rgb(var(--z200))',
-              textShadow: medal ? `0 0 16px rgb(${medal} / 0.45)` : undefined
+              color: 'rgb(var(--lb-score))',
+              textShadow: medal
+                ? 'rgb(var(--lb-score) / 0.45) 0 0 16px'
+                : 'rgb(var(--lb-score) / 0.22) 0 0 12px'
             }}
           >
             <AnimatedCounter

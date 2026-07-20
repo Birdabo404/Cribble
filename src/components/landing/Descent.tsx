@@ -399,6 +399,7 @@ export function Descent() {
           --lb-gold-hi: 255 240 160;
           --lb-silver: 216 228 242;
           --lb-bronze: 255 145 77;
+          --lb-score: 252 255 0;
           --lb-up: 74 222 128;
           --lb-down: 251 113 133;
           --lb-panel-bg: 9 10 13;

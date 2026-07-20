@@ -678,6 +678,7 @@ export default function LeaderboardArena() {
           --lb-gold-hi: 255 240 160;
           --lb-silver: 216 228 242;
           --lb-bronze: 255 145 77;
+          --lb-score: 252 255 0;
           --lb-up: 74 222 128;
           --lb-down: 251 113 133;
           --lb-panel-bg: 9 10 13;
@@ -908,8 +909,8 @@ function StatBar({
         <div
           className="mt-2.5 text-sm tabular-nums [font-family:var(--font-pixel)] md:text-base"
           style={{
-            color: 'rgb(var(--lb-gold))',
-            textShadow: '0 0 14px rgb(var(--lb-gold) / 0.4)'
+            color: 'rgb(var(--lb-score))',
+            textShadow: '0 0 14px rgb(var(--lb-score) / 0.4)'
           }}
         >
           <AnimatedCounter value={topScore} duration={1100} formatter={(v) => formatCompact(Math.round(v))} />
@@ -1172,8 +1173,10 @@ function Row({
           <div
             className="text-[13px] leading-none tabular-nums [font-family:var(--font-pixel)]"
             style={{
-              color: medal ? medal.fg : 'rgb(var(--z50))',
-              textShadow: medal ? `0 0 12px ${medalA(medal.rgb, 0.4)}` : undefined
+              color: 'rgb(var(--lb-score))',
+              textShadow: medal
+                ? '0 0 12px rgb(var(--lb-score) / 0.4)'
+                : '0 0 10px rgb(var(--lb-score) / 0.22)'
             }}
           >
             {formatNumber(user.score)}

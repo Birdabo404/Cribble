@@ -112,6 +112,9 @@
   --lb-gold-hi: 255 240 160;
   --lb-silver: 216 228 242;
   --lb-bronze: 255 145 77;
+  /* Score numerals read in signal lime (#FCFF00) — the one non-medal hue
+     on the board, so the points column pops against the gold regalia. */
+  --lb-score: 252 255 0;
   --lb-up: 74 222 128;
   --lb-down: 251 113 133;
   --lb-panel-bg: 9 10 13;
@@ -207,6 +210,9 @@ html.light {
   --lb-gold-hi: 234 179 8;
   --lb-silver: 100 116 139;
   --lb-bronze: 180 83 9;
+  /* lime goes to olive ink on paper (same move as --ref-lime) for AA
+     contrast against the cream panels */
+  --lb-score: 96 108 0;
   --lb-up: 22 163 74;
   --lb-down: 225 29 72;
   --lb-panel-bg: 252 251 247;

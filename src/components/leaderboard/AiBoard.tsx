@@ -105,8 +105,8 @@ export function AiBoard() {
             icon={<IconTrophy size={11} className="text-[rgb(var(--lb-gold)/0.8)]" />}
             label="COMBINED SCORE"
             valueStyle={{
-              color: 'rgb(var(--lb-gold))',
-              textShadow: '0 0 14px rgb(var(--lb-gold) / 0.4)'
+              color: 'rgb(var(--lb-score))',
+              textShadow: '0 0 14px rgb(var(--lb-score) / 0.4)'
             }}
             hint="every pilot, every tool"
           >
@@ -364,8 +364,10 @@ function ToolRow({
         <div
           className="text-[13px] leading-none tabular-nums [font-family:var(--font-pixel)]"
           style={{
-            color: medal ? medal.fg : 'rgb(var(--z50))',
-            textShadow: medal ? `0 0 12px ${medalA(medal.rgb, 0.4)}` : undefined
+            color: 'rgb(var(--lb-score))',
+            textShadow: medal
+              ? '0 0 12px rgb(var(--lb-score) / 0.4)'
+              : '0 0 10px rgb(var(--lb-score) / 0.22)'
           }}
         >
           {formatScore(tool.score)}

@@ -253,10 +253,10 @@ function PodiumCard({
             champion ? 'pod-score-gold text-[27px] md:text-[30px]' : 'text-[18px] md:text-[20px]'
           }`}
           style={{
-            color: medal.fg,
+            color: 'rgb(var(--lb-score))',
             textShadow: champion
-              ? `0 0 20px ${medalA(medal.rgb, 0.65)}, 0 0 52px ${medalA(medal.rgb, 0.3)}, 0 0 90px ${medalA(medal.rgb, 0.16)}`
-              : `0 0 16px ${medalA(medal.rgb, 0.45)}`
+              ? '0 0 20px rgb(var(--lb-score) / 0.65), 0 0 52px rgb(var(--lb-score) / 0.3), 0 0 90px rgb(var(--lb-score) / 0.16)'
+              : '0 0 16px rgb(var(--lb-score) / 0.45)'
           }}
         >
           <AnimatedCounter

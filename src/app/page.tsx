@@ -267,10 +267,10 @@ function Header() {
       <nav className="flex items-center gap-1">
         <ThemeToggle className="mr-2" />
         <a
-          href="https://twitter.com/cribbledotdev"
+          href="https://x.com/cribble_ai"
           target="_blank"
           rel="noreferrer"
-          aria-label="Twitter"
+          aria-label="X"
           className="p-2 text-zinc-500 hover:text-zinc-200 transition-colors"
         >
           <TwitterMark />

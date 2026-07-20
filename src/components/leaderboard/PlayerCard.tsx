@@ -515,10 +515,10 @@ export function PlayerCard({
               title={`${formatNumber(row.score)} pts`}
               className="mt-2 text-[26px] leading-none tabular-nums [font-family:var(--font-pixel)]"
               style={{
-                color: medal ? medal.fg : 'rgb(var(--z50))',
+                color: 'rgb(var(--lb-score))',
                 textShadow: medal
-                  ? `0 0 18px ${medalA(medal.rgb, 0.55)}, 0 0 44px ${medalA(medal.rgb, 0.22)}`
-                  : '0 0 18px rgb(var(--lb-panel-edge) / 0.2)'
+                  ? '0 0 18px rgb(var(--lb-score) / 0.55), 0 0 44px rgb(var(--lb-score) / 0.22)'
+                  : '0 0 18px rgb(var(--lb-score) / 0.28)'
               }}
             >
               <AnimatedCounter
