@@ -192,7 +192,7 @@ export function PremiumSettingsModal({ onClose }: { onClose: () => void }) {
         </SectionCard>
 
         <div className="flex items-center justify-center gap-2">
-          {['$4.99 / MO', '$39.99 / YR'].map((price) => (
+          {['$6.99 / MO', '$49.99 / YR'].map((price) => (
             <span
               key={price}
               className="rounded border border-white/[0.08] bg-white/[0.02] px-2 py-1 text-[9px] tracking-[0.2em] text-zinc-400 [font-family:var(--font-pixel)]"

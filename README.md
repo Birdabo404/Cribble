@@ -45,7 +45,7 @@ All in `.env.example` under the Polar block:
 | `POLAR_ACCESS_TOKEN` | Organization access token (Settings → Developers) |
 | `POLAR_SERVER` | `sandbox` (default) or `production` — must match the token |
 | `POLAR_WEBHOOK_SECRET` | Secret from the webhook endpoint config |
-| `POLAR_PRODUCT_PRO_MONTHLY` / `POLAR_PRODUCT_PRO_YEARLY` | Pro subscription product ids ($4.99/mo, $39.99/yr) |
+| `POLAR_PRODUCT_PRO_MONTHLY` / `POLAR_PRODUCT_PRO_YEARLY` | Pro subscription product ids ($6.99/mo, $49.99/yr) |
 | `POLAR_PLATE_PRODUCT_MAP` | JSON map of catalog `plateId` → Polar product id |
 | `POLAR_DISCOUNT_PRO_PLATES` | Optional 25% discount id, auto-applied to plate checkouts for Pro members |
 
@@ -70,7 +70,7 @@ Flags: `--check` (read-only), `--write-env` (upsert the block into `.env.local`)
 
 One-time transition note: the founder promo subscription is retired — archive the "Cribble Pro — Founder" product in the Polar dashboard and delete `POLAR_PRODUCT_PRO_FOUNDER` from `.env.local` and the deployment env. Then re-run `npx vite-node scripts/setup-polar.ts --write-env`: the Founder plate is provisioned as a normal one-time product and the 25% Pro discount extends to it.
 
-Manual dashboard equivalent, if you'd rather click: create the two subscriptions ($4.99/mo, $39.99/yr), one one-time product per plate with `plate_id` metadata (prices from `src/lib/cosmetics/plates.ts`), a 25% discount over the plate products, and a webhook endpoint (raw format) at `https://<domain>/api/webhooks/polar` subscribed to subscription + order events.
+Manual dashboard equivalent, if you'd rather click: create the two subscriptions ($6.99/mo, $49.99/yr), one one-time product per plate with `plate_id` metadata (prices from `src/lib/cosmetics/plates.ts`), a 25% discount over the plate products, and a webhook endpoint (raw format) at `https://<domain>/api/webhooks/polar` subscribed to subscription + order events.
 
 Going live is the same flow with a production token: set `POLAR_SERVER=production`, swap `POLAR_ACCESS_TOKEN`, re-run with `--production`, and copy the printed env block into the deployment's env. Polar requires org verification before real payouts.
 

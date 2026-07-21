@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { getPlate } from '@/lib/cosmetics/plates'
 import { insertMissingNotifications } from '@/lib/notifications'
 
 // The single entry point for Pro fulfillment. Both delivery paths — the
@@ -73,6 +74,56 @@ export async function grantProEntitlement(
       body: 'It now shows next to your name on your profile, your player card and the leaderboard.',
       data: {},
       dedupeKey: 'premium_welcome'
+    }
+  ])
+}
+
+export interface GrantPlatePurchaseOptions {
+  /** Catalog plate id resolved from the order/product metadata. */
+  plateId: string
+  /** Polar order id — the refund hook deletes by source_order_id. */
+  orderId: string
+}
+
+/**
+ * Deliver a PURCHASED plate. Both fulfillment paths — the order.paid
+ * webhook and the pull-based order reconciliation in subscriptionSync —
+ * funnel through here so the ownership row and the "delivered"
+ * notification always land together. Champion/beta/founder gifts have
+ * their own grant paths and never come through here.
+ * Idempotent: the upsert no-ops on the (user_id, item_type, item_id)
+ * unique index and the notification is deduped per order id. Throws on
+ * upsert failure (webhook retries / sync surfaces the error); the
+ * notification is best-effort — insertMissingNotifications never throws.
+ */
+export async function grantPlatePurchase(
+  supabase: SupabaseClient,
+  userId: number,
+  { plateId, orderId }: GrantPlatePurchaseOptions
+): Promise<void> {
+  const { error } = await supabase.from('user_cosmetics').upsert(
+    {
+      user_id: userId,
+      item_type: 'plate',
+      item_id: plateId,
+      acquired_via: 'purchase',
+      source_order_id: orderId
+    },
+    { onConflict: 'user_id,item_type,item_id' }
+  )
+
+  if (error) {
+    throw new Error(`Failed to grant plate ${plateId} to user ${userId}: ${error.message}`)
+  }
+
+  const plateName = getPlate(plateId)?.name ?? plateId
+  await insertMissingNotifications(supabase, userId, [
+    {
+      type: 'shop',
+      title: 'DELIVERY COMPLETE',
+      body: `Your ${plateName} plate has been delivered successfully. Thank you for purchasing.`,
+      data: { kind: 'purchase_delivered', plateId, orderId },
+      dedupeKey: `plate_delivered_${orderId}`
     }
   ])
 }

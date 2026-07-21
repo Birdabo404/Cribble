@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { validateEvent, WebhookVerificationError } from '@polar-sh/sdk/webhooks'
 import type { Order } from '@polar-sh/sdk/models/components/order'
 import type { Subscription } from '@polar-sh/sdk/models/components/subscription'
-import { grantProEntitlement } from '@/lib/entitlementGrant'
+import { grantPlatePurchase, grantProEntitlement } from '@/lib/entitlementGrant'
 import { getPolarWebhookSecret } from '@/lib/polar'
 import { createServiceClient } from '@/lib/supabaseServer'
 
@@ -26,6 +26,19 @@ const supabase = createServiceClient()
 
 type PolarEvent = ReturnType<typeof validateEvent>
 
+/** The event types this endpoint subscribes to (scripts/setup-polar.ts).
+ *  If the SDK fails to parse one of THESE, acking would silently drop a
+ *  grant or revoke — so the route asks Polar to retry instead. Anything
+ *  outside this set keeps the audit-and-ack behavior. */
+const SUBSCRIBED_EVENT_TYPES = new Set([
+  'subscription.active',
+  'subscription.canceled',
+  'subscription.uncanceled',
+  'subscription.revoked',
+  'order.paid',
+  'order.refunded'
+])
+
 /** Polar external customer id -> users.id (set at checkout as String(userId)). */
 function resolveUserId(externalId: string | null | undefined): number | null {
   if (!externalId) return null
@@ -34,10 +47,15 @@ function resolveUserId(externalId: string | null | undefined): number | null {
 }
 
 /** Plate id for an order: Polar product metadata `plate_id` (dashboard
- *  convention) or checkout metadata `plateId` (set by /api/checkout).
- *  Null for plain subscription orders — nothing to grant. */
+ *  convention), checkout metadata `plateId` (set by /api/checkout), or
+ *  its snake_case variant (hand-created orders). Null for plain
+ *  subscription orders — nothing to grant. */
 function readPlateId(order: Order): string | null {
-  const candidates = [order.product?.metadata?.['plate_id'], order.metadata?.['plateId']]
+  const candidates = [
+    order.product?.metadata?.['plate_id'],
+    order.metadata?.['plateId'],
+    order.metadata?.['plate_id']
+  ]
   for (const value of candidates) {
     if (typeof value === 'string' && value) return value
     if (typeof value === 'number') return String(value)
@@ -80,6 +98,9 @@ async function revokeProSubscription(subscription: Subscription) {
   }
 }
 
+/** order.paid -> plate fulfillment via the shared purchase helper
+ *  (ownership upsert + "delivered" notification), shared with the
+ *  pull-based order reconciliation in subscriptionSync. */
 async function grantPlateFromOrder(order: Order) {
   const plateId = readPlateId(order)
   if (!plateId) return // subscription-cycle order, no cosmetic attached
@@ -90,20 +111,7 @@ async function grantPlateFromOrder(order: Order) {
     return
   }
 
-  const { error } = await supabase.from('user_cosmetics').upsert(
-    {
-      user_id: userId,
-      item_type: 'plate',
-      item_id: plateId,
-      acquired_via: 'purchase',
-      source_order_id: order.id
-    },
-    { onConflict: 'user_id,item_type,item_id' }
-  )
-
-  if (error) {
-    throw new Error(`Failed to grant plate ${plateId} to user ${userId}: ${error.message}`)
-  }
+  await grantPlatePurchase(supabase, userId, { plateId, orderId: order.id })
 }
 
 async function revokePlateFromOrder(order: Order) {
@@ -173,6 +181,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ received: false }, { status: 403 })
     }
     console.warn('[PolarWebhook] Verified event with unrecognized shape — audit only:', error)
+  }
+
+  // A subscribed event the SDK could not parse must NOT be acked (and must
+  // not burn its idempotency row) — 500 here makes Polar redeliver, and a
+  // later SDK fix processes the retry.
+  if (!event) {
+    const rawType = typeof rawPayload?.type === 'string' ? rawPayload.type : null
+    if (rawType && SUBSCRIBED_EVENT_TYPES.has(rawType)) {
+      console.error(`[PolarWebhook] Failed to parse subscribed event ${rawType} — asking Polar to retry`)
+      return NextResponse.json(
+        { success: false, error: 'Failed to parse event' },
+        { status: 500 }
+      )
+    }
   }
 
   const eventId =

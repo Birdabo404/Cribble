@@ -5,6 +5,7 @@ export const NOTIFICATION_TYPES = [
   'season',
   'social',
   'premium',
+  'shop',
   'system'
 ] as const
 

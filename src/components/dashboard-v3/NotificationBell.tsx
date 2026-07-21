@@ -36,7 +36,9 @@ const ICON_PATHS = {
   users:
     'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75',
   info: 'M12 22c5.52 0 10-4.48 10-10S17.52 2 12 2 2 6.48 2 12s4.48 10 10 10z M12 16v-4 M12 8h.01',
-  crown: 'M2 20h20 M4 20 2 7l5.5 4L12 4l4.5 7L22 7l-2 13z'
+  crown: 'M2 20h20 M4 20 2 7l5.5 4L12 4l4.5 7L22 7l-2 13z',
+  truck:
+    'M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2 M15 18H9 M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14 M17 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M7 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z'
 }
 
 interface TypeMeta {
@@ -67,6 +69,9 @@ function typeMeta(type: NotificationType, data: Record<string, unknown>): TypeMe
       // and renders the pixel blue check. Kept so the switch stays
       // exhaustive; the crown is the nominal fallback.
       return { icon: ICON_PATHS.crown, cls: 'text-amber-300' }
+    case 'shop':
+      // Purchase ack + delivered both ride the red delivery truck.
+      return { icon: ICON_PATHS.truck, cls: 'text-red-400' }
     case 'system':
       return { icon: ICON_PATHS.info, cls: 'text-zinc-400' }
     default: {

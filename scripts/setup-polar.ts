@@ -1,6 +1,6 @@
 // Provisions the Polar organization for the Cribble shop, end to end:
 //
-//   - Pro subscription products  (monthly $4.99, yearly $39.99)
+//   - Pro subscription products  (monthly $6.99, yearly $49.99)
 //   - one one-time product per purchasable plate, with `plate_id` metadata
 //     (the webhook grants ownership from it)
 //   - the 25% "Pro Plate Perk" discount restricted to the plate products
@@ -83,15 +83,15 @@ const PRO_SUBSCRIPTIONS: DesiredSubscription[] = [
     envKey: 'POLAR_PRODUCT_PRO_MONTHLY',
     name: 'Cribble Pro',
     description: 'Cribble Pro membership, billed monthly. Animated banners, the Pro plate collection and 25% off all plates.',
-    priceCents: 499,
+    priceCents: 699,
     interval: 'month'
   },
   {
     proKey: 'pro_yearly',
     envKey: 'POLAR_PRODUCT_PRO_YEARLY',
     name: 'Cribble Pro (Yearly)',
-    description: 'Cribble Pro membership, billed yearly — two months free versus monthly.',
-    priceCents: 3999,
+    description: 'Cribble Pro membership, billed yearly — over 40% off versus monthly.',
+    priceCents: 4999,
     interval: 'year'
   }
 ]

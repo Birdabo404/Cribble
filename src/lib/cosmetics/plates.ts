@@ -20,15 +20,19 @@
 // must look identical for every buyer in both themes. Only the readability
 // scrim (applied by PlateLayer) adapts to the theme.
 
-export type PlateRarity = 'common' | 'rare' | 'epic' | 'legendary'
+export type PlateRarity = 'common' | 'rare' | 'epic' | 'legendary' | 'mythic'
 
 /** Chip styling per rarity — mirrors the achievement rarity palette
- * (`--r-*` in globals.css), so plate chips match badge chips in both themes. */
+ * (`--r-*` in globals.css), so plate chips match badge chips in both themes.
+ * Mythic sits above legendary: the flat token is a white-violet fallback;
+ * the shop's Reserve band upgrades its chip to an animated iridescent
+ * treatment locally. */
 export const PLATE_RARITY_META: Record<PlateRarity, { label: string; color: string }> = {
   common: { label: 'COMMON', color: 'rgb(var(--r-common))' },
   rare: { label: 'RARE', color: 'rgb(var(--r-rare))' },
   epic: { label: 'EPIC', color: 'rgb(var(--r-epic))' },
-  legendary: { label: 'LEGENDARY', color: 'rgb(var(--r-legendary))' }
+  legendary: { label: 'LEGENDARY', color: 'rgb(var(--r-legendary))' },
+  mythic: { label: 'MYTHIC', color: 'rgb(var(--r-mythic))' }
 }
 
 /** Animated-scene presets implemented by PlateFx. Adding a preset means
@@ -47,6 +51,8 @@ export type PlateFx =
   | 'midnight-ops'
   | 'founder'
   | 'beta-tester'
+  | 'event-horizon'
+  | 'prime-anomaly'
 
 export interface PlateCssRender {
   kind: 'css'
@@ -130,16 +136,89 @@ const SPACE_STARS = svg(
     '</svg>'
 )
 
-/** Lily pads (thin natural slits) + a lotus, floating near the koi. */
-const KOI_PADS = svg(
-  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 230 54'>" +
-    "<g stroke='#94f0dc' stroke-opacity='.22'>" +
-    "<path d='M178 20L194.8 17.6A17 17 0 1 0 194.8 22.4Z' fill='#0f463e'/>" +
-    "<path d='M126 40L136.9 38.5A11 11 0 1 0 136.9 41.5Z' fill='#0d3c34' transform='rotate(40 126 40)'/>" +
-    "<path d='M212 44L219.9 42.9A8 8 0 1 0 219.9 45.1Z' fill='#0f463e' transform='rotate(-15 212 44)'/>" +
+/** Koi Pond caustic web — a cellular light net (wavy walls meeting at
+ * brighter nodes), not blobs. Drawn once as shared path data and emitted
+ * at two strengths: a faint full-plate tile baked into the base (so even
+ * the name-fade zone reads as water) and an exported bright tile the FX
+ * layer counter-drifts in two layers for live shimmer. The tile (160×80)
+ * is seamless: the two horizontal walls enter/exit the side edges at
+ * y=20/y=52, the two vertical links cross the top/bottom seam at x=30 and
+ * x=110 with matched tangents. Cells are wide and flat — sunlight nets
+ * stretch horizontally on gently moving water. */
+const KOI_NET_PATHS =
+  "<path d='M0 20C12 14 24 11.5 40 15.5C56 19.5 64 26 80 24C96 22 104 13.5 120 13.5C136 13.5 149 17 160 20'/>" +
+  "<path d='M0 52C14 46 26 43.5 42 47.5C58 51.5 66 58 82 56C98 54 106 45.5 122 45.5C138 45.5 150 49 160 52'/>" +
+  "<path d='M40 15.5C44.5 25.5 43 37.5 42 47.5'/>" +
+  "<path d='M80 24C78.5 34 80 44 82 56'/>" +
+  "<path d='M120 13.5C122 25.5 120.5 35.5 122 45.5'/>" +
+  "<path d='M30 0C32 6 33 12 36.5 16.5'/>" +
+  "<path d='M34 62C30.5 68 30 74 30 80'/>" +
+  "<path d='M110 0C108 6 107.5 12 104.5 15'/>" +
+  "<path d='M106 60C109 66.5 110 73 110 80'/>" +
+  "<path d='M42 47.5C40 53 37.5 58 34 62'/>" +
+  "<path d='M82 56C88 58.5 98 59.5 106 60'/>"
+
+/** Short bright over-strokes hugging the intersections — caustic light
+ * concentrates where cell walls meet, so the net sparkles at its joints. */
+const KOI_NET_GLINTS =
+  "<path d='M34 16.4C38 15 42 15 46 16.6'/><path d='M114 13.6C118 13.3 122 13.6 126 14.2'/>" +
+  "<path d='M75 24.3C79 24.4 83 24 87 23.2'/><path d='M36 48.6C40 47.4 44 47.4 48 48.6'/>" +
+  "<path d='M116 45.7C120 45.4 124 45.6 128 46.4'/><path d='M77 56.4C81 56.5 85 56 89 55.2'/>"
+
+const KOI_NET_NODES =
+  "<circle cx='40' cy='15.5' r='1.2'/><circle cx='80' cy='24' r='1.1'/><circle cx='120' cy='13.5' r='1.2'/>" +
+  "<circle cx='42' cy='47.5' r='1.2'/><circle cx='82' cy='56' r='1.1'/><circle cx='122' cy='45.5' r='1.2'/>" +
+  "<circle cx='36' cy='17' r='.8'/><circle cx='106' cy='60' r='.9'/><circle cx='34' cy='62' r='.9'/><circle cx='104.5' cy='15' r='.8'/>"
+
+/** Each wall is drawn twice — a wide whisper stroke under a thin core —
+ * so the net reads as soft refracted light with falloff, never as wire. */
+const koiCausticSvg = (halo: number, core: number, glint: number, node: number) =>
+  svg(
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 80'>" +
+      `<g fill='none' stroke='#bfffe9' stroke-width='3.4' stroke-opacity='${halo}' stroke-linecap='round'>` +
+      KOI_NET_PATHS +
+      '</g>' +
+      `<g fill='none' stroke='#dcfff4' stroke-width='1.2' stroke-opacity='${core}' stroke-linecap='round'>` +
+      KOI_NET_PATHS +
+      '</g>' +
+      `<g fill='none' stroke='#ecfffa' stroke-width='1.7' stroke-opacity='${glint}' stroke-linecap='round'>` +
+      KOI_NET_GLINTS +
+      '</g>' +
+      `<g fill='#ecfffa' fill-opacity='${node}'>` +
+      KOI_NET_NODES +
+      '</g>' +
+      '</svg>'
+  )
+
+/** Exported for the FX layer, which shows it at three strengths: a faint
+ * static wash plus two live counter-drifting copies — all inside one mask
+ * that dies toward the name zone, so no hairline ever crosses the text.
+ * (Baking a faint tile into the base was tried and rejected: base layers
+ * can't be masked, and even whisper-opacity walls read as scratches over
+ * the calm dark left.) */
+export const KOI_CAUSTICS = koiCausticSvg(0.09, 0.18, 0.32, 0.36)
+
+/** Pebble bed hugging the bottom edge — the pond floor read through the
+ * water. One pebble straddles the tile seam (split into an x=0 / x=230
+ * pair) so the repeat-x never shows a bald joint; faint top-edge arcs
+ * catch the light from above. */
+const KOI_PEBBLES = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 230 30'>" +
+    "<ellipse cx='0' cy='28' rx='9' ry='4.5' fill='#12474c' fill-opacity='.32'/>" +
+    "<ellipse cx='230' cy='28' rx='9' ry='4.5' fill='#12474c' fill-opacity='.32'/>" +
+    "<ellipse cx='17' cy='26.5' rx='12' ry='5' fill='#0f4148' fill-opacity='.34'/>" +
+    "<ellipse cx='38' cy='29' rx='7' ry='3.6' fill='#175a5c' fill-opacity='.28'/>" +
+    "<ellipse cx='58' cy='26' rx='13' ry='5.5' fill='#124449' fill-opacity='.34'/>" +
+    "<ellipse cx='81' cy='28.5' rx='8' ry='4' fill='#1a6660' fill-opacity='.24'/>" +
+    "<ellipse cx='103' cy='26.5' rx='11' ry='4.8' fill='#0f4148' fill-opacity='.32'/>" +
+    "<ellipse cx='125' cy='29' rx='7.5' ry='3.8' fill='#175a5c' fill-opacity='.28'/>" +
+    "<ellipse cx='146' cy='26' rx='13' ry='5.2' fill='#12474c' fill-opacity='.32'/>" +
+    "<ellipse cx='170' cy='28.5' rx='8.5' ry='4.2' fill='#1a6660' fill-opacity='.24'/>" +
+    "<ellipse cx='191' cy='26.5' rx='11' ry='4.8' fill='#0f4148' fill-opacity='.32'/>" +
+    "<ellipse cx='212' cy='29' rx='7' ry='3.6' fill='#175a5c' fill-opacity='.26'/>" +
+    "<g fill='none' stroke='#9fecd4' stroke-opacity='.1' stroke-width='.9'>" +
+    "<path d='M9 24.4A12 5 0 0 1 24 24.6'/><path d='M48 23.6A13 5.5 0 0 1 66 23.8'/><path d='M95 24.4A11 4.8 0 0 1 110 24.6'/><path d='M137 24A13 5.2 0 0 1 154 24.2'/><path d='M183 24.4A11 4.8 0 0 1 198 24.6'/>" +
     '</g>' +
-    "<g fill='#ff9ac2'><ellipse cx='168' cy='13' rx='2.6' ry='4.6' transform='rotate(-22 168 13)' fill-opacity='.9'/><ellipse cx='172' cy='11' rx='2.6' ry='4.8'/><ellipse cx='176' cy='13' rx='2.6' ry='4.6' transform='rotate(22 176 13)' fill-opacity='.9'/></g>" +
-    "<circle cx='172' cy='15' r='1.3' fill='#ffd644'/>" +
     '</svg>'
 )
 
@@ -271,6 +350,171 @@ const BETA_CHEVRONS = svg(
     '</svg>'
 )
 
+/** Dim cool starfield tile behind the Event Horizon (far, unlensed field). */
+const HORIZON_STARS = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 150 84'>" +
+    "<g fill='#dbe4ff'><circle cx='14' cy='16' r='0.9' fill-opacity='.4'/><circle cx='52' cy='8' r='0.6' fill-opacity='.3'/><circle cx='96' cy='20' r='1' fill-opacity='.42'/><circle cx='128' cy='10' r='0.7' fill-opacity='.3'/><circle cx='30' cy='44' r='0.7' fill-opacity='.26'/><circle cx='74' cy='56' r='0.9' fill-opacity='.34'/><circle cx='116' cy='48' r='0.6' fill-opacity='.24'/><circle cx='40' cy='72' r='0.8' fill-opacity='.3'/><circle cx='138' cy='70' r='0.9' fill-opacity='.36'/></g>" +
+    '</svg>'
+)
+
+/** Gargantua. Near-edge-on thin accretion disk drawn to actual black-hole
+ * imaging (Luminet / EHT / Interstellar's DNGR renders), camera slightly
+ * above the disk plane: a doppler-graded annulus (approaching left limb
+ * white-hot from relativistic beaming, receding right limb absorbed into
+ * red dust) textured with dashed filament striations, the far side of the
+ * disk gravitationally lensed into a bright arch OVER the shadow and a
+ * smaller, dimmer arch UNDER it (peaks ±~28px so the full halo survives a
+ * 68px leaderboard row), a pure-black shadow hugged by a razor photon ring
+ * with a red/blue chromatic fringe pair and a faint second-order echo
+ * ring, the near-side band crossing IN FRONT slightly below center, dust
+ * wisps tearing off both limbs, and background stars smeared into arcs.
+ * Palette: cream core → peach/salmon → dusty rose-brown fringe.
+ * Hole center sits at (260,85) of the 360×170 box — at the catalog
+ * placement (360px wide, right -4px) that lands the well 96px from the
+ * right edge; the FX layer pins its shear bands, infall spirals and the
+ * 45s tidal-disruption event to the same point. */
+const EVENT_HORIZON_CORE = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 170'>" +
+    "<defs><radialGradient id='ehd' gradientUnits='userSpaceOnUse' cx='280' cy='85' r='120' gradientTransform='translate(280 85) scale(1 .13) translate(-280 -85)'>" +
+    "<stop offset='.16' stop-color='#fff8ee' stop-opacity='.92'/>" +
+    "<stop offset='.32' stop-color='#ffe2bd' stop-opacity='.8'/>" +
+    "<stop offset='.52' stop-color='#ffb583' stop-opacity='.52'/>" +
+    "<stop offset='.72' stop-color='#c67a52' stop-opacity='.3'/>" +
+    "<stop offset='.9' stop-color='#8a4f38' stop-opacity='.13'/>" +
+    "<stop offset='1' stop-color='#6b3d2e' stop-opacity='0'/>" +
+    '</radialGradient></defs>' +
+    // background stars smeared into faint concentric arcs by the lens
+    "<g stroke='#cdd8ff' fill='none' stroke-width='.9'>" +
+    "<path d='M254 55a40 40 0 0 1 36 -9' stroke-opacity='.13'/>" +
+    "<path d='M319 64a34 34 0 0 1 8 17' stroke-opacity='.1'/>" +
+    "<path d='M308 116a38 38 0 0 1 -31 8' stroke-opacity='.11'/>" +
+    '</g>' +
+    "<g fill='#ffeeda'>" +
+    "<circle cx='257' cy='60' r='.8' fill-opacity='.55'/><circle cx='280' cy='53' r='.7' fill-opacity='.5'/><circle cx='304' cy='61' r='.8' fill-opacity='.5'/>" +
+    "<circle cx='316' cy='85' r='.7' fill-opacity='.4'/><circle cx='303' cy='112' r='.8' fill-opacity='.5'/><circle cx='279' cy='119' r='.7' fill-opacity='.45'/><circle cx='255' cy='111' r='.8' fill-opacity='.45'/><circle cx='245' cy='85' r='.7' fill-opacity='.4'/>" +
+    '</g>' +
+    "<g transform='rotate(-8 280 85)'>" +
+    // outermost fringe: the disk dissolving into torn dust filaments
+    "<ellipse cx='280' cy='85' rx='131' ry='17' fill='none' stroke='#8a5038' stroke-opacity='.16' stroke-width='4.5' stroke-dasharray='58 36 88 30'/>" +
+    "<ellipse cx='280' cy='85' rx='143' ry='18.6' fill='none' stroke='#75432f' stroke-opacity='.1' stroke-width='4' stroke-dasharray='40 56 66 44'/>" +
+    "<path d='M132 78c24 -2 44 0 64 4' stroke='#c07a54' stroke-opacity='.22' stroke-width='2.2' fill='none'/>" +
+    "<path d='M120 90c30 1 54 2 76 -1' stroke='#9a563c' stroke-opacity='.18' stroke-width='2.6' fill='none'/>" +
+    "<path d='M352 96c18 3 32 8 44 15' stroke='#7c4530' stroke-opacity='.14' stroke-width='2.4' fill='none'/>" +
+    // the disk: one continuous graded annulus (a slim ISCO gap inside)…
+    "<path fill='url(#ehd)' fill-rule='evenodd' d='M160 85a120 15.6 0 1 0 240 0a120 15.6 0 1 0 -240 0M261 85a19 2.5 0 1 0 38 0a19 2.5 0 1 0 -38 0Z'/>" +
+    // …textured by dashed shear filaments, never clean whole rings
+    "<g fill='none'>" +
+    "<ellipse cx='280' cy='85' rx='109' ry='14.2' stroke='#b56a48' stroke-opacity='.3' stroke-width='2.6' stroke-dasharray='78 26 118 30'/>" +
+    "<ellipse cx='280' cy='85' rx='95' ry='12.4' stroke='#e8905e' stroke-opacity='.3' stroke-width='2.2' stroke-dasharray='108 24 68 36'/>" +
+    "<ellipse cx='280' cy='85' rx='81' ry='10.5' stroke='#ffc79a' stroke-opacity='.34' stroke-width='2' stroke-dasharray='88 20 138 24'/>" +
+    "<ellipse cx='280' cy='85' rx='67' ry='8.7' stroke='#ffe0bd' stroke-opacity='.4' stroke-width='1.8' stroke-dasharray='118 18 78 22'/>" +
+    "<ellipse cx='280' cy='85' rx='53' ry='6.9' stroke='#fff0d9' stroke-opacity='.46' stroke-width='1.6' stroke-dasharray='138 14 88 18'/>" +
+    "<ellipse cx='280' cy='85' rx='41' ry='5.3' stroke='#fff7ea' stroke-opacity='.5' stroke-width='1.4'/>" +
+    "<ellipse cx='280' cy='85' rx='32' ry='4.15' stroke='#fffdf6' stroke-opacity='.6' stroke-width='1.3'/>" +
+    '</g>' +
+    // relativistic beaming: the approaching limb burns white-hot…
+    "<ellipse cx='200' cy='86' rx='60' ry='8' fill='#fff6ea' fill-opacity='.42'/>" +
+    "<ellipse cx='206' cy='86' rx='40' ry='5.2' fill='#ffffff' fill-opacity='.5'/>" +
+    "<ellipse cx='212' cy='86.5' rx='24' ry='3' fill='#ffffff' fill-opacity='.65'/>" +
+    // …while the receding limb reddens into dust
+    "<ellipse cx='356' cy='84' rx='46' ry='8' fill='#2a1109' fill-opacity='.58'/>" +
+    "<ellipse cx='336' cy='87' rx='26' ry='4' fill='#1f0d07' fill-opacity='.24'/>" +
+    // the lensing signature: the far side lensed into a TIGHT halo hugging
+    // the shadow — a bright dome arching over (roots dive into the disk on
+    // both sides) with a soft bloom above it…
+    "<path d='M264.1 86.9A16 16 0 1 1 295.9 86.9' fill='none' stroke='#ffd9ae' stroke-opacity='.32' stroke-width='5'/>" +
+    "<path d='M264.3 86.5A15.7 15.7 0 1 1 295.7 86.5' fill='none' stroke='#ffedd6' stroke-opacity='.52' stroke-width='2.6'/>" +
+    "<path d='M264.6 86.2A15.4 15.4 0 1 1 295.4 86.2' fill='none' stroke='#fff8ee' stroke-opacity='.85' stroke-width='1.4'/>" +
+    "<ellipse cx='280' cy='69.5' rx='11' ry='4.2' fill='#fff3e0' fill-opacity='.16'/>" +
+    "<ellipse cx='280' cy='70.2' rx='6' ry='1.9' fill='#fffdf8' fill-opacity='.3'/>" +
+    // …and a smaller, dimmer counter-arch under (second image, near side)
+    "<path d='M266.6 80.3A14.8 14.8 0 1 0 293.4 80.3' fill='none' stroke='#ffd9b0' stroke-opacity='.28' stroke-width='4'/>" +
+    "<path d='M266.9 80.6A14.5 14.5 0 1 0 293.1 80.6' fill='none' stroke='#ffeed9' stroke-opacity='.48' stroke-width='2.2'/>" +
+    "<path d='M267.2 80.9A14.2 14.2 0 1 0 292.8 80.9' fill='none' stroke='#fff6ea' stroke-opacity='.66' stroke-width='1.1'/>" +
+    // the shadow — photon capture cross-section, nothing comes back
+    "<circle cx='280' cy='85' r='12.4' fill='#000004'/>" +
+    // razor photon ring + red/blue chromatic fringe pair
+    "<circle cx='280' cy='85' r='13.3' fill='none' stroke='#fff8ee' stroke-opacity='.95' stroke-width='1.4'/>" +
+    "<circle cx='280' cy='85' r='14.3' fill='none' stroke='#ffb28a' stroke-opacity='.3' stroke-width='.9'/>" +
+    "<circle cx='280' cy='85' r='12.5' fill='none' stroke='#a8bdff' stroke-opacity='.24' stroke-width='.7'/>" +
+    // the near-side band crossing IN FRONT, doppler-loaded to the left,
+    // long enough to bridge the ISCO gap into the disk on both sides
+    "<ellipse cx='280' cy='88.8' rx='47' ry='3.4' fill='#fff3e0' fill-opacity='.48'/>" +
+    "<ellipse cx='262' cy='88.4' rx='26' ry='2.1' fill='#ffffff' fill-opacity='.5'/>" +
+    '</g>' +
+    '</svg>'
+)
+
+/** Cold starfield behind the Prime Anomaly — cyan/violet-tinted so the
+ * field reads as the anomaly's own sky, not the Event Horizon's warm one.
+ * Large jittered tile (170×92) so the repeat never reads as a lattice. */
+const ANOMALY_STARS = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 170 92'>" +
+    "<g fill='#dff6ff'><circle cx='18' cy='14' r='0.9' fill-opacity='.38'/><circle cx='66' cy='9' r='0.6' fill-opacity='.26'/><circle cx='114' cy='18' r='1' fill-opacity='.4'/><circle cx='152' cy='30' r='0.7' fill-opacity='.28'/><circle cx='88' cy='50' r='0.8' fill-opacity='.3'/><circle cx='36' cy='62' r='0.7' fill-opacity='.24'/><circle cx='132' cy='68' r='0.9' fill-opacity='.34'/><circle cx='58' cy='84' r='0.6' fill-opacity='.22'/></g>" +
+    "<g fill='#cfc4ff'><circle cx='44' cy='34' r='0.7' fill-opacity='.3'/><circle cx='102' cy='80' r='0.8' fill-opacity='.3'/><circle cx='160' cy='84' r='0.6' fill-opacity='.24'/></g>" +
+    // one 4-point glint per tile — the field twinkles without animating
+    "<path d='M138 42l1 2.6 2.6 1-2.6 1-1 2.6-1-2.6-2.6-1 2.6-1Z' fill='#eafcff' fill-opacity='.4'/>" +
+    '</svg>'
+)
+
+/** Two worlds adrift right of the rift: a ringed gas giant rim-lit on its
+ * rift-facing (left) side by the anomaly's glow, and a small dusty-rose
+ * moon below. Kept right of the seam so the burst rays rake past them —
+ * scenery, never competition. */
+const ANOMALY_PLANETS = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 190 110'>" +
+    // gas giant: violet-indigo body, cyan rim light toward the seam,
+    // banded latitudes, ring tilted behind then in front
+    "<ellipse cx='138' cy='34' rx='26' ry='7' fill='none' stroke='#9aa4e8' stroke-opacity='.28' stroke-width='1.6' transform='rotate(-16 138 34)'/>" +
+    "<circle cx='138' cy='34' r='12.5' fill='#232048'/>" +
+    "<circle cx='138' cy='34' r='12.5' fill='none' stroke='#7df4ff' stroke-opacity='.4' stroke-width='1' stroke-dasharray='26 53'  stroke-dashoffset='6'/>" +
+    "<path d='M126.5 30a12.5 12.5 0 0 1 5-7.6' stroke='#bfefff' stroke-opacity='.55' stroke-width='1.4' fill='none'/>" +
+    "<path d='M127 38.5h22M128.5 42.5h19M127.5 34.5h21' stroke='#8f86d8' stroke-opacity='.3' stroke-width='1.6'/>" +
+    "<ellipse cx='138' cy='34' rx='26' ry='7' fill='none' stroke='#b8c0f4' stroke-opacity='.4' stroke-width='1.6' transform='rotate(-16 138 34)' stroke-dasharray='41 82' stroke-dashoffset='-8'/>" +
+    // small dusty-rose moon — its crescent is the RIFT's light reflected,
+    // so it carries the rift's icy tint, not its own pink
+    "<circle cx='52' cy='78' r='5' fill='#3a2233'/>" +
+    "<path d='M48.4 74.6a5 5 0 0 1 2.4-1.5' stroke='#bff4ff' stroke-opacity='.55' stroke-width='1.2' fill='none'/>" +
+    "<circle cx='52' cy='78' r='5' fill='none' stroke='#bff4ff' stroke-opacity='.14' stroke-width='.8'/>" +
+    '</svg>'
+)
+
+/** Prime Anomaly containment cracks: thin electric filaments radiating from
+ * the seam center (130,60), elbowed like stress fractures. Bright white
+ * nucleus segments near the center, cyan arms thinning outward, dim violet
+ * strays — the sealed panel barely holding. Long near-horizontal east arm
+ * keeps the motif legible in the 68px row crop; west arms stay short and
+ * faint so the name zone stays quiet. Exported: the FX layer re-uses this
+ * exact tile as the mask of its shimmering "veins" glow so the etched art
+ * and the glow can never drift apart. */
+export const ANOMALY_CRACKS = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 260 120'>" +
+    "<g stroke='#7df4ff' fill='none' stroke-width='1'>" +
+    "<path d='M130 60L148 48L156 50L178 34L182 35L206 18' stroke-opacity='.34'/>" +
+    "<path d='M130 60L158 62L166 58L196 60L204 57L236 60' stroke-opacity='.38'/>" +
+    "<path d='M130 60L150 74L158 72L176 86L186 84L206 98' stroke-opacity='.32'/>" +
+    "<path d='M130 60L134 44L130 38L136 20L133 12' stroke-opacity='.3'/>" +
+    "<path d='M130 60L126 76L131 84L125 102' stroke-opacity='.28'/>" +
+    "<path d='M130 60L112 54L104 57L88 48' stroke-opacity='.15'/>" +
+    "<path d='M166 58L172 50' stroke-opacity='.18' stroke-width='.8'/>" +
+    "<path d='M158 72L168 76' stroke-opacity='.16' stroke-width='.8'/>" +
+    '</g>' +
+    "<g stroke='#a99cff' fill='none' stroke-width='.9'>" +
+    "<path d='M130 60L118 42L112 40L102 28' stroke-opacity='.16'/>" +
+    "<path d='M130 60L114 68L106 66L94 74' stroke-opacity='.14'/>" +
+    "<path d='M148 48L154 40' stroke-opacity='.2'/>" +
+    '</g>' +
+    "<g stroke='#eafcff' fill='none' stroke-width='1.2'>" +
+    "<path d='M130 60L148 48' stroke-opacity='.58'/>" +
+    "<path d='M130 60L158 62' stroke-opacity='.62'/>" +
+    "<path d='M130 60L150 74' stroke-opacity='.56'/>" +
+    "<path d='M130 60L134 44' stroke-opacity='.55'/>" +
+    "<path d='M130 60L126 76' stroke-opacity='.5'/>" +
+    '</g>' +
+    "<circle cx='130' cy='60' r='1.8' fill='#f4feff' fill-opacity='.75'/>" +
+    '</svg>'
+)
+
 /** Banknote-grade guilloché rosette, engraved in faint gold. */
 const FOUNDER_GUILLOCHE = svg(
   "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 140 140'>" +
@@ -340,24 +584,6 @@ export const PLATES: PlateDef[] = [
       ],
       fx: 'terminal-rain',
       accent: '2 254 1'
-    }
-  },
-  {
-    id: 'koi-pond',
-    name: 'Koi Pond',
-    tagline: 'Still water. Perfect focus.',
-    rarity: 'epic',
-    priceUsd: 5.99,
-    render: {
-      kind: 'css',
-      base: [
-        `${KOI_PADS} right -10px top -4px / 230px 54px no-repeat`,
-        'radial-gradient(130% 160% at 80% 20%, rgb(20 96 88 / 0.42), transparent 60%)',
-        'radial-gradient(90% 140% at 60% 110%, rgb(12 60 66 / 0.55), transparent 70%)',
-        'linear-gradient(180deg, rgb(7 28 30), rgb(3 14 17))'
-      ],
-      fx: 'koi-pond',
-      accent: '255 122 60'
     }
   },
   {
@@ -438,6 +664,90 @@ export const PLATES: PlateDef[] = [
       ],
       fx: 'ignition',
       accent: '255 106 40'
+    }
+  },
+
+  // ---- The Reserve — mythic class. Sold from the shop's Reserve shelf,
+  // never the grid. Three lanes: living water (the koi pond), living
+  // scene (black hole), flagship (reality tear). -------------------------
+  {
+    id: 'koi-pond',
+    name: 'Koi Pond',
+    tagline: 'Still water. Perfect focus.',
+    rarity: 'mythic',
+    priceUsd: 15,
+    render: {
+      kind: 'css',
+      base: [
+        `${KOI_PEBBLES} left 0 bottom -9px / 230px 30px repeat-x`,
+        // sun enters top-right: a warm-aqua pool where the light lands,
+        // a deep vignette in the lower-left where the identity text sits
+        'radial-gradient(72% 150% at 88% -12%, rgb(104 232 196 / 0.44), rgb(48 184 156 / 0.2) 46%, transparent 66%)',
+        'radial-gradient(80% 130% at 6% 115%, rgb(2 24 30 / 0.44), transparent 55%)',
+        'linear-gradient(104deg, rgb(6 46 50) 0%, rgb(10 70 68) 28%, rgb(14 94 88) 55%, rgb(20 124 110) 80%, rgb(30 154 138) 100%)'
+      ],
+      fx: 'koi-pond',
+      accent: '255 122 60'
+    }
+  },
+  {
+    id: 'event-horizon',
+    name: 'Event Horizon',
+    tagline: 'Gravity always wins. Be the gravity.',
+    rarity: 'mythic',
+    priceUsd: 20,
+    render: {
+      kind: 'css',
+      base: [
+        // Gargantua at native scale: the 400×170 box at right -24px lands
+        // the hole center (280,85) exactly 96px from the right edge — the
+        // FX layer pins its shear bands, infall spirals and the 45s tidal
+        // disruption to the same point
+        `${EVENT_HORIZON_CORE} right -24px center / 400px 170px no-repeat`,
+        `${HORIZON_STARS} 0 0 / 150px 84px repeat`,
+        // doppler bloom biased to the approaching (left) limb of the well,
+        // a dusty rose exhale under the disk plane, cold interstellar blue
+        // in the far upper-left
+        'radial-gradient(150px 56px at calc(100% - 128px) 51%, rgb(255 208 165 / 0.14), transparent 70%)',
+        'radial-gradient(240px 110px at calc(100% - 96px) 58%, rgb(200 110 70 / 0.1), transparent 72%)',
+        'radial-gradient(70% 130% at 12% 0%, rgb(30 41 90 / 0.28), transparent 62%)',
+        'linear-gradient(180deg, rgb(5 4 10), rgb(1 1 4))'
+      ],
+      fx: 'event-horizon',
+      accent: '255 199 122'
+    }
+  },
+  {
+    id: 'prime-anomaly',
+    name: 'Prime Anomaly',
+    tagline: 'Wrong build. Wrong universe. Right rank.',
+    rarity: 'mythic',
+    priceUsd: 30,
+    render: {
+      kind: 'css',
+      base: [
+        // chromatic seam right-of-center (64%): cyan fringe / white core /
+        // magenta dispersion fringe — the sealed-state tell the FX tear
+        // opens along (pink exists ONLY as this aberration hairline)
+        'linear-gradient(180deg, transparent 4%, rgb(125 244 255 / 0.36) 30%, rgb(125 244 255 / 0.1) 68%, transparent 96%) calc(64% - 2px) 0 / 1px 100% no-repeat',
+        'linear-gradient(180deg, transparent 6%, rgb(240 253 255 / 0.6) 32%, rgb(240 253 255 / 0.18) 66%, transparent 94%) 64% 0 / 1px 100% no-repeat',
+        'linear-gradient(180deg, transparent 4%, rgb(255 79 216 / 0.26) 34%, rgb(255 79 216 / 0.08) 70%, transparent 96%) calc(64% + 2px) 0 / 1px 100% no-repeat',
+        // containment cracks etched around the seam. Position math: a
+        // background-position % resolves against (box − image), so
+        // `calc(64% + 36.4px)` = 0.64·(W−260) + 0.64·260 − 130 + 130 lands
+        // the tile's center (130,60) exactly on the 64% seam at any width.
+        `${ANOMALY_CRACKS} calc(64% + 36.4px) center / 260px 120px no-repeat`,
+        'radial-gradient(30% 90% at 64% 50%, rgb(125 244 255 / 0.08), transparent 70%)',
+        // the sky the anomaly hangs in: two worlds right of the rift (the
+        // burst rays rake past them), a cold star tile, a violet nebula
+        // breath in the upper-right — the left third stays near-black
+        `${ANOMALY_PLANETS} right 4px center / 190px 110px no-repeat`,
+        `${ANOMALY_STARS} 0 0 / 170px 92px repeat`,
+        'radial-gradient(60% 110% at 88% 6%, rgb(91 74 176 / 0.14), transparent 62%)',
+        'linear-gradient(180deg, rgb(9 11 15), rgb(4 5 8))'
+      ],
+      fx: 'prime-anomaly',
+      accent: '165 243 252'
     }
   },
 

@@ -122,7 +122,11 @@ export async function GET(request: NextRequest) {
       products: [productId],
       externalCustomerId: String(session.userId),
       metadata,
-      successUrl: `${appUrl}/shop?checkout=success`,
+      // {CHECKOUT_ID} is Polar's template token, interpolated at redirect
+      // time — built by string concat so the braces are never URL-encoded.
+      // The shop passes it back to the sync route for the purchase-ack
+      // notification.
+      successUrl: `${appUrl}/shop?checkout=success&checkout_id={CHECKOUT_ID}`,
       ...(discountId ? { discountId } : {})
     })
 

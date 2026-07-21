@@ -105,11 +105,12 @@ export function FollowButton({
   )
 }
 
-/** Reciprocity chip — renders next to a handle when that pilot follows the viewer. */
+/** Reciprocity chip — quiet X-style pill: neutral fill, no border, muted
+ *  text. Renders beside the follow CTA (profile) or the handle (lists). */
 export function FollowsYouChip({ className = '' }: { className?: string }) {
   return (
     <span
-      className={`shrink-0 rounded border border-cyan-300/30 bg-cyan-300/10 px-1.5 py-0.5 text-[8px] tracking-[0.25em] text-cyan-300 ${className}`}
+      className={`shrink-0 rounded bg-white/[0.08] px-1.5 py-[3px] text-[8px] font-medium tracking-[0.2em] text-zinc-400 ${className}`}
     >
       FOLLOWS YOU
     </span>

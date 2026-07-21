@@ -46,7 +46,8 @@ const RARITY: Record<string, string> = {
   common: 'rgb(var(--r-common))',
   rare: 'rgb(var(--r-rare))',
   epic: 'rgb(var(--r-epic))',
-  legendary: 'rgb(var(--r-legendary))'
+  legendary: 'rgb(var(--r-legendary))',
+  mythic: 'rgb(var(--r-mythic))'
 }
 
 function PilotCard({ plateId }: { plateId: string }) {

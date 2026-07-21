@@ -26,6 +26,10 @@
   --r-rare: 56 189 248;
   --r-epic: 255 45 149;
   --r-legendary: 255 214 68;
+  /* mythic sits above legendary: white-violet — reads "prismatic" flat,
+     clearly apart from epic pink and legendary gold. The shop's Reserve
+     band swaps this for an animated iridescent chip locally. */
+  --r-mythic: 205 190 255;
 
   /* stars / decorative dots */
   --star-rgb: 255 255 255;
@@ -139,6 +143,9 @@ html.light {
   --r-rare: 2 132 199;
   --r-epic: 147 51 234;
   --r-legendary: 202 138 4;
+  /* mythic: deep blue-violet ink — bluer than the epic violet, darker
+     than the print blue, so the ladder still reads at chip size */
+  --r-mythic: 79 70 229;
 
   /* stars become ink flecks on paper, dots the dossier's drafting ink */
   --star-rgb: 62 55 40;

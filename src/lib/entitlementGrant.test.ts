@@ -15,7 +15,11 @@ vi.mock('@/lib/notifications', () => ({
   insertMissingNotifications: insertMissingNotificationsMock
 }))
 
-import { grantBetaTesterPlate, grantProEntitlement } from './entitlementGrant'
+import {
+  grantBetaTesterPlate,
+  grantPlatePurchase,
+  grantProEntitlement
+} from './entitlementGrant'
 
 interface FakeDb {
   supabase: SupabaseClient
@@ -151,6 +155,66 @@ describe('grantProEntitlement', () => {
     await expect(grantProEntitlement(db.supabase, 9, {})).rejects.toThrow(
       'Failed to set subscription_tier=PRO for user 9'
     )
+    expect(insertMissingNotificationsMock).not.toHaveBeenCalled()
+  })
+})
+
+// grantPlatePurchase is the shared purchase-fulfillment path (order.paid
+// webhook + pull-based order reconciliation). Contract: the ownership
+// upsert is the critical path (throws → callers retry), the delivered
+// notification rides behind it deduped per order id.
+describe('grantPlatePurchase', () => {
+  beforeEach(() => {
+    insertMissingNotificationsMock.mockReset()
+    insertMissingNotificationsMock.mockResolvedValue(undefined)
+  })
+
+  it('upserts the purchase row and queues the delivered notification', async () => {
+    const db = makeDb({})
+
+    await grantPlatePurchase(db.supabase, 9, { plateId: 'deep-space', orderId: 'order_1' })
+
+    expect(db.cosmeticsUpsert).toHaveBeenCalledWith(
+      {
+        user_id: 9,
+        item_type: 'plate',
+        item_id: 'deep-space',
+        acquired_via: 'purchase',
+        source_order_id: 'order_1'
+      },
+      { onConflict: 'user_id,item_type,item_id' }
+    )
+    expect(insertMissingNotificationsMock).toHaveBeenCalledWith(db.supabase, 9, [
+      {
+        type: 'shop',
+        title: 'DELIVERY COMPLETE',
+        body: 'Your Deep Space plate has been delivered successfully. Thank you for purchasing.',
+        data: { kind: 'purchase_delivered', plateId: 'deep-space', orderId: 'order_1' },
+        dedupeKey: 'plate_delivered_order_1'
+      }
+    ])
+  })
+
+  it('falls back to the raw plate id in the body for unknown catalog ids', async () => {
+    const db = makeDb({})
+
+    await grantPlatePurchase(db.supabase, 9, { plateId: 'retired-plate', orderId: 'order_2' })
+
+    expect(insertMissingNotificationsMock).toHaveBeenCalledWith(db.supabase, 9, [
+      expect.objectContaining({
+        body: 'Your retired-plate plate has been delivered successfully. Thank you for purchasing.',
+        dedupeKey: 'plate_delivered_order_2'
+      })
+    ])
+  })
+
+  it('throws on upsert failure without queuing the notification', async () => {
+    const db = makeDb({})
+    db.cosmeticsUpsert.mockResolvedValue({ error: { message: 'permission denied' } })
+
+    await expect(
+      grantPlatePurchase(db.supabase, 9, { plateId: 'deep-space', orderId: 'order_1' })
+    ).rejects.toThrow('Failed to grant plate deep-space to user 9')
     expect(insertMissingNotificationsMock).not.toHaveBeenCalled()
   })
 })

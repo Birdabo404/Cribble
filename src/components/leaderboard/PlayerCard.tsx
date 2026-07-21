@@ -15,14 +15,12 @@ import {
   formatDuration,
   formatNumber,
   formatRelative,
-  formatScore,
-  tierAccent
+  formatScore
 } from '@/components/dashboard-v2/format'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { ACHIEVEMENTS } from '@/lib/achievements'
 import { isProTier } from '@/lib/entitlements'
 import { prefersReducedMotion } from '@/lib/motion'
-import type { Tier } from '@/types/dashboard'
 import { Avatar, SafeBannerImg } from './Avatar'
 import { ROLE_ICONS } from '@/components/roleIcons'
 import {
@@ -500,11 +498,6 @@ export function PlayerCard({
                   {roleLabel}
                 </span>
               )}
-              <span
-                className={`rounded border px-2 py-0.5 text-[9px] tracking-[0.25em] ${tierAccent(row.tier as Tier)}`}
-              >
-                {row.tier}
-              </span>
             </div>
           </div>
 

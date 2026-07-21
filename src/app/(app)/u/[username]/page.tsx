@@ -8,7 +8,8 @@
 // banner duotone, pixel-art service record.
 //
 // Follow psychology, deliberately placed: FOLLOWS YOU sits beside the
-// handle to trigger reciprocity; follower counts render in the score
+// follow CTA, and only when the button reads FOLLOWING (FOLLOW BACK
+// already names the reciprocity); follower counts render in the score
 // font (a stat worth growing); "Followed by @a and @b" lends social
 // proof; both counts open rosters with inline follow buttons.
 //
@@ -24,8 +25,7 @@ import {
   formatDuration,
   formatNumber,
   formatRelative,
-  formatScore,
-  tierAccent
+  formatScore
 } from '@/components/dashboard-v2/format'
 import { Avatar, SafeBannerImg } from '@/components/leaderboard/Avatar'
 import {
@@ -47,7 +47,6 @@ import { ReferralPlate } from '@/components/profile/ReferralPlate'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { ACHIEVEMENTS } from '@/lib/achievements'
 import { isProTier } from '@/lib/entitlements'
-import type { Tier } from '@/types/dashboard'
 import type { PublicProfileData } from '@/types/profile'
 import { ROLE_ICONS } from '@/components/roleIcons'
 
@@ -386,13 +385,19 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
                   </button>
                 </>
               ) : (
-                <FollowButton
-                  targetUserId={profile.userId}
-                  following={profile.viewer?.isFollowing ?? false}
-                  followsYou={profile.viewer?.followsYou ?? false}
-                  signedIn={signedIn}
-                  onChange={handleFollowChange}
-                />
+                <>
+                  {/* only alongside FOLLOWING — FOLLOW BACK already says it */}
+                  {profile.viewer?.followsYou && profile.viewer?.isFollowing && (
+                    <FollowsYouChip />
+                  )}
+                  <FollowButton
+                    targetUserId={profile.userId}
+                    following={profile.viewer?.isFollowing ?? false}
+                    followsYou={profile.viewer?.followsYou ?? false}
+                    signedIn={signedIn}
+                    onChange={handleFollowChange}
+                  />
+                </>
               )}
             </div>
           </div>
@@ -404,18 +409,6 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
                 {profile.display_name}
               </h1>
               {isProTier(profile.tier) && <VerifiedBadge size={18} />}
-              {medal && (
-                <span
-                  className="rounded border px-2 py-0.5 text-[9px] tracking-[0.25em]"
-                  style={{
-                    color: medal.fg,
-                    borderColor: medalA(medal.rgb, 0.45),
-                    background: medalA(medal.rgb, 0.08)
-                  }}
-                >
-                  {medal.label}
-                </span>
-              )}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className="flex items-center gap-1.5 text-[12px] text-zinc-500">
@@ -425,10 +418,6 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
                     <Stroke d={PATH_LOCK} size={11} />
                   </span>
                 )}
-              </span>
-              {profile.viewer?.followsYou && !isYou && <FollowsYouChip />}
-              <span className={`rounded border px-1.5 py-0.5 text-[8px] tracking-[0.25em] ${tierAccent(profile.tier as Tier)}`}>
-                {profile.tier}
               </span>
               {roleLabel && (
                 <span className="flex items-center gap-1.5 rounded border border-zinc-700/70 bg-white/[0.03] px-1.5 py-0.5 text-[8px] tracking-[0.25em] text-zinc-400">
