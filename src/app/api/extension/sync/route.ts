@@ -225,8 +225,23 @@ function coalesceActiveTimeEvents(events: ExtensionEvent[], maxEventMs: number):
   return result
 }
 
+// Result of ingesting one batch. `insertFailed` is set ONLY when the final
+// events_raw upsert itself errored — i.e. rows that should have persisted
+// did not. Benign zero-processed outcomes (everything filtered as invalid,
+// duplicate, or already stored) are still successes: the extension may
+// safely delete those events from its queue.
+interface ProcessEventsResult {
+  processed: number
+  errors: string[]
+  insertFailed?: boolean
+}
+
 // Process extension events
-async function processEvents(userId: number, deviceUuid: string, events: ExtensionEvent[]) {
+async function processEvents(
+  userId: number,
+  deviceUuid: string,
+  events: ExtensionEvent[]
+): Promise<ProcessEventsResult> {
   if (!events || events.length === 0) return { processed: 0, errors: [] }
 
   // Validation constants
@@ -405,7 +420,10 @@ async function processEvents(userId: number, deviceUuid: string, events: Extensi
 
   if (error) {
     console.error(`[Extension Sync] Failed to insert events:`, error)
-    return { processed: 0, errors: [error.message] }
+    // Hard failure: these events were NOT stored. The route must not answer
+    // success:true, or the extension would delete the batch from its queue
+    // and the data would be lost silently.
+    return { processed: 0, errors: [error.message], insertFailed: true }
   }
 
   console.log(`[Extension Sync] Successfully inserted ${data.length} events (from ${events.length} submitted)`)
@@ -459,12 +477,26 @@ export async function POST(request: NextRequest) {
     const { deviceUuid, userId: claimedUserId, events } = parsed.data
     const batchId = parsed.data.batchId
 
-    // Look up the current device binding
-    const { data: device } = await supabase
+    // Look up the current device binding. maybeSingle() only reports an
+    // error for real query failures (no-row is data:null, error:null), so
+    // any error here is transient infrastructure trouble — NOT an unknown
+    // device. Falling through would route the request into the registration
+    // path and answer 401 REGISTRATION_REQUIRED, making the extension
+    // discard a perfectly valid sync token. 503 keeps it retrying instead.
+    const { data: device, error: deviceLookupError } = await supabase
       .from('user_devices')
       .select('user_id, is_active, sync_token_hash')
       .eq('device_uuid', deviceUuid)
       .maybeSingle()
+
+    if (deviceLookupError) {
+      console.error('[Extension Sync] Device lookup failed:', deviceLookupError)
+      return NextResponse.json({
+        success: false,
+        error: 'Temporary server error, please retry.',
+        code: 'DEVICE_LOOKUP_FAILED'
+      }, { status: 503 })
+    }
 
     const deviceMatchesClaim =
       !!device && (!claimedUserId || Number(device.user_id) === claimedUserId)
@@ -572,6 +604,18 @@ export async function POST(request: NextRequest) {
     // Process events
     const result = await processEvents(finalUserId, deviceUuid, events)
 
+    // The upsert itself failed — nothing was stored. Answering success:true
+    // here would make the extension delete the batch it just queued (it
+    // treats HTTP 200 success:true as "safe to drop"), silently losing the
+    // events. A 500 makes it keep the batch and retry with backoff.
+    if (result.insertFailed) {
+      return NextResponse.json({
+        success: false,
+        error: 'Failed to store events',
+        code: 'EVENT_INSERT_FAILED'
+      }, { status: 500 })
+    }
+
     // Update device last sync time
     await supabase
       .from('user_devices')
@@ -580,6 +624,7 @@ export async function POST(request: NextRequest) {
 
     // Recalculate scores with the same policy the dashboard uses, so the
     // leaderboard (user_scores) and dashboard (/api/user/me) stay consistent.
+    let serverScore: { totalScore: number; todayScore: number } | null = null
     if (result.processed > 0) {
       const { scoresStale } = await recalculateUserScore(supabase, finalUserId)
       if (scoresStale) {
@@ -592,6 +637,23 @@ export async function POST(request: NextRequest) {
         await evaluateScoreNotifications(supabase, finalUserId)
         await evaluateAchievements(supabase, finalUserId)
         await maybeGrantReferralReward(supabase, finalUserId)
+
+        // Read the totals recalculateUserScore just upserted so the
+        // response carries the same numbers the dashboard shows. The
+        // extension snaps its optimistic local preview to these
+        // authoritative totals. Best effort: on read error or missing row
+        // the field is simply omitted and the extension keeps its preview.
+        const { data: scoreRow, error: scoreReadError } = await supabase
+          .from('user_scores')
+          .select('total_score, today_score')
+          .eq('user_id', finalUserId)
+          .maybeSingle()
+        if (!scoreReadError && scoreRow) {
+          serverScore = {
+            totalScore: Math.round(Number(scoreRow.total_score ?? 0)),
+            todayScore: Math.round(Number(scoreRow.today_score ?? 0))
+          }
+        }
       }
     }
 
@@ -606,7 +668,8 @@ export async function POST(request: NextRequest) {
       processed: result.processed,
       errors: result.errors,
       batchId,
-      ...(issuedSyncToken ? { syncToken: issuedSyncToken } : {})
+      ...(issuedSyncToken ? { syncToken: issuedSyncToken } : {}),
+      ...(serverScore ? { serverScore } : {})
     })
 
   } catch (error) {

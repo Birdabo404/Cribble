@@ -18,6 +18,14 @@ interface MockState {
   device: DeviceRow | null
   deviceUpdates: Array<Record<string, unknown>>
   userUpdates: Array<Record<string, unknown>>
+  /** Injected transient failure for the user_devices select. */
+  deviceLookupError: { code?: string; message: string } | null
+  /** Rows the pre-insert dedupe select reports as already stored. */
+  existingEventRows: Array<{ domain: string; timestamp: string }>
+  /** Injected failure for the events_raw upsert. */
+  eventsUpsertError: { message: string } | null
+  /** Row returned by the user_scores select after recalculation. */
+  userScoresRow: { total_score: number; today_score: number } | null
 }
 
 const { state, rpcMock, sessionMock, supabaseMock } = vi.hoisted(() => {
@@ -25,7 +33,11 @@ const { state, rpcMock, sessionMock, supabaseMock } = vi.hoisted(() => {
     deviceUuid: '',
     device: null,
     deviceUpdates: [],
-    userUpdates: []
+    userUpdates: [],
+    deviceLookupError: null,
+    existingEventRows: [],
+    eventsUpsertError: null,
+    userScoresRow: null
   }
 
   interface QueryContext {
@@ -33,10 +45,14 @@ const { state, rpcMock, sessionMock, supabaseMock } = vi.hoisted(() => {
     op: 'select' | 'update' | 'insert' | 'upsert'
     filters: Array<[string, unknown]>
     values?: unknown
+    usedIn?: boolean
   }
 
   function resolveQuery(ctx: QueryContext): { data: unknown; error: unknown } {
     if (ctx.table === 'user_devices' && ctx.op === 'select') {
+      if (state.deviceLookupError) {
+        return { data: null, error: state.deviceLookupError }
+      }
       const device = state.device
       if (!device) return { data: null, error: { code: 'PGRST116' } }
       const filters = Object.fromEntries(ctx.filters)
@@ -64,6 +80,24 @@ const { state, rpcMock, sessionMock, supabaseMock } = vi.hoisted(() => {
     if (ctx.table === 'users' && ctx.op === 'update') {
       state.userUpdates.push(ctx.values as Record<string, unknown>)
       return { data: null, error: null }
+    }
+
+    if (ctx.table === 'events_raw' && ctx.op === 'select') {
+      // The dedupe query filters .in('timestamp', …); the 24h usage query
+      // does not. Only the former sees "already stored" rows.
+      if (ctx.usedIn) return { data: state.existingEventRows, error: null }
+      return { data: [], error: null }
+    }
+
+    if (ctx.table === 'events_raw' && ctx.op === 'upsert') {
+      if (state.eventsUpsertError) {
+        return { data: null, error: state.eventsUpsertError }
+      }
+      return { data: ctx.values, error: null }
+    }
+
+    if (ctx.table === 'user_scores' && ctx.op === 'select') {
+      return { data: state.userScoresRow, error: null }
     }
 
     return { data: null, error: null }
@@ -95,12 +129,18 @@ const { state, rpcMock, sessionMock, supabaseMock } = vi.hoisted(() => {
       },
       gt: () => builder,
       gte: () => builder,
-      in: () => builder,
+      in: () => {
+        ctx.usedIn = true
+        return builder
+      },
       limit: () => builder,
       maybeSingle: async () => {
         const result = resolveQuery(ctx)
-        // maybeSingle treats "no row" as data:null without error
-        return { data: result.data, error: null }
+        // maybeSingle treats "no row" (the stub's synthetic PGRST116) as
+        // data:null without error; real query failures pass through.
+        const code = (result.error as { code?: string } | null)?.code
+        if (code === 'PGRST116') return { data: result.data, error: null }
+        return result
       },
       single: async () => resolveQuery(ctx),
       then: (resolve: any, reject: any) =>
@@ -215,6 +255,10 @@ beforeEach(() => {
   state.device = null
   state.deviceUpdates = []
   state.userUpdates = []
+  state.deviceLookupError = null
+  state.existingEventRows = []
+  state.eventsUpsertError = null
+  state.userScoresRow = null
   rpcMock.mockReset()
   sessionMock.mockReset()
   sessionMock.mockResolvedValue({ ok: false, status: 401, error: 'Unauthorized' })
@@ -349,5 +393,130 @@ describe('POST /api/extension/sync — relink / account switch', () => {
     expect(response.status).toBe(403)
     expect(body.code).toBe('USER_MISMATCH')
     expect(rpcMock).not.toHaveBeenCalled()
+  })
+})
+
+// A registered, active device syncing with its valid token (path 1).
+function bindActiveDevice() {
+  state.device = {
+    user_id: NEW_USER,
+    is_active: true,
+    sync_token_hash: hashDeviceSyncToken('new-account-token')
+  }
+}
+
+function makeVisitEvent(timestamp: number) {
+  return { type: 'visit', domain: 'chatgpt.com', timestamp }
+}
+
+describe('POST /api/extension/sync — transient failures and serverScore', () => {
+  it('returns 503 DEVICE_LOOKUP_FAILED when the device lookup errors (NOT 401)', async () => {
+    // A transient DB failure must not read as "unknown device": a 401 would
+    // make the extension discard its perfectly valid sync token.
+    bindActiveDevice()
+    state.deviceLookupError = { message: 'connection timeout' }
+
+    const response = await POST(
+      makeSyncRequest({ userId: NEW_USER, token: 'new-account-token' })
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(503)
+    expect(body.success).toBe(false)
+    expect(body.code).toBe('DEVICE_LOOKUP_FAILED')
+    // The request never fell through to registration or ingestion.
+    expect(rpcMock).not.toHaveBeenCalled()
+    expect(state.userUpdates.length).toBe(0)
+  })
+
+  it('returns 500 EVENT_INSERT_FAILED when the events upsert errors', async () => {
+    // The batch was NOT stored; success:true would make the extension
+    // delete it from its local queue (silent data loss).
+    bindActiveDevice()
+    state.eventsUpsertError = { message: 'insert exploded' }
+
+    const response = await POST(
+      makeSyncRequest({
+        userId: NEW_USER,
+        token: 'new-account-token',
+        events: [makeVisitEvent(Date.now() - 60_000)]
+      })
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(500)
+    expect(body.success).toBe(false)
+    expect(body.code).toBe('EVENT_INSERT_FAILED')
+    // Sync markers must not advance on a failed ingest.
+    expect(state.deviceUpdates.length).toBe(0)
+    expect(state.userUpdates.length).toBe(0)
+  })
+
+  it('includes serverScore with the recalculated user_scores totals on successful ingest', async () => {
+    bindActiveDevice()
+    // Fractional totals prove the response rounds to integers.
+    state.userScoresRow = { total_score: 1234.6, today_score: 88.2 }
+
+    const response = await POST(
+      makeSyncRequest({
+        userId: NEW_USER,
+        token: 'new-account-token',
+        events: [makeVisitEvent(Date.now() - 60_000)]
+      })
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.success).toBe(true)
+    expect(body.processed).toBe(1)
+    expect(body.serverScore).toEqual({ totalScore: 1235, todayScore: 88 })
+  })
+
+  it('omits serverScore when the user_scores read returns no row', async () => {
+    bindActiveDevice()
+    state.userScoresRow = null
+
+    const response = await POST(
+      makeSyncRequest({
+        userId: NEW_USER,
+        token: 'new-account-token',
+        events: [makeVisitEvent(Date.now() - 60_000)]
+      })
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.success).toBe(true)
+    expect(body.processed).toBe(1)
+    expect(body.serverScore).toBeUndefined()
+  })
+
+  it('keeps success:true when every event already exists in the database', async () => {
+    // Benign outcome: the rows are stored (from an earlier attempt), so the
+    // extension may safely drop the batch. No insertFailed, no serverScore
+    // (processed === 0 skips the recalculation).
+    bindActiveDevice()
+    const timestamp = Date.now() - 60_000
+    state.existingEventRows = [
+      { domain: 'chatgpt.com', timestamp: new Date(timestamp).toISOString() }
+    ]
+
+    const response = await POST(
+      makeSyncRequest({
+        userId: NEW_USER,
+        token: 'new-account-token',
+        events: [makeVisitEvent(timestamp)]
+      })
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.success).toBe(true)
+    expect(body.processed).toBe(0)
+    expect(body.errors).toEqual(['All events already exist in database'])
+    expect(body.serverScore).toBeUndefined()
+    // The benign path still advances the device/user sync markers.
+    expect(state.deviceUpdates.length).toBeGreaterThan(0)
+    expect(state.userUpdates.length).toBeGreaterThan(0)
   })
 })

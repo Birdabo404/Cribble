@@ -56,6 +56,20 @@ export async function GET(request: NextRequest) {
       .eq('device_uuid', deviceUuid)
       .single()
 
+    // Discriminate "no such device" from a failed query, like the POST
+    // handler below. A transient DB error must NOT read as "not registered":
+    // the extension treats 200 verified:false as authoritative and responds
+    // by self-unlinking and dropping its sync token.
+    if (deviceError && deviceError.code !== 'PGRST116') {
+      console.error('[Device Verify] Database error:', deviceError)
+      return NextResponse.json({
+        success: false,
+        verified: false,
+        isActive: false,
+        error: 'Database query failed'
+      }, { status: 500 })
+    }
+
     if (deviceError || !device) {
       console.log('[Device Verify] Device not found:', deviceError?.message)
       return NextResponse.json({
