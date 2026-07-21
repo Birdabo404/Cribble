@@ -84,7 +84,10 @@ describe('middleware site lock', () => {
 
   it('rewrites locked sectors to the maintenance screen', () => {
     vi.stubEnv('SITE_LOCKED', '1')
-    expect(rewriteTarget('/shop')).toBe('/maintenance')
+    // Any page outside the allowlist rewrites in place. /shop used to be
+    // the example here but is now allowlisted so payments survive a lock
+    // (covered below).
+    expect(rewriteTarget('/settings')).toBe('/maintenance')
   })
 
   it('keeps the maintenance screen itself reachable while locked', () => {
@@ -101,6 +104,11 @@ describe('middleware site lock', () => {
   it('leaves allowlisted pages alone while locked', () => {
     vi.stubEnv('SITE_LOCKED', '1')
     expect(rewriteTarget('/leaderboard')).toBeNull()
+    // Payments must survive the lock: the shop page and its API routes
+    // stay reachable so Polar webhooks and checkout bounces keep landing.
+    expect(rewriteTarget('/shop')).toBeNull()
+    expect(middleware(request('/api/webhooks/polar')).status).toBe(200)
+    expect(middleware(request('/api/user/subscription/sync')).status).toBe(200)
   })
 
   it('does not rewrite anything when unlocked', () => {

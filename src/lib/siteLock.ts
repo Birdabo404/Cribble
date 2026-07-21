@@ -54,5 +54,14 @@ export function isAllowedDuringLock(pathname: string): boolean {
   // Extension reconcile polling (GET /api/device/verify) must keep working
   // while the site is locked, same as the /api/extension/* sync path.
   if (pathname.startsWith('/api/device/')) return true
+  // Payments must survive a site lock: Polar webhook deliveries, checkout
+  // creation, the billing portal, and the shop page checkout bounces land
+  // on — plus the cosmetics read and the entitlement sync the shop calls.
+  if (pathname === '/api/webhooks/polar') return true
+  if (pathname === '/api/checkout') return true
+  if (pathname === '/api/portal') return true
+  if (pathname === '/api/user/cosmetics') return true
+  if (pathname === '/api/user/subscription/sync') return true
+  if (pathname === '/shop') return true
   return false
 }
