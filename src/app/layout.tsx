@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next'
-import { Instrument_Serif, Inter, Noto_Sans_Arabic, Noto_Sans_JP, Noto_Sans_KR, Noto_Sans_SC, Press_Start_2P, Roboto, Space_Grotesk } from 'next/font/google'
+import { IBM_Plex_Mono, Instrument_Serif, Inter, Noto_Sans_Arabic, Noto_Sans_JP, Noto_Sans_KR, Noto_Sans_SC, Press_Start_2P, Roboto, Space_Grotesk } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/react'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import { NAV_BOOT_SCRIPT } from '@/components/nav/navBoot'
@@ -59,6 +59,15 @@ const spaceGrotesk = Space_Grotesk({
   display: 'swap',
 })
 
+// Instrument data mono — dashboard microlabels, dotted leaders, and
+// annotation readouts (sharper than the system mono stack).
+const plexMono = IBM_Plex_Mono({
+  weight: ['400', '500', '600'],
+  subsets: ['latin'],
+  variable: '--font-data',
+  display: 'swap',
+})
+
 const roboto = Roboto({ 
   weight: ['400', '500', '700'],
   subsets: ['latin', 'cyrillic', 'greek', 'latin-ext'],
@@ -106,7 +115,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.className} ${instrumentSerif.variable} ${notoArabic.variable} ${notoJapanese.variable} ${notoKorean.variable} ${notoChinese.variable} ${roboto.variable} ${pressStart.variable} ${spaceGrotesk.variable}`}>
+      <body className={`${inter.className} ${instrumentSerif.variable} ${notoArabic.variable} ${notoJapanese.variable} ${notoKorean.variable} ${notoChinese.variable} ${roboto.variable} ${pressStart.variable} ${spaceGrotesk.variable} ${plexMono.variable}`}>
         {/* Seeds nav position/expansion attributes on <html> before first
             paint so the app shell inset renders correctly with no flash. */}
         <script dangerouslySetInnerHTML={{ __html: NAV_BOOT_SCRIPT }} />

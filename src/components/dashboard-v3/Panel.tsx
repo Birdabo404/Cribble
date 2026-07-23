@@ -18,16 +18,21 @@ export function Panel({
 export function PanelHeader({
   title,
   subtitle,
-  action
+  action,
+  icon
 }: {
   title: string
   subtitle?: string
   action?: ReactNode
+  icon?: ReactNode
 }) {
   return (
     <div className="anim-fade flex items-start justify-between gap-3" style={animDelay(60)}>
       <div>
-        <div className="text-[10px] tracking-[0.4em] text-zinc-300">{title}</div>
+        <div className="flex items-center gap-2 font-display text-[10px] font-medium tracking-[0.4em] text-zinc-300">
+          {icon && <span className="text-ice/70">{icon}</span>}
+          {title}
+        </div>
         {subtitle && <div className="mt-1 text-xs text-zinc-400">{subtitle}</div>}
       </div>
       {action}
@@ -35,7 +40,8 @@ export function PanelHeader({
   )
 }
 
-/** Soft accent radial glow, positioned by the caller via className. */
+/** Soft accent radial glow, positioned by the caller via className.
+ *  Kept for SeasonRail; the duotone panels themselves no longer use it. */
 export function AccentGlow({ className = '' }: { className?: string }) {
   return (
     <div

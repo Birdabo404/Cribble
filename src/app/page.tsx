@@ -25,7 +25,6 @@ import { ACCENT, accentA } from '@/lib/theme'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { LiquidMark } from '@/components/brand/LiquidMark'
 import { Descent } from '@/components/landing/Descent'
-const IS_PUBLIC_SITE_LOCKED = process.env.NEXT_PUBLIC_SITE_LOCKED === 'true'
 
 export default function HomeV2() {
   const [email, setEmail] = useState('')
@@ -143,24 +142,15 @@ export default function HomeV2() {
                 className="hero-item mt-9 flex flex-wrap items-center gap-3"
                 style={{ ['--hr' as string]: '380ms' }}
               >
-                {!IS_PUBLIC_SITE_LOCKED ? (
-                  <Link
-                    href="/login"
-                    className="group inline-flex items-center gap-2.5 bg-white text-black text-sm font-medium px-5 py-3 sm:py-2.5 rounded-md hover:bg-zinc-200 transition-colors"
-                  >
-                    <span>Claim your callsign</span>
-                    <span className="text-zinc-500 group-hover:translate-x-0.5 transition-transform">
-                      →
-                    </span>
-                  </Link>
-                ) : (
-                  <Link
-                    href="/login"
-                    className="inline-flex items-center gap-2 rounded-md border border-accent/70 bg-accent/10 px-4 py-2 text-xs tracking-[0.18em] text-accent shadow-[0_0_18px_rgb(var(--accent-rgb)/0.18)] transition-colors hover:bg-accent/15"
-                  >
-                    SIGN IN
-                  </Link>
-                )}
+                <Link
+                  href="/login"
+                  className="group inline-flex items-center gap-2.5 bg-white text-black text-sm font-medium px-5 py-3 sm:py-2.5 rounded-md hover:bg-zinc-200 transition-colors"
+                >
+                  <span>Claim your callsign</span>
+                  <span className="text-zinc-500 group-hover:translate-x-0.5 transition-transform">
+                    →
+                  </span>
+                </Link>
 
                 {!showForm && status !== 'success' && (
                   <button

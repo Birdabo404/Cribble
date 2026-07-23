@@ -20,3 +20,27 @@ export const ACCENT_RGB = {
   dark: { r: 2, g: 254, b: 1 },
   light: { r: 255, g: 94, b: 0 },
 } as const
+
+/**
+ * Dashboard duotone inks (globals.css defines the per-theme values).
+ * Ember = "you / heat / activity" — series, heat ramp, streak, deltas.
+ * Ice = "structure / world / rank" — grids, averages, gauge tracks,
+ * corner brackets. Same usage pattern as ACCENT/accentA above.
+ */
+export const EMBER = 'var(--ember)'
+
+export const emberA = (alpha: number) => `rgb(var(--ember-rgb) / ${alpha})`
+
+export const ICE = 'var(--ice)'
+
+export const iceA = (alpha: number) => `rgb(var(--ice-rgb) / ${alpha})`
+
+export const EMBER_HEX = {
+  dark: '#ff6a1a',
+  light: '#ff5e00',
+} as const
+
+export const ICE_HEX = {
+  dark: '#9bdcf5',
+  light: '#0e7490',
+} as const

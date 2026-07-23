@@ -83,15 +83,15 @@ export function ExtensionNudge({
     <section className="relative col-span-12 overflow-hidden rounded-2xl glass-lite">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-accent/70"
+        className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-ember/70"
       />
       <div className="relative flex flex-wrap items-center gap-x-5 gap-y-3 px-5 py-3.5">
         <div className="anim-fade flex items-center gap-2.5" style={animDelay(60)}>
           <span className="relative flex h-1.5 w-1.5">
-            <span className="absolute inline-flex h-full w-full rounded-full bg-accent/50 animate-ping" />
-            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_8px_rgb(var(--accent-rgb)/0.7)]" />
+            <span className="absolute inline-flex h-full w-full rounded-full bg-ember/50 motion-safe:animate-ping" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-ember shadow-[0_0_8px_rgb(var(--ember-rgb)/0.7)]" />
           </span>
-          <span className="text-[10px] tracking-[0.35em] text-accent">EXTENSION</span>
+          <span className="font-data text-[10px] tracking-[0.35em] text-ember">EXTENSION</span>
         </div>
 
         <p className="anim-fade min-w-0 flex-1 text-xs text-zinc-400" style={animDelay(140)}>
@@ -103,7 +103,7 @@ export function ExtensionNudge({
             href={EXTENSION_INSTALL_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center rounded border border-accent/40 px-3 py-1.5 text-[10px] tracking-[0.3em] text-accent transition-colors hover:bg-accent hover:text-black"
+            className="inline-flex items-center rounded border border-ember/40 px-3 py-1.5 font-data text-[10px] tracking-[0.3em] text-ember transition-colors hover:bg-ember hover:text-black"
           >
             INSTALL →
           </a>

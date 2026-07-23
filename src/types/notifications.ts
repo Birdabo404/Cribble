@@ -28,3 +28,27 @@ export function normalizeNotificationType(raw: unknown): NotificationType {
     ? (raw as NotificationType)
     : 'system'
 }
+
+export interface FollowActor {
+  username: string | null
+  avatarUrl: string | null
+}
+
+/** A follow event is a social row carrying the follower's id (all rows the
+ *  follow API writes) or an explicit `kind: 'follow'` — never a referral
+ *  reward. Returns the actor's display fields, or null when the row isn't
+ *  a follow. `avatarUrl` is joined into `data` at read time by the feed API. */
+export function followActor(
+  n: Pick<AppNotification, 'type' | 'data'>
+): FollowActor | null {
+  if (n.type !== 'social') return null
+  const data = n.data ?? {}
+  if (data.kind === 'referral') return null
+  const hasFollowerId =
+    typeof data.followerId === 'number' || typeof data.followerId === 'string'
+  if (data.kind !== 'follow' && !hasFollowerId) return null
+  return {
+    username: typeof data.username === 'string' ? data.username : null,
+    avatarUrl: typeof data.avatarUrl === 'string' ? data.avatarUrl : null
+  }
+}

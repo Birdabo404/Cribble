@@ -1,5 +1,5 @@
 // Wire-format message types (CRIBBLE_WEB_*, CRIBBLE_EXTENSION_*) must stay
-// in sync with cribble-extension/content/cribble-bridge.js.
+// in sync with cribble-extension/content.js.
 
 export const IDENTITY_MS = 3500
 export const FORCE_SYNC_MS = 8000

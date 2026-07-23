@@ -1,12 +1,16 @@
+import type { ReactNode } from 'react'
 import { formatDuration, formatNumber } from '@/components/dashboard-v2/format'
 import { animDelay } from './anim'
+import { IconCrosshair, IconGauge, IconTimer, IconWaveform } from './DashIcons'
+import { TickGauge } from './TickGauge'
 import type { MeStats } from '@/types/dashboard'
 
 type Kpi = {
   label: string
+  icon: ReactNode
   value: string
   today?: string
-  bar?: number // 0-100, renders a mini progress bar instead of a today line
+  bar?: number // 0-100, renders a segmented tick gauge instead of a today line
 }
 
 export function KpiStrip({ stats }: { stats: MeStats }) {
@@ -18,21 +22,25 @@ export function KpiStrip({ stats }: { stats: MeStats }) {
   const cells: Kpi[] = [
     {
       label: 'VISITS',
+      icon: <IconWaveform size={12} />,
       value: formatNumber(stats.total_visits),
-      today: `+${formatNumber(stats.today_visits)} today`
+      today: `+${formatNumber(stats.today_visits)} TODAY`
     },
     {
       label: 'ACTIVE TIME',
+      icon: <IconTimer size={12} />,
       value: formatDuration(stats.active_time),
-      today: `+${formatDuration(stats.today_active_time)} today`
+      today: `+${formatDuration(stats.today_active_time)} TODAY`
     },
     {
       label: 'EFFICIENCY',
+      icon: <IconGauge size={12} />,
       value: `${stats.efficiency}%`,
       bar: stats.efficiency
     },
     {
       label: 'FOCUS TODAY',
+      icon: <IconCrosshair size={12} />,
       value: `${focusPct}%`,
       bar: focusPct
     }
@@ -55,19 +63,21 @@ export function KpiStrip({ stats }: { stats: MeStats }) {
           className={`relative px-4 py-3.5 transition-colors hover:bg-white/[0.04] ${divCls(i)}`}
         >
           <div className="anim-rise" style={animDelay(120 + i * 90)}>
-            <div className="text-[9px] tracking-[0.35em] text-zinc-500">{c.label}</div>
-            <div className="mt-1.5 text-lg font-semibold tracking-tight text-zinc-50 tabular-nums">
+            <div className="flex items-center gap-1.5">
+              <span className="text-ice/70">{c.icon}</span>
+              <span className="font-data text-[9px] tracking-[0.35em] text-zinc-500">{c.label}</span>
+            </div>
+            <div className="mt-1.5 font-display text-lg font-semibold tracking-tight text-zinc-50 tabular-nums">
               {c.value}
             </div>
             {c.bar !== undefined ? (
-              <div className="mt-2 h-1 rounded-full bg-zinc-900 overflow-hidden">
-                <div
-                  className="anim-grow-x h-full bg-gradient-to-r from-accent/60 to-accent"
-                  style={{ width: `${Math.max(2, c.bar)}%`, ...animDelay(320 + i * 90) }}
-                />
-              </div>
+              <TickGauge
+                pct={c.bar}
+                className="mt-2 h-[9px]"
+                delayMs={320 + i * 90}
+              />
             ) : (
-              <div className="mt-1 text-[10px] text-accent/80 truncate tabular-nums">
+              <div className="mt-1.5 font-data text-[10px] tracking-[0.1em] text-ember truncate tabular-nums">
                 {c.today}
               </div>
             )}

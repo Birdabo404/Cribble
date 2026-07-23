@@ -17,6 +17,15 @@
   --accent: #02fe01;
   --accent-rgb: 2 254 1;
 
+  /* Dashboard duotone inks (scoped use — the global accent stays green).
+     Ember = "you / heat / activity" (series, heat ramp, streak, deltas,
+     CTAs). Ice = "structure / world / rank" (grids, averages, gauge
+     tracks, corner brackets, today-ring). Light overrides below. */
+  --ember: #ff6a1a;
+  --ember-rgb: 255 106 26;
+  --ice: #9bdcf5;
+  --ice-rgb: 155 220 245;
+
   /* Achievement rarity palette (used by the achievements page and the
      notification bell). Dark: zinc / signal blue / synthwave pink /
      neon gold — light overrides below. Rare is deliberately NOT the
@@ -137,6 +146,13 @@ html.light {
 
   --accent: #ff5e00;
   --accent-rgb: 255 94 0;
+
+  /* Duotone inks on paper: ember joins the brand orange; ice darkens to a
+     print-blue ink so hairlines and rank numerals keep AA contrast. */
+  --ember: #ff5e00;
+  --ember-rgb: 255 94 0;
+  --ice: #0e7490;
+  --ice-rgb: 14 116 144;
 
   /* rarity palette: archival slate / print blue / violet / burnt gold */
   --r-common: 124 116 98;
@@ -1035,6 +1051,12 @@ html.light .lb-panel {
   font-family: var(--font-display), 'Inter', system-ui, sans-serif;
 }
 
+/* Data/annotation mono face (IBM Plex Mono, loaded in the root layout) —
+   microlabels, dotted leaders, and instrument readouts. */
+.font-data {
+  font-family: var(--font-data), ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
 /* Nested chips / mini-stats sitting on top of a glass panel */
 .liquid-glass-inset {
   background: var(--glass-inset-bg);
@@ -1625,4 +1647,84 @@ html[data-nav-exp='0'] .app-nav-rail .nav-row[aria-expanded='true'] > .nav-tip {
   .app-nav-enter-top {
     animation: none;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Dashboard duotone instrument kit — /dashboard only.
+
+   .dash-duotone wraps the page and re-points the liquid-glass hover flare
+   at ember (the global --accent stays green for the nav shell and the
+   ASCII wordmark). The utilities below carry the "flight instrument /
+   dossier" language: corner brackets, dotted leaders, barcode strips.
+--------------------------------------------------------------------------- */
+
+.dash-duotone {
+  --glass-shadow-hover:
+    0 28px 60px -22px rgb(0 0 0 / 0.9),
+    0 6px 18px -8px rgb(0 0 0 / 0.65),
+    0 0 30px -6px rgb(var(--ember-rgb) / 0.22);
+}
+
+html.light .dash-duotone {
+  --glass-shadow-hover:
+    0 28px 60px -24px rgb(52 45 24 / 0.38),
+    0 6px 18px -10px rgb(52 45 24 / 0.18),
+    0 0 30px -6px rgb(var(--ember-rgb) / 0.18);
+}
+
+/* Corner brackets — four 1px L-corners in ice, floated just inside the
+   panel radius (the ::after overlay dodges the .liquid-glass ::before
+   sheen). Applied tastefully: hero + activity panels only. */
+.dash-frame::after {
+  content: '';
+  position: absolute;
+  inset: 9px;
+  pointer-events: none;
+  --frame-ink: rgb(var(--ice-rgb) / 0.35);
+  background-image:
+    linear-gradient(var(--frame-ink), var(--frame-ink)),
+    linear-gradient(var(--frame-ink), var(--frame-ink)),
+    linear-gradient(var(--frame-ink), var(--frame-ink)),
+    linear-gradient(var(--frame-ink), var(--frame-ink)),
+    linear-gradient(var(--frame-ink), var(--frame-ink)),
+    linear-gradient(var(--frame-ink), var(--frame-ink)),
+    linear-gradient(var(--frame-ink), var(--frame-ink)),
+    linear-gradient(var(--frame-ink), var(--frame-ink));
+  background-size:
+    10px 1px, 1px 10px,
+    10px 1px, 1px 10px,
+    10px 1px, 1px 10px,
+    10px 1px, 1px 10px;
+  background-position:
+    0 0, 0 0,
+    100% 0, 100% 0,
+    0 100%, 0 100%,
+    100% 100%, 100% 100%;
+  background-repeat: no-repeat;
+}
+
+/* Dotted leader — LABEL ····· VALUE. The spacer is an empty flex-1 span;
+   in a baseline-aligned row its synthesized baseline is its bottom edge,
+   so the dotted rule sits exactly on the text baseline. */
+.dash-leader-dots {
+  flex: 1 1 auto;
+  min-width: 24px;
+  border-bottom: 1px dotted rgb(var(--ice-rgb) / 0.4);
+}
+
+/* Barcode strip — dossier stamp motif, irregular ice bars (period 25px). */
+.dash-barcode {
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgb(var(--ice-rgb) / 0.4) 0 1px,
+    transparent 1px 4px,
+    rgb(var(--ice-rgb) / 0.4) 4px 6.5px,
+    transparent 6.5px 9px,
+    rgb(var(--ice-rgb) / 0.4) 9px 10px,
+    transparent 10px 14px,
+    rgb(var(--ice-rgb) / 0.4) 14px 17px,
+    transparent 17px 19px,
+    rgb(var(--ice-rgb) / 0.4) 19px 20px,
+    transparent 20px 25px
+  );
 }

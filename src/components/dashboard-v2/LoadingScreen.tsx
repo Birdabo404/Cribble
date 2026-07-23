@@ -1,15 +1,15 @@
-import { ACCENT, accentA } from './format'
+import { EMBER, emberA } from '@/lib/theme'
 
 export function LoadingScreen() {
   return (
-    <div className="dossier-canvas min-h-screen bg-black text-zinc-100 font-mono flex items-center justify-center">
+    <div className="dossier-canvas min-h-screen bg-black text-zinc-100 font-data flex items-center justify-center">
       <div className="flex flex-col items-center gap-3">
         <div className="flex items-center gap-2 text-[10px] tracking-[0.4em] text-zinc-500">
           <span
             className="loading-dot h-1.5 w-1.5 rounded-full"
             style={{
-              background: ACCENT,
-              boxShadow: `0 0 8px ${accentA(0.6)}`
+              background: EMBER,
+              boxShadow: `0 0 8px ${emberA(0.6)}`
             }}
           />
           SYNCING TELEMETRY
@@ -18,8 +18,8 @@ export function LoadingScreen() {
           <div
             className="loading-dash h-full w-1/3"
             style={{
-              background: ACCENT,
-              boxShadow: `0 0 6px ${accentA(0.6)}`
+              background: EMBER,
+              boxShadow: `0 0 6px ${emberA(0.6)}`
             }}
           />
         </div>
@@ -38,6 +38,12 @@ export function LoadingScreen() {
         @keyframes dash-slide {
           0% { transform: translateX(-100%); }
           100% { transform: translateX(400%); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .loading-dot,
+          .loading-dash {
+            animation: none;
+          }
         }
       `}</style>
     </div>

@@ -10,6 +10,11 @@ const ASCII_DASHBOARD = String.raw`██████╗  █████╗ █
 ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ `
 
 export function AsciiBanner({ username }: { username: string }) {
+  // Instrument readout under the wordmark — dossier stamp format.
+  const stamp = new Date()
+    .toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+    .toUpperCase()
+
   return (
     <section className="mt-10 flex flex-col items-center gap-2">
       <div className="w-full overflow-x-auto py-1">
@@ -26,16 +31,22 @@ export function AsciiBanner({ username }: { username: string }) {
           {ASCII_DASHBOARD}
         </pre>
       </div>
+      {/* The leading slashes are the one green echo outside the wordmark. */}
       <p
-        className="anim-rise text-[10px] tracking-[0.3em] text-zinc-600 text-center"
+        className="anim-rise font-data text-[10px] tracking-[0.22em] text-zinc-500 text-center"
         style={animDelay(180)}
       >
         <span style={{ color: `${accentA(0.8)}` }}>{'// '}</span>
-        pilot console
-        <span className="mx-2 text-zinc-800">·</span>
+        PILOT CONSOLE
+        <span className="mx-2 text-zinc-700" aria-hidden>·····</span>
         @{username || 'user'}
-        <span className="mx-2 text-zinc-800">·</span>
-        live mode
+        {/* the date + live stamps drop below sm so the readout stays one line */}
+        <span className="hidden sm:inline">
+          <span className="mx-2 text-zinc-700" aria-hidden>·····</span>
+          {stamp}
+          <span className="mx-2 text-zinc-700" aria-hidden>·····</span>
+          LIVE
+        </span>
       </p>
     </section>
   )

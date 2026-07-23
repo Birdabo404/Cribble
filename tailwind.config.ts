@@ -43,6 +43,9 @@ const config: Config = {
         background: 'var(--background)',
         foreground: 'var(--foreground)',
         accent: 'rgb(var(--accent-rgb) / <alpha-value>)',
+        // Dashboard duotone inks (see globals.css for the theme values)
+        ember: 'rgb(var(--ember-rgb) / <alpha-value>)',
+        ice: 'rgb(var(--ice-rgb) / <alpha-value>)',
         black: 'rgb(var(--c-black) / <alpha-value>)',
         white: 'rgb(var(--c-white) / <alpha-value>)',
         zinc,

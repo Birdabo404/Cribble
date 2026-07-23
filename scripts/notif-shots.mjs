@@ -34,8 +34,29 @@ const HOUR = 3_600_000
 const DAY = 86_400_000
 const iso = (agoMs) => new Date(now - agoMs).toISOString()
 
-// Read rows carry a read_at stamp; the three newest stay unread so the
+// Deterministic offline avatars — the harness must not depend on live
+// pbs.twimg.com fetches. Data URIs pass through Avatar's twimg upgrade
+// untouched and never 404 into the monogram fallback.
+const avi = (bg, letter) =>
+  `data:image/svg+xml;utf8,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="${bg}"/><text x="40" y="53" font-family="Menlo,monospace" font-size="34" font-weight="700" fill="#fff" text-anchor="middle">${letter}</text></svg>`
+  )}`
+
+const follow = (id, username, color, letter, createdAgo, readAgo) => ({
+  id,
+  type: 'social',
+  title: 'NEW WINGMAN',
+  body: `@${username} started following you.`,
+  data: { followerId: 100 + id, username, avatarUrl: avi(color, letter) },
+  read_at: readAgo == null ? null : iso(readAgo),
+  created_at: iso(createdAgo)
+})
+
+// Read rows carry a read_at stamp; the newest few stay unread so the
 // snapshot-on-open "fresh" styling and the header counter are exercised.
+// TODAY holds a 5-follow burst (interleaved with other events) so the
+// X-style follow stack collapses them into one row; EARLIER keeps a solo
+// follow to prove lone follows stay ordinary avatar rows.
 const FEED = [
   {
     id: 1,
@@ -46,8 +67,9 @@ const FEED = [
     read_at: null,
     created_at: iso(4 * MIN)
   },
+  follow(2, 'sama', '#1d9bf0', 'S', 9 * MIN, null),
   {
-    id: 2,
+    id: 3,
     type: 'rank',
     title: 'RANK CLIMB — TOP 10',
     body: 'You broke into the season top 10. Hold the line.',
@@ -55,8 +77,10 @@ const FEED = [
     read_at: null,
     created_at: iso(38 * MIN)
   },
+  follow(4, 'patio11', '#e0245e', 'P', 52 * MIN, null),
+  follow(5, 'levelsio', '#f28c18', 'L', 2 * HOUR, 30 * MIN),
   {
-    id: 3,
+    id: 6,
     type: 'premium',
     title: 'YOUR BLUE CHECK IS HERE',
     body: 'It now shows next to your name on your profile, your player card and the leaderboard.',
@@ -64,8 +88,10 @@ const FEED = [
     read_at: null,
     created_at: iso(3 * HOUR)
   },
+  follow(7, 'swyx', '#7856ff', 'W', 5 * HOUR, 2 * HOUR),
+  follow(8, 'dhh', '#17bf63', 'D', 7 * HOUR, 2 * HOUR),
   {
-    id: 4,
+    id: 9,
     type: 'achievement',
     title: 'WARMING UP',
     body: 'Achievement unlocked — Log activity three days in a row.',
@@ -74,7 +100,7 @@ const FEED = [
     created_at: iso(26 * HOUR)
   },
   {
-    id: 5,
+    id: 10,
     type: 'achievement',
     title: 'SUPERNOVA',
     body: 'Achievement unlocked — Score 1,000+ points in a single day.',
@@ -83,7 +109,7 @@ const FEED = [
     created_at: iso(30 * HOUR)
   },
   {
-    id: 6,
+    id: 11,
     type: 'milestone',
     title: 'MILESTONE — 10,000 PTS',
     body: 'Lifetime score crossed 10,000 points.',
@@ -92,7 +118,7 @@ const FEED = [
     created_at: iso(3 * DAY)
   },
   {
-    id: 7,
+    id: 12,
     type: 'season',
     title: 'SEASON 1 — FINAL WEEK',
     body: 'Seven days until the board locks and honors are stamped.',
@@ -101,7 +127,7 @@ const FEED = [
     created_at: iso(5 * DAY)
   },
   {
-    id: 8,
+    id: 13,
     type: 'rank',
     title: 'RANK SLIP — #14',
     body: 'You dropped out of the top 10. @naval is 240 points ahead.',
@@ -109,17 +135,9 @@ const FEED = [
     read_at: iso(5 * DAY),
     created_at: iso(6 * DAY)
   },
+  follow(14, 'pmarca', '#657786', 'M', 9 * DAY, 8 * DAY),
   {
-    id: 9,
-    type: 'social',
-    title: '@sama STARTED FOLLOWING YOU',
-    body: null,
-    data: { kind: 'follow', username: 'sama' },
-    read_at: iso(8 * DAY),
-    created_at: iso(9 * DAY)
-  },
-  {
-    id: 10,
+    id: 15,
     type: 'system',
     title: 'SYNC PROTOCOL UPDATED',
     body: 'Extension v0.4 ships smarter session detection. Update for cleaner scores.',
@@ -128,7 +146,7 @@ const FEED = [
     created_at: iso(12 * DAY)
   },
   {
-    id: 11,
+    id: 16,
     type: 'milestone',
     title: 'MILESTONE — 5,000 PTS',
     body: 'Lifetime score crossed 5,000 points.',
@@ -137,7 +155,7 @@ const FEED = [
     created_at: iso(14 * DAY)
   },
   {
-    id: 12,
+    id: 17,
     type: 'achievement',
     title: 'FIRST CONTACT',
     body: 'Achievement unlocked — Complete your first sync.',
@@ -146,6 +164,8 @@ const FEED = [
     created_at: iso(20 * DAY)
   }
 ]
+
+const UNREAD = FEED.filter((n) => !n.read_at).length
 
 const feedBody = (items, unread) =>
   JSON.stringify({ success: true, notifications: items, unreadCount: unread })
@@ -267,7 +287,7 @@ async function main() {
           requestId,
           responseCode: 200,
           responseHeaders: [{ name: 'Content-Type', value: 'application/json' }],
-          body: Buffer.from(feedBody(FEED, 3)).toString('base64')
+          body: Buffer.from(feedBody(FEED, UNREAD)).toString('base64')
         })
         .catch(() => {})
     }
@@ -292,7 +312,7 @@ async function main() {
       held.push({ requestId: p.requestId })
       return
     }
-    const body = feedMode === 'empty' ? feedBody([], 0) : feedBody(FEED, 3)
+    const body = feedMode === 'empty' ? feedBody([], 0) : feedBody(FEED, UNREAD)
     cdp
       .send('Fetch.fulfillRequest', {
         requestId: p.requestId,
@@ -333,7 +353,7 @@ async function main() {
     return file
   }
 
-  const waitFor = async (selector, timeout = 15000) => {
+  const waitFor = async (selector, timeout = 20000) => {
     const t0 = Date.now()
     while (Date.now() - t0 < timeout) {
       if (await evalJs(`!!document.querySelector(${JSON.stringify(selector)})`)) return
@@ -345,9 +365,20 @@ async function main() {
   const BELL = 'button[aria-label^="Notifications"]'
   const PANEL = 'div[role="dialog"][aria-label="Notifications"]'
 
+  // Headless Brave occasionally hangs a navigation deep into the sequence
+  // (renderer swap after many gotos); one retry recovers instead of
+  // flaking the whole pass.
   const goto = async (path = PAGE, settle = 2200) => {
-    await cdp.send('Page.navigate', { url: `${BASE}${path}` })
-    await waitFor(BELL)
+    for (let attempt = 0; ; attempt++) {
+      await cdp.send('Page.navigate', { url: `${BASE}${path}` })
+      try {
+        await waitFor(BELL)
+        break
+      } catch (e) {
+        if (attempt >= 1) throw e
+        console.log('goto: retrying after timeout')
+      }
+    }
     await sleep(settle)
   }
 
@@ -403,6 +434,14 @@ async function main() {
   await openPanel()
   await shot('01-panel-dark', await panelRect())
   await shot('02-context-dark') // full viewport: panel over page content
+
+  // follow stack — expand the burst into inline member rows, then collapse
+  const STACK = `${PANEL} button[aria-expanded]`
+  await evalJs(`document.querySelector('${STACK}').click(); 'ok'`)
+  await sleep(500)
+  await shot('01b-stack-expanded', await panelRect())
+  await evalJs(`document.querySelector('${PANEL} button[aria-expanded="true"]').click(); 'ok'`)
+  await sleep(300)
 
   // scrolled feed — sticky day markers over rows
   await evalJs(

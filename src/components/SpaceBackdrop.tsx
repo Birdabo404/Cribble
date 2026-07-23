@@ -80,7 +80,7 @@ export default function SpaceBackdrop() {
     return (
       <span
         key={`${keyPrefix}-${i}`}
-        className="absolute rounded-full"
+        className="cribble-star absolute rounded-full"
         style={{
           top: `${s.top}%`,
           left: `${s.left}%`,
@@ -220,10 +220,12 @@ export default function SpaceBackdrop() {
         }
 
         @media (prefers-reduced-motion: reduce) {
+          /* !important: star/asteroid animations are set via inline style */
           .cribble-asteroid,
           .cribble-drift-far,
-          .cribble-drift-near {
-            animation: none;
+          .cribble-drift-near,
+          .cribble-star {
+            animation: none !important;
           }
         }
       `}</style>
