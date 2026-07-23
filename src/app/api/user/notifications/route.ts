@@ -9,6 +9,69 @@ const supabase = createServiceClient()
 
 const FEED_LIMIT = 30
 
+interface FeedRow {
+  id: number
+  type: string
+  title: string
+  body: string | null
+  data: Record<string, unknown> | null
+  read_at: string | null
+  created_at: string
+}
+
+/** Social rows persist only the actor's id (+ username at write time).
+ *  Actor ids live under `followerId` (follows) or `friendId` (referrals). */
+function socialActorId(row: Pick<FeedRow, 'type' | 'data'>): number | null {
+  if (row.type !== 'social') return null
+  const raw = row.data?.followerId ?? row.data?.friendId
+  const id = Number(raw)
+  return Number.isInteger(id) && id > 0 ? id : null
+}
+
+/** Joins fresh actor username + avatar into social rows' `data` at read
+ *  time — avatars never go stale and rows written before this field exist
+ *  get one retroactively. Response-only; nothing is written back. */
+async function enrichSocialRows(rows: FeedRow[]): Promise<FeedRow[]> {
+  const actorIds = [
+    ...new Set(rows.map(socialActorId).filter((id): id is number => id !== null))
+  ]
+  if (actorIds.length === 0) return rows
+
+  const { data: actors, error } = await supabase
+    .from('users')
+    .select('id, twitter_username, twitter_profile_image')
+    .in('id', actorIds)
+
+  if (error) {
+    console.error('[Notifications] Actor enrich failed:', error)
+    return rows
+  }
+
+  const byId = new Map(
+    (actors ?? []).map((u) => [
+      u.id as number,
+      {
+        username: (u.twitter_username as string | null) ?? null,
+        avatarUrl: (u.twitter_profile_image as string | null) ?? null
+      }
+    ])
+  )
+
+  return rows.map((row) => {
+    const actorId = socialActorId(row)
+    const actor = actorId !== null ? byId.get(actorId) : undefined
+    if (!actor) return row
+    return {
+      ...row,
+      data: {
+        ...(row.data ?? {}),
+        ...(actor.username ? { username: actor.username } : {}),
+        ...(actor.avatarUrl ? { avatarUrl: actor.avatarUrl } : {})
+      }
+    }
+  })
+}
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getSessionUserId(request)
@@ -45,7 +108,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      notifications: notifications ?? [],
+      notifications: await enrichSocialRows((notifications ?? []) as FeedRow[]),
       unreadCount: unreadCount ?? 0
     })
   } catch (error) {

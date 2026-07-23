@@ -6,10 +6,11 @@ import { animDelay } from './anim'
 import type { ActivityDay } from '@/types/dashboard'
 
 /**
- * Area chart of the last `days` of scores, dressed as a proper dashboard
- * graph: fading horizontal level lines, fading weekly verticals, a peak
- * readout, corner time labels, and a glowing dot on today's point.
- * Caller handles the empty state.
+ * Area chart of the last `days` of scores, dressed as a flight instrument:
+ * blueprint grid, fading level lines, a bottom ruler (day ticks, taller
+ * week ticks), the daily series in ember with an ice 7-day-average
+ * overlay, a peak readout, a delta vs the prior window, and a glowing
+ * ember dot on today's point. Caller handles the empty state.
  */
 export function Sparkline({
   activity,
@@ -22,17 +23,40 @@ export function Sparkline({
 }) {
   const uid = useId()
 
-  const { points, max } = useMemo(() => {
+  const { points, avg7, max, deltaPct } = useMemo(() => {
     const byDate = new Map(activity.map((d) => [d.date, d.score]))
-    const out: number[] = []
+    // Pull twice the window so the delta can compare against the prior
+    // `days` and the moving average has run-in for its first points.
+    const wide: number[] = []
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    for (let i = days - 1; i >= 0; i--) {
+    for (let i = days * 2 - 1; i >= 0; i--) {
       const d = new Date(today)
       d.setDate(today.getDate() - i)
-      out.push(byDate.get(d.toISOString().split('T')[0]) || 0)
+      wide.push(byDate.get(d.toISOString().split('T')[0]) || 0)
     }
-    return { points: out, max: Math.max(...out, 1) }
+    const out = wide.slice(days)
+
+    // 7-day trailing mean per visible point (windows reach into the
+    // prior slice, so day one already has a real average).
+    const ma: number[] = []
+    for (let i = 0; i < days; i++) {
+      const end = days + i
+      const start = Math.max(0, end - 6)
+      const win = wide.slice(start, end + 1)
+      ma.push(win.reduce((a, b) => a + b, 0) / win.length)
+    }
+
+    const cur = out.reduce((a, b) => a + b, 0)
+    const prev = wide.slice(0, days).reduce((a, b) => a + b, 0)
+    const delta = prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null
+
+    return {
+      points: out,
+      avg7: ma,
+      max: Math.max(...out, 1),
+      deltaPct: delta
+    }
   }, [activity, days])
 
   const W = 100
@@ -41,10 +65,14 @@ export function Sparkline({
   const step = W / (points.length - 1 || 1)
   const yFor = (v: number) => H - (v / max) * (H - TOP_PAD) - 0.5
 
-  const line = points
-    .map((v, i) => `${i === 0 ? 'M' : 'L'}${(i * step).toFixed(2)},${yFor(v).toFixed(2)}`)
-    .join(' ')
+  const toPath = (vals: number[]) =>
+    vals
+      .map((v, i) => `${i === 0 ? 'M' : 'L'}${(i * step).toFixed(2)},${yFor(v).toFixed(2)}`)
+      .join(' ')
+
+  const line = toPath(points)
   const area = `${line} L${W},${H} L0,${H} Z`
+  const avgLine = toPath(avg7)
 
   const lastYPct = (yFor(points[points.length - 1]) / H) * 100
 
@@ -71,7 +99,7 @@ export function Sparkline({
         }}
       />
 
-      {/* Level lines + weekly verticals */}
+      {/* Level lines + weekly verticals + bottom ruler ticks */}
       <svg
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="none"
@@ -119,9 +147,27 @@ export function Sparkline({
             vectorEffect="non-scaling-stroke"
           />
         ))}
+
+        {/* ruler: a fine ice tick per day, taller at week boundaries */}
+        {points.map((_, i) => {
+          const week = (days - 1 - i) % 7 === 0
+          return (
+            <line
+              key={i}
+              x1={i * step}
+              y1={H - (week ? 2.2 : 1.1)}
+              x2={i * step}
+              y2={H}
+              stroke={`rgb(var(--ice-rgb) / ${week ? 0.55 : 0.28})`}
+              strokeWidth="1"
+              vectorEffect="non-scaling-stroke"
+            />
+          )
+        })}
       </svg>
 
-      {/* Area + line — revealed left → right by a clip-path sweep */}
+      {/* Series — revealed left → right by a clip-path sweep. Ember daily
+          area/line over the ice 7-day-average structure line. */}
       <svg
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="none"
@@ -131,16 +177,25 @@ export function Sparkline({
       >
         <defs>
           <linearGradient id={`${uid}-area`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgb(var(--accent-rgb) / 0.28)" />
-            <stop offset="100%" stopColor="rgb(var(--accent-rgb) / 0)" />
+            <stop offset="0%" stopColor="rgb(var(--ember-rgb) / 0.28)" />
+            <stop offset="100%" stopColor="rgb(var(--ember-rgb) / 0)" />
           </linearGradient>
         </defs>
 
         <path d={area} fill={`url(#${uid}-area)`} />
         <path
+          d={avgLine}
+          fill="none"
+          stroke="rgb(var(--ice-rgb) / 0.75)"
+          strokeWidth="1"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          vectorEffect="non-scaling-stroke"
+        />
+        <path
           d={line}
           fill="none"
-          stroke="rgb(var(--accent-rgb) / 0.9)"
+          stroke="rgb(var(--ember-rgb) / 0.9)"
           strokeWidth="1.2"
           strokeLinejoin="round"
           strokeLinecap="round"
@@ -153,25 +208,42 @@ export function Sparkline({
         className="anim-cell absolute right-0 -mr-1"
         style={{ top: `calc(${lastYPct}% - 4px)`, ...animDelay(1450) }}
       >
-        <span className="absolute h-2 w-2 rounded-full bg-accent/40 animate-ping" />
-        <span className="absolute h-2 w-2 rounded-full bg-accent shadow-[0_0_8px_rgb(var(--accent-rgb)/0.8)]" />
+        <span className="absolute h-2 w-2 rounded-full bg-ember/40 motion-safe:animate-ping" />
+        <span className="absolute h-2 w-2 rounded-full bg-ember shadow-[0_0_8px_rgb(var(--ember-rgb)/0.8)]" />
       </span>
 
-      {/* corner labels */}
+      {/* corner readouts */}
       <span
-        className="anim-fade absolute left-4 top-1.5 text-[9px] tracking-[0.3em] text-zinc-500"
+        className="anim-fade absolute left-4 top-1.5 font-data text-[9px] tracking-[0.3em] text-zinc-500"
         style={animDelay(800)}
       >
         PEAK <span className="text-zinc-300 tabular-nums">{formatCompact(Math.round(max))}</span>
       </span>
       <span
-        className="anim-fade absolute left-4 bottom-1.5 text-[9px] tracking-[0.3em] text-zinc-600"
+        className="anim-fade absolute right-4 top-1.5 text-right font-data text-[9px] tracking-[0.3em] text-zinc-500"
+        style={animDelay(850)}
+      >
+        Δ {days}D{' '}
+        {deltaPct === null ? (
+          <span className="text-ember tabular-nums">NEW</span>
+        ) : deltaPct >= 0 ? (
+          <span className="text-ember tabular-nums">+{deltaPct}%</span>
+        ) : (
+          <span className="text-zinc-400 tabular-nums">{deltaPct}%</span>
+        )}
+        <span className="mt-0.5 block text-[8px] tracking-[0.25em] text-zinc-600">
+          <span className="text-ice/80">—</span> 7D AVG
+        </span>
+      </span>
+      {/* bottom labels sit inboard of the panel's corner brackets */}
+      <span
+        className="anim-fade absolute left-7 bottom-2 font-data text-[9px] tracking-[0.3em] text-zinc-600"
         style={animDelay(900)}
       >
         −{days}D
       </span>
       <span
-        className="anim-fade absolute right-4 bottom-1.5 text-[9px] tracking-[0.3em] text-zinc-600"
+        className="anim-fade absolute right-7 bottom-2 font-data text-[9px] tracking-[0.3em] text-zinc-600"
         style={animDelay(900)}
       >
         TODAY

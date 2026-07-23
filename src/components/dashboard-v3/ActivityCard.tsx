@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import type { ActivityDay } from '@/lib/activity'
 import { formatNumber } from '@/components/dashboard-v2/format'
 import { animDelay } from './anim'
+import { IconGrid } from './DashIcons'
 import { Panel, PanelHeader } from './Panel'
 
 type HeatCell = {
@@ -28,8 +29,8 @@ function MiniStat({
 }) {
   return (
     <div className="anim-rise rounded-lg liquid-glass-inset px-3 py-2.5" style={animDelay(delayMs)}>
-      <div className="text-[9px] tracking-[0.3em] text-zinc-500">{label}</div>
-      <div className="mt-1 text-base font-semibold tracking-tight text-zinc-100 tabular-nums">
+      <div className="font-data text-[9px] tracking-[0.3em] text-zinc-500">{label}</div>
+      <div className="mt-1 font-display text-base font-semibold tracking-tight text-zinc-100 tabular-nums">
         {value}
       </div>
       {hint && <div className="text-[10px] text-zinc-500 mt-0.5">{hint}</div>}
@@ -132,25 +133,26 @@ export function ActivityCard({ activity }: { activity: ActivityDay[] }) {
     if (cell.isFuture) return 'border border-zinc-800 bg-transparent'
     if (cell.score <= 0) return 'bg-zinc-900'
     const r = cell.score / maxScore
-    if (r < 0.25) return 'bg-accent/25'
-    if (r < 0.5) return 'bg-accent/50'
-    if (r < 0.75) return 'bg-accent/75'
-    return 'bg-accent shadow-[0_0_6px_rgb(var(--accent-rgb)/0.45)]'
+    if (r < 0.25) return 'bg-ember/25'
+    if (r < 0.5) return 'bg-ember/50'
+    if (r < 0.75) return 'bg-ember/75'
+    return 'bg-ember shadow-[0_0_6px_rgb(var(--ember-rgb)/0.45)]'
   }
 
   return (
-    <Panel className="col-span-12 lg:col-span-8 p-6">
+    <Panel className="dash-frame col-span-12 lg:col-span-8 p-6">
       <PanelHeader
         title="ACTIVITY"
+        icon={<IconGrid size={12} />}
         subtitle={`Last 12 weeks · ${activeDays} active ${activeDays === 1 ? 'day' : 'days'}`}
         action={
-          <div className="hidden sm:flex items-center gap-1.5 text-[9px] tracking-[0.3em] text-zinc-500">
+          <div className="hidden sm:flex items-center gap-1.5 font-data text-[9px] tracking-[0.3em] text-zinc-500">
             <span>LESS</span>
             <span className="h-[11px] w-[11px] rounded-[3px] bg-zinc-900" />
-            <span className="h-[11px] w-[11px] rounded-[3px] bg-accent/25" />
-            <span className="h-[11px] w-[11px] rounded-[3px] bg-accent/50" />
-            <span className="h-[11px] w-[11px] rounded-[3px] bg-accent/75" />
-            <span className="h-[11px] w-[11px] rounded-[3px] bg-accent" />
+            <span className="h-[11px] w-[11px] rounded-[3px] bg-ember/25" />
+            <span className="h-[11px] w-[11px] rounded-[3px] bg-ember/50" />
+            <span className="h-[11px] w-[11px] rounded-[3px] bg-ember/75" />
+            <span className="h-[11px] w-[11px] rounded-[3px] bg-ember" />
             <span>MORE</span>
           </div>
         }
@@ -199,8 +201,8 @@ export function ActivityCard({ activity }: { activity: ActivityDay[] }) {
                           // Diagonal wave sweeping left → right across the weeks
                           ...animDelay(160 + cell.col * 26 + cell.row * 12)
                         }}
-                        className={`anim-cell relative rounded-[3px] transition-transform duration-150 hover:scale-[1.5] hover:z-10 hover:ring-1 hover:ring-accent/70 ${cellClass(cell)} ${
-                          cell.isToday ? 'ring-1 ring-accent/80' : ''
+                        className={`anim-cell relative rounded-[3px] transition-transform duration-150 hover:scale-[1.5] hover:z-10 hover:ring-1 hover:ring-ember/70 ${cellClass(cell)} ${
+                          cell.isToday ? 'ring-1 ring-ice/80' : ''
                         }`}
                         title={
                           cell.isFuture

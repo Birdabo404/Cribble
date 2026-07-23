@@ -15,9 +15,11 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { PixelIcon } from '@/components/achievements/PixelIcon'
+import { Avatar } from '@/components/leaderboard/Avatar'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { useNotifications } from '@/hooks/useNotifications'
 import { ACHIEVEMENTS_BY_ID } from '@/lib/achievements'
+import { followActor } from '@/types/notifications'
 import type { AppNotification, NotificationType } from '@/types/notifications'
 
 // Mirrors FEED_LIMIT in /api/user/notifications — at cap the footer says
@@ -38,7 +40,8 @@ const ICON_PATHS = {
   info: 'M12 22c5.52 0 10-4.48 10-10S17.52 2 12 2 2 6.48 2 12s4.48 10 10 10z M12 16v-4 M12 8h.01',
   crown: 'M2 20h20 M4 20 2 7l5.5 4L12 4l4.5 7L22 7l-2 13z',
   truck:
-    'M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2 M15 18H9 M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14 M17 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M7 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z'
+    'M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2 M15 18H9 M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14 M17 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M7 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
+  chevronDown: 'm6 9 6 6 6-6'
 }
 
 interface TypeMeta {
@@ -91,13 +94,21 @@ function shortTime(iso: string): string {
   return `${Math.floor(diff / (7 * 86_400_000))}W`
 }
 
+/** One renderable feed entry: a plain notification, or an X-style stack
+ *  of 2+ follow events collapsed into a single row. */
+type FeedItem =
+  | { kind: 'single'; notification: AppNotification }
+  | { kind: 'followStack'; items: AppNotification[] }
+
 interface FeedGroup {
   label: string
-  items: AppNotification[]
+  items: FeedItem[]
 }
 
 /** Day buckets for the log. Input arrives newest-first, so consecutive
- *  runs of the same label fold into one group. */
+ *  runs of the same label fold into one group. Within a bucket, 2+ follow
+ *  events collapse into one stacked entry at the newest follow's position
+ *  — one feed line instead of N. A lone follow stays a normal row. */
 function groupFeed(items: AppNotification[]): FeedGroup[] {
   const midnight = new Date()
   midnight.setHours(0, 0, 0, 0)
@@ -112,14 +123,50 @@ function groupFeed(items: AppNotification[]): FeedGroup[] {
     return 'EARLIER'
   }
 
-  const groups: FeedGroup[] = []
+  const buckets: { label: string; items: AppNotification[] }[] = []
   for (const n of items) {
     const label = labelFor(n.created_at)
-    const last = groups[groups.length - 1]
+    const last = buckets[buckets.length - 1]
     if (last && last.label === label) last.items.push(n)
-    else groups.push({ label, items: [n] })
+    else buckets.push({ label, items: [n] })
   }
-  return groups
+
+  return buckets.map((bucket) => {
+    const follows = bucket.items.filter((n) => followActor(n) !== null)
+    if (follows.length < 2) {
+      return {
+        label: bucket.label,
+        items: bucket.items.map(
+          (n): FeedItem => ({ kind: 'single', notification: n })
+        )
+      }
+    }
+    const feedItems: FeedItem[] = []
+    for (const n of bucket.items) {
+      if (followActor(n) === null) {
+        feedItems.push({ kind: 'single', notification: n })
+      } else if (n === follows[0]) {
+        feedItems.push({ kind: 'followStack', items: follows })
+      }
+      // Remaining follows fold into the stack row.
+    }
+    return { label: bucket.label, items: feedItems }
+  })
+}
+
+/** "@a, @b and 3 others started following you." */
+function stackBody(items: AppNotification[]): string {
+  const names: string[] = []
+  for (const n of items) {
+    const username = followActor(n)?.username
+    if (username) names.push(`@${username}`)
+  }
+  const count = items.length
+  if (names.length === 0) return `${count} players started following you.`
+  const shown = names.slice(0, 2)
+  const others = count - shown.length
+  if (others <= 0) return `${shown.join(' and ')} started following you.`
+  return `${shown.join(', ')} and ${others} other${others === 1 ? '' : 's'} started following you.`
 }
 
 function StrokeIcon({ d, className = 'h-3.5 w-3.5' }: { d: string; className?: string }) {
@@ -140,11 +187,13 @@ function StrokeIcon({ d, className = 'h-3.5 w-3.5' }: { d: string; className?: s
 }
 
 /**
- * Feed glyph. Achievement unlocks render their own pixel badge in the
- * rarity hue (matching the achievements page) and premium grants render
- * the pixel blue check; every other type keeps its stroke icon — graph
- * for rank, trophy for milestones, flag for season updates. Read rows
- * dim their tile so fresh signals carry the column.
+ * Feed glyph. Follow events show the follower's face (with monogram
+ * fallback) — a person, not a category, is the signal. Achievement
+ * unlocks render their own pixel badge in the rarity hue (matching the
+ * achievements page) and premium grants render the pixel blue check;
+ * every other type keeps its stroke icon — graph for rank, trophy for
+ * milestones, flag for season updates. Read rows dim their tile so
+ * fresh signals carry the column.
  */
 function NotificationGlyph({
   notification,
@@ -156,6 +205,20 @@ function NotificationGlyph({
   const tileCls = `mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] glass-inset-lite ${
     dimmed ? 'opacity-70' : ''
   }`
+
+  const actor = followActor(notification)
+  if (actor && (actor.avatarUrl || actor.username)) {
+    return (
+      <span className={`${tileCls} overflow-hidden`}>
+        <Avatar
+          src={actor.avatarUrl}
+          char={(actor.username?.[0] ?? '?').toUpperCase()}
+          imgClassName="h-full w-full object-cover"
+          fallbackClassName="flex h-full w-full items-center justify-center font-display text-[11px] text-cyan-300"
+        />
+      </span>
+    )
+  }
 
   if (notification.type === 'premium') {
     return (
@@ -181,6 +244,232 @@ function NotificationGlyph({
     <span className={`${tileCls} ${meta.cls}`}>
       <StrokeIcon d={meta.icon} className="h-4 w-4" />
     </span>
+  )
+}
+
+/** One plain feed row. Social events deep-link to the actor's profile so
+ *  a "started following you" lands one click from FOLLOW BACK. */
+function SingleFeedRow({
+  notification: n,
+  fresh,
+  delay
+}: {
+  notification: AppNotification
+  fresh: boolean
+  delay: string
+}) {
+  const actorUsername =
+    n.type === 'social' && typeof n.data?.username === 'string' ? n.data.username : null
+  const rowCls = `comms-row-in relative flex items-start gap-3 border-b border-white/[0.045] px-4 py-3 last:border-b-0 ${
+    fresh ? 'bg-accent/[0.045]' : ''
+  }`
+  const content = (
+    <>
+      {/* unread signal bar */}
+      {fresh && (
+        <span
+          className="absolute inset-y-1.5 left-0 w-[2px] rounded-r-full bg-accent shadow-[0_0_10px_rgb(var(--accent-rgb)/0.55)]"
+          aria-hidden
+        />
+      )}
+      <NotificationGlyph notification={n} dimmed={!fresh} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-3">
+          <span
+            className={`truncate text-[10px] tracking-[0.22em] ${
+              fresh ? 'text-zinc-50' : 'text-zinc-300'
+            }`}
+          >
+            {n.title}
+          </span>
+          <span
+            className={`ml-auto shrink-0 text-[8px] tabular-nums tracking-[0.2em] ${
+              fresh ? 'text-accent/80' : 'text-zinc-600'
+            }`}
+          >
+            {shortTime(n.created_at)}
+          </span>
+        </div>
+        {n.body && (
+          <p className="mt-1 text-[11px] leading-relaxed text-zinc-400">{n.body}</p>
+        )}
+      </div>
+    </>
+  )
+  return actorUsername ? (
+    <a
+      href={`/u/${encodeURIComponent(actorUsername)}`}
+      style={{ animationDelay: delay }}
+      className={`${rowCls} transition-colors ${
+        fresh ? 'hover:bg-accent/[0.08]' : 'hover:bg-white/[0.04]'
+      }`}
+    >
+      {content}
+    </a>
+  ) : (
+    <div style={{ animationDelay: delay }} className={rowCls}>
+      {content}
+    </div>
+  )
+}
+
+/** Facepile circle: 22px avatar ringed in console ink so overlaps read
+ *  as a deck of faces, X-style. */
+function StackFace({
+  username,
+  avatarUrl,
+  overlap,
+  z
+}: {
+  username: string | null
+  avatarUrl: string | null
+  overlap: boolean
+  z: number
+}) {
+  return (
+    <span
+      className={`relative inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center overflow-hidden rounded-full border-2 ${
+        overlap ? '-ml-2' : ''
+      }`}
+      style={{ borderColor: 'var(--console-ink)', zIndex: z }}
+    >
+      <Avatar
+        src={avatarUrl}
+        char={(username?.[0] ?? '?').toUpperCase()}
+        imgClassName="h-full w-full object-cover"
+        fallbackClassName="flex h-full w-full items-center justify-center glass-inset-lite font-display text-[9px] text-cyan-300"
+      />
+    </span>
+  )
+}
+
+/**
+ * X-style follow burst: N follows in one day bucket collapse into a single
+ * row — facepile of the newest faces plus "@a, @b and 3 others started
+ * following you." Clicking toggles the individual follows inline as
+ * compact deep-linked rows, so the feed never grows N rows tall from one
+ * popular day.
+ */
+function FollowStackRow({
+  items,
+  isNew,
+  delay
+}: {
+  items: AppNotification[]
+  isNew: (id: number, readAt: string | null) => boolean
+  delay: string
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const fresh = items.some((n) => isNew(n.id, n.read_at))
+  const faces = items.slice(0, 3).map((n) => ({ id: n.id, actor: followActor(n) }))
+  const overflow = items.length - faces.length
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        aria-label={`${items.length} new followers — ${expanded ? 'collapse' : 'expand'}`}
+        style={{ animationDelay: delay }}
+        className={`comms-row-in relative flex w-full items-start gap-3 border-b border-white/[0.045] px-4 py-3 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-zinc-500 ${
+          fresh ? 'bg-accent/[0.045] hover:bg-accent/[0.08]' : 'hover:bg-white/[0.04]'
+        }`}
+      >
+        {/* unread signal bar */}
+        {fresh && (
+          <span
+            className="absolute inset-y-1.5 left-0 w-[2px] rounded-r-full bg-accent shadow-[0_0_10px_rgb(var(--accent-rgb)/0.55)]"
+            aria-hidden
+          />
+        )}
+        <span className={`mt-0.5 flex shrink-0 items-center ${fresh ? '' : 'opacity-70'}`}>
+          {faces.map((face, i) => (
+            <StackFace
+              key={face.id}
+              username={face.actor?.username ?? null}
+              avatarUrl={face.actor?.avatarUrl ?? null}
+              overlap={i > 0}
+              z={faces.length - i}
+            />
+          ))}
+          {overflow > 0 && (
+            <span
+              className="relative z-0 -ml-2 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full border-2 glass-inset-lite text-[8px] font-bold tabular-nums text-zinc-300"
+              style={{ borderColor: 'var(--console-ink)' }}
+            >
+              +{overflow}
+            </span>
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-3">
+            <span
+              className={`truncate text-[10px] tracking-[0.22em] ${
+                fresh ? 'text-zinc-50' : 'text-zinc-300'
+              }`}
+            >
+              NEW WINGMEN
+            </span>
+            <span
+              className={`ml-auto shrink-0 text-[8px] tabular-nums tracking-[0.2em] ${
+                fresh ? 'text-accent/80' : 'text-zinc-600'
+              }`}
+            >
+              {shortTime(items[0].created_at)}
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] leading-relaxed text-zinc-400">{stackBody(items)}</p>
+        </div>
+        <span
+          className={`mt-1 shrink-0 text-zinc-500 transition-transform duration-150 ${
+            expanded ? 'rotate-180' : ''
+          }`}
+          aria-hidden
+        >
+          <StrokeIcon d={ICON_PATHS.chevronDown} className="h-3 w-3" />
+        </span>
+      </button>
+      {expanded &&
+        items.map((n) => {
+          const actor = followActor(n)
+          const username = actor?.username ?? null
+          const rowFresh = isNew(n.id, n.read_at)
+          const memberCls = `comms-row-in flex items-center gap-3 border-b border-white/[0.045] py-2 pl-8 pr-4 transition-colors last:border-b-0 ${
+            rowFresh ? 'bg-accent/[0.03] hover:bg-accent/[0.07]' : 'hover:bg-white/[0.04]'
+          }`
+          const inner = (
+            <>
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full glass-inset-lite">
+                <Avatar
+                  src={actor?.avatarUrl}
+                  char={(username?.[0] ?? '?').toUpperCase()}
+                  imgClassName="h-full w-full object-cover"
+                  fallbackClassName="flex h-full w-full items-center justify-center font-display text-[9px] text-cyan-300"
+                />
+              </span>
+              <span
+                className={`truncate text-[11px] ${rowFresh ? 'text-zinc-200' : 'text-zinc-400'}`}
+              >
+                {username ? `@${username}` : 'A player'}{' '}
+                <span className="text-zinc-500">started following you</span>
+              </span>
+              <span className="ml-auto shrink-0 text-[8px] tabular-nums tracking-[0.2em] text-zinc-600">
+                {shortTime(n.created_at)}
+              </span>
+            </>
+          )
+          return username ? (
+            <a key={n.id} href={`/u/${encodeURIComponent(username)}`} className={memberCls}>
+              {inner}
+            </a>
+          ) : (
+            <div key={n.id} className={memberCls}>
+              {inner}
+            </div>
+          )
+        })}
+    </>
   )
 }
 
@@ -397,69 +686,32 @@ export function NotificationBell({
                     <span className="h-px flex-1 bg-white/[0.06]" aria-hidden />
                   </div>
 
-                  {group.items.map((n) => {
-                    const fresh = isNew(n.id, n.read_at)
+                  {group.items.map((item) => {
                     const delay = `${Math.min(rowIndex++, 8) * 26}ms`
-                    // Social events deep-link to the actor's profile so a
-                    // "started following you" lands one click from FOLLOW BACK.
-                    const actorUsername =
-                      n.type === 'social' && typeof n.data?.username === 'string'
-                        ? n.data.username
-                        : null
-                    const rowCls = `comms-row-in relative flex items-start gap-3 border-b border-white/[0.045] px-4 py-3 last:border-b-0 ${
-                      fresh ? 'bg-accent/[0.045]' : ''
-                    }`
-                    const content = (
-                      <>
-                        {/* unread signal bar */}
-                        {fresh && (
-                          <span
-                            className="absolute inset-y-1.5 left-0 w-[2px] rounded-r-full bg-accent shadow-[0_0_10px_rgb(var(--accent-rgb)/0.55)]"
-                            aria-hidden
+                    switch (item.kind) {
+                      case 'single':
+                        return (
+                          <SingleFeedRow
+                            key={item.notification.id}
+                            notification={item.notification}
+                            fresh={isNew(item.notification.id, item.notification.read_at)}
+                            delay={delay}
                           />
-                        )}
-                        <NotificationGlyph notification={n} dimmed={!fresh} />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-baseline gap-3">
-                            <span
-                              className={`truncate text-[10px] tracking-[0.22em] ${
-                                fresh ? 'text-zinc-50' : 'text-zinc-300'
-                              }`}
-                            >
-                              {n.title}
-                            </span>
-                            <span
-                              className={`ml-auto shrink-0 text-[8px] tabular-nums tracking-[0.2em] ${
-                                fresh ? 'text-accent/80' : 'text-zinc-600'
-                              }`}
-                            >
-                              {shortTime(n.created_at)}
-                            </span>
-                          </div>
-                          {n.body && (
-                            <p className="mt-1 text-[11px] leading-relaxed text-zinc-400">
-                              {n.body}
-                            </p>
-                          )}
-                        </div>
-                      </>
-                    )
-                    return actorUsername ? (
-                      <a
-                        key={n.id}
-                        href={`/u/${encodeURIComponent(actorUsername)}`}
-                        style={{ animationDelay: delay }}
-                        className={`${rowCls} transition-colors ${
-                          fresh ? 'hover:bg-accent/[0.08]' : 'hover:bg-white/[0.04]'
-                        }`}
-                      >
-                        {content}
-                      </a>
-                    ) : (
-                      <div key={n.id} style={{ animationDelay: delay }} className={rowCls}>
-                        {content}
-                      </div>
-                    )
+                        )
+                      case 'followStack':
+                        return (
+                          <FollowStackRow
+                            key={`stack-${item.items[0].id}`}
+                            items={item.items}
+                            isNew={isNew}
+                            delay={delay}
+                          />
+                        )
+                      default: {
+                        const exhaustive: never = item
+                        return exhaustive
+                      }
+                    }
                   })}
                 </section>
               ))

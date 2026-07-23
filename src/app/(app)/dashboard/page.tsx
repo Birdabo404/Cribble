@@ -125,7 +125,7 @@ export default function DashboardV3() {
     <>
       <AsteroidShower />
 
-      <div className="page-zoom-out dash-reveal-root relative max-w-6xl mx-auto px-6 pt-6 pb-10">
+      <div className="page-zoom-out dash-reveal-root dash-duotone relative max-w-6xl mx-auto px-6 pt-6 pb-10">
         <AsciiBanner username={user.twitter_username} />
 
         <main className="mt-8 grid grid-cols-12 gap-5">
@@ -153,9 +153,18 @@ export default function DashboardV3() {
           <ToolsCard tools={tools} />
         </main>
 
-        <footer className="mt-8 flex items-center justify-between text-[10px] tracking-[0.3em] text-zinc-600">
-          <span>CRIBBLE · PRIVATE BETA</span>
-          <span className="text-accent/60">v3 · {new Date().toLocaleDateString('en-US')}</span>
+        {/* Dossier footer — build line on a dotted leader, stamped with a
+            barcode strip. */}
+        <footer className="mt-10 flex items-baseline gap-4 font-data text-[9px] tracking-[0.3em] text-zinc-600">
+          <span className="shrink-0">CRIBBLE · PRIVATE BETA</span>
+          <span aria-hidden className="dash-leader-dots" />
+          <span className="shrink-0 text-zinc-500">
+            CONSOLE V3 ·{' '}
+            {new Date()
+              .toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+              .toUpperCase()}
+          </span>
+          <span aria-hidden className="dash-barcode h-3.5 w-20 shrink-0" />
         </footer>
       </div>
 

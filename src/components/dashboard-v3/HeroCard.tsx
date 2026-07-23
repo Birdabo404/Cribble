@@ -1,8 +1,14 @@
 import { formatCompact, tierAccent } from '@/components/dashboard-v2/format'
 import { animDelay } from './anim'
+import { IconCrosshair } from './DashIcons'
 import { ScoreOdometer } from './ScoreOdometer'
 import { Sparkline } from './Sparkline'
 import type { ActivityDay, MeScores, RankInfo, Tier } from '@/types/dashboard'
+
+// BASIC's chip is accent-green in the shared map; on this page the one
+// green survivor is the wordmark, so BASIC re-inks to ember locally.
+const tierChipClass = (tier: Tier | undefined) =>
+  tier === 'BASIC' ? 'text-ember border-ember/40 bg-ember/5' : tierAccent(tier)
 
 function MomentumChip({
   label,
@@ -19,10 +25,10 @@ function MomentumChip({
       className="anim-rise flex items-baseline gap-2 rounded-lg liquid-glass-inset px-3 py-2"
       style={animDelay(delayMs)}
     >
-      <span className="text-[9px] tracking-[0.3em] text-zinc-500">{label}</span>
+      <span className="font-data text-[9px] tracking-[0.3em] text-zinc-500">{label}</span>
       <span
-        className={`text-sm font-semibold tabular-nums ${
-          positive ? 'text-accent' : 'text-zinc-500'
+        className={`font-display text-sm font-semibold tabular-nums ${
+          positive ? 'text-ember' : 'text-zinc-500'
         }`}
       >
         {positive ? '+' : ''}
@@ -45,7 +51,7 @@ function RefreshButton({
       disabled={refreshing}
       title="Refresh score"
       aria-label="Refresh score"
-      className="group inline-flex h-7 w-7 items-center justify-center rounded border border-zinc-800 text-zinc-500 transition-colors hover:border-zinc-600 hover:text-accent disabled:opacity-60"
+      className="group inline-flex h-7 w-7 items-center justify-center rounded border border-zinc-800 text-zinc-500 transition-colors hover:border-zinc-600 hover:text-ember disabled:opacity-60"
     >
       <svg
         viewBox="0 0 16 16"
@@ -81,12 +87,12 @@ export function HeroCard({
   const hasTrend = activity.some((d) => d.score > 0)
 
   return (
-    <section className="relative col-span-12 lg:col-span-8 overflow-hidden rounded-2xl liquid-glass">
+    <section className="dash-frame relative col-span-12 lg:col-span-8 overflow-hidden rounded-2xl liquid-glass">
       <div
         aria-hidden
         className="pointer-events-none absolute -top-32 -right-24 h-64 w-64 rounded-full opacity-30 blur-3xl"
         style={{
-          background: 'radial-gradient(circle, rgb(var(--accent-rgb)/0.4), transparent 70%)'
+          background: 'radial-gradient(circle, rgb(var(--ember-rgb)/0.38), transparent 70%)'
         }}
       />
 
@@ -97,13 +103,13 @@ export function HeroCard({
               className="anim-fade flex items-center gap-2.5"
               style={animDelay(80)}
             >
-              <span className="text-[10px] tracking-[0.4em] text-zinc-300">TOTAL SCORE</span>
+              <span className="font-data text-[10px] tracking-[0.4em] text-zinc-300">TOTAL SCORE</span>
               <RefreshButton onRefresh={onRefresh} refreshing={refreshing} />
             </div>
             <div className="mt-4 flex items-baseline gap-3">
               <ScoreOdometer value={scores.total_score} />
               <span
-                className="anim-fade text-xs text-zinc-500 tracking-[0.3em]"
+                className="anim-fade font-data text-xs text-zinc-500 tracking-[0.3em]"
                 style={animDelay(600)}
               >
                 PTS
@@ -113,7 +119,7 @@ export function HeroCard({
 
           <div className="flex flex-col items-end gap-2">
             <span
-              className={`anim-rise text-[10px] tracking-[0.4em] px-2.5 py-1 rounded border ${tierAccent(tier)}`}
+              className={`anim-rise font-data text-[10px] tracking-[0.4em] px-2.5 py-1 rounded border ${tierChipClass(tier)}`}
               style={animDelay(160)}
             >
               {(tier || 'FREE').toUpperCase()}
@@ -124,14 +130,17 @@ export function HeroCard({
               style={animDelay(260)}
               title="View global leaderboard"
             >
-              <div className="text-[9px] tracking-[0.35em] text-zinc-500">GLOBAL RANK</div>
-              <div className="mt-0.5 text-2xl font-semibold tracking-tight tabular-nums text-zinc-50 group-hover:text-accent transition-colors">
+              <div className="flex items-center justify-end gap-1.5 font-data text-[9px] tracking-[0.35em] text-zinc-500">
+                <IconCrosshair size={11} className="text-ice/80" />
+                GLOBAL RANK
+              </div>
+              <div className="mt-0.5 font-display text-2xl font-semibold tracking-tight tabular-nums text-ice group-hover:text-ember transition-colors">
                 {rank ? `#${rank.position}` : '—'}
                 {rank && (
                   <span className="text-sm font-normal text-zinc-600"> / {rank.total}</span>
                 )}
               </div>
-              <div className="text-[9px] tracking-[0.25em] text-zinc-600 group-hover:text-accent/70 transition-colors">
+              <div className="font-data text-[9px] tracking-[0.25em] text-zinc-600 group-hover:text-ember/70 transition-colors">
                 LEADERBOARD →
               </div>
             </a>
@@ -148,7 +157,7 @@ export function HeroCard({
           {hasTrend ? (
             <Sparkline activity={activity} days={28} height={112} />
           ) : (
-            <div className="h-[112px] flex items-center justify-center text-[10px] tracking-[0.3em] text-zinc-700">
+            <div className="h-[112px] flex items-center justify-center font-data text-[10px] tracking-[0.3em] text-zinc-700">
               NO SIGNAL · LAST 28 DAYS
             </div>
           )}

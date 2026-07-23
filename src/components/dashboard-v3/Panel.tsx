@@ -39,17 +39,3 @@ export function PanelHeader({
     </div>
   )
 }
-
-/** Soft accent radial glow, positioned by the caller via className.
- *  Kept for SeasonRail; the duotone panels themselves no longer use it. */
-export function AccentGlow({ className = '' }: { className?: string }) {
-  return (
-    <div
-      aria-hidden
-      className={`pointer-events-none absolute rounded-full blur-3xl ${className}`}
-      style={{
-        background: 'radial-gradient(circle, rgb(var(--accent-rgb)/0.4), transparent 70%)'
-      }}
-    />
-  )
-}

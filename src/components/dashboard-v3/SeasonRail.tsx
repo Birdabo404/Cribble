@@ -1,9 +1,10 @@
 'use client'
 
 import { useMemo } from 'react'
-import { ACCENT, accentA } from '@/components/dashboard-v2/format'
 import { animDelay } from './anim'
-import { AccentGlow, Panel } from './Panel'
+import { IconClock, IconFlame } from './DashIcons'
+import { Panel } from './Panel'
+import { TickGauge } from './TickGauge'
 import type { ActivityDay } from '@/types/dashboard'
 
 function last7Days(activity: ActivityDay[]) {
@@ -27,10 +28,11 @@ function last7Days(activity: ActivityDay[]) {
 }
 
 /**
- * Right rail beside the hero: season countdown + progress on top,
- * current streak with a 7-day tracker below. During an intermission the
- * dashboard passes name="INTERMISSION" and the countdown targets the next
- * season's launch instead of the current season's lock.
+ * Right rail beside the hero: the season "mission clock" (segmented day
+ * ticks — ice track, ember fill) on top, current streak with a 7-day
+ * tracker below. During an intermission the dashboard passes
+ * name="INTERMISSION" and the countdown targets the next season's launch
+ * instead of the current season's lock.
  */
 export function SeasonRail({
   name,
@@ -52,48 +54,52 @@ export function SeasonRail({
   return (
     <div className="col-span-12 lg:col-span-4 grid grid-rows-2 gap-5">
       <Panel className="p-6 flex flex-col justify-between">
-        <AccentGlow className="-top-20 -right-16 h-44 w-44 opacity-20" />
+        {/* structural ice haze in place of the old accent glow */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-20 -right-16 h-44 w-44 rounded-full opacity-[0.14] blur-3xl"
+          style={{
+            background: 'radial-gradient(circle, rgb(var(--ice-rgb)/0.5), transparent 70%)'
+          }}
+        />
         <div className="relative">
           <div className="anim-fade flex items-baseline justify-between" style={animDelay(80)}>
-            <div className="text-[10px] tracking-[0.4em] text-zinc-300">{name}</div>
-            <div className="text-[10px] tracking-[0.3em]" style={{ color: ACCENT }}>
+            <div className="flex items-center gap-2 font-display text-[10px] font-medium tracking-[0.4em] text-zinc-300">
+              <IconClock size={12} className="text-ice/70" />
+              {name}
+            </div>
+            <div className="font-data text-[10px] tracking-[0.3em] text-ember tabular-nums">
               {pct}%
             </div>
           </div>
           <div
-            className="anim-rise mt-2 text-3xl font-semibold tracking-tight text-zinc-50 tabular-nums"
+            className="anim-rise mt-2 font-display text-3xl font-semibold tracking-tight text-zinc-50 tabular-nums"
             style={animDelay(160)}
           >
             {daysLeft}
-            <span className="text-zinc-500 text-base font-normal tracking-[0.2em]"> {daysLabel}</span>
+            <span className="font-data text-zinc-500 text-sm font-normal tracking-[0.2em]"> {daysLabel}</span>
           </div>
         </div>
         <div className="relative mt-4">
-          <div className="h-1.5 w-full rounded-full bg-zinc-900 overflow-hidden">
-            <div
-              className="anim-grow-x h-full rounded-full"
-              style={{
-                width: `${pct}%`,
-                background: ACCENT,
-                boxShadow: `0 0 8px ${accentA(0.6)}`,
-                ...animDelay(300)
-              }}
-            />
-          </div>
+          <TickGauge pct={pct} segments={30} className="h-[10px]" delayMs={300} />
         </div>
       </Panel>
 
       <Panel className="p-6 flex flex-col justify-between">
         <div className="relative">
-          <div className="anim-fade text-[10px] tracking-[0.4em] text-zinc-300" style={animDelay(140)}>
+          <div
+            className="anim-fade flex items-center gap-2 font-display text-[10px] font-medium tracking-[0.4em] text-zinc-300"
+            style={animDelay(140)}
+          >
+            <IconFlame size={12} className="text-ember/80" />
             STREAK
           </div>
           <div
-            className="anim-rise mt-2 text-3xl font-semibold tracking-tight text-zinc-50 tabular-nums"
+            className="anim-rise mt-2 font-display text-3xl font-semibold tracking-tight text-zinc-50 tabular-nums"
             style={animDelay(220)}
           >
             {streak}
-            <span className="text-zinc-500 text-base font-normal tracking-[0.2em]"> DAYS</span>
+            <span className="font-data text-zinc-500 text-sm font-normal tracking-[0.2em]"> DAYS</span>
           </div>
         </div>
         <div className="relative mt-4">
@@ -104,19 +110,19 @@ export function SeasonRail({
                 className="anim-cell flex flex-col items-center gap-1.5 flex-1"
                 style={animDelay(300 + i * 40)}
               >
-                {/* Active dots pop in dark, then ignite one by one after the row lands */}
+                {/* Active cells pop in dark, then ignite one by one after the row lands */}
                 <div
                   className={`h-2 w-full max-w-[26px] rounded-full transition-colors ${
                     d.active
-                      ? 'anim-ignite bg-accent shadow-[0_0_6px_rgb(var(--accent-rgb)/0.5)]'
+                      ? 'anim-ignite bg-ember shadow-[0_0_6px_rgb(var(--ember-rgb)/0.5)]'
                       : 'bg-zinc-900'
-                  } ${d.isToday && !d.active ? 'ring-1 ring-accent/40' : ''}`}
+                  } ${d.isToday && !d.active ? 'ring-1 ring-ice/50' : ''}`}
                   style={d.active ? animDelay(700 + i * 130) : undefined}
                   title={`${d.key}${d.active ? ' · active' : ''}`}
                 />
                 <span
-                  className={`text-[9px] tracking-widest ${
-                    d.isToday ? 'text-accent' : 'text-zinc-600'
+                  className={`font-data text-[9px] tracking-widest ${
+                    d.isToday ? 'text-ember' : 'text-zinc-600'
                   }`}
                 >
                   {d.label}

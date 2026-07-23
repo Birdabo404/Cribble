@@ -6,13 +6,13 @@ import { useEffect, useRef } from 'react'
 // randomized schedule with a fresh color, trajectory, and speed.
 const ASTEROID_COUNT = 3
 
-// Bright palette (r g b). "White" maps to --star-rgb so it flips with the
-// theme and never vanishes against the light-mode canvas.
+// Duotone palette (r g b triplets via CSS vars, all theme-aware): ember,
+// ice, and "white" (--star-rgb, which flips so streaks never vanish
+// against the light-mode canvas).
 const ASTEROID_COLORS = [
-  '255 69 58', // red
-  '64 156 255', // blue
-  '48 255 90', // green
-  'var(--star-rgb)' // white (theme-aware)
+  'var(--ember-rgb)',
+  'var(--ice-rgb)',
+  'var(--star-rgb)'
 ]
 
 type LaunchOpts = {

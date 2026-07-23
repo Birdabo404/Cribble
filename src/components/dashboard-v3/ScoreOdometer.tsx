@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { formatNumber } from '@/components/dashboard-v2/format'
 
 /**
- * Arcade-style odometer score readout (Press Start 2P via --font-pixel).
+ * Instrument odometer score readout (Space Grotesk tabular numerals via
+ * --font-display, ember glow).
  *
  * The layout is budgeted for an 8-digit maximum score (99,999,999 pts).
  * Every value is zero-padded to that width — leading zeros render dimmed —
@@ -37,10 +38,11 @@ const digitAt = (value: number, placeFromRight: number) =>
   Math.floor(value / 10 ** placeFromRight) % 10
 
 function sizeClass(digitCount: number) {
-  // Press Start 2P glyphs are roughly 1em wide, so width ≈ digitCount em.
-  if (digitCount <= DIGIT_BUDGET) return 'text-[18px] sm:text-[28px] md:text-[36px]'
-  if (digitCount <= 10) return 'text-[15px] sm:text-[23px] md:text-[29px]'
-  return 'text-[12px] sm:text-[18px] md:text-[23px]'
+  // Space Grotesk tabular digits run ~0.6em wide (each reel is pinned to
+  // 1ch), so the face can sit a step larger than the old pixel font did.
+  if (digitCount <= DIGIT_BUDGET) return 'text-[22px] sm:text-[34px] md:text-[44px]'
+  if (digitCount <= 10) return 'text-[18px] sm:text-[28px] md:text-[36px]'
+  return 'text-[15px] sm:text-[22px] md:text-[28px]'
 }
 
 function DigitReel({
@@ -85,8 +87,10 @@ function DigitReel({
 
   return (
     <span
-      className={`inline-block overflow-hidden ${dim ? 'text-zinc-800' : 'text-zinc-50'}`}
-      style={{ height: '1em', textShadow: dim ? 'none' : undefined }}
+      className={`inline-block overflow-hidden text-center ${dim ? 'text-zinc-800' : 'text-zinc-50'}`}
+      // 1ch pins every reel to the tabular digit advance, so glyph-width
+      // differences can't make the row jitter while rolling.
+      style={{ height: '1em', width: '1ch', textShadow: dim ? 'none' : undefined }}
     >
       <span
         className="block"
@@ -188,11 +192,13 @@ export function ScoreOdometer({
     <span
       className={`inline-flex ${sizeClass(digitCount)} ${className}`}
       style={{
-        fontFamily: 'var(--font-pixel)',
+        fontFamily: "var(--font-display), 'Inter', system-ui, sans-serif",
+        fontWeight: 600,
+        fontVariantNumeric: 'tabular-nums',
         lineHeight: 1,
         textShadow: rolling
-          ? '0 0 22px rgb(var(--accent-rgb)/0.45), 0 0 46px rgb(var(--accent-rgb)/0.18)'
-          : '0 0 16px rgb(var(--accent-rgb)/0.14)',
+          ? '0 0 22px rgb(var(--ember-rgb)/0.45), 0 0 46px rgb(var(--ember-rgb)/0.18)'
+          : '0 0 16px rgb(var(--ember-rgb)/0.14)',
         transition: 'text-shadow 700ms ease'
       }}
     >

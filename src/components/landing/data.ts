@@ -29,20 +29,109 @@ export interface SimPilot {
 // Score scale carries the house numbers (92 · 29 · 369 · 9:44) without
 // breaking the sim: relative gaps between rivals match the tuning the
 // tick logic was balanced against, so the duels play out the same.
+
+const BIRDABO: SimPilot = {
+  id: 'p1',
+  callsign: '@birdabo',
+  name: 'Birdabo',
+  org: 'CRIBBLE',
+  score: 929_369,
+  today: 9_440,
+  tool: 'Cursor',
+  online: true,
+  plate: 'champions-gold',
+  heat: 3,
+  avatar: '/avatars/birdabo.jpg'
+}
+
+const KARPATHY: SimPilot = {
+  id: 'p4',
+  callsign: '@karpathy',
+  name: 'Andrej Karpathy',
+  org: 'EUREKA',
+  score: 877_803,
+  today: 2_871,
+  tool: 'Claude',
+  online: true,
+  plate: 'terminal-rain',
+  heat: 3,
+  avatar: '/avatars/karpathy.jpg'
+}
+
+// The insurgents — indie hackers who storm the board during the takeover.
+// Each score is tuned to land exactly one slot above their victim.
+
+const LEVELSIO: SimPilot = {
+  id: 'n1',
+  callsign: '@levelsio',
+  name: 'Pieter Levels',
+  org: 'NOMADS',
+  score: 927_929,
+  today: 6_929,
+  tool: 'Grok',
+  online: true,
+  plate: 'synthwave-grid',
+  heat: 4,
+  avatar: '/avatars/levelsio.jpg'
+}
+
+const MARC_LOU: SimPilot = {
+  id: 'n2',
+  callsign: '@marc_louvion',
+  name: 'Marc Lou',
+  org: 'SHIPFAST',
+  score: 925_444,
+  today: 5_369,
+  tool: 'ChatGPT',
+  online: true,
+  plate: null,
+  heat: 4,
+  avatar: '/avatars/marc_louvion.jpg'
+}
+
+const JACK_FRIKS: SimPilot = {
+  id: 'n3',
+  callsign: '@jackfriks',
+  name: 'Jack Friks',
+  org: 'POSTBRIDGE',
+  score: 877_369,
+  today: 4_292,
+  tool: 'Claude',
+  online: true,
+  plate: null,
+  heat: 3,
+  avatar: '/avatars/jackfriks.jpg'
+}
+
+const ROBJ3D3: SimPilot = {
+  id: 'n4',
+  callsign: '@robj3d3',
+  name: 'Rob Hallam',
+  org: 'SUPERX',
+  score: 805_929,
+  today: 2_944,
+  tool: 'Cursor',
+  online: true,
+  plate: null,
+  heat: 2,
+  avatar: '/avatars/robj3d3.jpg'
+}
+
+/** The board's end state — what SSR, no-JS and reduced-motion render, and
+ * where the takeover choreography lands when motion is allowed. */
 export const SIM_ROSTER: SimPilot[] = [
-  {
-    id: 'p1',
-    callsign: '@birdabo',
-    name: 'Birdabo',
-    org: 'CRIBBLE',
-    score: 929_369,
-    today: 9_440,
-    tool: 'Cursor',
-    online: true,
-    plate: 'champions-gold',
-    heat: 3,
-    avatar: '/avatars/birdabo.jpg'
-  },
+  BIRDABO,
+  LEVELSIO,
+  MARC_LOU,
+  KARPATHY,
+  JACK_FRIKS,
+  ROBJ3D3
+]
+
+/** Opening lineup when the takeover plays: the old guard, still holding
+ * ranks they're about to lose. */
+export const TAKEOVER_START: SimPilot[] = [
+  BIRDABO,
   {
     id: 'p2',
     callsign: '@sama',
@@ -69,19 +158,7 @@ export const SIM_ROSTER: SimPilot[] = [
     heat: 4,
     avatar: '/avatars/elonmusk.jpg'
   },
-  {
-    id: 'p4',
-    callsign: '@karpathy',
-    name: 'Andrej Karpathy',
-    org: 'EUREKA',
-    score: 877_803,
-    today: 2_871,
-    tool: 'Claude',
-    online: true,
-    plate: 'terminal-rain',
-    heat: 3,
-    avatar: '/avatars/karpathy.jpg'
-  },
+  KARPATHY,
   {
     id: 'p5',
     callsign: '@mntruell',
@@ -108,6 +185,16 @@ export const SIM_ROSTER: SimPilot[] = [
     heat: 1,
     avatar: '/avatars/naval.jpg'
   }
+]
+
+/** Scripted arrivals, lowest rank first so every hit reads clearly. Each
+ * newcomer warps in one slot above their victim; the victim deranks, then
+ * falls off the board. Ends exactly on SIM_ROSTER. */
+export const TAKEOVER_EVENTS: { enter: SimPilot; drop: string }[] = [
+  { enter: ROBJ3D3, drop: 'p6' }, //   805,929 over naval    · 803,978
+  { enter: JACK_FRIKS, drop: 'p5' }, // 877,369 over mntruell · 876,405
+  { enter: MARC_LOU, drop: 'p3' }, //  925,444 over elonmusk · 924,679
+  { enter: LEVELSIO, drop: 'p2' } //   927,929 over sama     · 926,337
 ]
 
 export const ARENA_STATS = [

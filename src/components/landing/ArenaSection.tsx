@@ -4,6 +4,11 @@
 // six simulated pilots whose scores tick upward on a randomized clock, with
 // real FLIP reordering when someone overtakes the row above. The board panel
 // itself pitches in from a re-entry angle, driven by scroll (--p from Stage).
+//
+// Opening act: the board boots with the old guard (sama, elonmusk, mntruell,
+// naval) holding ranks — then the insurgents warp in one by one, derank
+// their victims and knock them off the board entirely (TAKEOVER_EVENTS).
+// SSR / reduced motion skip the theater and render the final cast.
 
 import {
   CSSProperties,
@@ -18,19 +23,112 @@ import { PlateLayer } from '@/components/cosmetics/PlateLayer'
 import { formatNumber } from '@/components/dashboard-v2/format'
 import { IconCrown, SocialIcon, ToolIcon } from '@/components/leaderboard/icons'
 import { prefersReducedMotion } from '@/lib/motion'
-import { ARENA_STATS, SIM_ROSTER, type SimPilot } from './data'
+import {
+  ARENA_STATS,
+  SIM_ROSTER,
+  TAKEOVER_EVENTS,
+  TAKEOVER_START,
+  type SimPilot
+} from './data'
 import { CountUp, Seam, SectionHeader, Stage, useStageLive } from './scrollFx'
 
 const MEDALS = ['var(--lb-gold)', 'var(--lb-silver)', 'var(--lb-bronze)']
 
-function useArenaSim() {
+const ARRIVER_IDS = new Set(TAKEOVER_EVENTS.map((e) => e.enter.id))
+
+// Takeover pacing, ms after the stage goes live. The entrance stagger
+// settles by ~1.4s; each event then plays in three beats — warp-in at T,
+// the freshly deranked victim starts falling at T+EXIT_AT (once the derank
+// push lands), and leaves the DOM when the fall finishes.
+const TK_T0 = 2400
+const TK_STEP = 2800
+const TK_EXIT_AT = 820
+const TK_EXIT_MS = 680
+/** Matches the board's row gap (gap-1.5): exiting rows also swallow their
+ * gap so the moment of unmount is layout-silent. */
+const TK_ROW_GAP = 6
+
+function useArenaSim(rowRefs: { current: Map<string, HTMLDivElement> }) {
   const live = useStageLive()
   const [pilots, setPilots] = useState<SimPilot[]>(SIM_ROSTER)
   const [gain, setGain] = useState<{ id: string; amt: number; seq: number } | null>(null)
   const seqRef = useRef(0)
+  // Arrival/removal commits reflow the board via animated heights — the
+  // FLIP pass in ArenaBody skips those commits so the two never fight.
+  const suppressFlip = useRef(false)
+
+  // Rewind to the old guard before first paint — the takeover needs someone
+  // to dethrone. SSR / no-JS / reduced motion keep the final cast instead.
+  // (Safe unsuppressed: birdabo and karpathy hold the same slots in both
+  // casts, so the swap commit moves nothing the FLIP pass would animate.)
+  useLayoutEffect(() => {
+    if (prefersReducedMotion()) return
+    setPilots(TAKEOVER_START)
+  }, [])
 
   useEffect(() => {
     if (!live || prefersReducedMotion()) return
+    const timers: ReturnType<typeof setTimeout>[] = []
+    let iv: ReturnType<typeof setInterval> | undefined
+
+    // Act one — the takeover. Each insurgent warps in one slot above their
+    // victim (the warp-in height growth shoves the victim down a rank),
+    // the victim flashes red, stalls, then collapses off the board.
+    TAKEOVER_EVENTS.forEach((ev, k) => {
+      const at = TK_T0 + k * TK_STEP
+      timers.push(
+        setTimeout(() => {
+          suppressFlip.current = true
+          setGain({ id: ev.enter.id, amt: ev.enter.today, seq: ++seqRef.current })
+          setPilots((prev) => [...prev, ev.enter].sort((a, b) => b.score - a.score))
+        }, at)
+      )
+      timers.push(
+        setTimeout(() => {
+          const el = rowRefs.current.get(ev.drop)
+          if (!el) return
+          const h = el.offsetHeight
+          el.animate(
+            [
+              {
+                height: `${h}px`,
+                marginBottom: '0px',
+                opacity: 1,
+                boxShadow: 'inset 0 0 0 1px rgb(251 113 133 / 0)'
+              },
+              {
+                boxShadow:
+                  'inset 0 0 0 1px rgb(251 113 133 / 0.65), 0 0 26px -8px rgb(251 113 133 / 0.5)',
+                offset: 0.16
+              },
+              {
+                height: `${h}px`,
+                marginBottom: '0px',
+                opacity: 0.75,
+                offset: 0.42
+              },
+              {
+                height: '0px',
+                marginBottom: `-${TK_ROW_GAP}px`,
+                opacity: 0,
+                filter: 'saturate(0.3) brightness(0.5)',
+                boxShadow: 'inset 0 0 0 1px rgb(251 113 133 / 0)'
+              }
+            ],
+            { duration: TK_EXIT_MS, easing: 'cubic-bezier(0.5, 0, 0.75, 0.4)', fill: 'forwards' }
+          )
+        }, at + TK_EXIT_AT)
+      )
+      timers.push(
+        setTimeout(() => {
+          suppressFlip.current = true
+          setPilots((prev) => prev.filter((p) => p.id !== ev.drop))
+        }, at + TK_EXIT_AT + TK_EXIT_MS)
+      )
+    })
+
+    // Act two — the standing duel, resumed once the new cast holds the board
+    // (which by then equals SIM_ROSTER exactly, so the pool stays tuned).
     const pool = SIM_ROSTER.flatMap((p) => Array<string>(p.heat).fill(p.id))
 
     // Dramaturgy: the crown never falls — @Birdabo holds #1 — but the fight
@@ -77,15 +175,22 @@ function useArenaSim() {
           .sort((a, b) => b.score - a.score)
       })
     }
-    const first = setTimeout(tick, 1600)
-    const iv = setInterval(tick, 2200)
-    return () => {
-      clearTimeout(first)
-      clearInterval(iv)
-    }
-  }, [live])
+    const settled =
+      TK_T0 + (TAKEOVER_EVENTS.length - 1) * TK_STEP + TK_EXIT_AT + TK_EXIT_MS
+    timers.push(
+      setTimeout(() => {
+        tick()
+        iv = setInterval(tick, 2200)
+      }, settled + 1600)
+    )
 
-  return { pilots, gain }
+    return () => {
+      timers.forEach(clearTimeout)
+      if (iv) clearInterval(iv)
+    }
+  }, [live, rowRefs])
+
+  return { pilots, gain, suppressFlip }
 }
 
 function Row({
@@ -104,11 +209,14 @@ function Row({
   const medal = rank <= 3 ? MEDALS[rank - 1] : null
   const champion = rank === 1
   const gained = gain?.id === pilot.id ? gain : null
+  // Insurgents get the warp-in (driven from the FLIP pass) instead of the
+  // staggered stage entrance — .st would replay st-rise on top of it.
+  const arriver = ARRIVER_IDS.has(pilot.id)
 
   return (
     <div
       ref={refFn}
-      className="st ar-row relative overflow-hidden rounded-xl"
+      className={`${arriver ? '' : 'st '}ar-row relative overflow-hidden rounded-xl`}
       style={
         {
           '--d': `${entranceDelay}ms`,
@@ -247,42 +355,85 @@ function Row({
 }
 
 function ArenaBody() {
-  const { pilots, gain } = useArenaSim()
   const rowRefs = useRef(new Map<string, HTMLDivElement>())
+  const { pilots, gain, suppressFlip } = useArenaSim(rowRefs)
   const prevTops = useRef(new Map<string, number>())
   const prevOrder = useRef<string[]>(SIM_ROSTER.map((p) => p.id))
   const order = pilots.map((p) => p.id).join('|')
 
   // FLIP: rows glide from their previous slot into the new one; a climber
   // gets a gold edge-flash so the overtake reads even in peripheral vision.
+  // Takeover commits opt out (suppressFlip): arrivals unfold from 0px and
+  // push the rows below via layout, and removals happen at zero height —
+  // FLIP translates on top of that would double-move everything.
   useLayoutEffect(() => {
     const next = new Map<string, number>()
     rowRefs.current.forEach((el, id) => next.set(id, el.getBoundingClientRect().top))
 
     const ids = pilots.map((p) => p.id)
-    next.forEach((top, id) => {
-      const old = prevTops.current.get(id)
-      const el = rowRefs.current.get(id)
-      if (old == null || !el) return
-      const dy = old - top
-      if (Math.abs(dy) < 2) return
-      el.animate(
-        [{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }],
-        { duration: 640, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }
-      )
-      if (prevOrder.current.indexOf(id) > ids.indexOf(id)) {
+    if (suppressFlip.current) {
+      suppressFlip.current = false
+      // Warp-in: the freshly inserted insurgent materializes — grows out of
+      // the seam above their victim behind an accent flash, hot and bright.
+      ids.forEach((id) => {
+        if (!ARRIVER_IDS.has(id) || prevOrder.current.includes(id)) return
+        const el = rowRefs.current.get(id)
+        if (!el) return
+        const h = el.offsetHeight
         el.animate(
           [
             {
-              boxShadow:
-                'inset 0 0 0 1px rgb(255 214 68 / 0.75), 0 0 30px -6px rgb(255 214 68 / 0.55)'
+              height: '0px',
+              marginBottom: `-${TK_ROW_GAP}px`,
+              opacity: 0,
+              filter: 'blur(10px) brightness(2.4) saturate(1.4)',
+              boxShadow: 'inset 0 0 0 1px rgb(2 254 1 / 0)'
             },
-            { boxShadow: 'inset 0 0 0 1px rgb(255 214 68 / 0)' }
+            {
+              height: `${h}px`,
+              marginBottom: '0px',
+              opacity: 1,
+              filter: 'blur(0px) brightness(1.4) saturate(1.15)',
+              boxShadow:
+                'inset 0 0 0 1px rgb(2 254 1 / 0.65), 0 0 34px -6px rgb(2 254 1 / 0.55)',
+              offset: 0.5
+            },
+            {
+              height: `${h}px`,
+              marginBottom: '0px',
+              opacity: 1,
+              filter: 'blur(0px) brightness(1) saturate(1)',
+              boxShadow: 'inset 0 0 0 1px rgb(2 254 1 / 0)'
+            }
           ],
-          { duration: 1000, easing: 'ease-out' }
+          { duration: 820, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }
         )
-      }
-    })
+      })
+    } else {
+      next.forEach((top, id) => {
+        const old = prevTops.current.get(id)
+        const el = rowRefs.current.get(id)
+        if (old == null || !el) return
+        const dy = old - top
+        if (Math.abs(dy) < 2) return
+        el.animate(
+          [{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }],
+          { duration: 640, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }
+        )
+        if (prevOrder.current.indexOf(id) > ids.indexOf(id)) {
+          el.animate(
+            [
+              {
+                boxShadow:
+                  'inset 0 0 0 1px rgb(255 214 68 / 0.75), 0 0 30px -6px rgb(255 214 68 / 0.55)'
+              },
+              { boxShadow: 'inset 0 0 0 1px rgb(255 214 68 / 0)' }
+            ],
+            { duration: 1000, easing: 'ease-out' }
+          )
+        }
+      })
+    }
     prevTops.current = next
     prevOrder.current = ids
     // eslint-disable-next-line react-hooks/exhaustive-deps
