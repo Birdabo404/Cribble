@@ -14,7 +14,8 @@ import { createServiceClient } from '@/lib/supabaseServer'
 //   subscription.active   -> grantProEntitlement: tier 'PRO', premium_since,
 //                            welcome notification — shared with the sync
 //                            endpoint
-//   subscription.revoked  -> users.subscription_tier = 'FREE'
+//   subscription.revoked  -> subscription_tier 'PRO' -> 'FREE' (manually
+//                            set tiers are left alone)
 //   subscription.canceled -> no-op (Pro stays until the period ends)
 //   order.paid            -> grant plate in user_cosmetics (if plate order)
 //   order.refunded        -> delete user_cosmetics rows by source_order_id
@@ -78,9 +79,13 @@ async function activateProSubscription(subscription: Subscription) {
   })
 }
 
-/** subscription.revoked -> tier back to FREE. Owned plate rows are never
- *  touched (one-time purchases outlive the sub); pro-exclusive equips
- *  self-heal at read time via resolveEquippedPlate. */
+/** subscription.revoked -> tier back to FREE, guarded to 'PRO' — the only
+ *  value this integration writes. A manually granted PREMIUM/PREMIUM+
+ *  survives a lapsed Polar sub (mirroring the upgrade-only sync); the
+ *  admin panel's revoke_pro stays the explicit path for clearing manual
+ *  tiers. Owned plate rows are never touched (one-time purchases outlive
+ *  the sub); pro-exclusive equips self-heal at read time via
+ *  resolveEquippedPlate. */
 async function revokeProSubscription(subscription: Subscription) {
   const userId = resolveUserId(subscription.customer?.externalId)
   if (!userId) {
@@ -92,6 +97,7 @@ async function revokeProSubscription(subscription: Subscription) {
     .from('users')
     .update({ subscription_tier: 'FREE' })
     .eq('id', userId)
+    .eq('subscription_tier', 'PRO')
 
   if (error) {
     throw new Error(`Failed to set subscription_tier=FREE for user ${userId}: ${error.message}`)

@@ -161,15 +161,19 @@ describe('grantProEntitlement', () => {
 
 // grantPlatePurchase is the shared purchase-fulfillment path (order.paid
 // webhook + pull-based order reconciliation). Contract: the ownership
-// upsert is the critical path (throws → callers retry), the delivered
-// notification rides behind it deduped per order id.
+// upsert is the critical path (throws → callers retry) and is
+// first-acquisition-wins — ignoreDuplicates means an existing row (admin
+// grant, champion grant, earlier purchase) is never rewritten, so
+// acquired_via/source_order_id can't be clobbered into something
+// order.refunded would delete. The delivered notification rides behind
+// it deduped per order id.
 describe('grantPlatePurchase', () => {
   beforeEach(() => {
     insertMissingNotificationsMock.mockReset()
     insertMissingNotificationsMock.mockResolvedValue(undefined)
   })
 
-  it('upserts the purchase row and queues the delivered notification', async () => {
+  it('inserts the purchase row without rewriting existing ownership, and queues the delivered notification', async () => {
     const db = makeDb({})
 
     await grantPlatePurchase(db.supabase, 9, { plateId: 'deep-space', orderId: 'order_1' })
@@ -182,7 +186,7 @@ describe('grantPlatePurchase', () => {
         acquired_via: 'purchase',
         source_order_id: 'order_1'
       },
-      { onConflict: 'user_id,item_type,item_id' }
+      { onConflict: 'user_id,item_type,item_id', ignoreDuplicates: true }
     )
     expect(insertMissingNotificationsMock).toHaveBeenCalledWith(db.supabase, 9, [
       {

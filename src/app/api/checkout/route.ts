@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { resolveAppUrl } from '@/lib/appUrl'
 import { getPlate } from '@/lib/cosmetics/plates'
-import { isProTier } from '@/lib/entitlements'
+import { getOwnedPlateIds, isProTier } from '@/lib/entitlements'
 import {
   getPolarClient,
   isPolarConfigured,
@@ -91,6 +91,17 @@ export async function GET(request: NextRequest) {
           { success: false, error: 'Plate is not for sale' },
           { status: 404 }
         )
+      }
+      // Ownership gate: the shop hides the buy button on owned plates, but
+      // a stale tab, double-click race or hand-typed URL would still charge
+      // for a plate the buyer already has (the grant would just no-op).
+      // Browser-navigation route, so bounce back to the shop with a notice
+      // instead of raw JSON. getOwnedPlateIds degrades to [] on a failed
+      // read — a flaky lookup lets the checkout proceed rather than
+      // blocking a legitimate purchase.
+      const ownedPlateIds = await getOwnedPlateIds(supabase, session.userId)
+      if (ownedPlateIds.includes(plateId!)) {
+        return NextResponse.redirect(new URL('/shop?checkout=owned', appUrl))
       }
       productId = resolvePlateProductId(plateId!)
       if (!productId) {

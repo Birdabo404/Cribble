@@ -91,10 +91,14 @@ export interface GrantPlatePurchaseOptions {
  * funnel through here so the ownership row and the "delivered"
  * notification always land together. Champion/beta/founder gifts have
  * their own grant paths and never come through here.
- * Idempotent: the upsert no-ops on the (user_id, item_type, item_id)
- * unique index and the notification is deduped per order id. Throws on
- * upsert failure (webhook retries / sync surfaces the error); the
- * notification is best-effort — insertMissingNotifications never throws.
+ * Idempotent, first-acquisition-wins: ignoreDuplicates makes the upsert
+ * insert nothing when a row already exists on the
+ * (user_id, item_type, item_id) unique index, so a duplicate order can
+ * never rewrite acquired_via/source_order_id — an admin/champion grant
+ * can't be turned into a "purchase" that order.refunded would later
+ * delete. The notification is deduped per order id. Throws on upsert
+ * failure (webhook retries / sync surfaces the error); the notification
+ * is best-effort — insertMissingNotifications never throws.
  */
 export async function grantPlatePurchase(
   supabase: SupabaseClient,
@@ -109,7 +113,7 @@ export async function grantPlatePurchase(
       acquired_via: 'purchase',
       source_order_id: orderId
     },
-    { onConflict: 'user_id,item_type,item_id' }
+    { onConflict: 'user_id,item_type,item_id', ignoreDuplicates: true }
   )
 
   if (error) {

@@ -163,6 +163,7 @@ async function syncSubscription(
 
 type ShopNotice =
   | 'checkout-success'
+  | 'checkout-owned'
   | 'checkout-error'
   | 'portal-none'
   | 'portal-error'
@@ -194,6 +195,12 @@ function noticeMeta(notice: ShopNotice): { tone: NoticeTone; title: string; body
         tone: 'up',
         title: 'ORDER CONFIRMED',
         body: 'Polar is processing the purchase — perks unlock in a few seconds. Re-check if nothing has changed yet.'
+      }
+    case 'checkout-owned':
+      return {
+        tone: 'info',
+        title: 'ALREADY IN YOUR HANGAR',
+        body: 'You already own that plate, so checkout stopped itself — nothing was charged.'
       }
     case 'checkout-error':
       return {
@@ -1019,13 +1026,15 @@ function ShopDepot() {
     const next: ShopNotice | null =
       checkout === 'success'
         ? 'checkout-success'
-        : checkout === 'error'
-          ? 'checkout-error'
-          : portal === 'none'
-            ? 'portal-none'
-            : portal === 'error'
-              ? 'portal-error'
-              : null
+        : checkout === 'owned'
+          ? 'checkout-owned'
+          : checkout === 'error'
+            ? 'checkout-error'
+            : portal === 'none'
+              ? 'portal-none'
+              : portal === 'error'
+                ? 'portal-error'
+                : null
     if (!next) return
     setNotice(next)
     // Fresh from Polar checkout: reconcile immediately instead of waiting
