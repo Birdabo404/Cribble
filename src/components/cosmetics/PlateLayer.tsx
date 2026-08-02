@@ -970,40 +970,267 @@ export function PlateLayer({ plateId, fade = 'left', className = '' }: PlateLaye
           }
         }
 
-        .plx-ember {
-          animation: plx-ember 4s linear infinite;
+        /* ---- Season 01: Ignition — kerolox plume physics ---- */
+
+        /* igniter sparks: ballistic ejecta off the nozzle mouth. The
+           trajectory lives in per-spark vars (--plx-sx/-sy/-sr) so one
+           keyframe set serves slivers and droplets alike; ease-out =
+           violent ejection decaying under drag, and the sliver stretch
+           (scaleX 0.35→1→0.6) sells velocity foreshortening */
+        .plx-spark {
+          animation: plx-spark 1.4s cubic-bezier(0.16, 0.6, 0.35, 1) infinite;
         }
-        @keyframes plx-ember {
+        @keyframes plx-spark {
           0% {
-            transform: translate3d(0, 0, 0) scale(1);
+            transform: translate3d(0, 0, 0) rotate(0deg) scaleX(0.35);
             opacity: 0;
           }
-          12% {
+          7% {
+            opacity: 1;
+          }
+          55% {
+            transform: translate3d(calc(var(--plx-sx, -90px) * 0.62), calc(var(--plx-sy, 6px) * 0.3), 0)
+              rotate(calc(var(--plx-sr, -10deg) * 0.5)) scaleX(1);
             opacity: 0.9;
           }
           100% {
-            transform: translate3d(-120px, -12px, 0) scale(0.35);
+            transform: translate3d(var(--plx-sx, -90px), var(--plx-sy, 6px), 0)
+              rotate(var(--plx-sr, -10deg)) scaleX(0.6);
             opacity: 0;
           }
         }
 
-        .plx-line {
-          animation: plx-line 2.4s linear infinite;
+        /* mach diamonds: standing shocks re-igniting unburned fuel — a
+           brightness/scale swell as the pressure ratio breathes, never a
+           position change (the shock chain is anchored to the nozzle).
+           The 1.34 swell is the static-test retune: the chain should
+           punch as the combustion thump rolls through, not shimmer */
+        .plx-diamond {
+          transform-origin: center;
+          animation: plx-diamond 0.9s ease-in-out infinite;
         }
-        @keyframes plx-line {
+        @keyframes plx-diamond {
+          0%,
+          100% {
+            transform: scale(1);
+            opacity: 0.72;
+          }
+          50% {
+            transform: scale(1.34);
+            opacity: 1;
+          }
+        }
+
+        /* pad smoke: a slow billow crawling left along the strip floor —
+           scaleX swell as the puff lofts and shears, opacity inhaling
+           then exhaling over one long breath */
+        .plx-smoke {
+          animation: plx-smoke 11s ease-in-out infinite;
+        }
+        @keyframes plx-smoke {
           0% {
-            transform: translate3d(50px, 0, 0);
+            transform: translate3d(6px, 4px, 0) scaleX(0.82);
             opacity: 0;
           }
-          8% {
-            opacity: 0.85;
-          }
-          85% {
+          32% {
             opacity: 0.5;
           }
+          58% {
+            transform: translate3d(-12px, -1px, 0) scaleX(1.14);
+            opacity: 0.42;
+          }
           100% {
-            transform: translate3d(-230px, 0, 0);
+            transform: translate3d(-26px, -6px, 0) scaleX(1.3);
             opacity: 0;
+          }
+        }
+
+        /* the 11s blast surge (TDE precedent: the event owns <7% of the
+           loop, so the plate reads as a steady burn punctuated by a
+           detonation — not a strobe). The flash double-strikes: an
+           igniter spike, a quarter-beat collapse, then the main bang;
+           two shockwave rings roll left through the plume a beat apart */
+        .plx-ign-flash {
+          animation: plx-ign-flash 11s linear infinite;
+        }
+        @keyframes plx-ign-flash {
+          0%,
+          89.5% {
+            transform: scale(0.5);
+            opacity: 0;
+          }
+          91% {
+            transform: scale(1.18);
+            opacity: 1;
+          }
+          92.3% {
+            transform: scale(0.92);
+            opacity: 0.5;
+          }
+          93.2% {
+            transform: scale(1.3);
+            opacity: 0.92;
+          }
+          96%,
+          100% {
+            transform: scale(1.55);
+            opacity: 0;
+          }
+        }
+
+        .plx-ign-ring {
+          transform-origin: right center;
+          animation: plx-ign-ring 11s linear infinite;
+        }
+        @keyframes plx-ign-ring {
+          0%,
+          90% {
+            transform: translate3d(0, 0, 0) scale3d(0.3, 0.3, 1);
+            opacity: 0;
+          }
+          91.6% {
+            opacity: 0.85;
+          }
+          95%,
+          100% {
+            transform: translate3d(-58px, 0, 0) scale3d(3.2, 2.3, 1);
+            opacity: 0;
+          }
+        }
+
+        /* combustion thump: the low-frequency instability under the fast
+           flicker. Origin pinned to the bell mouth so the whole plume —
+           fireball, jet, diamonds — surges radially out of the nozzle,
+           overshoots, and settles like shockwaves finding their flow */
+        .plx-thump {
+          transform-origin: right center;
+          animation: plx-thump 2.8s cubic-bezier(0.22, 0.9, 0.36, 1) infinite;
+        }
+        @keyframes plx-thump {
+          0%,
+          100% {
+            transform: scale(1);
+            opacity: 0.9;
+          }
+          9% {
+            transform: scale(1.14);
+            opacity: 1;
+          }
+          24% {
+            transform: scale(0.95);
+            opacity: 0.82;
+          }
+          42% {
+            transform: scale(1.06);
+            opacity: 0.96;
+          }
+          64% {
+            transform: scale(0.98);
+            opacity: 0.87;
+          }
+        }
+
+        /* fume tumble: each puff spawns tight at the plume, lofts along
+           its own --plx-dx/--plx-dy fan (up-left and down-left off the
+           fireball) and shears out 0.5 → 2.1 as it cools; the rotate is
+           the billow rolling over itself, never a sideways slide */
+        .plx-billow {
+          animation: plx-billow 8s ease-out infinite;
+        }
+        @keyframes plx-billow {
+          0% {
+            transform: translate3d(0, 0, 0) rotate(0deg) scale(0.7);
+            opacity: 0;
+          }
+          15% {
+            opacity: 0.55;
+          }
+          58% {
+            transform: translate3d(calc(var(--plx-dx, -48px) * 0.55), calc(var(--plx-dy, -20px) * 0.55), 0)
+              rotate(calc(var(--plx-br, 12deg) * 0.6)) scale(1.35);
+            opacity: 0.4;
+          }
+          100% {
+            transform: translate3d(var(--plx-dx, -48px), var(--plx-dy, -20px), 0)
+              rotate(var(--plx-br, 12deg)) scale(2.1);
+            opacity: 0;
+          }
+        }
+
+        /* tip bloom: the plume's mushrooming burnout — a slow swell at
+           the jet's ragged end where the exhaust slams into still air
+           and curls back on itself */
+        .plx-bloom {
+          transform-origin: center;
+          animation: plx-bloom 2.2s ease-in-out infinite;
+        }
+        @keyframes plx-bloom {
+          0%,
+          100% {
+            transform: scale(0.92);
+            opacity: 0.62;
+          }
+          44% {
+            transform: scale(1.15);
+            opacity: 0.92;
+          }
+          70% {
+            transform: scale(1.03);
+            opacity: 0.74;
+          }
+        }
+
+        /* surge debris fan: bright streaks of spalled igniter spray shot
+           outward from the bell inside the blast window only. --plx-ra
+           aims each spoke; the translate runs down the rotated axis, so
+           one keyframe set serves the whole fan */
+        .plx-burst-streak {
+          transform-origin: right center;
+          animation: plx-burst-streak 11s linear infinite;
+        }
+        @keyframes plx-burst-streak {
+          0%,
+          90% {
+            transform: rotate(var(--plx-ra, 0deg)) translate3d(0, 0, 0) scaleX(0.35);
+            opacity: 0;
+          }
+          91.4% {
+            opacity: 0.9;
+          }
+          95.5%,
+          100% {
+            transform: rotate(var(--plx-ra, 0deg)) translate3d(-72px, 0, 0) scaleX(1.2);
+            opacity: 0;
+          }
+        }
+
+        /* concussion shake: the anchor's 1–2px jolt as the blast wave
+           passes — five decaying oscillations parked inside the flash
+           window, dead still the rest of the loop */
+        .plx-shake {
+          animation: plx-shake 11s linear infinite;
+        }
+        @keyframes plx-shake {
+          0%,
+          89.8%,
+          96.5%,
+          100% {
+            transform: translate3d(0, 0, 0);
+          }
+          90.4% {
+            transform: translate3d(1.5px, -1px, 0);
+          }
+          91.2% {
+            transform: translate3d(-1px, 1.5px, 0);
+          }
+          92.2% {
+            transform: translate3d(1px, 1px, 0);
+          }
+          93.4% {
+            transform: translate3d(-1.5px, -0.5px, 0);
+          }
+          94.8% {
+            transform: translate3d(0.5px, -1px, 0);
           }
         }
 
@@ -2114,11 +2341,49 @@ const PETALS = [
   { right: '48%', top: '24%', size: 4, dur: '13s', delay: '-6.6s' }
 ]
 
-const EMBERS = [
-  { top: '24%', size: 3, dur: '3.4s', delay: '-1s' },
-  { top: '44%', size: 2, dur: '4.6s', delay: '-2.4s' },
-  { top: '58%', size: 2.5, dur: '3.9s', delay: '-3.2s' },
-  { top: '70%', size: 2, dur: '5.1s', delay: '-0.6s' }
+/** Ignition ejecta, fired from the nozzle exit plane. 1px slivers are the
+ * igniter spray — white and pale-yellow burn hottest; the 2px droplets are
+ * the old embers' heirs, their palette pushed past orange into pink and
+ * violet so the debris field echoes the sheath's cooled fringe. sx/sy/sr
+ * feed the shared plx-spark trajectory vars; staggered negative delays
+ * keep the re-fires irregular. The blast retune steepened three
+ * trajectories (sy -30/-36/+28) so the spray fans wide off the fireball
+ * instead of streaming in the jet's narrow corridor. */
+const IGN_SPARKS = [
+  { w: 14, h: 1, top: -2, sx: -112, sy: -30, sr: -22, dur: '1.3s', delay: '-0.4s', tint: 'rgb(255 255 255 / 0.95)', glow: 'rgb(255 240 200 / 0.8)' },
+  { w: 11, h: 1, top: 1, sx: -86, sy: 10, sr: 11, dur: '1.6s', delay: '-1.1s', tint: 'rgb(255 236 170 / 0.95)', glow: 'rgb(255 200 90 / 0.8)' },
+  { w: 2, h: 2, top: -1, sx: -98, sy: -7, sr: 0, dur: '1.2s', delay: '-0.2s', tint: 'rgb(255 122 40 / 0.95)', glow: 'rgb(255 106 40 / 0.8)' },
+  { w: 16, h: 1, top: 2, sx: -126, sy: -36, sr: -26, dur: '1.8s', delay: '-1.5s', tint: 'rgb(255 140 60 / 0.95)', glow: 'rgb(255 106 40 / 0.8)' },
+  { w: 2, h: 2, top: 0, sx: -74, sy: 28, sr: 0, dur: '1.1s', delay: '-0.8s', tint: 'rgb(255 143 178 / 0.95)', glow: 'rgb(244 114 182 / 0.8)' },
+  { w: 9, h: 1, top: -3, sx: -66, sy: -5, sr: -8, dur: '1.4s', delay: '-0.6s', tint: 'rgb(255 255 255 / 0.95)', glow: 'rgb(255 236 170 / 0.8)' },
+  { w: 2, h: 2, top: 3, sx: -122, sy: 7, sr: 0, dur: '1.7s', delay: '-1.3s', tint: 'rgb(216 180 255 / 0.95)', glow: 'rgb(168 85 247 / 0.8)' }
+]
+
+/** Ignition fume bank — the thick static-test exhaust clouds. Each puff is
+ * lit ember-orange on its flame-facing side, cooling to grey-violet
+ * outside; right/top pin the spawn point along the plume's underbelly and
+ * dx/dy/br feed plx-billow's tumble fan (up-left and down-left off the
+ * fireball). Staggered negative delays keep the bank rolling instead of
+ * pulsing. */
+const IGN_BILLOWS = [
+  { right: 30, top: 4, size: 24, dx: -44, dy: 26, br: 16, dur: '6.8s', delay: '-2.1s', bg: 'radial-gradient(52% 52% at 66% 58%, rgb(255 150 70 / 0.5), rgb(190 168 220 / 0.24) 55%, transparent 74%)' },
+  { right: 58, top: -6, size: 30, dx: -58, dy: -30, br: -13, dur: '8.2s', delay: '-4.6s', bg: 'radial-gradient(52% 52% at 66% 58%, rgb(255 150 70 / 0.42), rgb(190 168 220 / 0.2) 55%, transparent 74%)' },
+  { right: 84, top: 0, size: 34, dx: -70, dy: 18, br: 9, dur: '9.4s', delay: '-6.3s', bg: 'radial-gradient(52% 52% at 66% 58%, rgb(255 150 70 / 0.36), rgb(190 168 220 / 0.18) 55%, transparent 74%)' },
+  { right: 14, top: -4, size: 20, dx: -36, dy: -22, br: -18, dur: '7.6s', delay: '-1.2s', bg: 'radial-gradient(52% 52% at 66% 58%, rgb(255 150 70 / 0.55), rgb(190 168 220 / 0.26) 55%, transparent 74%)' },
+  { right: 104, top: -8, size: 26, dx: -62, dy: -36, br: -10, dur: '10s', delay: '-7.8s', bg: 'radial-gradient(52% 52% at 66% 58%, rgb(255 150 70 / 0.3), rgb(190 168 220 / 0.16) 55%, transparent 74%)' }
+]
+
+/** Blast-surge debris fan: spalled igniter spray streaking out of the bell
+ * inside the 11s window only. ra aims each spoke off the plume axis
+ * (negative climbs up-left); small width/stagger variance keeps the fan
+ * ragged rather than a wheel. */
+const IGN_BURST = [
+  { ra: -38, w: 32, delay: '0.1s' },
+  { ra: -24, w: 42, delay: '0s' },
+  { ra: -11, w: 48, delay: '0.06s' },
+  { ra: 4, w: 50, delay: '0s' },
+  { ra: 17, w: 44, delay: '0.08s' },
+  { ra: 31, w: 34, delay: '0.14s' }
 ]
 
 const GLINTS = [
@@ -3778,121 +4043,373 @@ function FxOverlay({ fx }: { fx: PlateFx }) {
       )
 
     case 'ignition':
-      // afterburner scene: a flickering twin-cone flame on the right edge,
-      // speed lines and embers streaking left over the checkered flag
+      // static-test ignition: a fireball erupting radially out of the
+      // bell, a fat ragged kerolox jet jerking downstream as its
+      // shockwaves find their flow, and a fume bank tumbling off the pad.
+      // Every flame layer's right edge is pinned to the bell-nozzle exit
+      // plane (right: 38, 50% — the same coordinate the plates.ts booster
+      // SVG seats its nozzle mouth on), so the whole blast burns out of
+      // the bell. Physics ladder, back → front: fireball bloom, ragged
+      // sheath lobes, torn blackbody body, mushrooming tip bloom, blue
+      // Swan-band root, white-hot spear, white throat core, then the
+      // mach-diamond chain, throat glow, sparks, fume bank, and the 11s
+      // blast surge. The left half stays dark for the fade mask.
       return (
         <>
+          {/* ambient firelight washing the right third: hot orange at the
+              nozzle cooling through pink to violet at the edges — the
+              long-exposure night-launch glow */}
           <div
             className="plx-breathe absolute inset-y-0"
             style={{
               right: 0,
-              width: '32%',
+              width: '36%',
               background:
-                'radial-gradient(70% 120% at 100% 55%, rgb(255 106 40 / 0.3), transparent 70%)',
-              animationDuration: '4.5s'
+                'radial-gradient(75% 140% at 88% 50%, rgb(255 106 40 / 0.2), rgb(236 72 153 / 0.11) 48%, rgb(168 85 247 / 0.08) 68%, transparent 80%)',
+              animationDuration: '5.5s'
             }}
           />
-          {/* afterburner cone breathing off the right edge, white-hot core */}
-          <div className="absolute" style={{ right: 0, top: '50%' }}>
-            <div
-              className="plx-flame"
-              style={{
-                width: 58,
-                height: 22,
-                marginTop: -11,
-                clipPath: 'polygon(0 50%, 74% 8%, 100% 28%, 93% 50%, 100% 72%, 74% 92%)',
-                background:
-                  'linear-gradient(90deg, transparent, rgb(255 122 40 / 0.55) 30%, rgb(255 180 80 / 0.85) 62%, rgb(255 224 130 / 0.98))',
-                filter: 'blur(1.5px)'
-              }}
-            />
-            <div
-              className="plx-flame absolute"
-              style={{
-                right: 0,
-                top: '50%',
-                width: 30,
-                height: 8,
-                marginTop: -4,
-                clipPath: 'polygon(0 50%, 70% 0, 100% 30%, 100% 70%, 70% 100%)',
-                background:
-                  'linear-gradient(90deg, transparent, rgb(255 240 200 / 0.9) 55%, rgb(255 255 255 / 0.98))',
-                filter: 'blur(0.5px)',
-                animationDuration: '0.6s'
-              }}
-            />
-            {/* shock diamonds inside the plume */}
-            <div
-              className="plx-flame absolute"
-              style={{
-                right: 26,
-                top: '50%',
-                width: 10,
-                height: 5,
-                marginTop: -2.5,
-                clipPath: 'polygon(0 50%, 50% 0, 100% 50%, 50% 100%)',
-                background: 'rgb(255 244 214 / 0.85)',
-                filter: 'blur(0.5px)',
-                animationDuration: '0.7s',
-                animationDelay: '-0.2s'
-              }}
-            />
+          {/* trench-pool: exhaust glow pooling on the pad beneath the
+              plume, flaring in step with the thump */}
+          <div
+            className="plx-breathe absolute"
+            style={{
+              right: 0,
+              bottom: 1,
+              width: 124,
+              height: 15,
+              background:
+                'radial-gradient(64% 100% at 78% 100%, rgb(255 122 40 / 0.3), rgb(215 48 90 / 0.12) 56%, transparent 78%)',
+              filter: 'blur(2px)',
+              animationDuration: '2.8s'
+            }}
+          />
+          {/* the blast stack: zero-size anchor on the nozzle exit plane,
+              children hanging left off it. Two wrappers divide the
+              violence — plx-shake owns the surge concussion, plx-thump
+              the slow combustion pulse (its origin is the bell mouth, so
+              the plume surges radially out of the nozzle) — and
+              plx-flame's fast jitter keeps running on top per layer */}
+          <div className="absolute" style={{ right: 38, top: '50%' }}>
+            <div className="plx-shake absolute" style={{ right: 0, top: 0 }}>
+              <div className="plx-thump absolute" style={{ right: 0, top: 0 }}>
+                {/* fireball bloom: the radial eruption at the bell mouth the
+                    eye goes to first — a white-yellow heart burning through
+                    orange into the pink/violet static-fire halo, its edge
+                    sunk into the bell's dark interior, swelling with the
+                    thump */}
+                <div
+                  className="absolute"
+                  style={{
+                    right: -12,
+                    top: 0,
+                    width: 56,
+                    height: 44,
+                    marginTop: -22,
+                    borderRadius: '50%',
+                    background:
+                      'radial-gradient(52% 52% at 60% 50%, rgb(255 252 230 / 1), rgb(255 226 150 / 0.92) 38%, rgb(255 140 50 / 0.62) 60%, rgb(236 72 153 / 0.26) 80%, transparent 94%)',
+                    filter: 'blur(1px)'
+                  }}
+                />
+                {/* outer sheath, lobe A: the feathered cooling fringe,
+                    orange → pink → purple trailing left. The zigzag clip
+                    reads as ragged combustion lobes once the blur feathers
+                    it; the heavy blur is what sells the long exposure */}
+                <div
+                  className="plx-flame absolute"
+                  style={{
+                    right: 0,
+                    top: 0,
+                    width: 120,
+                    height: 52,
+                    marginTop: -26,
+                    clipPath:
+                      'polygon(100% 34%, 100% 66%, 86% 78%, 74% 56%, 62% 92%, 50% 62%, 38% 100%, 28% 66%, 16% 96%, 8% 58%, 0 46%, 8% 34%, 16% 4%, 28% 28%, 38% 0, 50% 32%, 62% 8%, 74% 40%, 86% 22%)',
+                    background:
+                      'linear-gradient(90deg, transparent, rgb(168 85 247 / 0.34) 22%, rgb(244 114 182 / 0.4) 48%, rgb(255 122 40 / 0.42) 72%, rgb(255 140 55 / 0.48))',
+                    filter: 'blur(2.5px)',
+                    animationDuration: '2.4s'
+                  }}
+                />
+                {/* sheath tongue B: a second fringe lobe on a phase-offset
+                    flicker, riding low, so the sheath's edge never settles
+                    into one shape */}
+                <div
+                  className="plx-flame absolute"
+                  style={{
+                    right: 0,
+                    top: 0,
+                    width: 96,
+                    height: 38,
+                    marginTop: -17,
+                    clipPath:
+                      'polygon(100% 34%, 100% 66%, 82% 82%, 66% 60%, 50% 96%, 36% 66%, 22% 100%, 12% 64%, 0 52%, 12% 38%, 22% 4%, 36% 32%, 50% 6%, 66% 40%, 82% 20%)',
+                    background:
+                      'linear-gradient(90deg, transparent, rgb(168 85 247 / 0.3) 26%, rgb(255 122 40 / 0.4) 60%, rgb(255 140 60 / 0.52))',
+                    filter: 'blur(2px)',
+                    animationDuration: '1.9s',
+                    animationDelay: '-0.8s'
+                  }}
+                />
+                {/* mid body: the blackbody core, orange bleeding to yellow
+                    toward the nozzle, its trailing edge torn where the
+                    shear layer rips the flame apart */}
+                <div
+                  className="plx-flame absolute"
+                  style={{
+                    right: 0,
+                    top: 0,
+                    width: 80,
+                    height: 28,
+                    marginTop: -14,
+                    clipPath:
+                      'polygon(100% 34%, 100% 66%, 85% 78%, 71% 60%, 57% 92%, 44% 66%, 32% 100%, 22% 70%, 12% 92%, 5% 58%, 0 50%, 5% 40%, 12% 8%, 22% 28%, 32% 0, 44% 32%, 57% 8%, 71% 40%, 85% 22%)',
+                    background:
+                      'linear-gradient(90deg, transparent, rgb(255 122 40 / 0.42) 30%, rgb(255 190 80 / 0.8) 64%, rgb(255 236 150 / 0.92))',
+                    filter: 'blur(1px)',
+                    animationDuration: '1.1s',
+                    animationDelay: '-0.3s'
+                  }}
+                />
+                {/* tip bloom: the plume's left end mushrooming as the
+                    exhaust slams into still air and curls back — a slow
+                    swell, never a tapered point */}
+                <div
+                  className="plx-bloom absolute"
+                  style={{
+                    right: 86,
+                    top: 0,
+                    width: 42,
+                    height: 30,
+                    marginTop: -15,
+                    borderRadius: '50%',
+                    background:
+                      'radial-gradient(50% 50% at 64% 50%, rgb(255 168 80 / 0.6), rgb(244 114 182 / 0.34) 48%, rgb(168 85 247 / 0.16) 70%, transparent)',
+                    filter: 'blur(2.5px)'
+                  }}
+                />
+                {/* blue root: translucent Swan-band radical emission hugging
+                    the nozzle exit — the tell of a fresh kerolox light */}
+                <div
+                  className="plx-flame absolute"
+                  style={{
+                    right: 0,
+                    top: 0,
+                    width: 46,
+                    height: 14,
+                    marginTop: -7,
+                    clipPath: 'polygon(100% 28%, 100% 72%, 55% 96%, 0 50%, 55% 4%)',
+                    background:
+                      'linear-gradient(90deg, transparent, rgb(56 189 248 / 0.48) 45%, rgb(125 211 252 / 0.85))',
+                    filter: 'blur(1px)',
+                    animationDuration: '0.7s'
+                  }}
+                />
+                {/* white-hot spear: the supersonic core — shortest, hottest,
+                    fastest flicker */}
+                <div
+                  className="plx-flame absolute"
+                  style={{
+                    right: 0,
+                    top: 0,
+                    width: 64,
+                    height: 9,
+                    marginTop: -4.5,
+                    clipPath: 'polygon(100% 36%, 100% 64%, 45% 100%, 0 50%, 45% 0)',
+                    background:
+                      'linear-gradient(90deg, transparent, rgb(255 244 200 / 0.72) 42%, rgb(255 255 255 / 0.95))',
+                    filter: 'blur(0.5px)',
+                    animationDuration: '0.6s'
+                  }}
+                />
+                {/* throat core: the fireball's tight white heart, strobing
+                    on the fastest flicker */}
+                <div
+                  className="plx-flame absolute"
+                  style={{
+                    right: -4,
+                    top: 0,
+                    width: 26,
+                    height: 18,
+                    marginTop: -9,
+                    borderRadius: '50%',
+                    background:
+                      'radial-gradient(50% 50% at 60% 50%, rgb(255 255 255 / 0.98), rgb(255 226 150 / 0.72) 50%, transparent 74%)',
+                    filter: 'blur(0.5px)',
+                    animationDuration: '0.55s'
+                  }}
+                />
+                {/* mach diamonds: standing shocks re-igniting unburned fuel
+                    in the first half of the plume — white cores with cyan
+                    fringes, phase-offset so the chain punches downstream */}
+                {[8, 22, 36, 50].map((r, i) => (
+                  <div
+                    key={i}
+                    className="plx-diamond absolute"
+                    style={{
+                      right: r,
+                      top: 0,
+                      width: 12,
+                      height: 8,
+                      marginTop: -4,
+                      clipPath: 'polygon(50% 0, 100% 50%, 50% 100%, 0 50%)',
+                      background:
+                        'linear-gradient(90deg, rgb(125 244 255 / 0.95), rgb(255 255 255 / 1) 50%, rgb(125 244 255 / 0.95))',
+                      filter: 'drop-shadow(0 0 3px rgb(125 244 255 / 0.8))',
+                      animationDelay: `${-0.15 * i}s`
+                    }}
+                  />
+                ))}
+                {/* throat glow: the white-hot ellipse straddling the nozzle
+                    plane, half sunk in the bell's dark interior */}
+                <div
+                  className="plx-breathe absolute"
+                  style={{
+                    right: -4,
+                    top: 0,
+                    width: 8,
+                    height: 9,
+                    marginTop: -4.5,
+                    borderRadius: '50%',
+                    background:
+                      'radial-gradient(50% 50% at 50% 50%, rgb(255 255 255 / 0.95), rgb(255 224 150 / 0.55) 55%, transparent 75%)',
+                    animationDuration: '1.3s'
+                  }}
+                />
+              </div>
+              {/* igniter sparks fanning off the nozzle mouth — transient,
+                  so they park at opacity: 0 for the reduced-motion freeze */}
+              {IGN_SPARKS.map((s, i) => (
+                <div
+                  key={i}
+                  className="plx-spark absolute"
+                  style={{
+                    right: 0,
+                    top: s.top,
+                    width: s.w,
+                    height: s.h,
+                    borderRadius: s.h > 1 ? '50%' : 1,
+                    background: s.tint,
+                    boxShadow: `0 0 5px ${s.glow}`,
+                    opacity: 0,
+                    animationDuration: s.dur,
+                    animationDelay: s.delay,
+                    ['--plx-sx' as string]: `${s.sx}px`,
+                    ['--plx-sy' as string]: `${s.sy}px`,
+                    ['--plx-sr' as string]: `${s.sr}deg`
+                  }}
+                />
+              ))}
+              {/* the 11s blast surge: a double-strike igniter flash at the
+                  nozzle, two shockwave rings rolling left through the
+                  plume a beat apart, and the spalled-spray debris fan */}
+              <div
+                className="plx-ign-flash absolute"
+                style={{
+                  right: -22,
+                  top: 0,
+                  width: 44,
+                  height: 44,
+                  marginTop: -22,
+                  borderRadius: '50%',
+                  background:
+                    'radial-gradient(50% 50% at 50% 50%, rgb(255 255 255 / 0.95), rgb(255 214 150 / 0.5) 45%, transparent 70%)',
+                  opacity: 0
+                }}
+              />
+              <div
+                className="plx-ign-ring absolute"
+                style={{
+                  right: 0,
+                  top: 0,
+                  width: 26,
+                  height: 26,
+                  marginTop: -13,
+                  borderRadius: '50%',
+                  border: '1.5px solid rgb(255 240 214 / 0.8)',
+                  boxShadow: '0 0 8px rgb(255 190 120 / 0.5)',
+                  opacity: 0
+                }}
+              />
+              <div
+                className="plx-ign-ring absolute"
+                style={{
+                  right: 0,
+                  top: 0,
+                  width: 18,
+                  height: 18,
+                  marginTop: -9,
+                  borderRadius: '50%',
+                  border: '1px solid rgb(255 214 170 / 0.7)',
+                  boxShadow: '0 0 6px rgb(255 170 100 / 0.45)',
+                  opacity: 0,
+                  animationDelay: '0.45s'
+                }}
+              />
+              {IGN_BURST.map((b, i) => (
+                <div
+                  key={i}
+                  className="plx-burst-streak absolute"
+                  style={{
+                    right: 0,
+                    top: 0,
+                    width: b.w,
+                    height: 3,
+                    marginTop: -1.5,
+                    background:
+                      'linear-gradient(90deg, transparent, rgb(255 244 210 / 0.95))',
+                    boxShadow: '0 0 5px rgb(255 200 120 / 0.7)',
+                    opacity: 0,
+                    animationDelay: b.delay,
+                    ['--plx-ra' as string]: `${b.ra}deg`
+                  }}
+                />
+              ))}
+              {/* fume bank: thick exhaust clouds spawning along the plume's
+                  underbelly, tumbling up-left and down-left as they cool —
+                  transient, parked invisible for the reduced-motion frame */}
+              {IGN_BILLOWS.map((b, i) => (
+                <div
+                  key={i}
+                  className="plx-billow absolute"
+                  style={{
+                    right: b.right,
+                    top: b.top,
+                    width: b.size,
+                    height: Math.round(b.size * 0.78),
+                    marginTop: -Math.round(b.size * 0.39),
+                    borderRadius: '50%',
+                    background: b.bg,
+                    filter: 'blur(2.5px)',
+                    opacity: 0,
+                    animationDuration: b.dur,
+                    animationDelay: b.delay,
+                    ['--plx-dx' as string]: `${b.dx}px`,
+                    ['--plx-dy' as string]: `${b.dy}px`,
+                    ['--plx-br' as string]: `${b.br}deg`
+                  }}
+                />
+              ))}
+            </div>
           </div>
+          {/* pad smoke: one low wisp pooling on the strip floor, drifting
+              left; tinted lavender/rose by the fire */}
           <div
-            className="plx-line absolute"
+            className="plx-smoke absolute"
             style={{
-              right: 0,
-              top: '26%',
-              width: 64,
-              height: 1,
-              background: 'linear-gradient(90deg, transparent, rgb(255 140 66 / 0.85))',
+              right: 6,
+              bottom: 3,
+              width: 92,
+              height: 16,
+              borderRadius: '50%',
+              background:
+                'radial-gradient(50% 50% at 50% 50%, rgb(196 160 230 / 0.18), transparent 70%)',
+              filter: 'blur(2px)',
               opacity: 0,
-              animationDuration: '1.9s'
+              animationDuration: '9.5s'
             }}
           />
-          <div
-            className="plx-line absolute"
-            style={{
-              right: 0,
-              top: '48%',
-              width: 82,
-              height: 1,
-              background: 'linear-gradient(90deg, transparent, rgb(255 200 120 / 0.6))',
-              opacity: 0,
-              animationDuration: '2.2s',
-              animationDelay: '-0.6s'
-            }}
-          />
-          <div
-            className="plx-line absolute"
-            style={{
-              right: 0,
-              top: '68%',
-              width: 48,
-              height: 1,
-              background: 'linear-gradient(90deg, transparent, rgb(255 92 30 / 0.7))',
-              opacity: 0,
-              animationDuration: '2.6s',
-              animationDelay: '-1.2s'
-            }}
-          />
-          {EMBERS.map((e, i) => (
-            <div
-              key={i}
-              className="plx-ember absolute rounded-full"
-              style={{
-                right: '3%',
-                top: e.top,
-                width: e.size,
-                height: e.size,
-                background: i % 2 === 1 ? 'rgb(255 214 68 / 0.95)' : 'rgb(255 122 40 / 0.95)',
-                boxShadow: '0 0 5px rgb(255 106 40 / 0.8)',
-                opacity: 0,
-                animationDuration: e.dur,
-                animationDelay: e.delay
-              }}
-            />
-          ))}
         </>
       )
 

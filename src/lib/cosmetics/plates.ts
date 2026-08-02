@@ -284,6 +284,53 @@ const IGNITION_CHECKER = svg(
     '</svg>'
 )
 
+/** The booster's tail peeking in from the right edge, drawn as one bold
+ * read at strip scale: an off-white swept aft fin + body block sliding
+ * off-screen, carrying a dark letter-spaced SPACEXAI wordmark (textLength
+ * pins the advance, so the edge crop always reads `SPACEXA` plus a sliver
+ * of `I` regardless of system sans metrics) and a tiny geometric X
+ * logomark; a charcoal engine-bay skirt with panel lines and rivet dots;
+ * a far-side grid-fin stub peeking over the crown; and one bell nozzle in
+ * profile — titanium-bronze walls, a hot rim highlight at the exit lip,
+ * and a dark open interior the FX throat glow fires inside. Nozzle exit
+ * plane sits at (92,35) of the 130×70 box — at the catalog placement
+ * (130px wide, right 0) that lands the exit exactly 38px from the right
+ * edge, vertically centered; the FX layer pins its plume stack, mach
+ * diamonds, throat glow and the 14s re-light flash to the same point. */
+const IGNITION_BOOSTER = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 130 70'>" +
+    "<defs>" +
+    "<linearGradient id='ignb-body' x1='0' y1='4' x2='0' y2='62' gradientUnits='userSpaceOnUse'><stop offset='0' stop-color='#f4f5f7'/><stop offset='.38' stop-color='#dde0e6'/><stop offset='1' stop-color='#bfc4ce'/></linearGradient>" +
+    "<linearGradient id='ignb-skirt' x1='0' y1='34' x2='0' y2='62' gradientUnits='userSpaceOnUse'><stop offset='0' stop-color='#2b2b32'/><stop offset='1' stop-color='#141419'/></linearGradient>" +
+    "<linearGradient id='ignb-bell' x1='92' y1='35' x2='111' y2='35' gradientUnits='userSpaceOnUse'><stop offset='0' stop-color='#f2c184'/><stop offset='.2' stop-color='#d99c5b'/><stop offset='.5' stop-color='#a06a3c'/><stop offset='.8' stop-color='#6e452a'/><stop offset='1' stop-color='#57351f'/></linearGradient>" +
+    "<linearGradient id='ignb-in' x1='93' y1='35' x2='107' y2='35' gradientUnits='userSpaceOnUse'><stop offset='0' stop-color='#150c06'/><stop offset='1' stop-color='#050303'/></linearGradient>" +
+    '</defs>' +
+    // far-side grid-fin stub peeking over the body's crown
+    "<rect x='110' y='0' width='11' height='9' rx='1' fill='#26262c'/>" +
+    "<g stroke='#4a4a55' stroke-width='.7'><path d='M113.5 0V9M117 0V9M110 2.2h11'/></g>" +
+    // aft fin + body block, hard-cropped by the right edge
+    "<path d='M134 62L134 4.8L86 4.8Q83 14 100 26L100 62Z' fill='url(#ignb-body)'/>" +
+    "<path d='M86 4.8Q83 14 100 26' fill='none' stroke='#a9aeb9' stroke-width='.8' stroke-opacity='.7'/>" +
+    "<path d='M88 6.4H129' stroke='#ffffff' stroke-width='.8' stroke-opacity='.35'/>" +
+    // textLength pins the advance so the crop survives any system sans
+    "<text x='89.5' y='15.5' font-family='Arial,Helvetica,sans-serif' font-size='7.5' font-weight='700' textLength='41' lengthAdjust='spacingAndGlyphs' fill='#1e2129'>SPACEXAI</text>" +
+    "<path d='M111.8 27.3L116.2 31.7M116.2 27.3L111.8 31.7' stroke='#1e2129' stroke-width='1.3'/>" +
+    // engine-bay skirt: panel seams, rivet rows, a warm rim from the plume
+    "<rect x='100' y='34' width='34' height='28' rx='1.5' fill='url(#ignb-skirt)'/>" +
+    "<path d='M100 34H134' stroke='#0c0c10' stroke-width='1'/>" +
+    "<g stroke='#3b3b45' stroke-width='.8'><path d='M112 36.5V60M122 36.5V60' stroke-opacity='.8'/><path d='M101 48H133' stroke-opacity='.55'/></g>" +
+    "<g fill='#484852'><circle cx='103.5' cy='37.2' r='.7'/><circle cx='117' cy='37.2' r='.7'/><circle cx='127' cy='37.2' r='.7'/><circle cx='103.5' cy='58.8' r='.7'/><circle cx='107.5' cy='58.8' r='.7'/><circle cx='117' cy='58.8' r='.7'/><circle cx='127' cy='58.8' r='.7'/></g>" +
+    "<path d='M100 35.5V60.5' stroke='#ff8a50' stroke-width='1' stroke-opacity='.3'/>" +
+    // bell nozzle — exit plane x=92, centered on y=35; the interior stays
+    // dark and open, the FX throat glow owns the light inside
+    "<path d='M92 20C96.5 21.8 101 25 106 28.5L111 28.5L111 41.5L106 41.5C101 45 96.5 48.2 92 50Z' fill='url(#ignb-bell)'/>" +
+    "<path d='M93.4 21.8C97.5 23.8 102 27.2 106.5 30.6L106.5 39.4C102 42.8 97.5 46.2 93.4 48.2Z' fill='url(#ignb-in)'/>" +
+    "<path d='M94 49.2C97.5 47.6 101 44.8 105 41.8' fill='none' stroke='#2a1408' stroke-width='1.1' stroke-opacity='.45'/>" +
+    "<path d='M94.5 21.6C98 23 101.5 25.6 105 28' fill='none' stroke='#ffe6c8' stroke-width='.8' stroke-opacity='.28'/>" +
+    "<path d='M92 20C94.5 20.7 96.8 21.9 98.6 23.2M92 50C94.5 49.3 96.8 48.1 98.6 46.8' fill='none' stroke='#ffd8a8' stroke-width='1.5' stroke-linecap='round' stroke-opacity='.9'/>" +
+    '</svg>'
+)
+
 /** Etched PCB: traces with 45° jogs, pads and vias. The IC package itself is
  * drawn by the pro-circuit FX layer (it pulses), so the base stays chipless. */
 const CIRCUIT_BOARD = svg(
@@ -656,11 +703,21 @@ export const PLATES: PlateDef[] = [
     render: {
       kind: 'css',
       base: [
+        // nozzle exit plane: viewBox (92,35) at this placement lands 38px
+        // from the right edge at 50% height — every flame-origin gradient
+        // below centers on the same point, so the sky burns from the bell
+        `${IGNITION_BOOSTER} right 0 center / 130px 70px no-repeat`,
+        // the pad lights up under the plume — warm wash sits OVER the checker
+        'radial-gradient(150px 48px at calc(100% - 56px) 100%, rgb(255 122 60 / 0.2), transparent 72%)',
         `${IGNITION_CHECKER} right 0 bottom 0 / 168px 16px no-repeat`,
         'repeating-linear-gradient(45deg, rgb(255 255 255 / 0.016) 0 2px, transparent 2px 6px)',
-        'radial-gradient(120% 170% at 96% 60%, rgb(255 92 30 / 0.38), rgb(201 32 22 / 0.14) 46%, transparent 66%)',
-        'linear-gradient(90deg, transparent 40%, rgb(255 64 22 / 0.08))',
-        'linear-gradient(180deg, rgb(26 8 6), rgb(12 4 3))'
+        // ember-orange fire zone centered on the nozzle exit…
+        'radial-gradient(110px 70px at calc(100% - 38px) 50%, rgb(255 106 40 / 0.4), rgb(215 48 90 / 0.14) 58%, transparent 78%)',
+        // …bridged by magenta up into a violet haze in the upper right
+        'radial-gradient(210px 120px at calc(100% - 66px) 28%, rgb(236 72 153 / 0.15), transparent 70%)',
+        'radial-gradient(65% 120% at 88% 0%, rgb(139 92 246 / 0.16), transparent 62%)',
+        'linear-gradient(90deg, transparent 52%, rgb(255 80 40 / 0.06))',
+        'linear-gradient(180deg, rgb(20 9 26), rgb(9 4 13))'
       ],
       fx: 'ignition',
       accent: '255 106 40'
