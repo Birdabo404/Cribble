@@ -29,7 +29,7 @@ import { medalA, medalFor } from '@/components/leaderboard/types'
 import type { AiBoardTotals, AiToolRow } from '@/lib/aiLeaderboard'
 
 const ROW_GRID =
-  'grid grid-cols-[3.4rem_minmax(0,1fr)_auto] md:grid-cols-[4.2rem_minmax(0,1fr)_6.5rem_6.5rem_5.5rem_10.5rem] items-center gap-3 px-4 md:px-5'
+  'grid grid-cols-[3.6rem_minmax(0,1fr)_auto] md:grid-cols-[4.2rem_minmax(0,1fr)_6.5rem_6.5rem_5.5rem_10.5rem] items-center gap-3 px-4 md:px-5'
 
 export function AiBoard() {
   const [tools, setTools] = useState<AiToolRow[] | null>(null)

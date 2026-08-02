@@ -269,7 +269,7 @@ export function PlayerCard({
 
   return createPortal(
     <div
-      className="pc-root fixed inset-0 z-[70] flex items-center justify-center p-4 sm:p-6 font-mono"
+      className="pc-root fixed inset-0 z-[70] flex items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-6 sm:pb-[max(1.5rem,env(safe-area-inset-bottom))] font-mono"
       role="dialog"
       aria-modal="true"
       aria-label={`Player profile — @${row.username}`}
@@ -280,7 +280,7 @@ export function PlayerCard({
       <div className="pc-card relative w-full max-w-[420px]">
         <div
           ref={tiltRef}
-          className="pc-tilt relative max-h-[calc(100vh-3rem)] overflow-y-auto overscroll-contain rounded-3xl"
+          className="pc-tilt relative max-h-[calc(100svh-2rem)] overflow-y-auto overscroll-contain rounded-3xl"
           onPointerMove={onTiltMove}
           onPointerLeave={onTiltLeave}
           style={{
@@ -386,7 +386,7 @@ export function PlayerCard({
               onClick={requestClose}
               autoFocus
               aria-label="Close profile"
-              className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full text-zinc-300 transition-colors hover:text-white"
+              className="absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-full text-zinc-300 transition-colors hover:text-white sm:h-8 sm:w-8"
               style={{
                 background: 'rgb(0 0 0 / 0.55)',
                 border: '1px solid rgb(255 255 255 / 0.14)'
@@ -589,7 +589,7 @@ export function PlayerCard({
                   border: '1px solid rgb(var(--lb-panel-edge) / 0.08)'
                 }}
               >
-                <div className="text-[8px] tracking-[0.3em] text-zinc-600">{cell.label}</div>
+                <div className="text-[9px] tracking-[0.3em] text-zinc-600 sm:text-[8px]">{cell.label}</div>
                 {cell.value !== null ? (
                   <div className="mt-1.5 font-display text-sm font-semibold tabular-nums text-zinc-100">
                     {cell.value}
@@ -679,7 +679,7 @@ export function PlayerCard({
             </div>
             <div className="mt-2.5">
               {badges === null && !profileFailed && (
-                <div className="grid grid-cols-8 gap-1.5">
+                <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-8">
                   {Array.from({ length: 8 }, (_, i) => (
                     <div key={i} className="aspect-square animate-pulse rounded-lg bg-white/[0.05]" />
                   ))}
@@ -703,7 +703,7 @@ export function PlayerCard({
                   </div>
                 ))}
               {badges !== null && badges.length > 0 && (
-                <div className="grid grid-cols-8 gap-1.5">
+                <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-8">
                   {badges.slice(0, 15).map((badge) => (
                     <div
                       key={badge.id}
@@ -777,7 +777,7 @@ export function PlayerCard({
                 ))}
               </div>
             )}
-            <div className="flex items-center justify-between text-[9px] tracking-[0.25em] text-zinc-600 tabular-nums">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[9px] tracking-[0.25em] text-zinc-600 tabular-nums">
               <span>JOINED SINCE {monthYear(profile?.memberSince ?? row.memberSince)}</span>
               {!row.isActive && (
                 <span>SEEN {formatRelative(row.lastSeen).toUpperCase()}</span>
@@ -813,6 +813,17 @@ export function PlayerCard({
           from {
             opacity: 0;
             transform: scale(0.82) translateY(30px);
+          }
+        }
+        @media (max-width: 639px) {
+          .pc-card {
+            animation: pc-card-in-mobile 420ms cubic-bezier(0.22, 1.1, 0.36, 1) backwards;
+          }
+        }
+        @keyframes pc-card-in-mobile {
+          from {
+            opacity: 0;
+            transform: translateY(24px) scale(0.98);
           }
         }
 

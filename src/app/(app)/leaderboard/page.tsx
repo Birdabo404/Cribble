@@ -297,7 +297,7 @@ export default function LeaderboardArena() {
 
   return (
     <div
-      className={`page-zoom-out lb4-root relative mx-auto max-w-6xl px-6 pb-16 pt-6 ${
+      className={`page-zoom-out lb4-root relative mx-auto max-w-6xl px-4 sm:px-6 pb-16 pt-6 ${
         selected ? 'lb4-freeze' : ''
       }`}
     >
@@ -309,7 +309,7 @@ export default function LeaderboardArena() {
         <div className="flex items-center gap-2.5 text-[rgb(var(--lb-gold))]">
           <span className="h-px w-8 bg-gradient-to-r from-transparent to-[rgb(var(--lb-gold)/0.6)]" />
           <IconCrown size={13} />
-          <span className="font-display text-[10px] font-semibold tracking-[0.55em]">
+          <span className="font-display text-[10px] font-semibold tracking-[0.42em] sm:tracking-[0.55em]">
             {view === 'ai' ? 'THE AI' : view === 'alltime' ? 'ALL-TIME' : 'SEASON'}
           </span>
           <IconCrown size={13} className="-scale-x-100" />
@@ -318,7 +318,7 @@ export default function LeaderboardArena() {
         <h1 className="lb4-title mt-4 select-none text-center leading-none [font-family:var(--font-pixel)]">
           LEADERBOARD
         </h1>
-        <p className="mt-4 text-[10px] tracking-[0.3em] text-zinc-600">
+        <p className="mt-4 text-[10px] tracking-[0.24em] sm:tracking-[0.3em] text-zinc-600">
           <span className="text-[rgb(var(--lb-gold)/0.85)]">
             {seasonMeta?.phase === 'intermission'
               ? 'INTERMISSION'
@@ -353,7 +353,7 @@ export default function LeaderboardArena() {
 
         {/* ---------- view controls ---------- */}
         <div
-          className={`lb4-reveal flex items-center justify-between gap-2 ${
+          className={`lb4-reveal flex flex-wrap items-center justify-between gap-2 ${
             view !== 'ai' ? '!mt-3' : ''
           }`}
           style={{ ['--rv' as string]: '150ms' }}
@@ -373,7 +373,7 @@ export default function LeaderboardArena() {
                   role="tab"
                   aria-selected={active}
                   onClick={() => handleViewChange(tab.id)}
-                  className={`rounded-md px-3 py-1 text-[10px] tracking-[0.3em] transition-colors ${
+                  className={`rounded-md px-3.5 py-2 sm:px-3 sm:py-1 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] transition-colors ${
                     active ? '' : 'text-zinc-500 hover:text-zinc-100'
                   }`}
                   style={
@@ -398,7 +398,7 @@ export default function LeaderboardArena() {
                 type="button"
                 onClick={handleRefresh}
                 disabled={refreshing}
-                className="lb-inset flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100 disabled:cursor-wait"
+                className="lb-inset flex items-center gap-2 rounded-lg px-3 py-2 sm:py-1.5 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100 disabled:cursor-wait"
                 aria-label="Refresh leaderboard"
               >
                 <IconRefresh size={11} className={refreshing ? 'animate-spin' : ''} />
@@ -407,7 +407,7 @@ export default function LeaderboardArena() {
               <button
                 type="button"
                 onClick={() => setShowPodium((v) => !v)}
-                className="lb-inset flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100"
+                className="lb-inset flex items-center gap-2 rounded-lg px-3 py-2 sm:py-1.5 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100"
                 aria-expanded={showPodium}
               >
                 PODIUM
@@ -508,7 +508,7 @@ export default function LeaderboardArena() {
 
           {/* ---------- sticky YOU bar ---------- */}
           {me && (
-            <div className="sticky bottom-4 z-20 mt-4">
+            <div className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 mt-4">
               <YouBar me={me} chase={chaseFor(me)} rows={rows} onSelect={handleSelect} />
             </div>
           )}
@@ -768,7 +768,7 @@ function SeasonCountdown({ state }: { state: SeasonState | null }) {
 
   return (
     <>
-      <div className="flex items-center gap-1.5 text-[9px] tracking-[0.35em] text-zinc-500">
+      <div className="flex items-center gap-1.5 text-[9px] tracking-[0.28em] sm:tracking-[0.35em] text-zinc-500">
         <IconHourglass size={11} className="text-zinc-600" />
         {label}
       </div>
@@ -879,8 +879,8 @@ function StatBar({
   return (
     <div className="lb-panel grid grid-cols-2 overflow-hidden rounded-2xl md:grid-cols-4">
       {/* players */}
-      <div className={`px-4 py-4 ${divCls(0)}`}>
-        <div className="flex items-center gap-1.5 text-[9px] tracking-[0.35em] text-zinc-500">
+      <div className={`px-3.5 py-3.5 sm:px-4 sm:py-4 ${divCls(0)}`}>
+        <div className="flex items-center gap-1.5 text-[9px] tracking-[0.28em] sm:tracking-[0.35em] text-zinc-500">
           <IconUsers size={11} className="text-zinc-600" />
           PLAYERS
         </div>
@@ -890,8 +890,8 @@ function StatBar({
       </div>
 
       {/* online */}
-      <div className={`px-4 py-4 ${divCls(1)}`}>
-        <div className="flex items-center gap-1.5 text-[9px] tracking-[0.35em] text-zinc-500">
+      <div className={`px-3.5 py-3.5 sm:px-4 sm:py-4 ${divCls(1)}`}>
+        <div className="flex items-center gap-1.5 text-[9px] tracking-[0.28em] sm:tracking-[0.35em] text-zinc-500">
           <IconPulse size={11} className="text-zinc-600" />
           ONLINE NOW
         </div>
@@ -902,8 +902,8 @@ function StatBar({
       </div>
 
       {/* top score — gold, with the holder's callsign */}
-      <div className={`px-4 py-4 ${divCls(2)}`}>
-        <div className="flex items-center gap-1.5 text-[9px] tracking-[0.35em] text-zinc-500">
+      <div className={`px-3.5 py-3.5 sm:px-4 sm:py-4 ${divCls(2)}`}>
+        <div className="flex items-center gap-1.5 text-[9px] tracking-[0.28em] sm:tracking-[0.35em] text-zinc-500">
           <IconTrophy size={11} className="text-[rgb(var(--lb-gold)/0.8)]" />
           TOP SCORE
         </div>
@@ -924,7 +924,7 @@ function StatBar({
       </div>
 
       {/* season countdown — self-ticking */}
-      <div className={`px-4 py-4 ${divCls(3)}`}>
+      <div className={`px-3.5 py-3.5 sm:px-4 sm:py-4 ${divCls(3)}`}>
         <SeasonCountdown state={season} />
       </div>
     </div>
@@ -934,12 +934,12 @@ function StatBar({
 /* ================= standings table ================= */
 
 const ROW_GRID =
-  'grid grid-cols-[3.4rem_minmax(0,1fr)_auto] md:grid-cols-[4.2rem_minmax(0,1fr)_8.5rem_5.5rem_10.5rem_6.5rem] items-center gap-3 px-4 md:px-5'
+  'grid grid-cols-[3.6rem_minmax(0,1fr)_auto] md:grid-cols-[4.2rem_minmax(0,1fr)_8.5rem_5.5rem_10.5rem_6.5rem] items-center gap-3 px-4 md:px-5'
 
 function HeaderRow() {
   return (
     <div
-      className={`${ROW_GRID} border-b border-[rgb(var(--lb-panel-edge)/0.08)] py-3 text-[9px] tracking-[0.35em] text-zinc-500`}
+      className={`${ROW_GRID} border-b border-[rgb(var(--lb-panel-edge)/0.08)] py-3 text-[10px] md:text-[9px] tracking-[0.35em] text-zinc-500`}
     >
       <div>RANK</div>
       <div>PILOT</div>
@@ -1391,7 +1391,7 @@ function YouBar({
 
 function SearchBar({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
-    <div className="lb-inset flex w-full max-w-xs items-center overflow-hidden rounded-lg">
+    <div className="lb-inset flex w-full sm:max-w-xs items-center overflow-hidden rounded-lg">
       <span className="pl-3 pr-1 text-zinc-600">
         <IconSearch size={12} />
       </span>
@@ -1461,7 +1461,7 @@ function Pagination({
 
       {pages.map((p, i) =>
         p === '…' ? (
-          <span key={`gap-${i}`} className="select-none px-1 text-[11px] text-zinc-700">
+          <span key={`gap-${i}`} className="hidden select-none px-1 text-[11px] text-zinc-700 sm:inline">
             …
           </span>
         ) : (
@@ -1469,7 +1469,7 @@ function Pagination({
             key={p}
             type="button"
             onClick={() => onPage(p)}
-            className={`${baseBtn} ${p === page ? '' : idleBtn}`}
+            className={`hidden sm:flex ${baseBtn} ${p === page ? '' : idleBtn}`}
             style={
               p === page
                 ? {
@@ -1486,6 +1486,10 @@ function Pagination({
         )
       )}
 
+      <span className="lb-inset rounded-lg px-3 py-1.5 text-[11px] tracking-[0.15em] tabular-nums text-zinc-400 sm:hidden">
+        PAGE {page} / {totalPages}
+      </span>
+
       <button
         type="button"
         onClick={() => !atLast && onPage(page + 1)}
@@ -1496,13 +1500,13 @@ function Pagination({
         <IconChevronRight size={11} />
       </button>
 
-      <span className="mx-1 h-4 w-px bg-[rgb(var(--lb-panel-edge)/0.08)]" />
+      <span className="mx-1 hidden h-4 w-px bg-[rgb(var(--lb-panel-edge)/0.08)] sm:inline" />
 
       <button
         type="button"
         onClick={() => !atLast && onPage(totalPages)}
         disabled={atLast}
-        className={`${baseBtn} ${atLast ? disabledBtn : idleBtn}`}
+        className={`hidden sm:flex ${baseBtn} ${atLast ? disabledBtn : idleBtn}`}
         title={`Jump to page ${totalPages}`}
       >
         LAST

@@ -70,17 +70,32 @@ export default function WorldwideText() {
   // English (index 0) always fades like the standard transition.
   const [kinetic, setKinetic] = useState(false)
   const [width, setWidth] = useState<number | null>(null)
+  const [avail, setAvail] = useState<number | null>(null)
 
   const measureRef = useRef<HTMLSpanElement | null>(null)
+  const wrapRef = useRef<HTMLSpanElement | null>(null)
   const indexRef = useRef(0)
   const seenRef = useRef<Set<number>>(new Set([0]))
 
   // Measure each rendered text so the wrap animates between exact widths.
+  // The wrap and its anchor are inline-block shrink-to-fit, so the available
+  // line width comes from the nearest block ancestor (the anchor's parent);
+  // when the word is wider than that, the wrap caps at it and --ww-scale
+  // shrinks the glyphs to fit.
   useLayoutEffect(() => {
-    if (measureRef.current) {
-      const w = measureRef.current.getBoundingClientRect().width
-      setWidth(Math.ceil(w))
+    const update = () => {
+      if (measureRef.current) {
+        const w = measureRef.current.getBoundingClientRect().width
+        setWidth(Math.ceil(w))
+      }
+      const container = wrapRef.current?.parentElement?.parentElement
+      if (container) {
+        setAvail(container.clientWidth)
+      }
     }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
   }, [index])
 
   useEffect(() => {
@@ -130,12 +145,22 @@ export default function WorldwideText() {
   const graphemes = useMemo(() => getGraphemes(lang.text), [lang.text])
   const showKinetic = kinetic && phase === 'in'
 
+  const cappedWidth = width != null ? Math.min(width, avail ?? width) : null
+  const wwScale =
+    width != null && avail != null && width > 0
+      ? Math.min(1, avail / width)
+      : 1
+
   return (
     <span
+      ref={wrapRef}
       className="worldwide-wrap"
       style={{
-        width: width != null ? `${width}px` : 'auto',
+        width: cappedWidth != null ? `${cappedWidth}px` : 'auto',
         transition: `width ${FADE_IN_MS + SWAP_GAP_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+        ...(wwScale < 0.99
+          ? { ['--ww-scale' as string]: wwScale.toFixed(4) }
+          : {}),
       }}
     >
       {/* hidden measurement node — lays out the next-rendered text */}
@@ -182,6 +207,7 @@ export default function WorldwideText() {
           position: relative;
           display: inline-block;
           vertical-align: baseline;
+          max-width: 100%;
           line-height: 1.05;
           color: var(--accent);
           text-shadow: 0 0 14px rgb(var(--accent-rgb)/0.18);
@@ -208,20 +234,21 @@ export default function WorldwideText() {
         }
         .is-in:not(.is-kinetic) {
           opacity: 1;
-          transform: translateY(0) scale(1);
+          transform: translateY(0) scale(var(--ww-scale, 1));
           filter: blur(0);
         }
         .is-out {
           opacity: 0;
-          transform: translateY(2px) scale(0.985);
+          transform: translateY(2px) scale(calc(0.985 * var(--ww-scale, 1)));
           filter: blur(2px);
           transition-duration: ${FADE_OUT_MS}ms;
         }
         /* Kinetic mode: parent stays fully visible so per-char animation
-           drives the entrance, not a parent fade. */
+           drives the entrance, not a parent fade. The static overflow
+           scale still applies so first reveals of long words fit. */
         .is-in.is-kinetic {
           opacity: 1;
-          transform: none;
+          transform: scale(var(--ww-scale, 1));
           filter: none;
           transition: none;
         }

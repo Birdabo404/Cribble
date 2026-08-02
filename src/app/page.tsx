@@ -15,7 +15,7 @@ import WorldwideText from '@/components/WorldwideText'
 const Globe = dynamic(() => import('@/components/Globe'), {
   ssr: false,
   // Square placeholder reserves the canvas box, so the hero copy doesn't
-  // jump down when the globe chunk lands (mobile stacks it on top).
+  // jump when the globe chunk lands (mobile stacks it below the copy).
   loading: () => <div className="w-full aspect-square" />
 })
 
@@ -63,7 +63,7 @@ export default function HomeV2() {
           owns the right half and the accent stays reserved for signals */}
       <div
         aria-hidden
-        className="pointer-events-none absolute top-1/2 -translate-y-1/2 right-[-12%] h-[640px] w-[640px] rounded-full opacity-[0.1] blur-3xl"
+        className="pointer-events-none absolute top-1/2 -translate-y-1/2 h-[340px] w-[340px] right-[-35%] sm:h-[640px] sm:w-[640px] sm:right-[-12%] rounded-full opacity-[0.1] blur-3xl"
         style={{
           background: 'radial-gradient(circle, rgb(96 148 255), transparent 70%)'
         }}
@@ -85,9 +85,9 @@ export default function HomeV2() {
         <main className="flex-1 flex items-center py-4 sm:py-8">
           <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_1fr] gap-4 sm:gap-10 lg:gap-16 items-center w-full">
             {/* LEFT — hero copy */}
-            <div className="order-2 lg:order-1">
+            <div className="order-1">
               <span
-                className="hero-item inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-zinc-800 bg-zinc-950 text-[10px] tracking-[0.3em] text-zinc-400"
+                className="hero-item inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-zinc-800 bg-zinc-950 text-[10px] tracking-[0.25em] sm:tracking-[0.3em] text-zinc-400"
                 style={{ ['--hr' as string]: '0ms' }}
               >
                 <span
@@ -101,7 +101,7 @@ export default function HomeV2() {
               </span>
 
               <h1
-                className="hero-item mt-7 flex items-center gap-4 font-semibold tracking-tight leading-none text-zinc-50 text-5xl md:text-6xl lg:text-[4.75rem]"
+                className="hero-item mt-6 flex items-center gap-3.5 font-semibold tracking-tight leading-none text-zinc-50 text-[clamp(2.5rem,11vw,3.25rem)] md:text-6xl lg:text-[4.75rem]"
                 style={{ ['--hr' as string]: '90ms' }}
               >
                 {/* liquid-metal hive mark, sized to the cap height */}
@@ -116,7 +116,7 @@ export default function HomeV2() {
                   mono wordmark. The rotating word rides an accent underline
                   that stretches with each language (see .worldwide-anchor). */}
               <div
-                className="hero-item mt-5 font-serif text-4xl md:text-[2.85rem] lg:text-[3.55rem] leading-[1.1]"
+                className="hero-item mt-5 font-serif text-[clamp(1.875rem,8.2vw,2.5rem)] md:text-[2.85rem] lg:text-[3.55rem] leading-[1.12] md:leading-[1.1]"
                 style={{ ['--hr' as string]: '180ms' }}
               >
                 <div className="text-zinc-400">ranking AI users,</div>
@@ -126,7 +126,7 @@ export default function HomeV2() {
               </div>
 
               <p
-                className="hero-item mt-8 max-w-md font-sans text-base leading-[1.75] text-zinc-400 sm:text-[15px] sm:leading-[1.8]"
+                className="hero-item mt-6 max-w-md font-sans text-[15px] leading-[1.75] text-zinc-400 sm:text-[15px] sm:leading-[1.8]"
                 style={{ ['--hr' as string]: '280ms' }}
               >
                 You&apos;re in <ToolChip>ChatGPT</ToolChip>,{' '}
@@ -139,7 +139,7 @@ export default function HomeV2() {
               </p>
 
               <div
-                className="hero-item mt-9 flex flex-wrap items-center gap-3"
+                className="hero-item mt-7 flex flex-wrap items-center gap-3"
                 style={{ ['--hr' as string]: '380ms' }}
               >
                 <Link
@@ -226,7 +226,7 @@ export default function HomeV2() {
             </div>
 
             {/* RIGHT — globe */}
-            <div className="order-1 lg:order-2">
+            <div className="order-2">
               <GlobeStage />
             </div>
           </div>
@@ -247,7 +247,7 @@ export default function HomeV2() {
 function Header() {
   return (
     <header className="pt-6 sm:pt-8 flex items-center justify-between">
-      <div className="flex items-center gap-2.5 text-sm tracking-[0.4em] text-zinc-100 font-semibold">
+      <div className="flex items-center gap-2.5 text-sm tracking-[0.3em] sm:tracking-[0.4em] text-zinc-100 font-semibold">
         <LiquidMark size={22} />
         <span>
           CRIBBLE
@@ -281,7 +281,7 @@ function Header() {
 
 function Footer() {
   return (
-    <footer className="pb-6 pt-10 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-[10px] tracking-[0.3em] text-zinc-600">
+    <footer className="pb-6 pt-10 flex flex-col items-start gap-3 text-[10px] tracking-[0.22em] text-zinc-600 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4 sm:gap-y-2 sm:tracking-[0.3em]">
       <span className="inline-flex items-center gap-4">
         <span>CRIBBLE · 2026</span>
         <Link
@@ -292,20 +292,22 @@ function Footer() {
         </Link>
       </span>
 
-      <a
-        href="https://cursor.com"
-        target="_blank"
-        rel="noreferrer"
-        aria-label="Powered by Cursor"
-        className="inline-flex items-center gap-2 text-zinc-600 hover:text-zinc-300 transition-colors"
-      >
-        <span>POWERED BY</span>
-        <CursorMark />
-        <span className="tracking-[0.25em]">CURSOR</span>
-      </a>
+      <span className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:contents">
+        <a
+          href="https://cursor.com"
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Powered by Cursor"
+          className="inline-flex items-center gap-2 text-zinc-600 hover:text-zinc-300 transition-colors"
+        >
+          <span>POWERED BY</span>
+          <CursorMark />
+          <span className="tracking-[0.25em]">CURSOR</span>
+        </a>
 
-      <span style={{ color: `${accentA(0.6)}` }}>
-        {'// backed by no one'}
+        <span style={{ color: `${accentA(0.6)}` }}>
+          {'// backed by no one'}
+        </span>
       </span>
     </footer>
   )
@@ -440,7 +442,7 @@ function GlobeStage() {
         }
         @media (max-width: 639px) {
           .globe-stage {
-            --orbit: min(360px, 88vw);
+            --orbit: min(340px, 86vw);
           }
         }
         .cribble-satellite {
@@ -982,6 +984,7 @@ function AsteroidField() {
     // Widely stagger the first launch of each streak so they don't all fire
     // at once (and don't immediately re-cluster after the first cycle).
     streaks.forEach((el, i) => {
+      if (i >= 2 && window.innerWidth < 640) return
       const t = window.setTimeout(
         () => launch(el),
         rand(400, 2000) + i * rand(2500, 5000)
