@@ -222,21 +222,412 @@ const KOI_PEBBLES = svg(
     '</svg>'
 )
 
-/** Cherry branch reaching in from the top-right corner, in bloom. */
-const BLOSSOM_BRANCH = svg(
-  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 280 97'>" +
-    "<g stroke='#33141f' fill='none' stroke-linecap='round'>" +
-    "<path d='M280 10C236 22 208 20 178 40C160 52 148 52 132 60' stroke-width='7'/>" +
-    "<path d='M216 26C206 14 196 10 184 8' stroke-width='4'/>" +
-    "<path d='M178 40C172 30 162 26 150 26' stroke-width='3'/>" +
-    "<path d='M148 53C140 46 130 44 120 46' stroke-width='2.5'/>" +
+/** Sakura blossom anatomy, drawn once and <use>d across the branch. The
+ * petal (sb-pt) is the real thing: obovate with the signature cleft at
+ * the outer tip (the two lobes peak at ±1.8, the notch dips to −6.2),
+ * a white-heart radial blush, and a faint center crease (sb-cr). The
+ * front flower (sb-fl) rings five petals around a full stamen burst —
+ * crimson filaments with dot anthers and one greenish pistil — while
+ * sb-fl2 is the simpler deep-pink flower that pads cluster backs so the
+ * detailed fronts stay in crisp focus. Buds (sb-bud) are closed teardrops
+ * with a sepal fork; sb-half is a two-petal cup just opening. */
+const SAKURA_PARTS_DEFS =
+  '<defs>' +
+  "<radialGradient id='sb-pg' cx='.5' cy='.38' r='.8'>" +
+  "<stop offset='0' stop-color='#ffffff'/><stop offset='.42' stop-color='#ffc9db'/><stop offset='1' stop-color='#ff8fbc'/>" +
+  '</radialGradient>' +
+  "<radialGradient id='sb-pg2' cx='.5' cy='.38' r='.8'>" +
+  "<stop offset='0' stop-color='#ffc9da'/><stop offset='1' stop-color='#ef74a8'/>" +
+  '</radialGradient>' +
+  "<radialGradient id='sb-budg' cx='.5' cy='.3' r='.9'>" +
+  "<stop offset='0' stop-color='#ffb1cd'/><stop offset='1' stop-color='#e8649a'/>" +
+  '</radialGradient>' +
+  "<linearGradient id='sb-bark' x1='0' y1='0' x2='0' y2='1'>" +
+  "<stop offset='0' stop-color='#5d3d2c'/><stop offset='.5' stop-color='#402a1c'/><stop offset='1' stop-color='#2b1710'/>" +
+  '</linearGradient>' +
+  "<path id='sb-pt' d='M0 0C-4 -.6 -6.2 -2.8 -5.3 -5.2C-4.7 -6.9 -3.1 -8 -2 -7.3C-1.3 -6.9 -.7 -6.8 0 -6.3C.7 -6.8 1.3 -6.9 2 -7.3C3.1 -8 4.7 -6.9 5.3 -5.2C6.2 -2.8 4 -.6 0 0Z'/>" +
+  "<path id='sb-cr' d='M0 -.8C-.2 -2.8 -.2 -4.6 0 -6'/>" +
+  "<g id='sb-fl'>" +
+  "<use href='#sb-pt' fill='url(#sb-pg)' stroke='#e2689a' stroke-width='.3' stroke-opacity='.45'/><use href='#sb-pt' fill='url(#sb-pg)' stroke='#e2689a' stroke-width='.3' stroke-opacity='.45' transform='rotate(72)'/><use href='#sb-pt' fill='url(#sb-pg)' stroke='#e2689a' stroke-width='.3' stroke-opacity='.45' transform='rotate(144)'/><use href='#sb-pt' fill='url(#sb-pg)' stroke='#e2689a' stroke-width='.3' stroke-opacity='.45' transform='rotate(216)'/><use href='#sb-pt' fill='url(#sb-pg)' stroke='#e2689a' stroke-width='.3' stroke-opacity='.45' transform='rotate(288)'/>" +
+  "<g stroke='#e89bbb' stroke-width='.38' fill='none' opacity='.5'>" +
+  "<use href='#sb-cr'/><use href='#sb-cr' transform='rotate(72)'/><use href='#sb-cr' transform='rotate(144)'/><use href='#sb-cr' transform='rotate(216)'/><use href='#sb-cr' transform='rotate(288)'/>" +
+  '</g>' +
+  "<circle r='.85' fill='#fff4f8' opacity='.7'/>" +
+  "<g stroke='#c94f74' stroke-width='.4' stroke-linecap='round' fill='none' opacity='.9'>" +
+  "<path d='M0 -.3V-2.6M1.6 -.9L2.4 -2.2M-1.6 -.9L-2.4 -2.2M2.3 .5L3.3 -.6M-2.3 .5L-3.3 -.6M1.8 1.7L2.7 .9'/>" +
+  '</g>' +
+  "<g fill='#b83a63'>" +
+  "<circle cy='-2.7' r='.45'/><circle cx='2.4' cy='-2.3' r='.45'/><circle cx='-2.4' cy='-2.3' r='.45'/><circle cx='3.4' cy='-.7' r='.45'/><circle cx='-3.4' cy='-.7' r='.45'/><circle cx='2.8' cy='.8' r='.45'/>" +
+  '</g>' +
+  '</g>' +
+  "<g id='sb-fl2'>" +
+  "<use href='#sb-pt' fill='url(#sb-pg2)'/><use href='#sb-pt' fill='url(#sb-pg2)' transform='rotate(72)'/><use href='#sb-pt' fill='url(#sb-pg2)' transform='rotate(144)'/><use href='#sb-pt' fill='url(#sb-pg2)' transform='rotate(216)'/><use href='#sb-pt' fill='url(#sb-pg2)' transform='rotate(288)'/>" +
+  "<circle r='1' fill='#f2557f' opacity='.8'/>" +
+  '</g>' +
+  "<g id='sb-bud'>" +
+  "<path d='M0 0L-1.6 1.8M0 0L1.4 1.9' stroke='#7a4a2c' stroke-width='.7' fill='none'/>" +
+  "<path d='M0 -.4C-2.4 -1 -3 -3 -2 -4.8C-1.2 -6.2 1.2 -6.2 2 -4.8C3 -3 2.4 -1 0 -.4Z' fill='url(#sb-budg)'/>" +
+  '</g>' +
+  "<g id='sb-half'>" +
+  "<use href='#sb-pt' fill='url(#sb-pg2)' transform='rotate(-42) scale(.92)'/>" +
+  "<use href='#sb-pt' fill='url(#sb-pg2)' transform='rotate(42) scale(.92)'/>" +
+  "<ellipse cy='-1.6' rx='1.7' ry='1.3' fill='#d7557f' opacity='.7'/>" +
+  "<path d='M0 -1.6L-.8 -3.4M0 -1.6L.9 -3.3M0 -1.6V-3.8' stroke='#c22356' stroke-width='.45' stroke-linecap='round' fill='none'/>" +
+  '</g>' +
+  '</defs>'
+
+/** The hanami branch: a gnarled limb reaching in from the top-right
+ * corner, tapering as it sweeps down-left, carrying four blossom
+ * clusters and a drooping twig that hangs over the kana signature so
+ * the lettering reads as part of the tree, not a sticker on the sky.
+ * Composition is deliberately top-heavy: on the shortest strips (~68px
+ * rows) only sky ever crops, never a cluster. Bark is two-tone — a
+ * warm lit ridge along the top edge over a dark crease below — with
+ * growth knots and grain strokes. Clusters are built back-to-front:
+ * a soft halo knit, deep sb-fl2 padding, crisp sb-fl faces, then buds
+ * and half-open cups at the fringes where real flower balls thin out.
+ * Three painted petals trail off the canopy — the moment before the
+ * FX layer's fall takes over. The lower-right quadrant (x>235, y>48)
+ * stays empty: the クリブル column lives there. */
+const SAKURA_BRANCH = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 110'>" +
+    SAKURA_PARTS_DEFS +
+    // limb silhouette: enters at the corner ~14px thick, tapers to a point
+    "<path d='M300 3C268 8 240 12 214 22C186 33 158 40 128 46C118 48 109 49 101 50C112 54 128 53 146 49C176 42 204 34 228 25C252 17 276 15 300 17Z' fill='url(#sb-bark)'/>" +
+    "<path d='M300 3.5C268 8.5 240 12.5 214 22.5C186 33.5 158 40.5 128 46.5' stroke='#6f4a34' stroke-width='1.5' fill='none' opacity='.7'/>" +
+    "<path d='M300 16.5C276 15 252 17.5 228 25.5C204 34.5 176 42.5 146 49.5' stroke='#241209' stroke-width='1.3' fill='none' opacity='.8'/>" +
+    "<g stroke='#57392a' stroke-width='.8' fill='none' opacity='.7'>" +
+    "<path d='M262 12C250 14 238 17 226 21'/><path d='M206 27C194 31 182 35 170 38'/><path d='M150 43C140 45.5 130 47 120 48'/>" +
+    "<path d='M250 14C240 16 230 19 220 23'/><path d='M190 32C180 35.5 170 38 160 41'/><path d='M136 46C128 47.5 120 48.5 112 49.5'/>" +
     '</g>' +
-    "<g><circle cx='132' cy='62' r='6' fill='#f06ea5'/><circle cx='125' cy='56' r='4.5' fill='#ff9ac2'/><circle cx='139' cy='55' r='4' fill='#ffc4dc'/>" +
-    "<circle cx='184' cy='8' r='5' fill='#ff9ac2'/><circle cx='176' cy='12' r='4' fill='#f06ea5'/><circle cx='191' cy='14' r='3.5' fill='#ffc4dc'/>" +
-    "<circle cx='150' cy='26' r='4.5' fill='#ffc4dc'/><circle cx='143' cy='31' r='3.5' fill='#ff9ac2'/>" +
-    "<circle cx='120' cy='46' r='4' fill='#ff9ac2'/><circle cx='113' cy='50' r='3' fill='#ffc4dc'/>" +
-    "<circle cx='240' cy='15' r='4' fill='#ffc4dc'/><circle cx='249' cy='20' r='3' fill='#ff9ac2'/><circle cx='206' cy='31' r='3' fill='#f06ea5'/>" +
-    "<circle cx='163' cy='45' r='2' fill='#ffc4dc'/><circle cx='222' cy='22' r='1.8' fill='#ff9ac2'/></g>" +
+    // lenticels — the horizontal banding that makes cherry bark cherry
+    "<g stroke='#2c1810' stroke-width='.7' fill='none' opacity='.45'>" +
+    "<path d='M268 9.5h6'/><path d='M240 15.5h7'/><path d='M222 21h5.5'/><path d='M198 30h6'/><path d='M172 38.5h5'/><path d='M148 45.5h4.5'/>" +
+    '</g>' +
+    "<g stroke='#8a6647' stroke-width='.5' fill='none' opacity='.4'>" +
+    "<path d='M266 11h4'/><path d='M238 17h5'/><path d='M196 31.6h4.5'/><path d='M146 47h3.5'/>" +
+    '</g>' +
+    // knots and burls — the gnarl that rewards a close look
+    "<ellipse cx='236' cy='23' rx='3' ry='2' fill='#2c1810'/>" +
+    "<path d='M233.5 21.5A3 2 0 0 1 238.5 21.8' stroke='#6f4a34' stroke-width='.7' fill='none' opacity='.7'/>" +
+    "<ellipse cx='208' cy='28' rx='2.2' ry='1.5' fill='#2c1810'/>" +
+    "<path d='M206.2 26.8A2.2 1.5 0 0 1 209.8 27' stroke='#6f4a34' stroke-width='.6' fill='none' opacity='.65'/>" +
+    "<ellipse cx='162' cy='41' rx='1.8' ry='1.2' fill='#2c1810' opacity='.9'/>" +
+    // lichen + moss flecks on the shaded side of the limb
+    "<g fill='#8ba368' opacity='.5'>" +
+    "<circle cx='232' cy='19.5' r='1.1'/><circle cx='186' cy='33.5' r='.9'/><circle cx='158' cy='42.5' r='.7'/>" +
+    '</g>' +
+    "<g fill='#a3b57c' opacity='.45'>" +
+    "<circle cx='218' cy='25.5' r='.8'/><circle cx='230' cy='20.8' r='.5'/><circle cx='184' cy='34.8' r='.45'/>" +
+    '</g>' +
+    // twigs (round caps read as young wood) — mains plus the fork and
+    // the fine year-old wood that carries next spring's buds
+    "<g stroke='#382217' fill='none' stroke-linecap='round'>" +
+    "<path d='M230 18C222 10 212 5 202 3' stroke-width='2.6'/>" +
+    "<path d='M252 13C258 6 266 2 276 0' stroke-width='2.2'/>" +
+    "<path d='M196 31C190 40 182 48 172 54' stroke-width='2'/>" +
+    "<path d='M128 47C121 51 114 54 108 57' stroke-width='1.6'/>" +
+    "<path d='M160 42C154 35 146 31 138 29' stroke-width='1.3'/>" +
+    "<path d='M258 17C254 26 250 34 248 43' stroke-width='1.4'/>" +
+    "<path d='M214 22C204 16 194 13 184 12' stroke-width='2.4'/>" +
+    "<path d='M176 36C172 32 169 29 167 26' stroke-width='1.1'/>" +
+    "<path d='M144 44C142 47 141 50 140 52' stroke-width='1'/>" +
+    '</g>' +
+    // corner canopy — the dense pink mass against blue
+    "<ellipse cx='266' cy='18' rx='36' ry='23' fill='#ffb9d4' opacity='.32'/>" +
+    "<use href='#sb-fl2' transform='translate(244 8) rotate(-30) scale(1.05)'/>" +
+    "<use href='#sb-fl2' transform='translate(288 7) rotate(50) scale(.95)'/>" +
+    "<use href='#sb-fl2' transform='translate(252 31) rotate(160) scale(.9)'/>" +
+    "<use href='#sb-fl2' transform='translate(283 29) rotate(-120) scale(.85)'/>" +
+    "<use href='#sb-fl2' transform='translate(232 20) rotate(90) scale(.8)'/>" +
+    "<use href='#sb-fl2' transform='translate(264 4) rotate(105) scale(.9)'/>" +
+    "<use href='#sb-fl2' transform='translate(298 14) rotate(-15) scale(.8)'/>" +
+    "<use href='#sb-fl2' transform='translate(257 21) rotate(-85) scale(1.05)'/>" +
+    "<use href='#sb-fl' transform='translate(258 14) rotate(20)'/>" +
+    "<use href='#sb-fl' transform='translate(276 17) rotate(-35) scale(1.1)'/>" +
+    "<use href='#sb-fl' transform='translate(266 29) rotate(75) scale(.95)'/>" +
+    "<use href='#sb-fl' transform='translate(293 19) rotate(-70) scale(.9)'/>" +
+    "<use href='#sb-fl' transform='translate(247 23) rotate(140) scale(.9)'/>" +
+    "<use href='#sb-fl' transform='translate(283 12) rotate(115) scale(.85)'/>" +
+    "<use href='#sb-half' transform='translate(238 12) rotate(-50) scale(.9)'/>" +
+    "<use href='#sb-bud' transform='translate(238 35) rotate(-160)'/>" +
+    "<use href='#sb-bud' transform='translate(297 33) rotate(150) scale(.9)'/>" +
+    // fringe singles feathering the canopy's lower edge into the sky
+    "<use href='#sb-fl2' transform='translate(250 40) rotate(25) scale(.7)'/>" +
+    "<use href='#sb-fl2' transform='translate(276 38) rotate(-95) scale(.65)'/>" +
+    "<use href='#sb-fl2' transform='translate(297 27) rotate(160) scale(.6)'/>" +
+    "<use href='#sb-bud' transform='translate(262 41) rotate(-140) scale(.8)'/>" +
+    "<use href='#sb-pt' fill='url(#sb-pg)' transform='translate(288 44) rotate(60) scale(.6)'/>" +
+    // mid cluster riding the upper twig, half off the top crop
+    "<ellipse cx='196' cy='11' rx='21' ry='13' fill='#ffb9d4' opacity='.28'/>" +
+    "<use href='#sb-fl2' transform='translate(184 6) rotate(-20) scale(.85)'/>" +
+    "<use href='#sb-fl2' transform='translate(208 5) rotate(40) scale(.9)'/>" +
+    "<use href='#sb-fl2' transform='translate(188 18) rotate(120) scale(.8)'/>" +
+    "<use href='#sb-fl' transform='translate(196 8) rotate(15)'/>" +
+    "<use href='#sb-fl' transform='translate(205 15) rotate(-55) scale(.9)'/>" +
+    "<use href='#sb-fl' transform='translate(189 13) rotate(100) scale(.85)'/>" +
+    "<use href='#sb-half' transform='translate(211 10) rotate(60) scale(.8)'/>" +
+    "<use href='#sb-bud' transform='translate(214 17) rotate(170) scale(.9)'/>" +
+    "<use href='#sb-bud' transform='translate(180 2) rotate(-30) scale(.85)'/>" +
+    // the drooping cluster — backlit fringe off the limb's belly
+    "<ellipse cx='170' cy='56' rx='16' ry='11' fill='#ffb9d4' opacity='.28'/>" +
+    "<use href='#sb-fl2' transform='translate(160 52) rotate(-10) scale(.8)'/>" +
+    "<use href='#sb-fl2' transform='translate(180 58) rotate(140) scale(.75)'/>" +
+    "<use href='#sb-fl' transform='translate(168 53) rotate(-45) scale(.9)'/>" +
+    "<use href='#sb-fl' transform='translate(175 61) rotate(55) scale(.85)'/>" +
+    "<use href='#sb-half' transform='translate(163 60) rotate(-120) scale(.8)'/>" +
+    "<use href='#sb-bud' transform='translate(158 64) rotate(-170) scale(.9)'/>" +
+    "<use href='#sb-bud' transform='translate(182 52) rotate(20) scale(.8)'/>" +
+    // limb-tip cluster, the far reach of the tree
+    "<ellipse cx='106' cy='58' rx='17' ry='11' fill='#ffb9d4' opacity='.3'/>" +
+    "<use href='#sb-fl2' transform='translate(96 55) rotate(30) scale(.8)'/>" +
+    "<use href='#sb-fl2' transform='translate(114 62) rotate(-100) scale(.75)'/>" +
+    "<use href='#sb-fl' transform='translate(102 55) rotate(-25) scale(.95)'/>" +
+    "<use href='#sb-fl' transform='translate(111 60) rotate(45) scale(.9)'/>" +
+    "<use href='#sb-fl' transform='translate(103 64) rotate(175) scale(.8)'/>" +
+    "<use href='#sb-bud' transform='translate(92 50) rotate(-60) scale(.9)'/>" +
+    "<use href='#sb-bud' transform='translate(119 55) rotate(10) scale(.8)'/>" +
+    "<use href='#sb-bud' transform='translate(117 67) rotate(170) scale(.85)'/>" +
+    // upper-left twig cluster + singles tucked along the limb
+    "<use href='#sb-fl2' transform='translate(130 26) rotate(70) scale(.7)'/>" +
+    "<use href='#sb-fl' transform='translate(136 27) rotate(-15) scale(.85)'/>" +
+    "<use href='#sb-half' transform='translate(128 31) rotate(-80) scale(.7)'/>" +
+    "<use href='#sb-bud' transform='translate(144 31) rotate(45) scale(.8)'/>" +
+    "<use href='#sb-fl' transform='translate(152 47) rotate(-20) scale(.7)'/>" +
+    "<use href='#sb-bud' transform='translate(224 29) rotate(-25) scale(.7)'/>" +
+    // the fork's buds and the fine-twig tips
+    "<use href='#sb-bud' transform='translate(184 12) rotate(-105) scale(.85)'/>" +
+    "<use href='#sb-half' transform='translate(178 14) rotate(40) scale(.7)'/>" +
+    "<use href='#sb-bud' transform='translate(167 25) rotate(-160) scale(.7)'/>" +
+    "<use href='#sb-bud' transform='translate(140 53) rotate(155) scale(.65)'/>" +
+    // the twig that drapes over the kana signature
+    "<use href='#sb-fl' transform='translate(247 45) rotate(-60) scale(.9)'/>" +
+    "<use href='#sb-bud' transform='translate(243 53) rotate(-150) scale(.85)'/>" +
+    "<use href='#sb-bud' transform='translate(253 38) rotate(30) scale(.75)'/>" +
+    // painted petals letting go — the FX fall's static companions
+    "<use href='#sb-pt' fill='url(#sb-pg)' transform='translate(226 50) rotate(70) scale(.75)'/>" +
+    "<use href='#sb-pt' fill='url(#sb-pg2)' transform='translate(206 62) rotate(-30) scale(.6)'/>" +
+    "<use href='#sb-pt' fill='url(#sb-pg)' transform='translate(236 66) rotate(130) scale(.55)'/>" +
+    '</svg>'
+)
+
+/** Volumetric cumulus construction, shared by the static bank and the
+ * exported FX puff: every cloud is built like the anime reference —
+ * overlapping spheres each lit by a radial gradient (hot white toward
+ * the sun top-left, cooling to blue-grey at the bottom-right rim), a
+ * shaded belly slab with a crisp top edge under the lobe row, darker
+ * ambient-occlusion creases where lobes overlap, and a faint ambient
+ * shade beneath that floats the mass off the sky. Silhouettes stay
+ * hard-edged; the internal modeling does the depth. sc-hi lights the
+ * front sunlit lobes, sc-mid the rear/belly-side ones. */
+const SAKURA_CLOUD_DEFS =
+  '<defs>' +
+  "<radialGradient id='sc-hi' cx='.38' cy='.28' r='.95'>" +
+  "<stop offset='0' stop-color='#ffffff'/><stop offset='.5' stop-color='#f7fbff'/><stop offset='.82' stop-color='#e6effa'/><stop offset='1' stop-color='#cddcee'/>" +
+  '</radialGradient>' +
+  "<radialGradient id='sc-mid' cx='.4' cy='.28' r='.95'>" +
+  "<stop offset='0' stop-color='#f0f6fc'/><stop offset='.6' stop-color='#d5e3f2'/><stop offset='1' stop-color='#a4bcdc'/>" +
+  '</radialGradient>' +
+  "<linearGradient id='sc-belly' x1='0' y1='0' x2='0' y2='1'>" +
+  "<stop offset='0' stop-color='#b4c9e4'/><stop offset='1' stop-color='#86a0c4'/>" +
+  '</linearGradient>' +
+  '</defs>'
+
+/** The painted cumulus bank left-of-branch: one big billowing mass and
+ * a smaller companion, plus two thin high wisps. Sits where the fade
+ * thins the art, reading as depth behind the name zone. */
+const SAKURA_CLOUDS = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 86'>" +
+    SAKURA_CLOUD_DEFS +
+    // big mass — ambient shade, belly slab, back lobes, AO, lit lobes
+    "<ellipse cx='62' cy='63' rx='46' ry='8' fill='#8fa9ca' opacity='.13'/>" +
+    "<ellipse cx='61' cy='56' rx='46' ry='13' fill='url(#sc-belly)' opacity='.92'/>" +
+    "<g fill='url(#sc-mid)'>" +
+    "<circle cx='36' cy='46' r='14'/><circle cx='60' cy='38' r='18'/><circle cx='86' cy='44' r='13.5'/><circle cx='104' cy='52' r='9'/>" +
+    '</g>' +
+    "<g fill='#8ea7c8' opacity='.25'>" +
+    "<ellipse cx='48' cy='44' rx='5' ry='3.4'/><ellipse cx='73' cy='42' rx='5.5' ry='3.6'/><ellipse cx='95' cy='50' rx='4' ry='2.6'/>" +
+    '</g>' +
+    "<g fill='url(#sc-hi)'>" +
+    "<circle cx='38' cy='43' r='15'/><circle cx='62' cy='34' r='19'/><circle cx='88' cy='44' r='13'/><circle cx='105' cy='53' r='8.5'/>" +
+    '</g>' +
+    "<circle cx='58' cy='28' r='8' fill='#ffffff' opacity='.85'/>" +
+    "<circle cx='36' cy='37' r='6' fill='#ffffff' opacity='.7'/>" +
+    // smaller companion to the right
+    "<ellipse cx='212' cy='67' rx='27' ry='5.5' fill='#8fa9ca' opacity='.12'/>" +
+    "<ellipse cx='212' cy='62' rx='27' ry='9' fill='url(#sc-belly)' opacity='.9'/>" +
+    "<g fill='url(#sc-mid)'>" +
+    "<circle cx='196' cy='54' r='9.5'/><circle cx='214' cy='48' r='12'/><circle cx='232' cy='55' r='8.5'/>" +
+    '</g>' +
+    "<g fill='#8ea7c8' opacity='.25'>" +
+    "<ellipse cx='205' cy='52' rx='3.4' ry='2.2'/><ellipse cx='223' cy='52' rx='3' ry='2'/>" +
+    '</g>' +
+    "<g fill='url(#sc-hi)'>" +
+    "<circle cx='198' cy='52' r='9'/><circle cx='216' cy='46' r='11.5'/><circle cx='233' cy='54' r='8'/>" +
+    '</g>' +
+    "<circle cx='214' cy='41' r='4.5' fill='#ffffff' opacity='.8'/>" +
+    // high thin wisps
+    "<ellipse cx='150' cy='28' rx='18' ry='3' fill='#ffffff' opacity='.4'/>" +
+    "<ellipse cx='262' cy='20' rx='12' ry='2.4' fill='#ffffff' opacity='.35'/>" +
+    '</svg>'
+)
+
+/** One billowing cumulus puff, exported for the FX layer's two
+ * slow-drifting live clouds (the base bank is static scenery; this is
+ * the moving weather). Same sphere-lit construction as the bank so live
+ * and painted clouds share one sky. */
+export const SAKURA_CLOUD = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 46'>" +
+    SAKURA_CLOUD_DEFS +
+    "<ellipse cx='60' cy='37' rx='34' ry='6' fill='#8fa9ca' opacity='.13'/>" +
+    "<ellipse cx='60' cy='32' rx='34' ry='10' fill='url(#sc-belly)' opacity='.92'/>" +
+    "<g fill='url(#sc-mid)'>" +
+    "<circle cx='40' cy='25' r='10.5'/><circle cx='60' cy='19' r='13.5'/><circle cx='80' cy='25' r='10'/>" +
+    '</g>' +
+    "<g fill='#8ea7c8' opacity='.25'>" +
+    "<ellipse cx='50' cy='23' rx='3.6' ry='2.4'/><ellipse cx='70' cy='23' rx='3.4' ry='2.2'/>" +
+    '</g>' +
+    "<g fill='url(#sc-hi)'>" +
+    "<circle cx='42' cy='23' r='11'/><circle cx='60' cy='17' r='14'/><circle cx='80' cy='24' r='10'/><circle cx='93' cy='29' r='6.5'/>" +
+    '</g>' +
+    "<circle cx='57' cy='12' r='5' fill='#ffffff' opacity='.85'/>" +
+    '</svg>'
+)
+
+/** クリブル ("Cribble") hand-lettered as vertical brush calligraphy
+ * (tategaki), stacked down the right side like a signature on a Japanese
+ * art print — zero font dependency, crisp at every strip height. Each
+ * glyph is round-capped organic strokes drawn twice: a wide translucent
+ * navy keyline underneath (so the white reads against the palest sky)
+ * and the white brush pass on top. Below the column: a vermillion hanko
+ * seal with a white blossom mark, then a tiny engraved CRIBBLE caption
+ * (textLength pins the advance, same crop-safety precedent as the
+ * Ignition wordmark). Glyphs carry slight individual tilts — a printed
+ * signature is never perfectly square. Placed height-proportionally
+ * (auto 84%) so the full signature survives 68px rows and grows into
+ * podium banners. */
+const CRIBBLE_KANA = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 158'>" +
+    '<defs>' +
+    // ク — tick over a horizontal that turns and sweeps down-left
+    "<path id='skb-ku' d='M14.5 4.5C16.5 6.5 18.5 8.5 20 10.5M12 14.5C17.5 14 22.5 13.4 27 12.8C28.2 12.6 28.9 13.4 28.3 14.4C26.5 18.5 22.9 22.5 17.8 25.6'/>" +
+    // リ — short left stem, long right stem with a leftward finish
+    "<path id='skb-ri' d='M14 42.5C13.7 46.5 13.4 50.5 13.6 54.2M22.5 41C22.2 46.5 21.9 52 21.4 56.6C21.1 59 19.6 60.8 17.2 61.6'/>" +
+    // ブ — フ sweep with the two dakuten ticks
+    "<path id='skb-bu' d='M11 80.5C16 79.9 20.8 79.3 25.2 78.8C26.4 78.7 27 79.6 26.4 80.6C24.4 86.4 19.6 91.8 13 95.6M27.5 74.2L29.3 76.2M30.8 73L32.6 75'/>" +
+    // ル — left stem flicking left, right stem looping out right
+    "<path id='skb-ru' d='M14.5 110C14.2 115 13.9 119.8 14 123.4C12.6 125.2 10.9 126.1 9.2 126.4M20.8 111C20.5 116 20.4 120.5 20.6 124.2C20.8 127.4 22.9 129.2 26.4 129.8'/>" +
+    '</defs>' +
+    "<g fill='none' stroke-linecap='round' stroke-linejoin='round'>" +
+    "<g stroke='#123a6b' stroke-width='6.4' opacity='.5'>" +
+    "<use href='#skb-ku' transform='rotate(-2 18 16)'/><use href='#skb-ri' transform='rotate(1.5 18 50)'/><use href='#skb-bu' transform='rotate(-1 18 84)'/><use href='#skb-ru' transform='rotate(2 18 118)'/>" +
+    '</g>' +
+    "<g stroke='#ffffff' stroke-width='3'>" +
+    "<use href='#skb-ku' transform='rotate(-2 18 16)'/><use href='#skb-ri' transform='rotate(1.5 18 50)'/><use href='#skb-bu' transform='rotate(-1 18 84)'/><use href='#skb-ru' transform='rotate(2 18 118)'/>" +
+    '</g>' +
+    '</g>' +
+    // hanko seal — vermillion block, white blossom mark, red heart
+    "<rect x='11.75' y='136' width='12.5' height='12.5' rx='2.2' fill='#d8382b'/>" +
+    "<g fill='#ffffff'>" +
+    "<ellipse cx='18' cy='140.15' rx='1.05' ry='1.75'/>" +
+    "<ellipse cx='18' cy='140.15' rx='1.05' ry='1.75' transform='rotate(72 18 142.25)'/>" +
+    "<ellipse cx='18' cy='140.15' rx='1.05' ry='1.75' transform='rotate(144 18 142.25)'/>" +
+    "<ellipse cx='18' cy='140.15' rx='1.05' ry='1.75' transform='rotate(216 18 142.25)'/>" +
+    "<ellipse cx='18' cy='140.15' rx='1.05' ry='1.75' transform='rotate(288 18 142.25)'/>" +
+    '</g>' +
+    "<circle cx='18' cy='142.25' r='.65' fill='#d8382b'/>" +
+    "<text x='4.5' y='155.5' font-family='Arial,Helvetica,sans-serif' font-size='4.4' font-weight='700' textLength='27' lengthAdjust='spacingAndGlyphs' fill='#ffffff' fill-opacity='.85'>CRIBBLE</text>" +
+    '</svg>'
+)
+
+/** Falling-petal faces, exported for the FX layer's 3D-tumbling petal
+ * system. FRONT/BACK are the two sides of one sakura petal — notched
+ * tip, center crease — the back a half-shade pinker so the card-flip
+ * flashes light/dark on the breeze. FAR has the depth-of-field softness
+ * baked in (feGaussianBlur inside the data-URI, painted once) — the
+ * scene never animates a CSS filter. */
+export const SAKURA_PETAL_FRONT = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'>" +
+    "<defs><radialGradient id='spf' cx='.5' cy='.62' r='.75'>" +
+    "<stop offset='0' stop-color='#ffeef4'/><stop offset='.55' stop-color='#ffc9dc'/><stop offset='1' stop-color='#ff8fbc'/>" +
+    '</radialGradient></defs>' +
+    "<path d='M10 18.4C6.6 17.6 4.2 15 3.6 11.8C3.1 9 4.6 6.4 6.8 4.9C8.2 3.9 9.4 3.4 10 4.6C10.6 3.4 11.8 3.9 13.2 4.9C15.4 6.4 16.9 9 16.4 11.8C15.8 15 13.4 17.6 10 18.4Z' fill='url(#spf)'/>" +
+    "<path d='M10 17.6C9.7 13.4 9.7 9.2 10 5.2' stroke='#e88fb4' stroke-width='.55' fill='none' opacity='.65'/>" +
+    '</svg>'
+)
+
+export const SAKURA_PETAL_BACK = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'>" +
+    "<defs><radialGradient id='spb' cx='.5' cy='.62' r='.75'>" +
+    "<stop offset='0' stop-color='#ffe3ee'/><stop offset='.55' stop-color='#ffb9d2'/><stop offset='1' stop-color='#f281b0'/>" +
+    '</radialGradient></defs>' +
+    "<path d='M10 18.4C6.6 17.6 4.2 15 3.6 11.8C3.1 9 4.6 6.4 6.8 4.9C8.2 3.9 9.4 3.4 10 4.6C10.6 3.4 11.8 3.9 13.2 4.9C15.4 6.4 16.9 9 16.4 11.8C15.8 15 13.4 17.6 10 18.4Z' fill='url(#spb)'/>" +
+    "<path d='M10 17.6C9.7 13.4 9.7 9.2 10 5.2' stroke='#d8729c' stroke-width='.55' fill='none' opacity='.7'/>" +
+    '</svg>'
+)
+
+export const SAKURA_PETAL_FAR = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 28 28'>" +
+    "<defs><filter id='spb2' x='-40%' y='-40%' width='180%' height='180%'><feGaussianBlur stdDeviation='1.3'/></filter></defs>" +
+    "<path d='M10 18.4C6.6 17.6 4.2 15 3.6 11.8C3.1 9 4.6 6.4 6.8 4.9C8.2 3.9 9.4 3.4 10 4.6C10.6 3.4 11.8 3.9 13.2 4.9C15.4 6.4 16.9 9 16.4 11.8C15.8 15 13.4 17.6 10 18.4Z' fill='#ffc9dc' opacity='.85' filter='url(#spb2)'/>" +
+    '</svg>'
+)
+
+/** Palette variants — the flurry mixes petals from different blossoms:
+ * PALE is the near-white blush of a just-opened bloom, DEEP the
+ * saturated pink of an older flower about to let go. Same geometry and
+ * two-faced flip logic; only the gradients shift. */
+export const SAKURA_PETAL_FRONT_PALE = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'>" +
+    "<defs><radialGradient id='spfp' cx='.5' cy='.62' r='.75'>" +
+    "<stop offset='0' stop-color='#ffffff'/><stop offset='.55' stop-color='#ffe4ee'/><stop offset='1' stop-color='#ffb9d2'/>" +
+    '</radialGradient></defs>' +
+    "<path d='M10 18.4C6.6 17.6 4.2 15 3.6 11.8C3.1 9 4.6 6.4 6.8 4.9C8.2 3.9 9.4 3.4 10 4.6C10.6 3.4 11.8 3.9 13.2 4.9C15.4 6.4 16.9 9 16.4 11.8C15.8 15 13.4 17.6 10 18.4Z' fill='url(#spfp)'/>" +
+    "<path d='M10 17.6C9.7 13.4 9.7 9.2 10 5.2' stroke='#f0a8c4' stroke-width='.55' fill='none' opacity='.6'/>" +
+    '</svg>'
+)
+
+export const SAKURA_PETAL_BACK_PALE = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'>" +
+    "<defs><radialGradient id='spbp' cx='.5' cy='.62' r='.75'>" +
+    "<stop offset='0' stop-color='#fff0f5'/><stop offset='.55' stop-color='#ffd0e0'/><stop offset='1' stop-color='#f79ec0'/>" +
+    '</radialGradient></defs>' +
+    "<path d='M10 18.4C6.6 17.6 4.2 15 3.6 11.8C3.1 9 4.6 6.4 6.8 4.9C8.2 3.9 9.4 3.4 10 4.6C10.6 3.4 11.8 3.9 13.2 4.9C15.4 6.4 16.9 9 16.4 11.8C15.8 15 13.4 17.6 10 18.4Z' fill='url(#spbp)'/>" +
+    "<path d='M10 17.6C9.7 13.4 9.7 9.2 10 5.2' stroke='#e087ab' stroke-width='.55' fill='none' opacity='.65'/>" +
+    '</svg>'
+)
+
+export const SAKURA_PETAL_FRONT_DEEP = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'>" +
+    "<defs><radialGradient id='spfd' cx='.5' cy='.62' r='.75'>" +
+    "<stop offset='0' stop-color='#ffdbe8'/><stop offset='.5' stop-color='#ffaac9'/><stop offset='1' stop-color='#fb6ea4'/>" +
+    '</radialGradient></defs>' +
+    "<path d='M10 18.4C6.6 17.6 4.2 15 3.6 11.8C3.1 9 4.6 6.4 6.8 4.9C8.2 3.9 9.4 3.4 10 4.6C10.6 3.4 11.8 3.9 13.2 4.9C15.4 6.4 16.9 9 16.4 11.8C15.8 15 13.4 17.6 10 18.4Z' fill='url(#spfd)'/>" +
+    "<path d='M10 17.6C9.7 13.4 9.7 9.2 10 5.2' stroke='#d7548b' stroke-width='.55' fill='none' opacity='.7'/>" +
+    '</svg>'
+)
+
+export const SAKURA_PETAL_BACK_DEEP = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'>" +
+    "<defs><radialGradient id='spbd' cx='.5' cy='.62' r='.75'>" +
+    "<stop offset='0' stop-color='#ffc0d6'/><stop offset='.5' stop-color='#f98bb6'/><stop offset='1' stop-color='#ec5b96'/>" +
+    '</radialGradient></defs>' +
+    "<path d='M10 18.4C6.6 17.6 4.2 15 3.6 11.8C3.1 9 4.6 6.4 6.8 4.9C8.2 3.9 9.4 3.4 10 4.6C10.6 3.4 11.8 3.9 13.2 4.9C15.4 6.4 16.9 9 16.4 11.8C15.8 15 13.4 17.6 10 18.4Z' fill='url(#spbd)'/>" +
+    "<path d='M10 17.6C9.7 13.4 9.7 9.2 10 5.2' stroke='#c94a7f' stroke-width='.55' fill='none' opacity='.75'/>" +
+    '</svg>'
+)
+
+export const SAKURA_PETAL_FAR_PALE = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 28 28'>" +
+    "<defs><filter id='spb3' x='-40%' y='-40%' width='180%' height='180%'><feGaussianBlur stdDeviation='1.3'/></filter></defs>" +
+    "<path d='M10 18.4C6.6 17.6 4.2 15 3.6 11.8C3.1 9 4.6 6.4 6.8 4.9C8.2 3.9 9.4 3.4 10 4.6C10.6 3.4 11.8 3.9 13.2 4.9C15.4 6.4 16.9 9 16.4 11.8C15.8 15 13.4 17.6 10 18.4Z' fill='#ffe3ee' opacity='.85' filter='url(#spb3)'/>" +
+    '</svg>'
+)
+
+export const SAKURA_PETAL_FAR_DEEP = svg(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 28 28'>" +
+    "<defs><filter id='spb4' x='-40%' y='-40%' width='180%' height='180%'><feGaussianBlur stdDeviation='1.3'/></filter></defs>" +
+    "<path d='M10 18.4C6.6 17.6 4.2 15 3.6 11.8C3.1 9 4.6 6.4 6.8 4.9C8.2 3.9 9.4 3.4 10 4.6C10.6 3.4 11.8 3.9 13.2 4.9C15.4 6.4 16.9 9 16.4 11.8C15.8 15 13.4 17.6 10 18.4Z' fill='#ff9ec2' opacity='.85' filter='url(#spb4)'/>" +
     '</svg>'
 )
 
@@ -639,15 +1030,23 @@ export const PLATES: PlateDef[] = [
     tagline: "Petals fall. Rank doesn't.",
     rarity: 'epic',
     priceUsd: 5.99,
-    render: {
+      render: {
       kind: 'css',
       base: [
-        `${BLOSSOM_BRANCH} right -10px top -6px / 280px 97px no-repeat`,
-        // full moon behind the branch
-        'radial-gradient(circle at 76% 34%, rgb(255 236 244 / 0.95) 0 6px, rgb(255 190 215 / 0.4) 8px, rgb(255 154 194 / 0.12) 13px, transparent 20px)',
-        'radial-gradient(110% 170% at 88% 22%, rgb(255 133 184 / 0.2), transparent 58%)',
-        'radial-gradient(80% 120% at 64% 112%, rgb(126 62 146 / 0.3), transparent 66%)',
-        'linear-gradient(180deg, rgb(30 11 34), rgb(14 6 20))'
+        // the tree over the signature (blossoms overlap the top glyph),
+        // both over a daylight sky with the sun burning behind the canopy
+        `${SAKURA_BRANCH} right -8px top -4px / 300px 110px no-repeat`,
+        `${CRIBBLE_KANA} right 16px center / auto 84% no-repeat`,
+        `${SAKURA_CLOUDS} left 14% top 4% / 300px 81px no-repeat`,
+        // sun bloom + flare ring behind the canopy (fixed-px core so it
+        // reads as a disk at every strip height, not a smear)
+        'radial-gradient(circle at 84% 16%, rgb(255 253 242 / 0.98) 0 9px, rgb(255 247 212 / 0.55) 15px, rgb(255 238 190 / 0.2) 26px, transparent 42px)',
+        'radial-gradient(circle at 84% 16%, transparent 28px, rgb(255 250 224 / 0.22) 34px, transparent 46px)',
+        'radial-gradient(120% 160% at 84% 14%, rgb(255 244 210 / 0.26), transparent 55%)',
+        // anime midday: luminous cerulean overhead easing through bright
+        // azure to a warm pale horizon (the navy kana keyline keeps the
+        // signature legible against the brightest band)
+        'linear-gradient(180deg, rgb(43 116 208) 0%, rgb(70 142 220) 30%, rgb(116 176 234) 55%, rgb(168 210 244) 76%, rgb(232 243 252) 100%)'
       ],
       fx: 'cherry-blossom',
       accent: '255 154 194'

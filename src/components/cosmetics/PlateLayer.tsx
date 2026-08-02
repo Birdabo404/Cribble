@@ -21,7 +21,23 @@
 // (the media query below), image plates serve staticSrc via <picture>.
 
 import { useEffect, useId, useState } from 'react'
-import { ANOMALY_CRACKS, KOI_CAUSTICS, getPlate, type PlateFx, type PlateImageRender } from '@/lib/cosmetics/plates'
+import {
+  ANOMALY_CRACKS,
+  KOI_CAUSTICS,
+  SAKURA_CLOUD,
+  SAKURA_PETAL_BACK,
+  SAKURA_PETAL_BACK_DEEP,
+  SAKURA_PETAL_BACK_PALE,
+  SAKURA_PETAL_FAR,
+  SAKURA_PETAL_FAR_DEEP,
+  SAKURA_PETAL_FAR_PALE,
+  SAKURA_PETAL_FRONT,
+  SAKURA_PETAL_FRONT_DEEP,
+  SAKURA_PETAL_FRONT_PALE,
+  getPlate,
+  type PlateFx,
+  type PlateImageRender
+} from '@/lib/cosmetics/plates'
 
 export interface PlateLayerProps {
   plateId: string
@@ -249,27 +265,160 @@ export function PlateLayer({ plateId, fade = 'left', className = '' }: PlateLaye
           }
         }
 
-        .plx-petal {
-          animation: plx-petal 9s linear infinite;
+        /* ---- Cherry Blossom (plx-skb-*) --------------------------------
+           A spring gust off the hanami branch. The wind is written in the
+           fall keyframes: every layer sweeps down-left out of the canopy
+           zone with sinusoidal sway (the x reversals), one updraft stall
+           (the y plateau mid-fall) and a fade past the bottom edge. Near
+           petals fall fastest with the widest sway and a full spin; the
+           far layer barely sways and dissolves into the haze. The tumble
+           is a separate clock — a preserve-3d card-flip crossing rotateX
+           with a full rotateY so the two painted faces (pale front /
+           pinker back) flash as the petal rolls. Fall and tumble periods
+           are coprime per petal, so no two loops visibly repeat. */
+
+        /* near: big sweep, hard gust at 63%, one full pirouette */
+        .plx-skb-fall-n {
+          animation: plx-skb-fall-n 8s linear infinite;
         }
-        @keyframes plx-petal {
+        @keyframes plx-skb-fall-n {
           0% {
-            transform: translate3d(0, -10px, 0) rotate(0deg);
+            transform: translate3d(2px, -16px, 0) rotate(-8deg);
             opacity: 0;
           }
-          8% {
-            opacity: 0.9;
+          5% {
+            opacity: 0.95;
           }
-          50% {
-            transform: translate3d(-18px, 38px, 0) rotate(150deg);
-            opacity: 0.85;
+          20% {
+            transform: translate3d(-12px, 16px, 0) rotate(38deg);
+          }
+          34% {
+            transform: translate3d(-30px, 26px, 0) rotate(84deg);
+          }
+          48% {
+            /* sway-back + the updraft: y nearly stalls while x recovers */
+            transform: translate3d(-24px, 42px, 0) rotate(138deg);
+          }
+          63% {
+            transform: translate3d(-46px, 54px, 0) rotate(196deg);
           }
           78% {
-            transform: translate3d(-4px, 66px, 0) rotate(230deg);
+            transform: translate3d(-40px, 82px, 0) rotate(262deg);
+            opacity: 0.85;
+          }
+          100% {
+            transform: translate3d(-58px, 122px, 0) rotate(330deg);
+            opacity: 0;
+          }
+        }
+
+        /* mid: the meander — long left reach, stall at 52%, slow counter-spin */
+        .plx-skb-fall-m {
+          animation: plx-skb-fall-m 11s linear infinite;
+        }
+        @keyframes plx-skb-fall-m {
+          0% {
+            transform: translate3d(0, -12px, 0) rotate(6deg);
+            opacity: 0;
+          }
+          7% {
+            opacity: 0.8;
+          }
+          18% {
+            transform: translate3d(-10px, 10px, 0) rotate(-24deg);
+          }
+          36% {
+            transform: translate3d(-34px, 24px, 0) rotate(-58deg);
+          }
+          52% {
+            /* riding the updraft — horizontal, almost weightless */
+            transform: translate3d(-52px, 28px, 0) rotate(-80deg);
+          }
+          68% {
+            transform: translate3d(-64px, 50px, 0) rotate(-30deg);
+          }
+          84% {
+            transform: translate3d(-78px, 76px, 0) rotate(20deg);
             opacity: 0.7;
           }
           100% {
-            transform: translate3d(-22px, 96px, 0) rotate(320deg);
+            transform: translate3d(-92px, 108px, 0) rotate(58deg);
+            opacity: 0;
+          }
+        }
+
+        /* far: lazy haze descent — small sway, half opacity, early dissolve */
+        .plx-skb-fall-f {
+          animation: plx-skb-fall-f 16s linear infinite;
+        }
+        @keyframes plx-skb-fall-f {
+          0% {
+            transform: translate3d(0, -8px, 0) rotate(-4deg);
+            opacity: 0;
+          }
+          10% {
+            opacity: 0.55;
+          }
+          30% {
+            transform: translate3d(-12px, 14px, 0) rotate(14deg);
+          }
+          55% {
+            transform: translate3d(-30px, 34px, 0) rotate(-12deg);
+          }
+          80% {
+            transform: translate3d(-44px, 62px, 0) rotate(10deg);
+            opacity: 0.5;
+          }
+          100% {
+            transform: translate3d(-56px, 92px, 0) rotate(24deg);
+            opacity: 0;
+          }
+        }
+
+        /* the card-flip: rotateX rocks through the horizontal while
+           rotateY spins — the petal rolls like a falling leaf, its two
+           faces flashing light/dark. Duration and direction vary per
+           petal; the loop closes on the same pose it opened on. */
+        .plx-skb-tumble {
+          animation: plx-skb-tumble 3.4s linear infinite;
+        }
+        @keyframes plx-skb-tumble {
+          0% {
+            transform: rotateX(-26deg) rotateY(0deg);
+          }
+          25% {
+            transform: rotateX(12deg) rotateY(90deg);
+          }
+          50% {
+            transform: rotateX(28deg) rotateY(180deg);
+          }
+          75% {
+            transform: rotateX(-8deg) rotateY(270deg);
+          }
+          100% {
+            transform: rotateX(-26deg) rotateY(360deg);
+          }
+        }
+
+        /* weather: one cumulus puff crossing the right sky per loop —
+           fades before the name zone, re-enters off the right edge */
+        .plx-skb-cloud {
+          animation: plx-skb-cloud 86s linear infinite;
+        }
+        @keyframes plx-skb-cloud {
+          0% {
+            transform: translate3d(150px, 0, 0);
+            opacity: 0;
+          }
+          6% {
+            opacity: 0.8;
+          }
+          84% {
+            opacity: 0.8;
+          }
+          96%,
+          100% {
+            transform: translate3d(-640px, 0, 0);
             opacity: 0;
           }
         }
@@ -2331,14 +2480,60 @@ function PlateImage({ render }: { render: PlateImageRender }) {
 // wrappers so the animation never fights a centering translate.
 // ---------------------------------------------------------------------------
 
-const PETALS = [
-  { right: '6%', top: '10%', size: 8, dur: '9s', delay: '-2s' },
-  { right: '17%', top: '-6%', size: 5, dur: '11.5s', delay: '-7.2s' },
-  { right: '28%', top: '30%', size: 6, dur: '8.4s', delay: '-4.1s' },
-  { right: '40%', top: '4%', size: 5, dur: '12.5s', delay: '-9.6s' },
-  { right: '12%', top: '46%', size: 9, dur: '10s', delay: '-5.4s' },
-  { right: '34%', top: '52%', size: 6, dur: '9.4s', delay: '-1.3s' },
-  { right: '48%', top: '24%', size: 4, dur: '13s', delay: '-6.6s' }
+/** Petal palettes — the flurry mixes petals let go from different
+ * blossoms: pale near-white blush, the signature mid pink, and a
+ * saturated deep pink. Each tone keeps its own front/back face pair so
+ * the two-faced card-flip still flashes light/dark within one petal. */
+type SakuraTone = 'pale' | 'mid' | 'deep'
+const SAKURA_PETAL_FACES: Record<SakuraTone, { front: string; back: string }> = {
+  pale: { front: SAKURA_PETAL_FRONT_PALE, back: SAKURA_PETAL_BACK_PALE },
+  mid: { front: SAKURA_PETAL_FRONT, back: SAKURA_PETAL_BACK },
+  deep: { front: SAKURA_PETAL_FRONT_DEEP, back: SAKURA_PETAL_BACK_DEEP }
+}
+const SAKURA_PETAL_FARS: Record<SakuraTone, string> = {
+  pale: SAKURA_PETAL_FAR_PALE,
+  mid: SAKURA_PETAL_FAR,
+  deep: SAKURA_PETAL_FAR_DEEP
+}
+
+/** The cherry-blossom petal field: twelve petals at three depths, spawned
+ * under the canopy (the branch art owns the top-right, so spawns cluster
+ * right-of-center). n/m/f pick the fall choreography; `dur`/`delay`
+ * stagger the wind phase, `tumble`/`dir` set the card-flip clock (coprime
+ * with the fall so the flash never syncs with the sway); `tone` picks the
+ * blossom palette — neighbors never share one. `park`/`parkFlip` are the
+ * reduced-motion tableau — when the media query freezes the scene, inline
+ * styles take over and every petal hangs mid-air mid-tumble. Near petals
+ * are big and saturated, far petals small and slow with the blur baked
+ * into their SVG. */
+const SAKURA_PETALS: {
+  depth: 'n' | 'm' | 'f'
+  tone: SakuraTone
+  right: string
+  top: string
+  size: number
+  dur: string
+  delay: string
+  tumble: string
+  dir: 'normal' | 'reverse'
+  park: string
+  parkFlip: string
+}[] = [
+  // near — the petals that brush past the viewer
+  { depth: 'n', tone: 'mid', right: '9%', top: '-8%', size: 11, dur: '7.6s', delay: '-1.2s', tumble: '2.9s', dir: 'normal', park: 'translate3d(-24px, 38px, 0) rotate(96deg)', parkFlip: 'rotateX(30deg) rotateY(140deg)' },
+  { depth: 'n', tone: 'pale', right: '22%', top: '4%', size: 10, dur: '8.4s', delay: '-5.8s', tumble: '3.4s', dir: 'reverse', park: 'translate3d(-14px, 52px, 0) rotate(-40deg)', parkFlip: 'rotateX(-24deg) rotateY(215deg)' },
+  { depth: 'n', tone: 'deep', right: '36%', top: '-4%', size: 9.5, dur: '7.9s', delay: '-3.4s', tumble: '2.6s', dir: 'normal', park: 'translate3d(-32px, 26px, 0) rotate(160deg)', parkFlip: 'rotateX(44deg) rotateY(60deg)' },
+  // mid — the body of the flurry
+  { depth: 'm', tone: 'pale', right: '6%', top: '12%', size: 7.5, dur: '10.5s', delay: '-7.7s', tumble: '3.8s', dir: 'reverse', park: 'translate3d(-44px, 46px, 0) rotate(75deg)', parkFlip: 'rotateX(-36deg) rotateY(300deg)' },
+  { depth: 'm', tone: 'deep', right: '14%', top: '-6%', size: 7, dur: '11.8s', delay: '-2.9s', tumble: '4.2s', dir: 'normal', park: 'translate3d(-20px, 60px, 0) rotate(-110deg)', parkFlip: 'rotateX(14deg) rotateY(105deg)' },
+  { depth: 'm', tone: 'mid', right: '27%', top: '8%', size: 8, dur: '9.6s', delay: '-6.1s', tumble: '3.6s', dir: 'reverse', park: 'translate3d(-52px, 30px, 0) rotate(30deg)', parkFlip: 'rotateX(-44deg) rotateY(250deg)' },
+  { depth: 'm', tone: 'deep', right: '40%', top: '-2%', size: 6.5, dur: '12.4s', delay: '-9.3s', tumble: '4.5s', dir: 'normal', park: 'translate3d(-36px, 54px, 0) rotate(-70deg)', parkFlip: 'rotateX(38deg) rotateY(175deg)' },
+  { depth: 'm', tone: 'pale', right: '18%', top: '22%', size: 6.5, dur: '11.1s', delay: '-4.6s', tumble: '3.3s', dir: 'reverse', park: 'translate3d(-60px, 42px, 0) rotate(140deg)', parkFlip: 'rotateX(-18deg) rotateY(330deg)' },
+  // far — haze drift, one blurred face each
+  { depth: 'f', tone: 'pale', right: '12%', top: '2%', size: 4.5, dur: '15s', delay: '-9s', tumble: '0s', dir: 'normal', park: 'translate3d(-18px, 28px, 0) rotate(10deg)', parkFlip: '' },
+  { depth: 'f', tone: 'deep', right: '24%', top: '14%', size: 4, dur: '17.5s', delay: '-13.2s', tumble: '0s', dir: 'normal', park: 'translate3d(-34px, 40px, 0) rotate(-14deg)', parkFlip: '' },
+  { depth: 'f', tone: 'mid', right: '33%', top: '-8%', size: 5, dur: '14.2s', delay: '-5.5s', tumble: '0s', dir: 'normal', park: 'translate3d(-26px, 22px, 0) rotate(22deg)', parkFlip: '' },
+  { depth: 'f', tone: 'pale', right: '44%', top: '6%', size: 4, dur: '18.6s', delay: '-16.8s', tumble: '0s', dir: 'normal', park: 'translate3d(-42px, 34px, 0) rotate(-8deg)', parkFlip: '' }
 ]
 
 /** Ignition ejecta, fired from the nozzle exit plane. 1px slivers are the
@@ -3722,52 +3917,181 @@ function FxOverlay({ fx }: { fx: PlateFx }) {
       )
 
     case 'cherry-blossom':
-      // moonlight breathing over the branch (base art) while petals fall
+      // a spring gust off the hanami branch (base art). Light: the sun
+      // bloom breathes behind the canopy while two gold shafts rake the
+      // right sky. Weather: two cumulus puffs drift across on 72s/104s
+      // clocks. Life: twelve petals at three depths — near/mid petals are
+      // two-faced cards (pale front, pinker back) tumbling in preserve-3d
+      // so they flash as they roll; far petals ride a single face with
+      // the depth-of-field blur baked into the SVG — no animated CSS
+      // filters anywhere in the scene. Frozen (reduced motion), every
+      // petal parks mid-air on its inline pose — the designed tableau.
       return (
         <>
+          {/* the sun's breath — halo spilling over the canopy corner */}
           <div
             className="plx-breathe absolute rounded-full"
             style={{
-              right: 'calc(24% - 30px)',
-              top: 'calc(34% - 30px)',
-              width: 60,
-              height: 60,
-              background: 'radial-gradient(circle, rgb(255 220 235 / 0.3), transparent 70%)',
-              filter: 'blur(8px)',
+              right: 'calc(16% - 90px)',
+              top: 'calc(16% - 90px)',
+              width: 180,
+              height: 180,
+              background:
+                'radial-gradient(circle, rgb(255 246 214 / 0.42), rgb(255 238 190 / 0.16) 46%, transparent 70%)',
+              mixBlendMode: 'screen',
               animationDuration: '9s'
             }}
           />
+          {/* god rays off the top-right corner — static slant on the
+              wrappers, only the light level breathes */}
           <div
-            className="plx-breathe absolute inset-y-0"
+            className="absolute"
             style={{
-              right: 0,
-              width: '45%',
-              background:
-                'radial-gradient(70% 110% at 90% 20%, rgb(255 154 194 / 0.13), transparent 70%)',
-              animationDuration: '11s',
-              animationDelay: '-4s'
+              right: 64,
+              top: '-28%',
+              width: 46,
+              height: '170%',
+              transform: 'rotate(-24deg)',
+              transformOrigin: 'top right'
             }}
-          />
-          {PETALS.map((p, i) => (
+          >
             <div
-              key={i}
-              className="plx-petal absolute"
+              className="plx-breathe absolute inset-0"
               style={{
-                right: p.right,
-                top: p.top,
-                width: p.size,
-                height: p.size,
-                borderRadius: '100% 8% 100% 8%',
                 background:
-                  i % 2 === 0
-                    ? 'linear-gradient(135deg, rgb(255 196 220 / 0.95), rgb(255 133 184 / 0.8))'
-                    : 'linear-gradient(135deg, rgb(255 173 205 / 0.9), rgb(240 110 165 / 0.75))',
-                opacity: 0,
-                animationDuration: p.dur,
-                animationDelay: p.delay
+                  'linear-gradient(180deg, rgb(255 248 214 / 0.26), rgb(255 248 214 / 0.08) 55%, transparent 82%)',
+                mixBlendMode: 'screen',
+                animationDuration: '11s',
+                animationDelay: '-4s'
               }}
             />
-          ))}
+          </div>
+          <div
+            className="absolute"
+            style={{
+              right: 172,
+              top: '-30%',
+              width: 26,
+              height: '160%',
+              transform: 'rotate(-24deg)',
+              transformOrigin: 'top right'
+            }}
+          >
+            <div
+              className="plx-breathe absolute inset-0"
+              style={{
+                background:
+                  'linear-gradient(180deg, rgb(255 248 214 / 0.2), rgb(255 248 214 / 0.06) 50%, transparent 78%)',
+                mixBlendMode: 'screen',
+                animationDuration: '13s',
+                animationDelay: '-8s'
+              }}
+            />
+          </div>
+          {/* live clouds — the base bank's moving counterparts */}
+          <div
+            className="plx-skb-cloud absolute"
+            style={{
+              right: 0,
+              top: '9%',
+              width: 130,
+              height: 50,
+              backgroundImage: SAKURA_CLOUD,
+              backgroundSize: 'contain',
+              backgroundRepeat: 'no-repeat',
+              opacity: 0.75,
+              transform: 'translate3d(-180px, 0, 0)',
+              animationDuration: '72s',
+              animationDelay: '-18s'
+            }}
+          />
+          <div
+            className="plx-skb-cloud absolute"
+            style={{
+              right: 0,
+              top: '26%',
+              width: 86,
+              height: 33,
+              backgroundImage: SAKURA_CLOUD,
+              backgroundSize: 'contain',
+              backgroundRepeat: 'no-repeat',
+              opacity: 0.5,
+              transform: 'translate3d(-380px, 0, 0)',
+              animationDuration: '104s',
+              animationDelay: '-61s'
+            }}
+          />
+          {/* the flurry — three depths, one wind */}
+          {SAKURA_PETALS.map((p, i) =>
+            p.depth === 'f' ? (
+              <div
+                key={i}
+                className="plx-skb-fall-f absolute"
+                style={{
+                  right: p.right,
+                  top: p.top,
+                  width: p.size,
+                  height: p.size,
+                  backgroundImage: SAKURA_PETAL_FARS[p.tone],
+                  backgroundSize: 'contain',
+                  backgroundRepeat: 'no-repeat',
+                  opacity: 0.5,
+                  transform: p.park,
+                  animationDuration: p.dur,
+                  animationDelay: p.delay
+                }}
+              />
+            ) : (
+              <div
+                key={i}
+                className={`absolute ${p.depth === 'n' ? 'plx-skb-fall-n' : 'plx-skb-fall-m'}`}
+                style={{
+                  right: p.right,
+                  top: p.top,
+                  width: p.size,
+                  height: p.size,
+                  perspective: '340px',
+                  opacity: 0.9,
+                  transform: p.park,
+                  animationDuration: p.dur,
+                  animationDelay: p.delay
+                }}
+              >
+                <div
+                  className="plx-skb-tumble absolute inset-0"
+                  style={{
+                    transformStyle: 'preserve-3d',
+                    transform: p.parkFlip,
+                    animationDuration: p.tumble,
+                    animationDelay: p.delay,
+                    animationDirection: p.dir
+                  }}
+                >
+                  <div
+                    className="absolute inset-0"
+                    style={{
+                      backfaceVisibility: 'hidden',
+                      WebkitBackfaceVisibility: 'hidden',
+                      backgroundImage: SAKURA_PETAL_FACES[p.tone].front,
+                      backgroundSize: 'contain',
+                      backgroundRepeat: 'no-repeat'
+                    }}
+                  />
+                  <div
+                    className="absolute inset-0"
+                    style={{
+                      backfaceVisibility: 'hidden',
+                      WebkitBackfaceVisibility: 'hidden',
+                      transform: 'rotateY(180deg)',
+                      backgroundImage: SAKURA_PETAL_FACES[p.tone].back,
+                      backgroundSize: 'contain',
+                      backgroundRepeat: 'no-repeat'
+                    }}
+                  />
+                </div>
+              </div>
+            )
+          )}
         </>
       )
 
