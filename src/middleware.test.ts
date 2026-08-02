@@ -75,18 +75,18 @@ describe('middleware site lock', () => {
     vi.unstubAllEnvs()
   })
 
-  const request = (path: string) => new NextRequest(`https://cribble.dev${path}`)
+  const request = (path: string, cookie?: string) =>
+    new NextRequest(`https://cribble.dev${path}`, cookie ? { headers: { cookie } } : undefined)
 
-  const rewriteTarget = (path: string) => {
-    const rewrite = middleware(request(path)).headers.get('x-middleware-rewrite')
+  const rewriteTarget = (path: string, cookie?: string) => {
+    const rewrite = middleware(request(path, cookie)).headers.get('x-middleware-rewrite')
     return rewrite ? new URL(rewrite).pathname : null
   }
 
   it('rewrites locked sectors to the maintenance screen', () => {
     vi.stubEnv('SITE_LOCKED', '1')
-    // Any page outside the allowlist rewrites in place. /shop used to be
-    // the example here but is now allowlisted so payments survive a lock
-    // (covered below).
+    // Any page outside the allowlist rewrites in place. /shop is its own
+    // case now — sealed or open depending on the session cookie (below).
     expect(rewriteTarget('/settings')).toBe('/maintenance')
   })
 
@@ -104,9 +104,8 @@ describe('middleware site lock', () => {
   it('leaves allowlisted pages alone while locked', () => {
     vi.stubEnv('SITE_LOCKED', '1')
     expect(rewriteTarget('/leaderboard')).toBeNull()
-    // Payments must survive the lock: the shop page and its API routes
-    // stay reachable so Polar webhooks and checkout bounces keep landing.
-    expect(rewriteTarget('/shop')).toBeNull()
+    // Payments must survive the lock: the API lanes stay reachable so
+    // Polar webhooks and checkout bounces keep landing.
     // The Team pitch page is publicly shareable while the beta is locked.
     expect(rewriteTarget('/teams')).toBeNull()
     // The team console is Polar's checkout success URL and its API lanes
@@ -116,6 +115,19 @@ describe('middleware site lock', () => {
     expect(middleware(request('/api/team/roster')).status).toBe(200)
     expect(middleware(request('/api/webhooks/polar')).status).toBe(200)
     expect(middleware(request('/api/user/subscription/sync')).status).toBe(200)
+  })
+
+  it('seals /shop for signed-out visitors while locked', () => {
+    vi.stubEnv('SITE_LOCKED', '1')
+    expect(rewriteTarget('/shop')).toBe('/maintenance')
+  })
+
+  it('keeps /shop open for signed-in pilots while locked', () => {
+    vi.stubEnv('SITE_LOCKED', '1')
+    // Presence-only gate: the middleware never validates the token, so any
+    // cribble_session cookie opens the storefront shell — the data lanes
+    // behind it still enforce real auth.
+    expect(rewriteTarget('/shop', 'cribble_session=beta-tester')).toBeNull()
   })
 
   it('does not rewrite anything when unlocked', () => {

@@ -49,7 +49,10 @@ export function middleware(request: NextRequest) {
   }
 
   const locked = isSiteLocked()
-  const allowedDuringLock = isAllowedDuringLock(pathname)
+  // Presence-only check — sessionAuth validates the token on every data
+  // route; here it just decides whether lock-time /shop is yours to see.
+  const hasSession = request.cookies.has('cribble_session')
+  const allowedDuringLock = isAllowedDuringLock(pathname, hasSession)
 
   if (locked && !allowedDuringLock) {
     if (isApiRoute) {

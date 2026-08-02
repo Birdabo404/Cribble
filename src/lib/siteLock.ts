@@ -21,7 +21,7 @@ export function isSiteLocked(): boolean {
 // Next image optimizer's internal fetch of the source file also succeeds.
 const STATIC_ASSET_RE = /\.(png|jpe?g|gif|webp|avif|svg|ico|mp3|mp4|webm|woff2?)$/i
 
-export function isAllowedDuringLock(pathname: string): boolean {
+export function isAllowedDuringLock(pathname: string, hasSession = false): boolean {
   if (pathname === '/') return true
   if (pathname === '/welcome' || pathname === '/login') return true
   // The screen locked sectors rewrite into — must stay reachable itself.
@@ -62,7 +62,12 @@ export function isAllowedDuringLock(pathname: string): boolean {
   if (pathname === '/api/portal') return true
   if (pathname === '/api/user/cosmetics') return true
   if (pathname === '/api/user/subscription/sync') return true
-  if (pathname === '/shop') return true
+  // The storefront is for signed-in pilots only while the site is locked.
+  // Cookie presence is the strongest signal the middleware can afford —
+  // validating the token would cost a database round trip per request —
+  // and a forged cookie only reveals the storefront shell: every lane
+  // behind it (cosmetics, checkout, portal, sync) enforces real auth.
+  if (pathname === '/shop') return hasSession
   // The Cribble Team pitch page is shared with companies while the beta
   // is locked — its checkout/API lanes are already open above.
   if (pathname === '/teams') return true
