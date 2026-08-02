@@ -90,10 +90,12 @@ describe('middleware site lock', () => {
     expect(rewriteTarget('/settings')).toBe('/maintenance')
   })
 
-  it('keeps the maintenance screen itself reachable while locked', () => {
+  it('keeps the void screens themselves reachable while locked', () => {
     vi.stubEnv('SITE_LOCKED', '1')
     expect(rewriteTarget('/maintenance')).toBeNull()
     expect(middleware(request('/maintenance')).status).toBe(200)
+    expect(rewriteTarget('/restricted')).toBeNull()
+    expect(middleware(request('/restricted')).status).toBe(200)
   })
 
   it('still 404s locked API routes', () => {
@@ -117,9 +119,11 @@ describe('middleware site lock', () => {
     expect(middleware(request('/api/user/subscription/sync')).status).toBe(200)
   })
 
-  it('seals /shop for signed-out visitors while locked', () => {
+  it('walls /shop behind sign-in for signed-out visitors while locked', () => {
     vi.stubEnv('SITE_LOCKED', '1')
-    expect(rewriteTarget('/shop')).toBe('/maintenance')
+    // Not the maintenance screen: a session would open this sector, so
+    // the visitor gets the sign-in wall instead of "under construction".
+    expect(rewriteTarget('/shop')).toBe('/restricted')
   })
 
   it('keeps /shop open for signed-in pilots while locked', () => {

@@ -24,8 +24,11 @@ const STATIC_ASSET_RE = /\.(png|jpe?g|gif|webp|avif|svg|ico|mp3|mp4|webm|woff2?)
 export function isAllowedDuringLock(pathname: string, hasSession = false): boolean {
   if (pathname === '/') return true
   if (pathname === '/welcome' || pathname === '/login') return true
-  // The screen locked sectors rewrite into — must stay reachable itself.
+  // The screens locked sectors rewrite into — must stay reachable
+  // themselves: /maintenance for sealed sectors, /restricted for
+  // session-gated ones (the sign-in wall).
   if (pathname === '/maintenance') return true
+  if (pathname === '/restricted') return true
   // Privacy policy is the Chrome Web Store listing's privacy URL and must
   // stay reachable while the site is locked.
   if (pathname === '/privacy') return true

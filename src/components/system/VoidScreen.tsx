@@ -1,8 +1,10 @@
 'use client'
 
 // Full-viewport "adrift in space" system screen, shared by the global 404
-// (variant "not-found") and the maintenance / coming-soon route (variant
-// "maintenance", served in place of locked sectors like /shop).
+// (variant "not-found"), the maintenance / coming-soon route (variant
+// "maintenance", served in place of locked sectors) and the sign-in wall
+// (variant "restricted", served when a locked sector would open for a
+// signed-in pilot — e.g. /shop under the site lock).
 //
 // Composition mirrors the landing hero so the screen reads as the same
 // station: deep-space starfield (dossier paper in light mode), mono chrome,
@@ -15,10 +17,10 @@ import { LiquidMark } from '@/components/brand/LiquidMark'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { ACCENT, accentA } from '@/lib/theme'
 
-type VoidScreenVariant = 'not-found' | 'maintenance'
+type VoidScreenVariant = 'not-found' | 'maintenance' | 'restricted'
 
 type VoidCopy = {
-  /** Digits flanking the orbit-ring zero: 4⊙4, 5⊙3. */
+  /** Digits flanking the orbit-ring zero: 4⊙4, 5⊙3, 4⊙1. */
   digits: [string, string]
   badge: string
   /** Serif headline; the second line renders italic in the accent color. */
@@ -27,7 +29,8 @@ type VoidCopy = {
   /** Typed into the terminal readout, character by character. */
   terminal: string
   footerNote: string
-  actions: Array<{ href: string; label: string; primary?: boolean }>
+  /** `forward` flips the primary arrow: ← go back vs → go on (sign in). */
+  actions: Array<{ href: string; label: string; primary?: boolean; forward?: boolean }>
 }
 
 const COPY: Record<VoidScreenVariant, VoidCopy> = {
@@ -57,6 +60,20 @@ const COPY: Record<VoidScreenVariant, VoidCopy> = {
     actions: [
       { href: '/', label: 'RETURN TO BASE', primary: true },
       { href: '/leaderboard', label: 'SCAN THE LEADERBOARD' }
+    ]
+  },
+  restricted: {
+    digits: ['4', '1'],
+    badge: 'RESTRICTED SECTOR · PILOTS ONLY',
+    headline: ['this deck is reserved', 'for registered pilots.'],
+    body:
+      'Nothing is broken and nothing is hidden — this hatch just answers ' +
+      'to a callsign. Sign in and the sector opens on its own.',
+    terminal: 'ERR_401 · no clearance on file · identify yourself',
+    footerNote: '// no callsign, no boarding',
+    actions: [
+      { href: '/login', label: 'SIGN IN', primary: true, forward: true },
+      { href: '/', label: 'RETURN TO BASE' }
     ]
   }
 }
@@ -192,13 +209,23 @@ export function VoidScreen({ variant }: { variant: VoidScreenVariant }) {
                   href={action.href}
                   className="group inline-flex items-center gap-2.5 rounded-md bg-white px-5 py-2.5 text-[11px] font-semibold tracking-[0.25em] text-black transition-[background-color,transform] hover:bg-zinc-200 active:scale-[0.98]"
                 >
-                  <span
-                    aria-hidden
-                    className="text-zinc-500 transition-transform group-hover:-translate-x-0.5"
-                  >
-                    ←
-                  </span>
+                  {!action.forward && (
+                    <span
+                      aria-hidden
+                      className="text-zinc-500 transition-transform group-hover:-translate-x-0.5"
+                    >
+                      ←
+                    </span>
+                  )}
                   {action.label}
+                  {action.forward && (
+                    <span
+                      aria-hidden
+                      className="text-zinc-500 transition-transform group-hover:translate-x-0.5"
+                    >
+                      →
+                    </span>
+                  )}
                 </Link>
               ) : (
                 <Link

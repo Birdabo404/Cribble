@@ -59,11 +59,12 @@ export function middleware(request: NextRequest) {
       return new NextResponse('Not found', { status: 404, headers: response.headers })
     }
 
-    // Locked sectors (e.g. /shop before launch) render the maintenance
-    // screen in place — the URL is preserved so the visitor knows where
-    // they are, and refreshing after launch lands on the real page.
+    // Locked sectors render a void screen in place — the URL is preserved
+    // so the visitor knows where they are, and refreshing after launch
+    // (or after signing in) lands on the real page. Sectors that a session
+    // would open get the sign-in wall; everything else is under works.
     const url = request.nextUrl.clone()
-    url.pathname = '/maintenance'
+    url.pathname = isAllowedDuringLock(pathname, true) ? '/restricted' : '/maintenance'
     return NextResponse.rewrite(url, { headers: response.headers })
   }
 
