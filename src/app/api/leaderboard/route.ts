@@ -16,6 +16,7 @@ import { isMissingFollowsTable, readAccountIsPrivate } from '@/lib/publicProfile
 import { fetchSeasonState } from '@/lib/seasonServer'
 import { getSessionUserId } from '@/lib/sessionAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
+import { getAffiliatedTeamsBatch } from '@/lib/teams'
 import { rankToolsFromEvents } from '@/lib/topTools'
 
 export const dynamic = 'force-dynamic'
@@ -26,8 +27,9 @@ type BoardKind = 'season' | 'alltime'
 
 const normalizeTier = (
   t: string | null
-): 'FREE' | 'BASIC' | 'PRO' | 'PREMIUM' | 'AFFILIATE' => {
+): 'FREE' | 'BASIC' | 'PRO' | 'PREMIUM' | 'AFFILIATE' | 'TEAM' => {
   const v = (t || 'FREE').toUpperCase()
+  if (v.includes('TEAM')) return 'TEAM'
   if (v.includes('AFFILIATE')) return 'AFFILIATE'
   if (v.includes('PREMIUM')) return 'PREMIUM'
   if (v.includes('PRO')) return 'PRO'
@@ -258,15 +260,20 @@ export async function GET(request: NextRequest) {
     // Batch query 1: all users with scores and devices in one query.
     // Banned and suspended accounts are filtered in the query itself so
     // they never occupy one of the 100 board slots (status is NULL on
-    // rows that predate migration 003 — treated as active). The frozen
-    // board instead loads exactly the archived users — the archive is
-    // history and keeps rendering whoever earned a place on it.
+    // rows that predate migration 003 — treated as active), and so are
+    // TEAM-tier company accounts — they buy badges and affiliate seats,
+    // they don't compete personally. Both exclusions happen before the
+    // sort/limit, so ranks are assigned over eligible players only. The
+    // frozen board instead loads exactly the archived users — the
+    // archive is history and keeps rendering whoever earned a place on
+    // it.
     let usersQuery = supabase.from('users').select(usersSelect)
     if (frozenByUser) {
       usersQuery = usersQuery.in('id', [...frozenByUser.keys()])
     } else {
       usersQuery = usersQuery
         .or('status.is.null,status.eq.active')
+        .or('subscription_tier.is.null,subscription_tier.neq.TEAM')
         .order(liveSeasonBoard ? 'season_score' : 'total_score', {
           ascending: false,
           referencedTable: 'user_scores',
@@ -313,9 +320,10 @@ export async function GET(request: NextRequest) {
       timestamp: string | null
     }
 
-    // Owned plates for the whole board ride alongside the events fetch —
-    // one user_cosmetics query for all 100 ranked users.
-    const [eventsResult, ownedPlatesByUser] = await Promise.all([
+    // Owned plates and team affiliations for the whole board ride
+    // alongside the events fetch — one user_cosmetics query and one
+    // team_affiliations join for all 100 ranked users.
+    const [eventsResult, ownedPlatesByUser, teamsByUser] = await Promise.all([
       eventsUserColumn
         ? fetchAllEventPages<LeaderboardEventRow>(
             (from, to) =>
@@ -331,7 +339,8 @@ export async function GET(request: NextRequest) {
                 }>
           )
         : Promise.resolve({ rows: [] as LeaderboardEventRow[], error: null }),
-      getOwnedPlateIdsBatch(supabase, userIds)
+      getOwnedPlateIdsBatch(supabase, userIds),
+      getAffiliatedTeamsBatch(supabase, userIds)
     ])
     const { rows: allEvents, error: eventsError } = eventsResult
 
@@ -465,6 +474,11 @@ export async function GET(request: NextRequest) {
       const isPrivate = readAccountIsPrivate(meta)
       const toolsHidden = isPrivate && !visiblePrivateIds.has(user.id)
 
+      // Active affiliation to an approved team — the mini logo next to
+      // the name. The batch join already gated the team side (tier TEAM
+      // + review approved + not banned), so presence alone means render.
+      const affiliatedTeam = teamsByUser.get(user.id) ?? null
+
       return {
         username,
         display_name: user.twitter_name || user.twitter_username || `User${user.id}`,
@@ -476,6 +490,13 @@ export async function GET(request: NextRequest) {
         lastSeen: lastSync || user.created_at,
         memberSince: user.created_at,
         tier: normalizeTier(user.subscription_tier),
+        team: affiliatedTeam
+          ? {
+              username: affiliatedTeam.username,
+              name: affiliatedTeam.name,
+              logo: affiliatedTeam.avatar
+            }
+          : null,
         userId: user.id,
         topTools: toolsHidden ? [] : topTools,
         isPrivate,

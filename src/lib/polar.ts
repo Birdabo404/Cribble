@@ -51,6 +51,65 @@ export function resolveProProductId(key: ProProductKey): string | null {
   }
 }
 
+export type TeamProductKey = 'team_monthly' | 'team_yearly'
+
+const TEAM_PRODUCT_KEYS: readonly TeamProductKey[] = ['team_monthly', 'team_yearly']
+
+/** Polar product id for a Team subscription interval, or null if unset. */
+export function resolveTeamProductId(key: TeamProductKey): string | null {
+  switch (key) {
+    case 'team_monthly':
+      return process.env.POLAR_PRODUCT_TEAM_MONTHLY || null
+    case 'team_yearly':
+      return process.env.POLAR_PRODUCT_TEAM_YEARLY || null
+    default: {
+      const _exhaustive: never = key
+      return _exhaustive
+    }
+  }
+}
+
+/** Configured Team product ids (unset keys skipped). The webhook decides
+ *  team-vs-pro fulfillment by membership here — subscription events for
+ *  any other product keep the historical Pro handling. */
+export function getTeamProductIds(): Set<string> {
+  const ids = new Set<string>()
+  for (const key of TEAM_PRODUCT_KEYS) {
+    const id = resolveTeamProductId(key)
+    if (id) ids.add(id)
+  }
+  return ids
+}
+
+/** The slice of a Polar subscription that team classification needs.
+ *  Webhook Subscription payloads embed the full product (with metadata);
+ *  CustomerStateSubscription from the customer-state sync carries no
+ *  product embed, so for those shapes only the id check can apply. */
+export interface TeamSubscriptionLike {
+  productId: string
+  product?: { metadata?: Record<string, unknown> } | null
+}
+
+/** True when a subscription is on a Team product: its product id is in
+ *  the configured POLAR_PRODUCT_TEAM_* set, or the embedded product
+ *  carries the `team_key` metadata the setup script stamps on team
+ *  products. The metadata fallback exists because a missing env var
+ *  once silently routed a real Team purchase into the Pro grant — when
+ *  it fires without an id match, the misconfiguration is logged so the
+ *  stale env can be fixed. Products matching neither classify as Pro
+ *  (historical founder products rely on that default). */
+export function isTeamSubscription(subscription: TeamSubscriptionLike): boolean {
+  if (getTeamProductIds().has(subscription.productId)) return true
+  const teamKey = subscription.product?.metadata?.['team_key']
+  if (typeof teamKey === 'string' && teamKey) {
+    console.warn(
+      `[Polar] Product ${subscription.productId} carries team_key="${teamKey}" metadata but is not in the configured team product ids — POLAR_PRODUCT_TEAM_MONTHLY / POLAR_PRODUCT_TEAM_YEARLY are missing or stale in this environment`
+    )
+    return true
+  }
+  return false
+}
+
 /** Parsed POLAR_PLATE_PRODUCT_MAP (JSON string of plateId -> Polar product
  *  id). Malformed JSON or non-string values yield an empty/partial map
  *  rather than an exception. */

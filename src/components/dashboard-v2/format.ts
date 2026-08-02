@@ -51,6 +51,8 @@ export const formatRelative = (iso: string | null | undefined) => {
 
 export const tierAccent = (tier: Tier | undefined): string => {
   switch (tier) {
+    case 'TEAM':
+      return 'text-yellow-300 border-yellow-300/40 bg-yellow-300/5'
     case 'PRO':
       return 'text-amber-300 border-amber-300/40 bg-amber-300/5'
     case 'PREMIUM':

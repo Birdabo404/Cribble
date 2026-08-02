@@ -50,6 +50,7 @@ import { Avatar } from '@/components/leaderboard/Avatar'
 import { PlayerCard, type ChaseInfo } from '@/components/leaderboard/PlayerCard'
 import { Podium } from '@/components/leaderboard/Podium'
 import { medalA, medalFor, type LeaderRow } from '@/components/leaderboard/types'
+import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { isProTier } from '@/lib/entitlements'
 
@@ -1111,13 +1112,18 @@ function Row({
           <MovementChip user={user} />
         </div>
 
-        {/* pilot */}
+        {/* pilot — companies (tier TEAM) get the square avatar; they are
+            excluded from live boards but frozen archives keep history */}
         <div className="relative flex min-w-0 items-center gap-3">
           <Avatar
             src={user.profile_image}
             char={user.username[0]?.toUpperCase() ?? '?'}
-            imgClassName="h-9 w-9 shrink-0 rounded-full border border-zinc-800 object-cover"
-            fallbackClassName="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900 font-display text-[11px] text-zinc-400"
+            imgClassName={`h-9 w-9 shrink-0 ${
+              user.tier === 'TEAM' ? 'rounded-md' : 'rounded-full'
+            } border border-zinc-800 object-cover`}
+            fallbackClassName={`flex h-9 w-9 shrink-0 items-center justify-center ${
+              user.tier === 'TEAM' ? 'rounded-md' : 'rounded-full'
+            } border border-zinc-800 bg-zinc-900 font-display text-[11px] text-zinc-400`}
           />
           <span className="flex min-w-0 items-center gap-2">
             <span
@@ -1127,6 +1133,7 @@ function Row({
               {user.display_name || `@${user.username}`}
             </span>
             {isProTier(user.tier) && <VerifiedBadge size={13} />}
+            {user.team && <TeamMiniLogo team={user.team} size={14} />}
             <span className="hidden shrink-0 text-[10px] text-zinc-600 lg:inline">
               @{user.username}
             </span>

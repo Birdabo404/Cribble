@@ -34,6 +34,7 @@ export type StaffAction =
   | 'staff.manage'
   | 'invite.manage'
   | 'season.manage'
+  | 'team.review'
   | 'debug.manage'
 
 export function minRoleFor(action: StaffAction): StaffRole {
@@ -59,6 +60,9 @@ export function minRoleFor(action: StaffAction): StaffRole {
     // The season calendar controls every player's scores and standings —
     // rescheduling or force-ending a season is an owner power.
     case 'season.manage':
+    // Team approval hands out the gold badge — the anti-impersonation
+    // gate is an owner call, same as entitlements.
+    case 'team.review':
     case 'debug.manage':
       return 'owner'
     default: {

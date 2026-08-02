@@ -43,6 +43,7 @@ export async function GET(
       .select(
         `id, twitter_username, twitter_name, twitter_profile_image, status,
          subscription_tier, user_type, staff_role, is_admin, admin_notes,
+         team_review_status, team_approved_at,
          metadata, created_at, last_login, last_extension_sync, onboarded_at,
          user_scores(total_score, today_score, week_score)`
       )
@@ -98,6 +99,8 @@ export async function GET(
         profile_image: user.twitter_profile_image || null,
         status: user.status || 'active',
         tier: (user.subscription_tier || 'FREE').toUpperCase(),
+        team_review_status: user.team_review_status ?? null,
+        team_approved_at: user.team_approved_at ?? null,
         role: user.user_type || null,
         staff_role: resolveStaffRole(user),
         admin_notes: str(user.admin_notes),

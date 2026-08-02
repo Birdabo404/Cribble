@@ -22,7 +22,7 @@ import { animDelay } from '@/components/dashboard-v3/anim'
 import { NavIcon } from './NavIcon'
 import { connectionMeta, useNavStatus, type NavStatus } from './NavStatusContext'
 import { useNavPrefs } from './NavPrefsContext'
-import { NAV_ITEMS, isNavItemActive } from './navItems'
+import { isNavItemActive, visibleNavItems, type NavItemDef } from './navItems'
 import { UserSearch } from './UserSearch'
 import type { NavUserState } from './useNavUser'
 
@@ -104,7 +104,11 @@ export function NavRail({ navUser }: { navUser: NavUserState }) {
     prefs?.toggleExpanded()
   }
 
-  const renderItem = (item: (typeof NAV_ITEMS)[number], i: number) => {
+  // Tier-gated set: TEAM-only rows appear once the session user loads
+  // with the TEAM tier and never for anyone else.
+  const navItems = visibleNavItems(navUser.user)
+
+  const renderItem = (item: NavItemDef, i: number) => {
     const active = isNavItemActive(item, pathname)
     return (
       <Link
@@ -182,10 +186,10 @@ export function NavRail({ navUser }: { navUser: NavUserState }) {
             <RowTip>SIGN IN</RowTip>
           </Link>
         )}
-        {renderItem(NAV_ITEMS[0], 1)}
+        {renderItem(navItems[0], 1)}
         <UserSearch variant="rail" />
         <NotificationBell variant="rail" placement="side" />
-        {NAV_ITEMS.slice(1).map((item, i) => renderItem(item, i + 3))}
+        {navItems.slice(1).map((item, i) => renderItem(item, i + 3))}
       </nav>
 
       {/* utility cluster */}

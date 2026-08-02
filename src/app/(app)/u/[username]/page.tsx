@@ -18,7 +18,7 @@
 // see ProfileAmbience. It mounts OUTSIDE .page-zoom-out because zoom
 // distorts fixed-position descendants.
 
-import { use, useCallback, useEffect, useMemo, useState } from 'react'
+import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import AnimatedCounter from '@/components/AnimatedCounter'
 import { PixelIcon } from '@/components/achievements/PixelIcon'
 import {
@@ -44,9 +44,12 @@ import { FollowButton, FollowsYouChip, type FollowChange } from '@/components/pr
 import { FollowListModal, type FollowListKind } from '@/components/profile/FollowListModal'
 import { ProfileAmbience } from '@/components/profile/ProfileAmbience'
 import { ReferralPlate } from '@/components/profile/ReferralPlate'
+import { TeamBadge } from '@/components/premium/TeamBadge'
+import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
+import { toast } from '@/components/Toaster'
 import { ACHIEVEMENTS } from '@/lib/achievements'
-import { isProTier } from '@/lib/entitlements'
+import { isApprovedTeam, isProTier } from '@/lib/entitlements'
 import type { PublicProfileData } from '@/types/profile'
 import { ROLE_ICONS } from '@/components/roleIcons'
 
@@ -110,6 +113,10 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
   const [editInitial, setEditInitial] = useState<EditableProfile | null>(null)
   const [bannerStudio, setBannerStudio] = useState(false)
   const [copied, setCopied] = useState(false)
+  /** Viewer's own callsign, set ONLY when they are an approved TEAM
+   *  account — non-null is what unlocks the INVITE TO TEAM action. */
+  const [recruiterHandle, setRecruiterHandle] = useState<string | null>(null)
+  const recruiterChecked = useRef(false)
 
   const fetchProfile = useCallback(async () => {
     const res = await fetch(`/api/profile/${encodeURIComponent(username)}`, {
@@ -237,6 +244,35 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
   const signedIn = profile?.viewer !== null && profile?.viewer !== undefined
   const isYou = profile?.viewer?.isYou ?? false
 
+  // Everything the profile payload can say about invitability: a signed-in
+  // viewer looking at someone else who isn't a team account (tier check,
+  // not isTeam — pending/lapsed teams can't be affiliated either).
+  const inviteEligibleProfile =
+    profile !== null && signedIn && !isYou && profile.tier !== 'TEAM'
+
+  // Whether the VIEWER may recruit is session-side state the public
+  // payload deliberately omits, so ask /api/user/me — but only once, and
+  // only after the profile shows an invitable pilot: signed-out visitors,
+  // own-profile views and team profiles never pay for the call. Anything
+  // short of an approved TEAM account leaves recruiterHandle null, which
+  // keeps the button unrendered (the server re-checks regardless).
+  useEffect(() => {
+    if (!inviteEligibleProfile || recruiterChecked.current) return
+    recruiterChecked.current = true
+    let cancelled = false
+    fetch('/api/user/me', { credentials: 'include', cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.user || !isApprovedTeam(data.user)) return
+        const handle = String(data.user.twitter_username || '').trim()
+        if (handle) setRecruiterHandle(handle)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [inviteEligibleProfile])
+
   const socialEntries = useMemo(() => {
     if (!profile) return []
     return SOCIAL_KINDS.map((kind) => ({ kind, value: profile.socials[kind] })).filter(
@@ -268,6 +304,11 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
   }
 
   const bannerEdge = medal ? medal.rgb : 'var(--banner-a)'
+
+  // Companies are square, pilots are round — but only once approved
+  // (isTeam is the server-verified tier TEAM + review gate).
+  const avatarRound = profile.isTeam ? 'rounded-2xl' : 'rounded-full'
+  const avatarImgRound = profile.isTeam ? 'rounded-xl' : 'rounded-full'
 
   const page = (
     <div className="page-zoom-out relative mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6">
@@ -330,20 +371,26 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
               <div className="relative h-[92px] w-[92px] sm:h-[104px] sm:w-[104px]">
                 <span
                   aria-hidden
-                  className="absolute -inset-[3px] rounded-full"
+                  className={`absolute -inset-[3px] ${avatarRound}`}
                   style={{
                     background: medal
                       ? `conic-gradient(from 210deg, ${medalA(medal.rgb, 0.9)}, ${medalA(medal.rgb, 0.25)}, ${medalA(medal.rgb, 0.9)})`
-                      : 'rgb(var(--z800))',
-                    boxShadow: medal ? `0 0 22px ${medalA(medal.rgb, 0.35)}` : undefined
+                      : profile.isTeam
+                        ? 'rgb(var(--lb-gold) / 0.55)'
+                        : 'rgb(var(--z800))',
+                    boxShadow: medal
+                      ? `0 0 22px ${medalA(medal.rgb, 0.35)}`
+                      : profile.isTeam
+                        ? '0 0 22px rgb(var(--lb-gold) / 0.25)'
+                        : undefined
                   }}
                 />
-                <span aria-hidden className="absolute inset-0 rounded-full" style={{ boxShadow: 'inset 0 0 0 4px var(--background)' }} />
+                <span aria-hidden className={`absolute inset-0 ${avatarRound}`} style={{ boxShadow: 'inset 0 0 0 4px var(--background)' }} />
                 <Avatar
                   src={profile.profile_image}
                   char={profile.username[0]?.toUpperCase() ?? '?'}
-                  imgClassName="absolute inset-[4px] h-[calc(100%-8px)] w-[calc(100%-8px)] rounded-full object-cover"
-                  fallbackClassName="absolute inset-[4px] flex h-[calc(100%-8px)] w-[calc(100%-8px)] items-center justify-center rounded-full bg-zinc-900 font-display text-3xl text-zinc-300"
+                  imgClassName={`absolute inset-[4px] h-[calc(100%-8px)] w-[calc(100%-8px)] ${avatarImgRound} object-cover`}
+                  fallbackClassName={`absolute inset-[4px] flex h-[calc(100%-8px)] w-[calc(100%-8px)] items-center justify-center ${avatarImgRound} bg-zinc-900 font-display text-3xl text-zinc-300`}
                 />
                 {profile.isActive && (
                   <span
@@ -358,8 +405,8 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
               </div>
             </div>
 
-            {/* action cluster */}
-            <div className="relative flex items-center gap-2 pb-1">
+            {/* action cluster — wraps so INVITE TO TEAM + follow fit on phones */}
+            <div className="relative flex flex-wrap items-center justify-end gap-2 pb-1">
               {isYou ? (
                 <>
                   <button
@@ -386,6 +433,19 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
                 </>
               ) : (
                 <>
+                  {/* tier re-checked at render: recruiterHandle survives
+                      client-side nav onto a team profile */}
+                  {recruiterHandle !== null && profile.tier !== 'TEAM' && (
+                    <TeamInviteButton
+                      key={profile.userId}
+                      callsign={profile.username}
+                      onRoster={
+                        profile.team !== null &&
+                        profile.team.username.toLowerCase() ===
+                          recruiterHandle.toLowerCase()
+                      }
+                    />
+                  )}
                   {/* only alongside FOLLOWING — FOLLOW BACK already says it */}
                   {profile.viewer?.followsYou && profile.viewer?.isFollowing && (
                     <FollowsYouChip />
@@ -409,6 +469,8 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
                 {profile.display_name}
               </h1>
               {isProTier(profile.tier) && <VerifiedBadge size={18} />}
+              {profile.isTeam && <TeamBadge size={18} />}
+              {profile.team && <TeamMiniLogo team={profile.team} size={17} />}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className="flex items-center gap-1.5 text-[12px] text-zinc-500">
@@ -739,6 +801,65 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
         </section>
       </div>
 
+      {/* ---------- affiliates (approved teams only) ----------
+          The API only attaches the roster when the profile is an
+          approved Team account — everyone else gets null, so this
+          section can never leak onto a pending or lapsed team. */}
+      {profile.affiliates && (
+        <section
+          className="pf-reveal mt-4 rounded-2xl glass-lite p-5"
+          style={{ ['--rv' as string]: '320ms' }}
+        >
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-[10px] tracking-[0.4em] text-zinc-300">
+              <span className="text-accent/80">{'// '}</span>AFFILIATES
+            </h2>
+            <span className="text-[9px] tabular-nums tracking-[0.25em] text-zinc-600">
+              {formatNumber(profile.affiliates.total)}{' '}
+              {profile.affiliates.total === 1 ? 'MEMBER' : 'MEMBERS'}
+            </span>
+          </div>
+          {profile.affiliates.members.length === 0 ? (
+            <div className="mt-4 py-4 text-center text-[10px] tracking-[0.2em] text-zinc-600">
+              NO AFFILIATES YET
+            </div>
+          ) : (
+            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {profile.affiliates.members.map((member) => (
+                <a
+                  key={member.userId}
+                  href={`/u/${encodeURIComponent(member.username)}`}
+                  className="group flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.015] px-3 py-2.5 transition-colors hover:border-accent/40 hover:bg-white/[0.03]"
+                >
+                  <Avatar
+                    src={member.profile_image}
+                    char={member.username[0]?.toUpperCase() ?? '?'}
+                    imgClassName="h-9 w-9 shrink-0 rounded-full border border-zinc-800 object-cover"
+                    fallbackClassName="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900 font-display text-[11px] text-zinc-400"
+                  />
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate font-display text-[13px] font-medium text-zinc-100 transition-colors group-hover:text-accent">
+                        {member.display_name}
+                      </span>
+                      {isProTier(member.tier) && <VerifiedBadge size={12} />}
+                    </span>
+                    <span className="block truncate text-[10px] text-zinc-500">
+                      @{member.username}
+                    </span>
+                  </span>
+                </a>
+              ))}
+            </div>
+          )}
+          {profile.affiliates.total > profile.affiliates.members.length && (
+            <p className="mt-3 text-center text-[9px] tracking-[0.25em] text-zinc-600">
+              + {formatNumber(profile.affiliates.total - profile.affiliates.members.length)} MORE
+            </p>
+          )}
+        </section>
+      )}
+
       <footer className="mt-10 flex items-center justify-between text-[10px] tracking-[0.3em] text-zinc-600">
         <span>CRIBBLE · {new Date().getFullYear()}</span>
         <span className="text-zinc-700">{'// pilot profile'}</span>
@@ -816,6 +937,72 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
 }
 
 /* ================= supporting screens ================= */
+
+/** Gold recruit action, rendered only for approved TEAM viewers on other
+ *  pilots' profiles. idle → sending → sent is local state: pending
+ *  invites aren't in the public payload, so "sent" lasts until a reload
+ *  and a re-click after that gets the server's friendly 409 as an error
+ *  toast. Mounts pre-disabled as ON YOUR ROSTER when the pilot already
+ *  flies the viewer's colors. The server re-checks every guard (approval,
+ *  seat cap, target eligibility) no matter what this renders. */
+function TeamInviteButton({ callsign, onRoster }: { callsign: string; onRoster: boolean }) {
+  const [phase, setPhase] = useState<'idle' | 'sending' | 'sent'>('idle')
+
+  const invite = async () => {
+    setPhase('sending')
+    try {
+      const res = await fetch('/api/team/invite', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callsign })
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.success) {
+        toast({
+          kind: 'error',
+          title: 'INVITE FAILED',
+          body: data?.error || 'Could not send the invite.'
+        })
+        setPhase('idle')
+        return
+      }
+      toast({
+        kind: 'success',
+        title: 'INVITE SENT',
+        body: `@${data.member?.username ?? callsign} has been invited to your roster.`
+      })
+      setPhase('sent')
+    } catch {
+      toast({ kind: 'error', title: 'INVITE FAILED', body: 'Could not send the invite.' })
+      setPhase('idle')
+    }
+  }
+
+  const label = onRoster
+    ? 'ON YOUR ROSTER'
+    : phase === 'sending'
+      ? 'SENDING…'
+      : phase === 'sent'
+        ? 'INVITE SENT'
+        : 'INVITE TO TEAM'
+
+  return (
+    <button
+      type="button"
+      onClick={() => void invite()}
+      disabled={onRoster || phase !== 'idle'}
+      className="rounded-lg border px-4 py-2 text-[10px] font-semibold tracking-[0.3em] transition-[filter] enabled:hover:brightness-125 disabled:opacity-60"
+      style={{
+        color: 'rgb(var(--lb-gold))',
+        borderColor: 'rgb(var(--lb-gold) / 0.45)',
+        background: 'rgb(var(--lb-gold) / 0.07)'
+      }}
+    >
+      {label}
+    </button>
+  )
+}
 
 /** Follower-only section body for private accounts. The follow CTA
  *  already sits in the hero, so this stays informational. */

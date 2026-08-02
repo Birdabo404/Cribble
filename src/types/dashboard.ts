@@ -1,6 +1,6 @@
 import type { ActivityDay } from '@/lib/activity'
 
-export type Tier = 'FREE' | 'BASIC' | 'PRO' | 'PREMIUM' | 'PREMIUM+' | 'AFFILIATE'
+export type Tier = 'FREE' | 'BASIC' | 'PRO' | 'PREMIUM' | 'PREMIUM+' | 'AFFILIATE' | 'TEAM'
 
 export interface MeUser {
   id: number
@@ -8,6 +8,10 @@ export interface MeUser {
   twitter_name: string
   twitter_profile_image: string
   subscription_tier?: Tier
+  /** Team anti-impersonation review ('pending' | 'approved' | 'rejected');
+   *  null for accounts that never bought the Team plan. Feed it together
+   *  with subscription_tier to isApprovedTeam() — never read it alone. */
+  team_review_status?: string | null
   last_extension_sync?: string | null
   active_device_uuid?: string | null
   created_at?: string

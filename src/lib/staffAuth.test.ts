@@ -77,6 +77,7 @@ describe('minRoleFor', () => {
       'entitlement.revoke_plate',
       'staff.manage',
       'invite.manage',
+      'team.review',
       'debug.manage'
     ]
     for (const action of ownerActions) {

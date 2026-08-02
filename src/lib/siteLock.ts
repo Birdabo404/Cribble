@@ -63,5 +63,15 @@ export function isAllowedDuringLock(pathname: string): boolean {
   if (pathname === '/api/user/cosmetics') return true
   if (pathname === '/api/user/subscription/sync') return true
   if (pathname === '/shop') return true
+  // The Cribble Team pitch page is shared with companies while the beta
+  // is locked — its checkout/API lanes are already open above.
+  if (pathname === '/teams') return true
+  // The team console is Polar's checkout success URL
+  // (/team?checkout=success&checkout_id=...) — a mid-lock Team purchase
+  // must land on the live page so the entitlement sync runs, and the
+  // roster/invite/membership API lanes back that page. Exact match plus
+  // the '/team/' prefix, so nothing else under /te… rides along.
+  if (pathname === '/team' || pathname.startsWith('/team/')) return true
+  if (pathname.startsWith('/api/team/')) return true
   return false
 }

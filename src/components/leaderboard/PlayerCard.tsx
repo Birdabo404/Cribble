@@ -17,6 +17,8 @@ import {
   formatRelative,
   formatScore
 } from '@/components/dashboard-v2/format'
+import { TeamBadge } from '@/components/premium/TeamBadge'
+import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { ACHIEVEMENTS } from '@/lib/achievements'
 import { isProTier } from '@/lib/entitlements'
@@ -206,6 +208,19 @@ export function PlayerCard({
   const RoleIcon = roleKey ? ROLE_ICONS[roleKey] : undefined
   const roleLabel = roleKey ? ROLE_META[roleKey] : null
 
+  // Team surfaces: the affiliation mini-logo renders straight off the
+  // standings row (hydration only refreshes it); the gold badge waits
+  // for the profile payload — isTeam is the server-verified
+  // "tier TEAM AND review approved" gate, tier alone must not light it.
+  // The square avatar keys off the raw tier only until the profile
+  // answers; once hydrated its verdict is authoritative, so an
+  // unapproved or suspended team snaps back to the round shape.
+  const team = profile?.team ?? row.team ?? null
+  const isTeamAccount = profile?.isTeam === true
+  const squareAvatar = profile ? isTeamAccount : row.tier === 'TEAM'
+  const avatarRound = squareAvatar ? 'rounded-xl' : 'rounded-full'
+  const avatarImgRound = squareAvatar ? 'rounded-lg' : 'rounded-full'
+
   // ---- follow context (arrives with the profile hydration) ----------
   const viewer = profile?.viewer ?? null
   const followerCount = profile?.followers ?? null
@@ -394,7 +409,7 @@ export function PlayerCard({
                 {medal && row.rank === 1 ? (
                   <span
                     aria-hidden
-                    className="pc-ring-spin absolute -inset-[3px] rounded-full"
+                    className={`pc-ring-spin absolute -inset-[3px] ${avatarRound}`}
                     style={{
                       background: `conic-gradient(from 0deg, transparent 0deg, ${medalA(medal.rgb, 0.9)} 80deg, rgb(var(--lb-gold-hi)) 120deg, transparent 200deg, ${medalA(medal.rgb, 0.55)} 300deg, transparent 360deg)`,
                       filter: `drop-shadow(0 0 10px ${medalA(medal.rgb, 0.55)})`
@@ -403,7 +418,7 @@ export function PlayerCard({
                 ) : (
                   <span
                     aria-hidden
-                    className="absolute -inset-[3px] rounded-full"
+                    className={`absolute -inset-[3px] ${avatarRound}`}
                     style={{
                       background: medal
                         ? `conic-gradient(from 210deg, ${medalA(medal.rgb, 0.9)}, ${medalA(medal.rgb, 0.25)}, ${medalA(medal.rgb, 0.9)})`
@@ -414,14 +429,14 @@ export function PlayerCard({
                 )}
                 <span
                   aria-hidden
-                  className="absolute inset-0 rounded-full"
+                  className={`absolute inset-0 ${avatarRound}`}
                   style={{ boxShadow: `inset 0 0 0 3px rgb(var(--lb-panel-bg))` }}
                 />
                 <Avatar
                   src={row.profile_image}
                   char={row.username[0]?.toUpperCase() ?? '?'}
-                  imgClassName="absolute inset-[3px] h-[78px] w-[78px] rounded-full object-cover"
-                  fallbackClassName="absolute inset-[3px] flex items-center justify-center rounded-full bg-zinc-900 text-2xl text-zinc-300 font-display"
+                  imgClassName={`absolute inset-[3px] h-[78px] w-[78px] ${avatarImgRound} object-cover`}
+                  fallbackClassName={`absolute inset-[3px] flex items-center justify-center ${avatarImgRound} bg-zinc-900 text-2xl text-zinc-300 font-display`}
                 />
                 {row.isActive && (
                   <span
@@ -441,6 +456,8 @@ export function PlayerCard({
                 {row.display_name || `@${row.username}`}
               </span>
               {isProTier(row.tier) && <VerifiedBadge size={15} />}
+              {isTeamAccount && <TeamBadge size={15} />}
+              {team && <TeamMiniLogo team={team} size={15} />}
               {isYou && (
                 <span className="shrink-0 rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-[8px] tracking-[0.25em] text-accent">
                   YOU

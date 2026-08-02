@@ -4,6 +4,7 @@ import crypto from 'crypto'
 import { resolveAppUrl, resolveGithubRedirectUri } from '@/lib/appUrl'
 import { isAllowlistedAdmin } from '@/lib/adminAuth'
 import { checkRateLimit, rateLimitConfigs } from '@/lib/rateLimit'
+import { runTeamIdentityTripwire } from '@/lib/teamTripwire'
 
 export const dynamic = 'force-dynamic'
 
@@ -122,6 +123,17 @@ export async function GET(request: NextRequest) {
         return NextResponse.redirect(`${appUrl}/login?error=github_user_update_failed`)
       }
       user = updated
+
+      // Anti-impersonation tripwire: the update above re-synced handle,
+      // display name and avatar from GitHub — if this account is an
+      // APPROVED team and any of them genuinely changed, its approval
+      // drops back to pending and staff are alerted. Never throws; a
+      // tripwire failure must not break login.
+      await runTeamIdentityTripwire(supabase, existingUser, {
+        username,
+        name: displayName,
+        avatar
+      })
     } else {
       // New signups are invite-gated. The code was stashed in a cookie by
       // /api/auth/github before the OAuth redirect.

@@ -2,10 +2,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getPlate } from '@/lib/cosmetics/plates'
 import { insertMissingNotifications } from '@/lib/notifications'
 
-// The single entry point for Pro fulfillment. Both delivery paths — the
-// Polar webhook (production) and /api/user/subscription/sync (local dev,
-// where webhooks can't reach localhost) — funnel through here so tier,
-// premium_since and the welcome notification always land together.
+// The single entry point for Pro and Team fulfillment. Both delivery
+// paths — the Polar webhook (production) and /api/user/subscription/sync
+// (local dev, where webhooks can't reach localhost) — funnel through
+// here so tier, premium_since/team_since and the welcome notification
+// always land together.
 // Idempotent by construction: every step is a no-op or an upsert on
 // redelivery, so calling it on every webhook retry / every sync is safe.
 
@@ -74,6 +75,70 @@ export async function grantProEntitlement(
       body: 'It now shows next to your name on your profile, your player card and the leaderboard.',
       data: {},
       dedupeKey: 'premium_welcome'
+    }
+  ])
+}
+
+/**
+ * Flip a user to the TEAM tier and open the manual review gate:
+ *   - users.subscription_tier = 'TEAM'
+ *   - users.team_review_status = 'pending' — but ONLY from NULL (first
+ *     subscription) or 'rejected' (resubscribe after a rejection gets a
+ *     fresh review). An existing 'approved' or 'pending' status is never
+ *     touched, so renewals and lapse/renew cycles never force a
+ *     re-review — badge visibility is gated on tier AND approval, so a
+ *     lapse hides badges and this grant re-lights them via the tier.
+ *   - users.metadata.team_since — set once, on the first grant only
+ *     (mirrors premium_since; merged, never replaced).
+ *   - a deduped pending-review welcome notification (dedupe_key
+ *     team_welcome)
+ */
+export async function grantTeamEntitlement(
+  supabase: SupabaseClient,
+  userId: number,
+  // Context only, same contract as grantProEntitlement.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  opts: GrantProEntitlementOptions = {}
+): Promise<void> {
+  const { data: user, error: readError } = await supabase
+    .from('users')
+    .select('metadata, team_review_status')
+    .eq('id', userId)
+    .single()
+
+  if (readError || !user) {
+    throw new Error(
+      `Failed to read user ${userId} for Team grant: ${readError?.message ?? 'user not found'}`
+    )
+  }
+
+  const metadata = (user.metadata ?? {}) as Record<string, unknown>
+  const hasTeamSince =
+    typeof metadata.team_since === 'string' && metadata.team_since.length > 0
+
+  const update: Record<string, unknown> = { subscription_tier: 'TEAM' }
+  if (user.team_review_status == null || user.team_review_status === 'rejected') {
+    update.team_review_status = 'pending'
+  }
+  if (!hasTeamSince) {
+    update.metadata = { ...metadata, team_since: new Date().toISOString() }
+  }
+
+  const { error: updateError } = await supabase.from('users').update(update).eq('id', userId)
+
+  if (updateError) {
+    throw new Error(
+      `Failed to set subscription_tier=TEAM for user ${userId}: ${updateError.message}`
+    )
+  }
+
+  await insertMissingNotifications(supabase, userId, [
+    {
+      type: 'premium',
+      title: 'TEAM PLAN ACTIVE — REVIEW PENDING',
+      body: 'Thanks for upgrading. Your gold badge and affiliate seats unlock once our crew verifies your identity — within 24 hours.',
+      data: { kind: 'team_review', result: 'pending' },
+      dedupeKey: 'team_welcome'
     }
   ])
 }

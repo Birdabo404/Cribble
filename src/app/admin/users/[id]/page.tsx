@@ -26,6 +26,8 @@ interface UserDetail {
   profile_image: string | null
   status: string
   tier: string
+  team_review_status: string | null
+  team_approved_at: string | null
   role: string | null
   staff_role: 'owner' | 'moderator' | null
   admin_notes: string | null
@@ -73,6 +75,7 @@ type DialogSpec =
   | { kind: 'notes'; notes: string }
   | { kind: 'entitlement'; action: 'grant_pro' | 'revoke_pro' | 'grant_plate' | 'revoke_plate'; plateId?: string }
   | { kind: 'staff'; action: 'promote' | 'demote' }
+  | { kind: 'team_reject' }
 
 const chipCls = 'rounded border px-2 py-0.5 text-[10px] tracking-[0.2em]'
 
@@ -119,6 +122,8 @@ function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
   const [selectedFields, setSelectedFields] = useState<Set<ModeratableField>>(new Set())
   const [notesDraft, setNotesDraft] = useState('')
   const [plateToGrant, setPlateToGrant] = useState('')
+  const [teamWorking, setTeamWorking] = useState(false)
+  const [teamError, setTeamError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/users/${userId}`, { credentials: 'include' })
@@ -183,6 +188,10 @@ function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
         case 'staff':
           url = '/api/admin/staff'
           body = { userId, action: spec.action, reason }
+          break
+        case 'team_reject':
+          url = `/api/admin/teams/${userId}/review`
+          body = { action: 'reject', reason }
           break
         default: {
           const exhaustive: never = spec
@@ -299,6 +308,14 @@ function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
           }
         }
       }
+      case 'team_reject':
+        return {
+          title: `REJECT TEAM — ${handle}`,
+          description:
+            'Marks the team review as rejected and reverts the tier to FREE. Billing is untouched: cancel and refund the Polar subscription manually.',
+          confirmLabel: 'REJECT TEAM',
+          danger: true
+        }
       case 'staff': {
         const action = dialog.action
         switch (action) {
@@ -329,6 +346,31 @@ function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
       }
     }
   }, [dialog, user])
+
+  // One-click approve, mirroring the /admin/teams queue (rejecting still
+  // demands a written reason via the dialog).
+  const approveTeam = async () => {
+    if (teamWorking) return
+    setTeamWorking(true)
+    setTeamError(null)
+    try {
+      const res = await fetch(`/api/admin/teams/${userId}/review`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve' })
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        throw new Error(data?.error ?? 'Failed to approve team.')
+      }
+      await load()
+    } catch (err) {
+      setTeamError(err instanceof Error ? err.message : 'Failed to approve team.')
+    } finally {
+      setTeamWorking(false)
+    }
+  }
 
   if (loadError) {
     return (
@@ -529,7 +571,14 @@ function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
             <span className="text-xs text-zinc-400">
               Tier: <span className="text-zinc-100">{user.tier}</span>
             </span>
-            {user.tier !== 'PRO' ? (
+            {/* Team accounts never get the Pro buttons — their tier is
+                owned by the TEAM REVIEW section below (the API refuses
+                grant_pro/revoke_pro on TEAM targets too). */}
+            {user.tier === 'TEAM' ? (
+              <span className="text-[10px] text-zinc-600">
+                Team plan — managed from the TEAM REVIEW section below.
+              </span>
+            ) : user.tier !== 'PRO' ? (
               <button
                 onClick={() => setDialog({ kind: 'entitlement', action: 'grant_pro' })}
                 className={actionButtonCls('good')}
@@ -606,6 +655,64 @@ function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
               </button>
             </div>
           </div>
+        </Section>
+      )}
+
+      {/* team review — visible whenever the account ever bought a team
+          plan; the decision buttons are owner-only shortcuts into the
+          same API the /admin/teams queue uses */}
+      {user.team_review_status !== null && (
+        <Section title="TEAM REVIEW">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={`${chipCls} ${
+                user.team_review_status === 'approved'
+                  ? 'text-emerald-400 border-emerald-500/30'
+                  : user.team_review_status === 'rejected'
+                    ? 'text-red-400 border-red-500/30'
+                    : 'text-amber-300 border-amber-400/30'
+              }`}
+            >
+              {user.team_review_status.toUpperCase()}
+            </span>
+            {user.team_review_status === 'approved' && (
+              <span className="text-xs text-zinc-500">
+                approved {formatDate(user.team_approved_at)}
+              </span>
+            )}
+            <Link
+              href="/admin/teams"
+              className="ml-auto text-[10px] tracking-[0.2em] text-zinc-500 hover:text-zinc-200 transition-colors"
+            >
+              REVIEW QUEUE →
+            </Link>
+          </div>
+          {me.role === 'owner' && actionable && (
+            <div className="flex flex-wrap items-center gap-2">
+              {user.team_review_status !== 'approved' && (
+                <button
+                  disabled={teamWorking}
+                  onClick={approveTeam}
+                  className={actionButtonCls('good')}
+                >
+                  {teamWorking ? 'WORKING…' : 'APPROVE TEAM'}
+                </button>
+              )}
+              {user.team_review_status !== 'rejected' && (
+                <button
+                  disabled={teamWorking}
+                  onClick={() => setDialog({ kind: 'team_reject' })}
+                  className={actionButtonCls('danger')}
+                >
+                  REJECT TEAM
+                </button>
+              )}
+              <span className="text-[10px] text-zinc-600">
+                Rejecting reverts the tier to FREE — refund the Polar subscription manually.
+              </span>
+            </div>
+          )}
+          {teamError && <p className="text-xs text-red-400">{teamError}</p>}
         </Section>
       )}
 

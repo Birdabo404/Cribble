@@ -3,20 +3,29 @@ import { NextRequest, NextResponse } from 'next/server'
 import { validateEvent, WebhookVerificationError } from '@polar-sh/sdk/webhooks'
 import type { Order } from '@polar-sh/sdk/models/components/order'
 import type { Subscription } from '@polar-sh/sdk/models/components/subscription'
-import { grantPlatePurchase, grantProEntitlement } from '@/lib/entitlementGrant'
-import { getPolarWebhookSecret } from '@/lib/polar'
+import {
+  grantPlatePurchase,
+  grantProEntitlement,
+  grantTeamEntitlement
+} from '@/lib/entitlementGrant'
+import { getPolarWebhookSecret, isTeamSubscription } from '@/lib/polar'
 import { createServiceClient } from '@/lib/supabaseServer'
 
 // Polar webhook receiver. Signature-verified (Standard Webhooks HMAC via
 // the SDK), idempotent via the payment_events table (unique event_id):
 // an event id that inserts cleanly is processed, a duplicate delivery is
 // acked and skipped. Effects:
-//   subscription.active   -> grantProEntitlement: tier 'PRO', premium_since,
-//                            welcome notification — shared with the sync
-//                            endpoint
-//   subscription.revoked  -> subscription_tier 'PRO' -> 'FREE' (manually
-//                            set tiers are left alone)
-//   subscription.canceled -> no-op (Pro stays until the period ends)
+//   subscription.active   -> team product (configured id or team_key
+//                            product metadata): grantTeamEntitlement
+//                            (tier 'TEAM', review gate, team_since);
+//                            anything else: grantProEntitlement (tier
+//                            'PRO', premium_since, welcome notification
+//                            — shared with the sync endpoint)
+//   subscription.revoked  -> tier back to 'FREE', guarded to the tier
+//                            this integration granted ('TEAM' for team
+//                            products, 'PRO' otherwise); manually set
+//                            tiers are left alone
+//   subscription.canceled -> no-op (the tier stays until the period ends)
 //   order.paid            -> grant plate in user_cosmetics (if plate order)
 //   order.refunded        -> delete user_cosmetics rows by source_order_id
 // Everything else is recorded for audit and acked.
@@ -64,40 +73,54 @@ function readPlateId(order: Order): string | null {
   return null
 }
 
-/** subscription.active -> full Pro fulfillment via the shared helper
- *  (tier, premium_since, welcome notification). */
-async function activateProSubscription(subscription: Subscription) {
+/** subscription.active -> full fulfillment via the shared helpers. Team
+ *  products (matched by configured Polar product id OR the product's
+ *  `team_key` metadata — see isTeamSubscription) set tier 'TEAM' and
+ *  open the manual review gate; every other subscription is a Pro
+ *  product — that grant is identical for every Pro interval. */
+async function activateSubscription(subscription: Subscription) {
   const userId = resolveUserId(subscription.customer?.externalId)
   if (!userId) {
     console.warn('[PolarWebhook] Subscription event without usable externalId — skipping')
     return
   }
 
-  await grantProEntitlement(supabase, userId, {
+  const grant = isTeamSubscription(subscription)
+    ? grantTeamEntitlement
+    : grantProEntitlement
+
+  await grant(supabase, userId, {
     productId: subscription.productId,
     sourceId: subscription.id
   })
 }
 
-/** subscription.revoked -> tier back to FREE, guarded to 'PRO' — the only
- *  value this integration writes. A manually granted PREMIUM/PREMIUM+
- *  survives a lapsed Polar sub (mirroring the upgrade-only sync); the
- *  admin panel's revoke_pro stays the explicit path for clearing manual
- *  tiers. Owned plate rows are never touched (one-time purchases outlive
- *  the sub); pro-exclusive equips self-heal at read time via
- *  resolveEquippedPlate. */
-async function revokeProSubscription(subscription: Subscription) {
+/** subscription.revoked -> tier back to FREE, guarded to the tier this
+ *  integration granted for the product ('TEAM' for team products —
+ *  classified exactly like the grant, id or team_key metadata — 'PRO'
+ *  otherwise). A manually granted PREMIUM/PREMIUM+ survives a lapsed
+ *  Polar sub (mirroring the upgrade-only sync); the admin panel's
+ *  revoke_pro stays the explicit path for clearing manual tiers.
+ *  team_review_status is deliberately left untouched: approval is a
+ *  fact about identity, not payment — badges are gated on tier AND
+ *  approval, so the lapse hides them and a renewal re-lights them
+ *  without a second review. Owned plate rows are never touched
+ *  (one-time purchases outlive the sub); pro-exclusive equips self-heal
+ *  at read time via resolveEquippedPlate. */
+async function revokeSubscription(subscription: Subscription) {
   const userId = resolveUserId(subscription.customer?.externalId)
   if (!userId) {
     console.warn('[PolarWebhook] Subscription event without usable externalId — skipping')
     return
   }
 
+  const grantedTier = isTeamSubscription(subscription) ? 'TEAM' : 'PRO'
+
   const { error } = await supabase
     .from('users')
     .update({ subscription_tier: 'FREE' })
     .eq('id', userId)
-    .eq('subscription_tier', 'PRO')
+    .eq('subscription_tier', grantedTier)
 
   if (error) {
     throw new Error(`Failed to set subscription_tier=FREE for user ${userId}: ${error.message}`)
@@ -136,9 +159,9 @@ async function revokePlateFromOrder(order: Order) {
 // event type keeps its audit row and is acked with no DB effect.
 async function processEvent(event: PolarEvent) {
   if (event.type === 'subscription.active') {
-    await activateProSubscription(event.data)
+    await activateSubscription(event.data)
   } else if (event.type === 'subscription.revoked') {
-    await revokeProSubscription(event.data)
+    await revokeSubscription(event.data)
   } else if (event.type === 'order.paid') {
     await grantPlateFromOrder(event.data)
   } else if (event.type === 'order.refunded') {

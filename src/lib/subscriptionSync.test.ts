@@ -11,10 +11,12 @@ import {
 } from 'vitest'
 
 // syncSubscriptionFromPolar is the localhost-safe fulfillment path (webhooks
-// can't reach dev servers). The invariants under test: upgrade-only (a Pro
-// tier is never touched), a missing Polar customer is a clean no-op, and
-// only a subscription on one of the configured Pro products triggers the
-// shared grant.
+// can't reach dev servers). The invariants under test: upgrade-only (TEAM
+// is never touched, a Pro tier is only ever lifted to TEAM — never
+// re-granted or downgraded), a missing Polar customer is a clean no-op,
+// and only a subscription on one of the configured Team/Pro products
+// triggers the matching shared grant — Team checked first, even for
+// users already sitting on a Pro tier (the misgrant backstop).
 
 const {
   getPolarClientMock,
@@ -22,6 +24,7 @@ const {
   ordersListMock,
   checkoutsGetMock,
   grantProEntitlementMock,
+  grantTeamEntitlementMock,
   grantPlatePurchaseMock,
   getOwnedPlateIdsMock,
   insertMissingNotificationsMock
@@ -31,6 +34,7 @@ const {
   ordersListMock: vi.fn(),
   checkoutsGetMock: vi.fn(),
   grantProEntitlementMock: vi.fn(),
+  grantTeamEntitlementMock: vi.fn(),
   grantPlatePurchaseMock: vi.fn(),
   getOwnedPlateIdsMock: vi.fn(),
   insertMissingNotificationsMock: vi.fn()
@@ -39,11 +43,14 @@ const {
 vi.mock('@/lib/polar', () => ({
   getPolarClient: getPolarClientMock,
   // pro_yearly deliberately unset to exercise the skip-null path.
-  resolveProProductId: (key: string) => (key === 'pro_monthly' ? 'prod_monthly' : null)
+  resolveProProductId: (key: string) => (key === 'pro_monthly' ? 'prod_monthly' : null),
+  // Only the monthly team product configured, mirroring the pro setup.
+  getTeamProductIds: () => new Set(['prod_team_monthly'])
 }))
 
 vi.mock('@/lib/entitlementGrant', () => ({
   grantProEntitlement: grantProEntitlementMock,
+  grantTeamEntitlement: grantTeamEntitlementMock,
   grantPlatePurchase: grantPlatePurchaseMock
 }))
 
@@ -91,6 +98,8 @@ describe('syncSubscriptionFromPolar', () => {
     getStateExternalMock.mockReset()
     grantProEntitlementMock.mockReset()
     grantProEntitlementMock.mockResolvedValue(undefined)
+    grantTeamEntitlementMock.mockReset()
+    grantTeamEntitlementMock.mockResolvedValue(undefined)
     getPolarClientMock.mockReset()
     getPolarClientMock.mockReturnValue({
       customers: { getStateExternal: getStateExternalMock }
@@ -110,7 +119,73 @@ describe('syncSubscriptionFromPolar', () => {
       productId: 'prod_monthly',
       sourceId: 'sub_1'
     })
+    expect(grantTeamEntitlementMock).not.toHaveBeenCalled()
     expect(result).toEqual({ tier: 'PRO', isPro: true, changed: true })
+  })
+
+  it('grants TEAM from an active team-product subscription', async () => {
+    getStateExternalMock.mockResolvedValue(
+      customerState([{ id: 'sub_t1', productId: 'prod_team_monthly' }])
+    )
+    const supabase = freeUser()
+
+    const result = await syncSubscriptionFromPolar(supabase, 9)
+
+    expect(grantTeamEntitlementMock).toHaveBeenCalledWith(supabase, 9, {
+      productId: 'prod_team_monthly',
+      sourceId: 'sub_t1'
+    })
+    expect(grantProEntitlementMock).not.toHaveBeenCalled()
+    expect(result).toEqual({ tier: 'TEAM', isPro: false, changed: true })
+  })
+
+  it('prefers the team grant when team and Pro subscriptions are both active', async () => {
+    getStateExternalMock.mockResolvedValue(
+      customerState([
+        { id: 'sub_p', productId: 'prod_monthly' },
+        { id: 'sub_t', productId: 'prod_team_monthly' }
+      ])
+    )
+
+    const result = await syncSubscriptionFromPolar(freeUser(), 9)
+
+    expect(grantTeamEntitlementMock).toHaveBeenCalledWith(expect.anything(), 9, {
+      productId: 'prod_team_monthly',
+      sourceId: 'sub_t'
+    })
+    expect(grantProEntitlementMock).not.toHaveBeenCalled()
+    expect(result).toEqual({ tier: 'TEAM', isPro: false, changed: true })
+  })
+
+  it('leaves an existing TEAM account alone without calling Polar or any grant', async () => {
+    const result = await syncSubscriptionFromPolar(
+      tierSupabase({ data: { subscription_tier: 'TEAM' }, error: null }),
+      9
+    )
+
+    expect(result).toEqual({ tier: 'TEAM', isPro: false, changed: false })
+    expect(getStateExternalMock).not.toHaveBeenCalled()
+    expect(grantTeamEntitlementMock).not.toHaveBeenCalled()
+    expect(grantProEntitlementMock).not.toHaveBeenCalled()
+  })
+
+  it('reconciles an existing Pro tier up to TEAM when Polar holds an active team subscription', async () => {
+    // The production incident: the webhook misgranted a Team purchase as
+    // Pro, and the old isPro short-circuit then blocked this sync from
+    // ever correcting it.
+    getStateExternalMock.mockResolvedValue(
+      customerState([{ id: 'sub_t2', productId: 'prod_team_monthly' }])
+    )
+    const supabase = tierSupabase({ data: { subscription_tier: 'PRO' }, error: null })
+
+    const result = await syncSubscriptionFromPolar(supabase, 9)
+
+    expect(grantTeamEntitlementMock).toHaveBeenCalledWith(supabase, 9, {
+      productId: 'prod_team_monthly',
+      sourceId: 'sub_t2'
+    })
+    expect(grantProEntitlementMock).not.toHaveBeenCalled()
+    expect(result).toEqual({ tier: 'TEAM', isPro: false, changed: true })
   })
 
   it('finds the Pro subscription even when it is not first in the list', async () => {
@@ -130,15 +205,23 @@ describe('syncSubscriptionFromPolar', () => {
     expect(result.changed).toBe(true)
   })
 
-  it('leaves an already-Pro user alone without calling Polar or the grant', async () => {
+  it('leaves an already-Pro user alone when Polar shows no team subscription (Pro never re-grants)', async () => {
+    // Polar IS consulted now (the team check must run for Pro users),
+    // but an active Pro-product subscription must not re-run the Pro
+    // grant — that would re-stamp premium_since and re-notify.
+    getStateExternalMock.mockResolvedValue(
+      customerState([{ id: 'sub_1', productId: 'prod_monthly' }])
+    )
+
     const result = await syncSubscriptionFromPolar(
       tierSupabase({ data: { subscription_tier: 'PRO' }, error: null }),
       9
     )
 
     expect(result).toEqual({ tier: 'PRO', isPro: true, changed: false })
-    expect(getStateExternalMock).not.toHaveBeenCalled()
+    expect(getStateExternalMock).toHaveBeenCalledWith({ externalId: '9' })
     expect(grantProEntitlementMock).not.toHaveBeenCalled()
+    expect(grantTeamEntitlementMock).not.toHaveBeenCalled()
   })
 
   it('treats a missing Polar customer (404/422) as nothing-to-sync', async () => {

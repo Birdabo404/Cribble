@@ -8,6 +8,7 @@ import {
   getViewerFollowContext,
   loadPublicProfile
 } from '@/lib/publicProfile'
+import { getTeamAffiliatesList } from '@/lib/teamAffiliates'
 
 // Full public profile for /u/[username]. Superset of the leaderboard
 // profile card payload: adds follow counts and — when the request
@@ -50,13 +51,19 @@ export async function GET(
     const session = await getSessionUserId(request)
     const viewerId = session.ok ? session.userId : null
 
-    const [counts, viewerContext, mutualProof] = await Promise.all([
+    // The Affiliates roster only exists for approved Team accounts —
+    // isTeam already encodes "tier TEAM AND review approved", so a
+    // pending/lapsed/rejected team publishes no roster.
+    const [counts, viewerContext, mutualProof, affiliates] = await Promise.all([
       getFollowCounts(supabase, profile.userId),
       viewerId !== null
         ? getViewerFollowContext(supabase, viewerId, profile.userId)
         : Promise.resolve(null),
       viewerId !== null && viewerId !== profile.userId
         ? getMutualFollowerProof(supabase, viewerId, profile.userId)
+        : Promise.resolve(null),
+      profile.isTeam
+        ? getTeamAffiliatesList(supabase, profile.userId)
         : Promise.resolve(null)
     ])
 
@@ -67,7 +74,8 @@ export async function GET(
         followers: counts.followers,
         following: counts.following,
         viewer: viewerContext,
-        followedBy: mutualProof
+        followedBy: mutualProof,
+        affiliates
       }
     })
   } catch (err) {

@@ -12,7 +12,7 @@ import { LiquidMark } from '@/components/brand/LiquidMark'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { NavIcon } from './NavIcon'
 import { connectionMeta, useNavStatus } from './NavStatusContext'
-import { NAV_ITEMS, isNavItemActive } from './navItems'
+import { isNavItemActive, visibleNavItems } from './navItems'
 import type { NavUserState } from './useNavUser'
 
 export function NavDrawer({
@@ -89,7 +89,7 @@ export function NavDrawer({
         </div>
 
         <nav className="flex-1 overflow-y-auto py-3">
-          {NAV_ITEMS.map((item, i) => {
+          {visibleNavItems(navUser.user).map((item, i) => {
             const active = isNavItemActive(item, pathname)
             const state = itemState(i)
             return (

@@ -3,10 +3,19 @@ import { PolarError } from '@polar-sh/sdk/models/errors/polarerror'
 import type { CustomerState } from '@polar-sh/sdk/models/components/customerstate'
 import type { Order } from '@polar-sh/sdk/models/components/order'
 import { getPlate } from '@/lib/cosmetics/plates'
-import { grantPlatePurchase, grantProEntitlement } from '@/lib/entitlementGrant'
+import {
+  grantPlatePurchase,
+  grantProEntitlement,
+  grantTeamEntitlement
+} from '@/lib/entitlementGrant'
 import { getOwnedPlateIds, isProTier } from '@/lib/entitlements'
 import { insertMissingNotifications } from '@/lib/notifications'
-import { getPolarClient, resolveProProductId, type ProProductKey } from '@/lib/polar'
+import {
+  getPolarClient,
+  getTeamProductIds,
+  resolveProProductId,
+  type ProProductKey
+} from '@/lib/polar'
 
 // Pull-based entitlement reconciliation: ask Polar for the customer's
 // state (subscription tier + paid plate orders) and upgrade the local
@@ -36,15 +45,23 @@ function collectProProductIds(): Set<string> {
 
 /**
  * Reconcile a user's subscription tier straight from Polar. If Polar shows
- * an active subscription on one of the Pro products and the local tier
- * isn't Pro yet, run the full shared grant (tier, premium_since, welcome
- * notification) and report changed: true.
+ * an active subscription on one of the Team products, run the shared team
+ * grant (TEAM tier, pending review, team_since, welcome notification) and
+ * report changed: true; otherwise an active Pro-product subscription runs
+ * the full Pro grant (tier, premium_since, welcome notification). The team
+ * check runs BEFORE the already-Pro short-circuit — Pro -> TEAM is an
+ * upgrade this reconciler must make (it is the backstop for a webhook
+ * that misgranted a Team purchase as Pro), and a customer somehow
+ * holding both subscriptions is a company account, so the team grant is
+ * what opens the review gate.
  *
  * Callers get the current DB tier back untouched (changed: false) when:
- *   - the user is already on a Pro tier (nothing to upgrade),
+ *   - the user is already TEAM (top tier here — Polar isn't even asked),
+ *   - the user is already on a Pro tier and Polar shows no active team
+ *     subscription (Pro is never re-granted),
  *   - Polar has no customer for this external id (never checked out —
  *     404/422, same handling as the portal route),
- *   - no active subscription matches a Pro product,
+ *   - no active subscription matches a Team or Pro product,
  *   - Polar isn't configured, or the tier read fails (logged, not thrown).
  * Anything else (network failures, scope errors) throws to the caller.
  */
@@ -76,7 +93,11 @@ export async function syncSubscriptionFromPolar(
     changed: false
   }
 
-  if (unchanged.isPro) return unchanged
+  // Only TEAM short-circuits before asking Polar: it is the top tier this
+  // reconciler can grant, so there is nothing left to upgrade (team revoke
+  // lives in the webhook). A Pro tier must NOT bail here — an active team
+  // subscription still has to lift it to TEAM below.
+  if (currentTier === 'TEAM') return unchanged
 
   const polar = getPolarClient()
   if (!polar) return unchanged
@@ -96,8 +117,35 @@ export async function syncSubscriptionFromPolar(
     throw error
   }
 
+  const activeSubscriptions = state.activeSubscriptions ?? []
+
+  // Team products first — this is the instant-grant path for a buyer
+  // landing back on /team from checkout, before the webhook arrives, and
+  // it runs even when the DB already says Pro so a misgranted Pro can be
+  // reconciled up to TEAM. CustomerStateSubscription carries no product
+  // embed (unlike webhook payloads), so the team_key metadata fallback
+  // (isTeamSubscription in @/lib/polar) cannot apply here — matching
+  // stays on the configured product ids.
+  const teamProductIds = getTeamProductIds()
+  const activeTeamSub = activeSubscriptions.find((subscription) =>
+    teamProductIds.has(subscription.productId)
+  )
+  if (activeTeamSub) {
+    await grantTeamEntitlement(supabase, userId, {
+      productId: activeTeamSub.productId,
+      sourceId: activeTeamSub.id
+    })
+    // TEAM is deliberately not a Pro tier (see isProTier).
+    return { tier: 'TEAM', isPro: false, changed: true }
+  }
+
+  // Only now does an existing Pro tier end the sync: the team check above
+  // found nothing, and re-running the Pro grant would re-stamp
+  // premium_since and re-notify. Manually-set Pro tiers stay protected.
+  if (unchanged.isPro) return unchanged
+
   const proProductIds = collectProProductIds()
-  const activeProSub = (state.activeSubscriptions ?? []).find((subscription) =>
+  const activeProSub = activeSubscriptions.find((subscription) =>
     proProductIds.has(subscription.productId)
   )
   if (!activeProSub) return unchanged

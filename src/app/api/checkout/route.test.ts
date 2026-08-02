@@ -36,7 +36,8 @@ vi.mock('@/lib/polar', () => ({
   getPolarClient: getPolarClientMock,
   isPolarConfigured: () => true,
   resolvePlateProductId: (id: string) => (id === 'deep-space' ? 'prod_plate_deep_space' : null),
-  resolveProProductId: (key: string) => (key === 'pro_monthly' ? 'prod_monthly' : null)
+  resolveProProductId: (key: string) => (key === 'pro_monthly' ? 'prod_monthly' : null),
+  resolveTeamProductId: (key: string) => (key === 'team_monthly' ? 'prod_team_monthly' : null)
 }))
 
 import { GET } from './route'
@@ -102,5 +103,39 @@ describe('GET /api/checkout — plate ownership gate', () => {
     expect(response.status).toBe(404)
     expect(getOwnedPlateIdsMock).not.toHaveBeenCalled()
     expect(checkoutsCreateMock).not.toHaveBeenCalled()
+  })
+
+  // Where Polar sends the buyer afterwards: team checkouts land on the
+  // /team console (which runs the sync ack and shows the review gate),
+  // everything else returns to the shop. {CHECKOUT_ID} is Polar's
+  // template token — it must survive as literal braces, never encoded.
+  it('points team checkouts back at the /team console', async () => {
+    const response = await GET(
+      new NextRequest('https://cribble.dev/api/checkout?type=team_monthly', {
+        headers: { host: 'cribble.dev' }
+      })
+    )
+
+    expect(checkoutsCreateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        products: ['prod_team_monthly'],
+        successUrl: 'http://cribble.dev/team?checkout=success&checkout_id={CHECKOUT_ID}'
+      })
+    )
+    expect(response.status).toBe(307)
+  })
+
+  it('keeps sending Pro checkouts back to the shop', async () => {
+    await GET(
+      new NextRequest('https://cribble.dev/api/checkout?type=pro_monthly', {
+        headers: { host: 'cribble.dev' }
+      })
+    )
+
+    expect(checkoutsCreateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        successUrl: 'http://cribble.dev/shop?checkout=success&checkout_id={CHECKOUT_ID}'
+      })
+    )
   })
 })

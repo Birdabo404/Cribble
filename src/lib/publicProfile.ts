@@ -13,8 +13,14 @@ import {
   type AchievementIcon,
   type AchievementRarity
 } from '@/lib/achievements'
-import { getOwnedPlateIds, isProTier, resolveEquippedPlate } from '@/lib/entitlements'
+import {
+  getOwnedPlateIds,
+  isApprovedTeam,
+  isProTier,
+  resolveEquippedPlate
+} from '@/lib/entitlements'
 import { fetchAllUserEvents, normalizeLegacyEventValues } from '@/lib/scoring'
+import { getAffiliatedTeamsBatch } from '@/lib/teams'
 import { rankToolsFromEvents } from '@/lib/topTools'
 
 export interface PublicProfileTool {
@@ -51,7 +57,14 @@ export interface PublicProfile {
     linkedin: string | null
   }
   role: string | null
-  tier: 'FREE' | 'BASIC' | 'PRO' | 'PREMIUM' | 'AFFILIATE'
+  tier: 'FREE' | 'BASIC' | 'PRO' | 'PREMIUM' | 'AFFILIATE' | 'TEAM'
+  /** Approved Team account (tier TEAM + review passed + not suspended):
+   *  gold TeamBadge, square avatar, Affiliates section. Tier TEAM alone
+   *  stays false. */
+  isTeam: boolean
+  /** This user's one ACTIVE affiliation to an approved team, or null —
+   *  drives the mini team logo next to their name. */
+  team: { username: string; name: string; logo: string | null } | null
   memberSince: string
   lastSeen: string | null
   isActive: boolean
@@ -80,6 +93,7 @@ interface ProfileUserRow {
   created_at: string
   last_extension_sync: string | null
   subscription_tier: string | null
+  team_review_status: string | null
   user_type: string | null
   status: string | null
   metadata: Record<string, unknown> | null
@@ -99,6 +113,7 @@ const PROFILE_USER_SELECT = `
   created_at,
   last_extension_sync,
   subscription_tier,
+  team_review_status,
   user_type,
   status,
   metadata,
@@ -119,6 +134,7 @@ const sameUtcDay = (iso: string | null | undefined, now: Date) => {
 // reports the same tier labels for the same user.
 const normalizeTier = (t: string | null): PublicProfile['tier'] => {
   const v = (t || 'FREE').toUpperCase()
+  if (v.includes('TEAM')) return 'TEAM'
   if (v.includes('AFFILIATE')) return 'AFFILIATE'
   if (v.includes('PREMIUM')) return 'PREMIUM'
   if (v.includes('PRO')) return 'PRO'
@@ -177,35 +193,45 @@ export async function loadPublicProfile(
 
   const row = user as unknown as ProfileUserRow
   const totalScore = Math.round(row.user_scores?.total_score || 0)
+  const tier = normalizeTier(row.subscription_tier)
 
-  // Rank + movement, unlocked badges, this player's events, and their
-  // owned plates — all in parallel. Events are fetched with pagination so
-  // profiles of heavy users aren't computed from a 1000-row subset.
-  const [rankRes, snapshotRes, badgesRes, eventsRes, ownedPlateIds] = await Promise.all([
-    totalScore > 0
-      ? supabase
-          .from('user_scores')
-          .select('user_id', { count: 'exact', head: true })
-          .gt('total_score', totalScore)
-      : Promise.resolve({ count: null, error: null }),
-    supabase
-      .from('leaderboard_ranks')
-      .select('prev_rank, rank, rank_moved_at, first_seen_at')
-      .eq('user_id', row.id)
-      .maybeSingle(),
-    supabase
-      .from('user_achievements')
-      .select('achievement_id, unlocked_at')
-      .eq('user_id', row.id)
-      .order('unlocked_at', { ascending: false }),
-    fetchAllUserEvents(supabase, row.id),
-    getOwnedPlateIds(supabase, row.id)
-  ])
+  // Rank + movement, unlocked badges, this player's events, their owned
+  // plates, and their team affiliation — all in parallel. Events are
+  // fetched with pagination so profiles of heavy users aren't computed
+  // from a 1000-row subset. TEAM accounts skip the rank count entirely:
+  // company accounts are excluded from the individual boards, so a
+  // profile rank would point at a standing that doesn't exist.
+  const [rankRes, snapshotRes, badgesRes, eventsRes, ownedPlateIds, affiliatedTeams] =
+    await Promise.all([
+      totalScore > 0 && tier !== 'TEAM'
+        ? supabase
+            .from('user_scores')
+            .select('user_id', { count: 'exact', head: true })
+            .gt('total_score', totalScore)
+        : Promise.resolve({ count: null, error: null }),
+      supabase
+        .from('leaderboard_ranks')
+        .select('prev_rank, rank, rank_moved_at, first_seen_at')
+        .eq('user_id', row.id)
+        .maybeSingle(),
+      supabase
+        .from('user_achievements')
+        .select('achievement_id, unlocked_at')
+        .eq('user_id', row.id)
+        .order('unlocked_at', { ascending: false }),
+      fetchAllUserEvents(supabase, row.id),
+      getOwnedPlateIds(supabase, row.id),
+      getAffiliatedTeamsBatch(supabase, [row.id])
+    ])
 
   const rank =
     totalScore > 0 && rankRes.count !== null && !rankRes.error
       ? rankRes.count + 1
       : null
+
+  // The one ACTIVE affiliation, already gated on the team side
+  // (tier TEAM + approved + not banned) by getAffiliatedTeamsBatch.
+  const affiliatedTeam = affiliatedTeams.get(row.id) ?? null
 
   // Movement is display sugar; ignore errors (e.g. migration 012 missing).
   const snapshot = snapshotRes.error ? null : snapshotRes.data
@@ -323,7 +349,19 @@ export async function loadPublicProfile(
         linkedin: socialOr('linkedin')
       },
       role: row.user_type || null,
-      tier: normalizeTier(row.subscription_tier),
+      tier,
+      // Suspended accounts must not light team surfaces (banned rows
+      // 404 above) — same status convention as getAffiliatedTeamsBatch:
+      // NULL predates migration 003 and reads as active.
+      isTeam:
+        isApprovedTeam(row) && (row.status === null || row.status === 'active'),
+      team: affiliatedTeam
+        ? {
+            username: affiliatedTeam.username,
+            name: affiliatedTeam.name,
+            logo: affiliatedTeam.avatar
+          }
+        : null,
       memberSince: row.created_at,
       lastSeen: lastSync || row.created_at,
       isActive,

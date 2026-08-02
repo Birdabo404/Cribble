@@ -15,7 +15,7 @@ import { NotificationBell } from '@/components/dashboard-v3/NotificationBell'
 import { LiquidMark } from '@/components/brand/LiquidMark'
 import { NavIcon } from './NavIcon'
 import { connectionMeta, useNavStatus } from './NavStatusContext'
-import { NAV_ITEMS, isNavItemActive } from './navItems'
+import { isNavItemActive, visibleNavItems } from './navItems'
 import { NavDrawer } from './NavDrawer'
 import { UserSearch, isUserSearchRoute } from './UserSearch'
 import type { NavUserState } from './useNavUser'
@@ -81,19 +81,21 @@ export function NavTopBar({
 
           <div className="ml-auto flex items-center gap-2">
             <nav className="hidden items-center gap-2 md:flex" aria-label="Primary navigation">
-              {NAV_ITEMS.filter((item) => item.topBar).map((item) => {
-                const active = isNavItemActive(item, pathname)
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    aria-current={active ? 'page' : undefined}
-                    className={`${CHIP_BASE} ${active ? CHIP_ACTIVE : CHIP_IDLE}`}
-                  >
-                    {item.label}
-                  </Link>
-                )
-              })}
+              {visibleNavItems(navUser.user)
+                .filter((item) => item.topBar)
+                .map((item) => {
+                  const active = isNavItemActive(item, pathname)
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      aria-current={active ? 'page' : undefined}
+                      className={`${CHIP_BASE} ${active ? CHIP_ACTIVE : CHIP_IDLE}`}
+                    >
+                      {item.label}
+                    </Link>
+                  )
+                })}
             </nav>
 
             {/* One sync control instead of a status pill + button pair: the

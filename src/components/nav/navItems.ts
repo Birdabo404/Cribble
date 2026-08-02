@@ -1,3 +1,4 @@
+import type { MeUser } from '@/types/dashboard'
 import type { NavIconName } from './NavIcon'
 
 export interface NavItemDef {
@@ -10,6 +11,8 @@ export interface NavItemDef {
   /** Rendered as a chip in the top-bar variant. Items excluded here stay
    *  reachable via the rail, the mobile drawer, and the account menu. */
   topBar?: boolean
+  /** Only rendered for TEAM-tier accounts (see visibleNavItems). */
+  teamOnly?: boolean
 }
 
 export const NAV_ITEMS: NavItemDef[] = [
@@ -19,11 +22,24 @@ export const NAV_ITEMS: NavItemDef[] = [
   // SHOP earns a top-bar chip: it is the revenue surface, and its label is
   // short enough that a third chip still fits the md bar comfortably.
   { href: '/shop', label: 'SHOP', icon: 'shop', topBar: true },
+  // The team console exists only for company accounts; everyone else
+  // never sees the row (visibleNavItems filters it out).
+  { href: '/team', label: 'TEAM', icon: 'team', exact: true, teamOnly: true },
   // Achievements stays out of the top bar on purpose — it is one click away
   // in the account menu (and in the rail/drawer), and its long label crowded
   // the bar without earning its place.
   { href: '/dashboard/achievements', label: 'ACHIEVEMENTS', icon: 'award' }
 ]
+
+/** Nav items the current session may see. Tier gating only — the TEAM row
+ *  shows for any TEAM-tier account (even mid-review; the page itself
+ *  explains the pending state). Signed-out visitors get the base set. */
+export function visibleNavItems(
+  user: Pick<MeUser, 'subscription_tier'> | null | undefined
+): NavItemDef[] {
+  const isTeam = user?.subscription_tier === 'TEAM'
+  return NAV_ITEMS.filter((item) => !item.teamOnly || isTeam)
+}
 
 export function isNavItemActive(item: NavItemDef, pathname: string): boolean {
   if (item.exact) return pathname === item.href

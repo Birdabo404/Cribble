@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import { resolveAppUrl, resolveTwitterRedirectUri } from '@/lib/appUrl'
 import { checkRateLimit, rateLimitConfigs } from '@/lib/rateLimit'
+import { runTeamIdentityTripwire } from '@/lib/teamTripwire'
 
 export const dynamic = 'force-dynamic'
 
@@ -143,6 +144,17 @@ export async function GET(request: NextRequest) {
         return NextResponse.redirect(`${appUrl}/login?error=twitter_user_update_failed`)
       }
       user = updated
+
+      // Anti-impersonation tripwire: the update above re-synced handle,
+      // display name and avatar from X — if this account is an APPROVED
+      // team and any of them genuinely changed, its approval drops back
+      // to pending and staff are alerted. Never throws; a tripwire
+      // failure must not break login.
+      await runTeamIdentityTripwire(supabase, existingUser, {
+        username,
+        name: displayName,
+        avatar
+      })
     } else {
       // New signups are invite-gated (beta access only). The code was stashed
       // in a cookie by /api/auth/twitter before the OAuth redirect.

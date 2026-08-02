@@ -6,7 +6,10 @@ export const NOTIFICATION_TYPES = [
   'social',
   'premium',
   'shop',
-  'system'
+  'system',
+  'team_invite',
+  'team_invite_accepted',
+  'team_removed'
 ] as const
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
@@ -32,6 +35,27 @@ export function normalizeNotificationType(raw: unknown): NotificationType {
 export interface FollowActor {
   username: string | null
   avatarUrl: string | null
+}
+
+/** Team-flow rows (invite / accepted / removed) persist the counterparty's
+ *  identity in `data` at write time — the team for member-facing rows, the
+ *  member for team-facing ones. Returns those display fields, or null when
+ *  the row isn't part of the team flow. */
+export function teamActor(
+  n: Pick<AppNotification, 'type' | 'data'>
+): FollowActor | null {
+  if (
+    n.type !== 'team_invite' &&
+    n.type !== 'team_invite_accepted' &&
+    n.type !== 'team_removed'
+  ) {
+    return null
+  }
+  const data = n.data ?? {}
+  return {
+    username: typeof data.username === 'string' ? data.username : null,
+    avatarUrl: typeof data.avatarUrl === 'string' ? data.avatarUrl : null
+  }
 }
 
 /** A follow event is a social row carrying the follower's id (all rows the

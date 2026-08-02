@@ -37,6 +37,7 @@ import {
   type PlateDef,
   type PlateRarity
 } from '@/lib/cosmetics/plates'
+import { PRO_TERMS, type BillingTerm } from '@/lib/planTerms'
 
 /* ================= catalog shelves ================= */
 
@@ -327,27 +328,8 @@ function MythicChip() {
 
 const AMBER = '252 211 77' // tailwind amber-300 — the PRO tier hue
 
-/** The checkout console's two positions. Yearly leads: it's preselected
- * and carries the value tag, so the honest default is also the best deal. */
-type ProTerm = 'monthly' | 'yearly'
-
-const PRO_TERMS: Record<
-  ProTerm,
-  { price: string; unit: string; context: string; announce: string }
-> = {
-  monthly: {
-    price: '$6.99',
-    unit: '/ MO',
-    context: 'BILLED MONTHLY · CANCEL ANYTIME',
-    announce: '$6.99 per month, billed monthly'
-  },
-  yearly: {
-    price: '$49.99',
-    unit: '/ YR',
-    context: '≈ $4.17 / MO · SAVE $33.89 A YEAR',
-    announce: '$49.99 per year, about $4.17 per month'
-  }
-}
+// Term metadata (prices, context lines) lives in @/lib/planTerms — shared
+// with the /teams chooser so the two storefronts can never drift apart.
 
 function ProHero({
   loading,
@@ -359,7 +341,7 @@ function ProHero({
   const proPlateNames = PRO_PLATES.map((plate) => plate.name).join(' · ')
 
   // Checkout console state — one dial, one price, one button.
-  const [term, setTerm] = useState<ProTerm>('yearly')
+  const [term, setTerm] = useState<BillingTerm>('yearly')
   const monthlyRef = useRef<HTMLButtonElement>(null)
   const yearlyRef = useRef<HTMLButtonElement>(null)
   const meta = PRO_TERMS[term]
@@ -369,7 +351,7 @@ function ProHero({
   const handleSegKeys = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return
     event.preventDefault()
-    const next: ProTerm = term === 'monthly' ? 'yearly' : 'monthly'
+    const next: BillingTerm = term === 'monthly' ? 'yearly' : 'monthly'
     setTerm(next)
     ;(next === 'monthly' ? monthlyRef : yearlyRef).current?.focus()
   }
@@ -615,6 +597,87 @@ function ProHero({
       )}
 
     </div>
+  )
+}
+
+/* ================= Team pointer ================= */
+
+/** The Team plan sells from its own page now (/teams) — the shop keeps a
+ * slim gold pointer band in the old card's slot. Default variant walks
+ * visitors to the pitch; TEAM-active accounts get the console/portal
+ * links the removed card used to carry. */
+function TeamPointerBand({ loading, isTeam }: { loading: boolean; isTeam: boolean }) {
+  const chip = (
+    <span
+      className="shrink-0 rounded px-2 py-1 text-[9px] leading-none tracking-[0.3em] [font-family:var(--font-pixel)]"
+      style={{
+        color: 'rgb(var(--lb-gold))',
+        border: '1px solid rgb(var(--lb-gold) / 0.45)',
+        background: 'rgb(var(--lb-gold) / 0.07)',
+        textShadow: '0 0 10px rgb(var(--lb-gold) / 0.5)'
+      }}
+    >
+      CRIBBLE TEAM
+    </span>
+  )
+
+  if (isTeam) {
+    return (
+      <div className="shp-teamband flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl px-4 py-3">
+        {chip}
+        <span
+          className="shrink-0 rounded border px-1.5 py-0.5 text-[8px] tracking-[0.25em]"
+          style={{
+            color: 'rgb(var(--lb-gold))',
+            borderColor: 'rgb(var(--lb-gold) / 0.4)',
+            background: 'rgb(var(--lb-gold) / 0.05)'
+          }}
+        >
+          TEAM ACTIVE
+        </span>
+        <span className="min-w-0 flex-1 basis-40 text-[11px] leading-relaxed text-zinc-400">
+          This account flies company colors.
+        </span>
+        <Link
+          href="/team"
+          className="inline-flex shrink-0 items-center gap-1.5 text-[9px] tracking-[0.3em] transition-opacity hover:opacity-80"
+          style={{ color: 'rgb(var(--lb-gold))' }}
+        >
+          OPEN TEAM CONSOLE <span aria-hidden>→</span>
+        </Link>
+        <a
+          href="/api/portal"
+          className="inline-flex shrink-0 items-center gap-1.5 text-[9px] tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-200"
+        >
+          MANAGE SUBSCRIPTION <span aria-hidden>→</span>
+        </a>
+      </div>
+    )
+  }
+
+  return (
+    <Link
+      href="/teams"
+      className="shp-teamband group flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl px-4 py-3"
+    >
+      {chip}
+      <span className="min-w-0 flex-1 basis-40 text-[11px] leading-relaxed text-zinc-400">
+        Fly company colors — the gold badge, the square mark, ten seats.
+      </span>
+      {loading ? (
+        <span className="h-3 w-32 shrink-0 animate-pulse rounded bg-white/[0.05]" />
+      ) : (
+        <span
+          className="inline-flex shrink-0 items-center gap-1.5 text-[9px] tracking-[0.3em]"
+          style={{ color: 'rgb(var(--lb-gold))' }}
+        >
+          SEE THE TEAM PLAN{' '}
+          <span aria-hidden className="transition-transform group-hover:translate-x-0.5">
+            →
+          </span>
+        </span>
+      )}
+    </Link>
   )
 }
 
@@ -1047,6 +1110,7 @@ function ShopDepot() {
 
   const loading = cosmetics === null
   const isPro = cosmetics?.isPro ?? false
+  const isTeam = (cosmetics?.tier ?? 'FREE').toUpperCase() === 'TEAM'
   const owned = cosmetics?.owned ?? NEUTRAL_COSMETICS.owned
 
   return (
@@ -1103,6 +1167,11 @@ function ShopDepot() {
         {/* ---------- Cribble Pro hero ---------- */}
         <section className="shp-reveal" style={{ ['--rv' as string]: '90ms' }}>
           <ProHero loading={loading} isPro={isPro} />
+        </section>
+
+        {/* ---------- Cribble Team — sold from /teams now ---------- */}
+        <section className="shp-reveal" style={{ ['--rv' as string]: '120ms' }}>
+          <TeamPointerBand loading={loading} isTeam={isTeam} />
         </section>
 
         {/* ---------- The Reserve — mythic class ---------- */}
@@ -1589,6 +1658,22 @@ function ShopDepot() {
           border-color: rgb(var(--tile-accent) / 0.6);
           background: rgb(var(--tile-accent) / 0.09);
           box-shadow: 0 0 24px -8px rgb(var(--tile-accent) / 0.5);
+        }
+
+        /* Team pointer band — slim gold keyline strip under the Pro hero */
+        .shp-teamband {
+          border: 1px solid rgb(var(--lb-gold) / 0.28);
+          background:
+            linear-gradient(90deg, rgb(var(--lb-gold) / 0.06), rgb(var(--lb-gold) / 0.015) 55%, transparent),
+            rgb(var(--lb-panel-bg));
+          transition:
+            border-color 220ms ease,
+            box-shadow 220ms ease;
+        }
+        a.shp-teamband:hover,
+        a.shp-teamband:focus-visible {
+          border-color: rgb(var(--lb-gold) / 0.55);
+          box-shadow: 0 0 30px -12px rgb(var(--lb-gold) / 0.45);
         }
 
         /* vault band CTA — gold twin of the buy chip */

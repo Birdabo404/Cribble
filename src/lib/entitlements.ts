@@ -9,9 +9,29 @@ import { getPlate } from '@/lib/cosmetics/plates'
 
 const PRO_TIERS = new Set(['PRO', 'PREMIUM', 'PREMIUM+'])
 
-/** True when the subscription tier includes Pro perks. */
+/** True when the subscription tier includes Pro perks. TEAM is
+ *  deliberately NOT a Pro tier — company accounts buy affiliate seats
+ *  and the gold badge, not the personal Pro perk bundle. */
 export function isProTier(tier: string | null | undefined): boolean {
   return typeof tier === 'string' && PRO_TIERS.has(tier.trim().toUpperCase())
+}
+
+/**
+ * True when a user row is a fully-lit Team account: paying for the TEAM
+ * tier AND past the manual anti-impersonation review. Every team surface
+ * (gold badge, square avatar, affiliate mini-logos, invite rights) gates
+ * on this — tier alone means "paid, awaiting review", approval alone
+ * means "lapsed subscription".
+ */
+export function isApprovedTeam(user: {
+  subscription_tier?: string | null
+  team_review_status?: string | null
+}): boolean {
+  return (
+    typeof user.subscription_tier === 'string' &&
+    user.subscription_tier.trim().toUpperCase() === 'TEAM' &&
+    user.team_review_status === 'approved'
+  )
 }
 
 /** Plate ids the user owns outright (user_cosmetics purchases/grants).

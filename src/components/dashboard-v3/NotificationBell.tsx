@@ -19,7 +19,7 @@ import { Avatar } from '@/components/leaderboard/Avatar'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { useNotifications } from '@/hooks/useNotifications'
 import { ACHIEVEMENTS_BY_ID } from '@/lib/achievements'
-import { followActor } from '@/types/notifications'
+import { followActor, teamActor } from '@/types/notifications'
 import type { AppNotification, NotificationType } from '@/types/notifications'
 
 // Mirrors FEED_LIMIT in /api/user/notifications — at cap the footer says
@@ -75,6 +75,12 @@ function typeMeta(type: NotificationType, data: Record<string, unknown>): TypeMe
     case 'shop':
       // Purchase ack + delivered both ride the red delivery truck.
       return { icon: ICON_PATHS.truck, cls: 'text-red-400' }
+    case 'team_invite':
+    case 'team_invite_accepted':
+      // Team-affiliation flow wears the TEAM tier's gold.
+      return { icon: ICON_PATHS.users, cls: 'text-yellow-300' }
+    case 'team_removed':
+      return { icon: ICON_PATHS.users, cls: 'text-zinc-400' }
     case 'system':
       return { icon: ICON_PATHS.info, cls: 'text-zinc-400' }
     default: {
@@ -220,6 +226,22 @@ function NotificationGlyph({
     )
   }
 
+  // Team-flow rows show the counterparty's face; a missing avatar falls
+  // back to a gold monogram (teams are the gold tier).
+  const team = teamActor(notification)
+  if (team && (team.avatarUrl || team.username)) {
+    return (
+      <span className={`${tileCls} overflow-hidden`}>
+        <Avatar
+          src={team.avatarUrl}
+          char={(team.username?.[0] ?? '?').toUpperCase()}
+          imgClassName="h-full w-full object-cover"
+          fallbackClassName="flex h-full w-full items-center justify-center font-display text-[11px] text-yellow-300"
+        />
+      </span>
+    )
+  }
+
   if (notification.type === 'premium') {
     return (
       <span className={tileCls}>
@@ -248,7 +270,9 @@ function NotificationGlyph({
 }
 
 /** One plain feed row. Social events deep-link to the actor's profile so
- *  a "started following you" lands one click from FOLLOW BACK. */
+ *  a "started following you" lands one click from FOLLOW BACK; team
+ *  invites land on the accept/decline page, and an accepted invite or an
+ *  identity-review update takes the team straight to its console. */
 function SingleFeedRow({
   notification: n,
   fresh,
@@ -260,6 +284,14 @@ function SingleFeedRow({
 }) {
   const actorUsername =
     n.type === 'social' && typeof n.data?.username === 'string' ? n.data.username : null
+  const href =
+    n.type === 'team_invite'
+      ? '/team/invites'
+      : n.type === 'team_invite_accepted' || n.data?.kind === 'team_review'
+        ? '/team'
+        : actorUsername
+          ? `/u/${encodeURIComponent(actorUsername)}`
+          : null
   const rowCls = `comms-row-in relative flex items-start gap-3 border-b border-white/[0.045] px-4 py-3 last:border-b-0 ${
     fresh ? 'bg-accent/[0.045]' : ''
   }`
@@ -296,9 +328,9 @@ function SingleFeedRow({
       </div>
     </>
   )
-  return actorUsername ? (
+  return href ? (
     <a
-      href={`/u/${encodeURIComponent(actorUsername)}`}
+      href={href}
       style={{ animationDelay: delay }}
       className={`${rowCls} transition-colors ${
         fresh ? 'hover:bg-accent/[0.08]' : 'hover:bg-white/[0.04]'

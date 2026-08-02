@@ -23,9 +23,11 @@ export async function GET(request: NextRequest) {
       .from('users')
       // is_admin is deliberately NOT selected: no client code consumes it and
       // admin checks happen server-side (adminAuth), so exposing the flag
-      // here would only fingerprint admin accounts.
+      // here would only fingerprint admin accounts. team_review_status IS
+      // selected: paired with subscription_tier it tells the client whether
+      // this session may use team surfaces (e.g. INVITE TO TEAM on profiles).
       .select(
-        'id, twitter_username, twitter_name, twitter_profile_image, created_at, last_login, subscription_tier, user_type, active_device_uuid, last_extension_sync'
+        'id, twitter_username, twitter_name, twitter_profile_image, created_at, last_login, subscription_tier, team_review_status, user_type, active_device_uuid, last_extension_sync'
       )
       .eq('id', session.userId)
       .single()

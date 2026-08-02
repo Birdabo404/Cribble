@@ -8,6 +8,7 @@
 import AnimatedCounter from '@/components/AnimatedCounter'
 import { PlateLayer } from '@/components/cosmetics/PlateLayer'
 import { formatNumber, formatScore } from '@/components/dashboard-v2/format'
+import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { isProTier } from '@/lib/entitlements'
 import { Avatar, SafeBannerImg } from './Avatar'
@@ -67,6 +68,10 @@ function PodiumCard({
   const medal = medalFor(user.rank)!
   const champion = user.rank === 1
   const topTool = user.topTools?.[0]
+  // Companies are square, pilots are round. TEAM accounts are excluded
+  // from live boards, but frozen archives keep rendering history.
+  const avatarRound = user.tier === 'TEAM' ? 'rounded-xl' : 'rounded-full'
+  const avatarImgRound = user.tier === 'TEAM' ? 'rounded-lg' : 'rounded-full'
 
   return (
     <button
@@ -191,7 +196,7 @@ function PodiumCard({
             {champion ? (
               <span
                 aria-hidden
-                className="pod-halo absolute -inset-[3px] rounded-full"
+                className={`pod-halo absolute -inset-[3px] ${avatarRound}`}
                 style={{
                   background: `conic-gradient(from 0deg, transparent, ${medalA(medal.rgb, 0.95)} 90deg, rgb(var(--lb-gold-hi)) 130deg, transparent 210deg, ${medalA(medal.rgb, 0.5)} 305deg, transparent)`,
                   filter: `drop-shadow(0 0 9px ${medalA(medal.rgb, 0.6)})`
@@ -200,7 +205,7 @@ function PodiumCard({
             ) : (
               <span
                 aria-hidden
-                className="absolute -inset-[3px] rounded-full"
+                className={`absolute -inset-[3px] ${avatarRound}`}
                 style={{
                   background: `conic-gradient(from 210deg, ${medalA(medal.rgb, 0.85)}, ${medalA(medal.rgb, 0.22)}, ${medalA(medal.rgb, 0.85)})`,
                   boxShadow: `0 0 16px ${medalA(medal.rgb, 0.3)}`
@@ -209,15 +214,15 @@ function PodiumCard({
             )}
             <span
               aria-hidden
-              className="absolute inset-0 rounded-full"
+              className={`absolute inset-0 ${avatarRound}`}
               style={{ boxShadow: 'inset 0 0 0 3px rgb(var(--lb-panel-bg))' }}
             />
             <Avatar
               src={user.profile_image}
               char={user.username[0]?.toUpperCase() ?? '?'}
-              imgClassName="absolute inset-[3px] rounded-full object-cover"
+              imgClassName={`absolute inset-[3px] ${avatarImgRound} object-cover`}
               imgStyle={{ width: 'calc(100% - 6px)', height: 'calc(100% - 6px)' }}
-              fallbackClassName={`absolute inset-[3px] flex items-center justify-center rounded-full bg-zinc-900 font-display text-zinc-300 ${
+              fallbackClassName={`absolute inset-[3px] flex items-center justify-center ${avatarImgRound} bg-zinc-900 font-display text-zinc-300 ${
                 champion ? 'text-2xl' : 'text-lg'
               }`}
             />
@@ -243,6 +248,7 @@ function PodiumCard({
             {user.display_name || `@${user.username}`}
           </span>
           {isProTier(user.tier) && <VerifiedBadge size={champion ? 16 : 14} />}
+          {user.team && <TeamMiniLogo team={user.team} size={champion ? 16 : 14} />}
         </div>
         <span className="mt-0.5 text-[10px] text-zinc-500">@{user.username}</span>
 

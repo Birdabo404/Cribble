@@ -1,4 +1,5 @@
 import type { AchievementIcon, AchievementRarity } from '@/lib/achievements'
+import type { TeamRef } from '@/components/premium/TeamMiniLogo'
 import { ROLE_META } from '@/lib/roles'
 import type { Tier } from '@/types/dashboard'
 import type { SocialKind } from './icons'
@@ -30,6 +31,9 @@ export interface LeaderRow {
   lastSeen: string | null
   memberSince?: string | null
   tier: Tier
+  /** Active affiliation to an approved Team account, or null — renders
+   *  the clickable mini team logo next to the name. */
+  team?: TeamRef | null
   topTools?: TopTool[]
   /** Private account — topTools arrive empty unless the viewer follows them. */
   isPrivate?: boolean
@@ -71,6 +75,10 @@ export interface PlayerProfile {
   socials: Socials
   role: string | null
   tier: string
+  /** Approved Team account — gold TeamBadge + square avatar. */
+  isTeam?: boolean
+  /** Active affiliation to an approved Team account, or null. */
+  team?: TeamRef | null
   memberSince: string
   lastSeen: string | null
   isActive: boolean

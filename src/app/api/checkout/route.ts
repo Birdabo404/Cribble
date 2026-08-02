@@ -7,7 +7,8 @@ import {
   getPolarClient,
   isPolarConfigured,
   resolvePlateProductId,
-  resolveProProductId
+  resolveProProductId,
+  resolveTeamProductId
 } from '@/lib/polar'
 import { getSessionUserId } from '@/lib/sessionAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
@@ -40,7 +41,7 @@ async function resolveProPlateDiscountId(userId: number): Promise<string | null>
 
 const querySchema = z
   .object({
-    type: z.enum(['pro_monthly', 'pro_yearly', 'plate']),
+    type: z.enum(['pro_monthly', 'pro_yearly', 'team_monthly', 'team_yearly', 'plate']),
     plateId: z
       .string()
       .min(1)
@@ -111,7 +112,10 @@ export async function GET(request: NextRequest) {
         )
       }
     } else {
-      productId = resolveProProductId(type)
+      productId =
+        type === 'team_monthly' || type === 'team_yearly'
+          ? resolveTeamProductId(type)
+          : resolveProProductId(type)
       if (!productId) {
         return NextResponse.json(
           { success: false, error: 'Shop is not configured yet' },
@@ -129,15 +133,21 @@ export async function GET(request: NextRequest) {
     const discountId =
       type === 'plate' ? await resolveProPlateDiscountId(session.userId) : null
 
+    // Team buyers land on the /team console (which runs the same sync ack
+    // and then shows the under-review roster); everything else returns to
+    // the shop.
+    const successPath =
+      type === 'team_monthly' || type === 'team_yearly' ? '/team' : '/shop'
+
     const checkout = await polar.checkouts.create({
       products: [productId],
       externalCustomerId: String(session.userId),
       metadata,
       // {CHECKOUT_ID} is Polar's template token, interpolated at redirect
       // time — built by string concat so the braces are never URL-encoded.
-      // The shop passes it back to the sync route for the purchase-ack
-      // notification.
-      successUrl: `${appUrl}/shop?checkout=success&checkout_id={CHECKOUT_ID}`,
+      // The success page passes it back to the sync route for the
+      // purchase-ack notification.
+      successUrl: `${appUrl}${successPath}?checkout=success&checkout_id={CHECKOUT_ID}`,
       ...(discountId ? { discountId } : {})
     })
 

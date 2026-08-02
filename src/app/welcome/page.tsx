@@ -8,6 +8,7 @@ import { LiquidMark } from '@/components/brand/LiquidMark'
 import { ROLE_ICONS } from '@/components/roleIcons'
 import { ROLE_OPTIONS } from '@/lib/roles'
 import { EXTENSION_INSTALL_URL } from '@/lib/extensionInstall'
+import { TEAM_TERMS, type BillingTerm } from '@/lib/planTerms'
 import { useExtensionDetection } from '@/hooks/useExtensionDetection'
 import {
   BrandClaude,
@@ -37,28 +38,46 @@ import {
   type IconProps
 } from '@/components/welcome/icons'
 
-type Stage = 'intro' | 'mode' | 'privacy' | 'role' | 'goal' | 'tools' | 'extension'
+type Stage =
+  | 'intro'
+  | 'mode'
+  | 'team'
+  | 'privacy'
+  | 'role'
+  | 'goal'
+  | 'tools'
+  | 'extension'
 
-// EXTENSION_INSTALL_URL is a build-time env constant, so the step list can
-// be fixed once at module level: no store listing → no extension step, and
-// the wizard behaves exactly as it did before that step existed.
+// EXTENSION_INSTALL_URL is a build-time env constant, so the solo step list
+// can be fixed once at module level: no store listing → no extension step,
+// and the wizard behaves exactly as it did before that step existed.
 const EXTENSION_STEP_ENABLED = EXTENSION_INSTALL_URL !== null
 
-const STEPS: Stage[] = EXTENSION_STEP_ENABLED
+// The step list is a function of the chosen mode. Solo runs the personal
+// questionnaire; team is a two-step lane — the remaining questions are
+// extension- and person-centric, and a company account tracks nothing.
+const SOLO_STEPS: Stage[] = EXTENSION_STEP_ENABLED
   ? ['mode', 'privacy', 'role', 'goal', 'tools', 'extension']
   : ['mode', 'privacy', 'role', 'goal', 'tools']
+
+const TEAM_STEPS: Stage[] = ['mode', 'team']
 
 const STEP_META: Record<
   Exclude<Stage, 'intro'>,
   { eyebrow: string }
 > = {
   mode: { eyebrow: 'Account' },
+  team: { eyebrow: 'Your team' },
   privacy: { eyebrow: 'Privacy' },
   role: { eyebrow: 'About you' },
   goal: { eyebrow: 'Mission' },
   tools: { eyebrow: 'Loadout' },
   extension: { eyebrow: 'Extension' }
 }
+
+/** Gold is the team plan's hue everywhere (console, /teams, badges) —
+ *  used sparingly here as an accent inside the wizard's own language. */
+const GOLD = 'var(--lb-gold)'
 
 type IconComponent = (p: IconProps) => JSX.Element
 
@@ -104,6 +123,9 @@ export default function WelcomePage() {
   const [role, setRole] = useState<string | null>(null)
   const [goal, setGoal] = useState<string | null>(null)
   const [topTools, setTopTools] = useState<string[]>([])
+  // Yearly leads, same as every other team surface: the honest default is
+  // the best deal.
+  const [teamTerm, setTeamTerm] = useState<BillingTerm>('yearly')
   const [saving, setSaving] = useState(false)
   const [alreadyOnboarded, setAlreadyOnboarded] = useState(false)
   const [statusKnown, setStatusKnown] = useState(false)
@@ -207,16 +229,25 @@ export default function WelcomePage() {
     return () => clearTimeout(t)
   }, [statusKnown, alreadyOnboarded, stage, router, goTo])
 
+  // Active path. The `stage === 'team'` clause keeps the team list in
+  // force during the leave animation after "Continue solo instead" flips
+  // the mode — the counter must never dereference a stage that just left
+  // the path.
+  const steps = useMemo<Stage[]>(
+    () => (stage === 'team' || mode === 'team' ? TEAM_STEPS : SOLO_STEPS),
+    [stage, mode]
+  )
+
   const advance = useCallback(() => {
-    const idx = STEPS.indexOf(stage as Exclude<Stage, 'intro'>)
-    const next = STEPS[idx + 1]
+    const idx = steps.indexOf(stage)
+    const next = steps[idx + 1]
     if (next) goTo(next)
-  }, [stage, goTo])
+  }, [steps, stage, goTo])
 
   const back = useCallback(() => {
-    const idx = STEPS.indexOf(stage as Exclude<Stage, 'intro'>)
-    if (idx > 0) goTo(STEPS[idx - 1])
-  }, [stage, goTo])
+    const idx = steps.indexOf(stage)
+    if (idx > 0) goTo(steps[idx - 1])
+  }, [steps, stage, goTo])
 
   // Save, then either the extension step (when a store listing is live) or
   // straight to the dashboard. Saving first means onboarding is already
@@ -250,26 +281,62 @@ export default function WelcomePage() {
     }
   }, [role, goal, topTools, mode, saving, devMode, router, goTo])
 
+  // The team lane's CTA: save-first (accountType lands even if the buyer
+  // bails at Polar), then a plain browser navigation to the checkout
+  // route — it redirects to Polar's hosted page, which router.push can't.
+  const teamCheckout = useCallback(async () => {
+    if (saving) return
+    setSaving(true)
+    if (!devMode) {
+      try {
+        await fetch('/api/user/onboarding', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accountType: 'team',
+            role: null,
+            goal: null,
+            topTools: [],
+            newsletter: false
+          })
+        })
+      } catch {
+        // intentionally swallow — we'd rather open checkout than block them
+      }
+    }
+    // saving stays true: the page is navigating away, and re-enabling the
+    // button would just invite double-checkouts.
+    window.location.href = `/api/checkout?type=team_${teamTerm}`
+  }, [saving, devMode, teamTerm])
+
+  // The escape hatch on the team stage: rejoin the solo path at privacy.
+  // steps recomputes to the solo list once the crossfade lands on it.
+  const continueSolo = useCallback(() => {
+    setMode('solo')
+    goTo('privacy')
+  }, [goTo])
+
   const skip = useCallback(() => {
     router.replace('/dashboard')
   }, [router])
 
   const stepNumber = useMemo(() => {
     if (stage === 'intro') return null
-    return STEPS.indexOf(stage) + 1
-  }, [stage])
+    return steps.indexOf(stage) + 1
+  }, [steps, stage])
 
   return (
     <div className="dossier-canvas min-h-screen bg-black text-zinc-100 relative overflow-hidden selection:bg-accent/20">
       <SpaceBackdrop />
 
-      {devMode && <DevBar stage={stage} onJump={setStage} />}
+      {devMode && <DevBar stages={['intro', ...steps]} stage={stage} onJump={setStage} />}
 
       <div className="relative z-10 min-h-screen flex flex-col">
         {stage !== 'intro' && (
           <TopBar
             stepNumber={stepNumber}
-            totalSteps={STEPS.length}
+            totalSteps={steps.length}
             onSkip={skip}
           />
         )}
@@ -286,6 +353,16 @@ export default function WelcomePage() {
             >
               {stage === 'mode' && (
                 <ModeStage value={mode} onChange={setMode} onNext={advance} />
+              )}
+              {stage === 'team' && (
+                <TeamStage
+                  term={teamTerm}
+                  onTermChange={setTeamTerm}
+                  saving={saving}
+                  onCheckout={() => void teamCheckout()}
+                  onContinueSolo={continueSolo}
+                  onBack={back}
+                />
               )}
               {stage === 'privacy' && (
                 <PrivacyStage onNext={advance} onBack={back} />
@@ -445,19 +522,20 @@ export default function WelcomePage() {
    DEV BAR — stage jumper, only shown with ?dev=1 for allowed accounts
    ============================================================ */
 
-const DEV_STAGES: Stage[] = ['intro', ...STEPS]
-
 function DevBar({
+  stages,
   stage,
   onJump
 }: {
+  /** The active path's stages — the jumper follows the chosen mode. */
+  stages: Stage[]
   stage: Stage
   onJump: (s: Stage) => void
 }) {
   return (
     <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/90 backdrop-blur px-2 py-1.5 font-mono">
       <span className="text-[9px] tracking-[0.3em] text-zinc-600 px-1">DEV</span>
-      {DEV_STAGES.map((s) => (
+      {stages.map((s) => (
         <button
           key={s}
           onClick={() => onJump(s)}
@@ -579,6 +657,7 @@ function ModeStage({
   return (
     <StageShell
       step={1}
+      stage="mode"
       title={
         <>
           how will you <em className="text-zinc-50">play</em>?
@@ -607,27 +686,14 @@ function ModeStage({
           index={1}
           large
         >
-          <div className="flex items-start justify-between">
-            <CardIcon icon={IconTeam} selected={value === 'team'} />
-            <span className="font-mono text-[9px] tracking-[0.25em] px-2 py-1 rounded-full border border-zinc-800 text-zinc-500">
-              EARLY
-            </span>
-          </div>
+          <CardIcon icon={IconTeam} selected={value === 'team'} />
           <div className="mt-4 text-base font-semibold text-zinc-100">Team</div>
           <p className="mt-1.5 text-[13px] leading-relaxed text-zinc-500">
-            Play as your company. Pool your crew&apos;s hours onto one board and
-            see who really ships.
+            Play as your company — the gold badge, the square avatar, and up
+            to 10 affiliated pilots wearing your mark on the board.
           </p>
         </ChoiceCard>
       </div>
-
-      {value === 'team' && (
-        <p className="note-enter mt-5 text-[13px] leading-relaxed text-zinc-500">
-          <span className="text-accent">*</span> Team spaces are just opening
-          up. You&apos;ll start with solo tracking today, and we&apos;ll ping
-          you the moment company boards go live.
-        </p>
-      )}
 
       <StageActions>
         <PrimaryButton onClick={onNext} disabled={!value}>
@@ -635,6 +701,138 @@ function ModeStage({
         </PrimaryButton>
       </StageActions>
     </StageShell>
+  )
+}
+
+/* ============================================================
+   STEP 2 (team path) — the company plan: pitch, term, checkout
+   ============================================================ */
+
+const TEAM_TERM_ORDER: BillingTerm[] = ['monthly', 'yearly']
+
+function TeamStage({
+  term,
+  onTermChange,
+  saving,
+  onCheckout,
+  onContinueSolo,
+  onBack
+}: {
+  term: BillingTerm
+  onTermChange: (t: BillingTerm) => void
+  saving: boolean
+  onCheckout: () => void
+  onContinueSolo: () => void
+  onBack: () => void
+}) {
+  return (
+    <StageShell
+      step={2}
+      stage="team"
+      title={
+        <>
+          fly your <em className="text-zinc-50">company&apos;s</em> colors.
+        </>
+      }
+      subtitle="One account becomes the team. It carries the mark, and your pilots carry it onto the board — everyone keeps their own solo profile."
+    >
+      <div className="mt-9 grid grid-cols-1 md:grid-cols-2 gap-3">
+        {/* the pitch — three lines, gold checks */}
+        <div
+          className="card-enter glass-lite rounded-2xl p-6"
+          style={{ ['--wd' as string]: '0ms' }}
+        >
+          <div className="flex items-center gap-2.5">
+            <span style={{ color: `rgb(${GOLD})` }}>
+              <IconTeam size={17} />
+            </span>
+            <span className="font-mono text-[10px] tracking-[0.3em] text-zinc-400">
+              WHAT THE PLAN UNLOCKS
+            </span>
+          </div>
+          <ul className="mt-5 space-y-3">
+            <TeamPerkItem text="The gold team badge on your callsign, every surface" />
+            <TeamPerkItem text="The square avatar — a company mark, not a face" />
+            <TeamPerkItem text="Up to 10 affiliated pilots wearing your mark on the board" />
+          </ul>
+        </div>
+
+        {/* the term — prices come from planTerms, never hardcoded here */}
+        <div className="flex flex-col gap-3">
+          {TEAM_TERM_ORDER.map((t, i) => {
+            const meta = TEAM_TERMS[t]
+            const selected = term === t
+            return (
+              <ChoiceCard
+                key={t}
+                selected={selected}
+                onClick={() => onTermChange(t)}
+                index={i + 1}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-mono text-[10px] tracking-[0.3em] uppercase text-zinc-400">
+                    {t}
+                  </span>
+                  {t === 'yearly' && (
+                    <span
+                      className={`font-mono text-[9px] tracking-[0.25em] px-2 py-1 rounded-full border ${
+                        selected ? 'mr-8' : ''
+                      }`}
+                      style={{
+                        color: `rgb(${GOLD})`,
+                        borderColor: `rgb(${GOLD} / 0.4)`,
+                        background: `rgb(${GOLD} / 0.07)`
+                      }}
+                    >
+                      2 MONTHS FREE
+                    </span>
+                  )}
+                </div>
+                <div className="mt-3 flex items-baseline gap-2">
+                  <span className="text-2xl font-semibold text-zinc-50">
+                    {meta.price}
+                  </span>
+                  <span className="font-mono text-[10px] tracking-[0.25em] text-zinc-500">
+                    {meta.unit}
+                  </span>
+                </div>
+                <div className="mt-1.5 font-mono text-[9px] tracking-[0.2em] text-zinc-500">
+                  {meta.context}
+                </div>
+                <p className="sr-only">{meta.announce}</p>
+              </ChoiceCard>
+            )
+          })}
+        </div>
+      </div>
+
+      <p className="mt-6 text-[13px] leading-relaxed text-zinc-500">
+        <span style={{ color: `rgb(${GOLD})` }}>*</span> Payment is followed
+        by hand identity verification — the badge unlocks on approval,
+        within 24 hours.
+      </p>
+
+      <StageActions>
+        <GhostButton onClick={onBack}>Back</GhostButton>
+        <GhostButton onClick={onContinueSolo} noIcon>
+          Continue solo instead
+        </GhostButton>
+        <PrimaryButton onClick={onCheckout} disabled={saving}>
+          {saving ? 'Opening checkout…' : 'Field your team'}
+        </PrimaryButton>
+      </StageActions>
+    </StageShell>
+  )
+}
+
+function TeamPerkItem({ text }: { text: string }) {
+  return (
+    <li className="flex items-start gap-3 text-[13px] leading-snug text-zinc-300">
+      <span className="mt-[2px] shrink-0" style={{ color: `rgb(${GOLD})` }}>
+        <IconCheck size={14} />
+      </span>
+      <span>{text}</span>
+    </li>
   )
 }
 
@@ -652,6 +850,7 @@ function PrivacyStage({
   return (
     <StageShell
       step={2}
+      stage="privacy"
       title={
         <>
           we count <em className="text-zinc-50">showing up</em>, not what you
@@ -735,6 +934,7 @@ function RoleStage({
   return (
     <StageShell
       step={3}
+      stage="role"
       title={
         <>
           what do you <em className="text-zinc-50">do</em>?
@@ -787,6 +987,7 @@ function GoalStage({
   return (
     <StageShell
       step={4}
+      stage="goal"
       title={
         <>
           what&apos;s the <em className="text-zinc-50">mission</em>?
@@ -850,6 +1051,7 @@ function ToolsStage({
   return (
     <StageShell
       step={5}
+      stage="tools"
       title={
         <>
           pick your <em className="text-zinc-50">daily drivers</em>.
@@ -899,7 +1101,8 @@ function ExtensionStage({ onDone }: { onDone: () => void }) {
 
   return (
     <StageShell
-      step={STEPS.length}
+      step={SOLO_STEPS.length}
+      stage="extension"
       title={
         <>
           one last thing — the <em className="text-zinc-50">tracker</em>{' '}
@@ -979,16 +1182,20 @@ function ExtensionStage({ onDone }: { onDone: () => void }) {
 
 function StageShell({
   step,
+  stage,
   title,
   subtitle,
   children
 }: {
+  /** Position in the active path (mode is 1 on both; the paths never
+   *  renumber a shared stage, so each stage knows its own slot). */
   step: number
+  stage: Exclude<Stage, 'intro'>
   title: React.ReactNode
   subtitle: string
   children: React.ReactNode
 }) {
-  const meta = STEP_META[STEPS[step - 1] as Exclude<Stage, 'intro'>]
+  const meta = STEP_META[stage]
   return (
     <section className="w-full max-w-3xl">
       <div className="font-mono text-[10px] tracking-[0.35em] text-zinc-500 uppercase">
@@ -1009,7 +1216,9 @@ function StageShell({
 
 function StageActions({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mt-10 flex items-center justify-end gap-3">{children}</div>
+    <div className="mt-10 flex flex-wrap items-center justify-end gap-3">
+      {children}
+    </div>
   )
 }
 

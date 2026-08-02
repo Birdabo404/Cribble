@@ -1,13 +1,16 @@
 // Provisions the Polar organization for the Cribble shop, end to end:
 //
-//   - Pro subscription products  (monthly $6.99, yearly $49.99)
+//   - Pro subscription products   (monthly $6.99, yearly $49.99)
+//   - Team subscription products  (monthly $50, yearly $500)
 //   - one one-time product per purchasable plate, with `plate_id` metadata
 //     (the webhook grants ownership from it)
 //   - the 25% "Pro Plate Perk" discount restricted to the plate products
-//   - the webhook endpoint pointing at /api/webhooks/polar (raw format)
+//   - the webhook endpoint pointing at /api/webhooks/polar (raw format —
+//     team products reuse the same subscription events, nothing extra)
 //
-// Idempotent: existing objects are matched by metadata (pro_key / plate_id /
-// cribble_key, name as fallback) and reused; only missing pieces are created.
+// Idempotent: existing objects are matched by metadata (pro_key / team_key /
+// plate_id / cribble_key, name as fallback) and reused; only missing pieces
+// are created.
 // Prices are compared against the catalog and drift is reported, never
 // auto-changed — repricing live products is a deliberate dashboard act.
 //
@@ -65,11 +68,15 @@ function readFlagValue(name: string): string | null {
 
 // ---------------------------------------------------------------------------
 // Desired state, derived from the same sources the app reads at runtime:
-// subscription prices mirror the /shop copy, plate prices come straight from
-// the catalog. Cents everywhere — Polar amounts are integer cents.
+// subscription prices mirror the /shop and /teams copy, plate prices come
+// straight from the catalog. Cents everywhere — Polar amounts are integer
+// cents.
 
 interface DesiredSubscription {
-  proKey: 'pro_monthly' | 'pro_yearly'
+  key: 'pro_monthly' | 'pro_yearly' | 'team_monthly' | 'team_yearly'
+  /** Metadata key the product is tagged and matched by (pro_key / team_key)
+   *  — the same key the webhook and sync use to classify fulfillment. */
+  metaKey: 'pro_key' | 'team_key'
   envKey: string
   name: string
   description: string
@@ -79,7 +86,8 @@ interface DesiredSubscription {
 
 const PRO_SUBSCRIPTIONS: DesiredSubscription[] = [
   {
-    proKey: 'pro_monthly',
+    key: 'pro_monthly',
+    metaKey: 'pro_key',
     envKey: 'POLAR_PRODUCT_PRO_MONTHLY',
     name: 'Cribble Pro',
     description: 'Cribble Pro membership, billed monthly. Animated banners, the Pro plate collection and 25% off all plates.',
@@ -87,11 +95,33 @@ const PRO_SUBSCRIPTIONS: DesiredSubscription[] = [
     interval: 'month'
   },
   {
-    proKey: 'pro_yearly',
+    key: 'pro_yearly',
+    metaKey: 'pro_key',
     envKey: 'POLAR_PRODUCT_PRO_YEARLY',
     name: 'Cribble Pro (Yearly)',
     description: 'Cribble Pro membership, billed yearly — over 40% off versus monthly.',
     priceCents: 4999,
+    interval: 'year'
+  }
+]
+
+const TEAM_SUBSCRIPTIONS: DesiredSubscription[] = [
+  {
+    key: 'team_monthly',
+    metaKey: 'team_key',
+    envKey: 'POLAR_PRODUCT_TEAM_MONTHLY',
+    name: 'Cribble Team',
+    description: 'Cribble Team company account, billed monthly. The gold badge, the square avatar and up to 10 affiliated pilots — every team verified by hand.',
+    priceCents: 5000,
+    interval: 'month'
+  },
+  {
+    key: 'team_yearly',
+    metaKey: 'team_key',
+    envKey: 'POLAR_PRODUCT_TEAM_YEARLY',
+    name: 'Cribble Team (Yearly)',
+    description: 'Cribble Team company account, billed yearly — two months free versus monthly.',
+    priceCents: 50000,
     interval: 'year'
   }
 ]
@@ -247,14 +277,14 @@ async function main() {
   const products = await listAllProducts(polar)
   const envEntries: Array<[string, string]> = []
 
-  // --- Pro subscriptions ---------------------------------------------------
-  for (const sub of PRO_SUBSCRIPTIONS) {
-    let product = matchProduct(products, true, 'pro_key', sub.proKey, sub.name)
+  // --- Subscriptions (Pro + Team) -------------------------------------------
+  for (const sub of [...PRO_SUBSCRIPTIONS, ...TEAM_SUBSCRIPTIONS]) {
+    let product = matchProduct(products, true, sub.metaKey, sub.key, sub.name)
     if (!product && !check) {
       product = await polar.products.create({
         name: sub.name,
         description: sub.description,
-        metadata: { pro_key: sub.proKey },
+        metadata: { [sub.metaKey]: sub.key },
         recurringInterval: sub.interval,
         prices: [{ amountType: 'fixed', priceAmount: sub.priceCents }]
       })

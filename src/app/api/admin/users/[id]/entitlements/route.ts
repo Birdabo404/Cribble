@@ -18,6 +18,11 @@ import { createServiceClient } from '@/lib/supabaseServer'
 // grants land in user_cosmetics as acquired_via='admin_grant' with no
 // order id, so they are distinguishable from purchases forever.
 //
+// TEAM-tier targets are refused for the Pro actions: the team lifecycle
+// belongs to the review queue (/api/admin/teams/[id]/review) and the
+// Polar webhook, and a Pro grant/revoke here would silently desync
+// subscription_tier from team_review_status.
+//
 // The no-self-target guardrail applies here too: the owner cannot grant
 // their own account Pro or plates through the panel.
 
@@ -123,6 +128,18 @@ export async function POST(
 
     const currentTier = (target.subscription_tier || 'FREE').toUpperCase()
     const actorId = staff.staff.userId
+
+    // Pro actions must not touch a paying team: grant_pro would
+    // overwrite TEAM→PRO while team_review_status stays behind, and
+    // revoke_pro would FREE the row out from under the review state
+    // machine. The team tier is only ever reverted by the review
+    // queue's reject or the Polar webhook.
+    if (currentTier === 'TEAM' && (action === 'grant_pro' || action === 'revoke_pro')) {
+      return NextResponse.json(
+        { error: 'This account is on the Team plan — manage it from the team review queue' },
+        { status: 400 }
+      )
+    }
 
     switch (action) {
       case 'grant_pro':

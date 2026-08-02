@@ -3,6 +3,7 @@
 // builder so the page can never drift from what the API assembles.
 
 import type { PublicProfile } from '@/lib/publicProfile'
+import type { TeamAffiliatesList } from '@/lib/teamAffiliates'
 
 export interface ViewerFollowContext {
   isYou: boolean
@@ -23,6 +24,9 @@ export interface PublicProfileData extends PublicProfile {
   viewer: ViewerFollowContext | null
   /** "Followed by @a and @b" proof; null when empty or signed out. */
   followedBy: MutualFollowProof | null
+  /** ACTIVE roster (capped) — only present for approved Team accounts,
+   *  null for everyone else. */
+  affiliates: TeamAffiliatesList | null
 }
 
 /** One row of GET /api/profile/[username]/follows. */
