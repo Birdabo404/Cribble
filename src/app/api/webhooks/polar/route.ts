@@ -56,6 +56,36 @@ function resolveUserId(externalId: string | null | undefined): number | null {
   return Number.isSafeInteger(id) && id > 0 ? id : null
 }
 
+/** The recipient of a grant/revoke, resolved from an order or
+ *  subscription payload. Checkout metadata `userId` wins: /api/checkout
+ *  stamps it server-side from the authenticated session, so it is the
+ *  buyer's identity. `customer.external_id` is only a fallback for
+ *  dashboard-created objects — Polar reconciles same-email buyers (and
+ *  live checkout sessions) onto an EXISTING customer record, so the
+ *  order's customer can carry a different user's external id than the
+ *  account that actually clicked buy. Granting by external id alone
+ *  delivered a purchase to the wrong account (order 01b96e56: metadata
+ *  userId 13, customer external_id 19). */
+function resolveRecipientUserId(data: {
+  metadata?: Record<string, string | number | boolean> | null
+  customer?: { externalId?: string | null } | null
+}): number | null {
+  const raw = data.metadata?.['userId']
+  const fromMetadata =
+    typeof raw === 'number' ? raw : typeof raw === 'string' ? parseInt(raw, 10) : NaN
+  const fromExternalId = resolveUserId(data.customer?.externalId)
+
+  if (Number.isSafeInteger(fromMetadata) && fromMetadata > 0) {
+    if (fromExternalId !== null && fromExternalId !== fromMetadata) {
+      console.warn(
+        `[PolarWebhook] Recipient mismatch: checkout metadata userId=${fromMetadata}, customer external_id=${fromExternalId} — trusting checkout metadata`
+      )
+    }
+    return fromMetadata
+  }
+  return fromExternalId
+}
+
 /** Plate id for an order: Polar product metadata `plate_id` (dashboard
  *  convention), checkout metadata `plateId` (set by /api/checkout), or
  *  its snake_case variant (hand-created orders). Null for plain
@@ -79,9 +109,9 @@ function readPlateId(order: Order): string | null {
  *  open the manual review gate; every other subscription is a Pro
  *  product — that grant is identical for every Pro interval. */
 async function activateSubscription(subscription: Subscription) {
-  const userId = resolveUserId(subscription.customer?.externalId)
+  const userId = resolveRecipientUserId(subscription)
   if (!userId) {
-    console.warn('[PolarWebhook] Subscription event without usable externalId — skipping')
+    console.warn('[PolarWebhook] Subscription event without usable recipient — skipping')
     return
   }
 
@@ -108,9 +138,9 @@ async function activateSubscription(subscription: Subscription) {
  *  (one-time purchases outlive the sub); pro-exclusive equips self-heal
  *  at read time via resolveEquippedPlate. */
 async function revokeSubscription(subscription: Subscription) {
-  const userId = resolveUserId(subscription.customer?.externalId)
+  const userId = resolveRecipientUserId(subscription)
   if (!userId) {
-    console.warn('[PolarWebhook] Subscription event without usable externalId — skipping')
+    console.warn('[PolarWebhook] Subscription event without usable recipient — skipping')
     return
   }
 
@@ -134,9 +164,9 @@ async function grantPlateFromOrder(order: Order) {
   const plateId = readPlateId(order)
   if (!plateId) return // subscription-cycle order, no cosmetic attached
 
-  const userId = resolveUserId(order.customer?.externalId)
+  const userId = resolveRecipientUserId(order)
   if (!userId) {
-    console.warn('[PolarWebhook] order.paid without usable externalId — skipping')
+    console.warn('[PolarWebhook] order.paid without usable recipient — skipping')
     return
   }
 

@@ -109,7 +109,8 @@ function subscriptionEvent(
   type: string,
   externalId: string | null,
   productId = 'prod_monthly',
-  product?: { metadata?: Record<string, unknown> }
+  product?: { metadata?: Record<string, unknown> },
+  metadata?: Record<string, string | number | boolean>
 ) {
   return {
     type,
@@ -117,7 +118,28 @@ function subscriptionEvent(
       id: 'sub_1',
       productId,
       customer: { externalId },
-      ...(product ? { product } : {})
+      ...(product ? { product } : {}),
+      ...(metadata ? { metadata } : {})
+    }
+  }
+}
+
+function orderPaidEvent({
+  externalId,
+  metadata,
+  productMetadata
+}: {
+  externalId: string | null
+  metadata?: Record<string, string | number | boolean>
+  productMetadata?: Record<string, unknown>
+}) {
+  return {
+    type: 'order.paid',
+    data: {
+      id: 'order_1',
+      customer: { externalId },
+      metadata: metadata ?? {},
+      ...(productMetadata ? { product: { metadata: productMetadata } } : {})
     }
   }
 }
@@ -250,5 +272,114 @@ describe('POST /api/webhooks/polar — subscription tier take-backs', () => {
       ['id', 9],
       ['subscription_tier', 'TEAM']
     ])
+  })
+
+  it('active grants to the checkout metadata userId when it diverges from the customer external id', async () => {
+    // Polar reconciles same-email buyers onto an existing customer, so the
+    // subscription's customer can carry another account's external id.
+    const event = subscriptionEvent('subscription.active', '19', 'prod_monthly', undefined, {
+      userId: 13
+    })
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    expect(grantProEntitlementMock).toHaveBeenCalledWith(expect.anything(), 13, {
+      productId: 'prod_monthly',
+      sourceId: 'sub_1'
+    })
+    expect(warnSpy).toHaveBeenCalled()
+  })
+
+  it('revoked without an external id still resolves the user from checkout metadata', async () => {
+    // Seen in production: subscription.revoked arrived with customer
+    // external_id null — resolving by external id alone skipped the
+    // downgrade entirely.
+    const event = subscriptionEvent('subscription.revoked', null, 'prod_monthly', undefined, {
+      userId: 13
+    })
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    expect(usersUpdateMock).toHaveBeenCalledWith({ subscription_tier: 'FREE' })
+    expect(usersUpdateEqMock.mock.calls).toEqual([
+      ['id', 13],
+      ['subscription_tier', 'PRO']
+    ])
+  })
+})
+
+describe('POST /api/webhooks/polar — order.paid plate fulfillment recipient', () => {
+  let warnSpy: MockInstance
+
+  beforeEach(() => {
+    validateEventMock.mockReset()
+    grantProEntitlementMock.mockReset()
+    grantTeamEntitlementMock.mockReset()
+    grantPlatePurchaseMock.mockReset()
+    grantPlatePurchaseMock.mockResolvedValue(undefined)
+    paymentEventsInsertMock.mockReset()
+    paymentEventsInsertMock.mockResolvedValue({ error: null })
+    usersUpdateMock.mockReset()
+    usersUpdateEqMock.mockReset()
+    teamProductIds.clear()
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    warnSpy.mockRestore()
+  })
+
+  it('grants to the checkout metadata userId when it diverges from the customer external id', async () => {
+    // The exact production incident: buyer (userId 13) checked out while
+    // the Polar checkout session belonged to a same-email customer whose
+    // external id is 19 — the plate must go to 13.
+    const event = orderPaidEvent({
+      externalId: '19',
+      metadata: { userId: 13, plateId: 'season-01-ignition' }
+    })
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    expect(grantPlatePurchaseMock).toHaveBeenCalledWith(expect.anything(), 13, {
+      plateId: 'season-01-ignition',
+      orderId: 'order_1'
+    })
+    expect(warnSpy).toHaveBeenCalled()
+  })
+
+  it('falls back to the customer external id for dashboard-created orders without checkout metadata', async () => {
+    const event = orderPaidEvent({
+      externalId: '9',
+      productMetadata: { plate_id: 'koi-pond' }
+    })
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    expect(grantPlatePurchaseMock).toHaveBeenCalledWith(expect.anything(), 9, {
+      plateId: 'koi-pond',
+      orderId: 'order_1'
+    })
+  })
+
+  it('acks without granting when neither metadata userId nor external id is usable', async () => {
+    const event = orderPaidEvent({
+      externalId: null,
+      metadata: { plateId: 'koi-pond' }
+    })
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    expect(grantPlatePurchaseMock).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalled()
   })
 })
