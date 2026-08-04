@@ -53,7 +53,10 @@ export interface PlatePreviewProps {
 }
 
 /** In mask space black = visible: art at full strength on the right, gone at
- * the left edge where the avatar + name live. */
+ * the left edge where the avatar + name live. Applied as the fallback of
+ * var(--plate-mask, …), so a parent scope can re-shape the art fade per
+ * theme (the leaderboard's light-mode bleed rows do); everywhere else
+ * — shop tiles, podium, dark mode — the var is unset and this default wins. */
 const LEFT_FADE_MASK =
   'linear-gradient(90deg, transparent 0%, rgb(0 0 0 / 0.14) 22%, rgb(0 0 0 / 0.55) 50%, rgb(0 0 0 / 0.92) 74%, rgb(0 0 0) 100%)'
 
@@ -69,7 +72,10 @@ export function PlateLayer({ plateId, fade = 'left', className = '' }: PlateLaye
 
   const mask =
     fade === 'left'
-      ? { WebkitMaskImage: LEFT_FADE_MASK, maskImage: LEFT_FADE_MASK }
+      ? {
+          WebkitMaskImage: `var(--plate-mask, ${LEFT_FADE_MASK})`,
+          maskImage: `var(--plate-mask, ${LEFT_FADE_MASK})`
+        }
       : undefined
 
   return (

@@ -656,17 +656,22 @@ export default function LeaderboardArena() {
           }
         }
 
-        /* Plated rows are physical nameplates. The art is a fixed dark
-           product (authored against the dark arena panel), so in light mode
-           the plated slab keeps the dark arena palette: it paints its own
-           dark surface and every palette var used by the row's cells (zinc
-           text scale, medal hues, movement colors, hairlines — and the neon
-           glow multiplier, so score/medal glows re-light on the dark slab)
-           is re-declared to the dark-theme value. The plate reads
-           identically in both themes — vivid art, light text — instead of
-           washing out against the white panel; what changes per theme is
-           the mounting (.lb4-slab below). */
-        html.light .lb4-plated {
+        /* Plated rows are physical nameplates, and the art is a fixed dark
+           product (authored against the dark arena panel). In light mode a
+           plated row is a RUNWAY DISSOLVE: a single long two-hue ramp —
+           white, a pastel blush of the plate's accent (--pa), a descent
+           through its deep scene hue (--pb) with the art fading in through
+           it — with the steep segment landed in text-free gutters. Only
+           the cells over the finished descent — 24H / SCORE / STATUS,
+           tagged .lb4-dk — re-declare their palette vars to the dark-theme
+           values (zinc text scale, medal hues, movement colors, hairlines —
+           and the neon glow multiplier, so the score glow re-lights over
+           the art). The TOP TOOL cell is deliberately untagged: it renders
+           ink on the blush like a non-plated row, which is what gives the
+           ramp its runway. Dark mode is untouched: the bleed layer stays
+           hidden, the opaque base stays full-bleed, and PlateLayer keeps
+           its default left fade. */
+        html.light .lb4-plated .lb4-dk {
           --z50: 250 250 250;
           --z100: 244 244 245;
           --z200: 228 228 231;
@@ -690,29 +695,176 @@ export default function LeaderboardArena() {
           --lb-glow: 1;
         }
 
-        /* The showcase slab. Dark (default): full-bleed — the nameplate IS
-           the row, exactly as before the wrapper existed. Light: an
-           edge-to-edge dark strip on the white panel reads as a bug, so
-           the slab becomes an inset, rounded mount floating on the table,
-           ringed and shadow-tinted by the plate's own accent (--pa, set
-           per row from the catalog) — deliberate per-plate jewelry. */
+        /* Runway geometry. The identity zone is PURE WHITE — no art, no
+           tint — until past the pilot cell (the grey wash that used to sit
+           under names was dark art at 8–30% alpha over white). From there
+           ONE eased dissolve runs to the score column, built as a matched
+           pair: ground (.lb4-bleed) and art (--plate-mask) ride the same
+           slow–fast–slow alpha ladder (~0.08 alpha/rem peak on desktop,
+           soft shoulders on both ends — plateaus and slope steps are what
+           read as a "band"), with the art trailing the ground by ~1.5rem
+           (0.65rem mobile) so it always fades in over its own scene hue
+           (--pb is the color the art approaches at its left edge), never
+           over white — mid-fade stays chromatic instead of washing out to
+           grey. The ramp opens as a whisper-alpha blush of the plate's
+           ACCENT (--pa, cap 0.05 — a warm pass-through, not a visible
+           band) and hands off to --pb while total alpha is ≤ ~0.08: any
+           momentary sRGB desaturation between the two hues renders at
+           L≥240 over white — invisible. Zones:
+             white (avatar, name, @user — clean panel white)
+             → blush→tint (tool cell, ink text on ≤ ~0.28 scene tint)
+             → descent (text-free gutters: tool cell's empty right end +
+               the right-aligned 24H cell's empty left end)
+             → full scene (score/status, .lb4-dk dark palette; ground
+               ≥ 0.9 by the score column, opaque under the score text,
+               art full ~1.5rem after the ground).
+           Anchors: desktop right block = 31rem columns + 3 gaps + 1.25rem
+           pad ⇒ tool cell starts at 100% − 34.5rem (its text ends near
+           −28rem), score column at 100% − 19.25rem, score text from
+           ≈ −16rem. Every stop sits inside ~42rem and positions stay
+           monotonic, so a ~45rem row (768px viewport) keeps the whole
+           ladder on-canvas — nothing clamps to 0 and murks the name the
+           way the old 70rem-start mask did at tablet widths.
+           Mobile: pilot truncates at 100% − 9.25rem (1rem pad + 7.5rem
+           score cell + 0.75rem gap) and has no gutter — the ramp is still
+           ≤ ~0.17 at the truncation anchor and the score rides a
+           scene-hued halo (--lb-halo) instead of a solid ground. */
+        .lb4-bleed {
+          display: none;
+        }
+        html.light .lb4-plated .lb4-base {
+          display: none;
+        }
+        html.light .lb4-plated .lb4-bleed {
+          display: block;
+          background: linear-gradient(
+            90deg,
+            rgb(var(--pa, 124 118 140) / 0) calc(100% - 13rem),
+            rgb(var(--pa, 124 118 140) / 0.04) calc(100% - 11.75rem),
+            rgb(var(--pa, 124 118 140) / 0.05) calc(100% - 10.9rem),
+            rgb(var(--pb, 24 24 27) / 0.09) calc(100% - 10.15rem),
+            rgb(var(--pb, 24 24 27) / 0.16) calc(100% - 9.4rem),
+            rgb(var(--pb, 24 24 27) / 0.26) calc(100% - 8.7rem),
+            rgb(var(--pb, 24 24 27) / 0.38) calc(100% - 8.05rem),
+            rgb(var(--pb, 24 24 27) / 0.51) calc(100% - 7.45rem),
+            rgb(var(--pb, 24 24 27) / 0.64) calc(100% - 6.85rem),
+            rgb(var(--pb, 24 24 27) / 0.76) calc(100% - 6.3rem),
+            rgb(var(--pb, 24 24 27) / 0.87) calc(100% - 5.75rem),
+            rgb(var(--pb, 24 24 27) / 0.95) calc(100% - 5.2rem),
+            rgb(var(--pb, 24 24 27)) calc(100% - 4.5rem)
+          );
+        }
+        html.light .lb4-plated {
+          --plate-mask: linear-gradient(
+            90deg,
+            transparent calc(100% - 12.35rem),
+            rgb(0 0 0 / 0.04) calc(100% - 11.1rem),
+            rgb(0 0 0 / 0.05) calc(100% - 10.25rem),
+            rgb(0 0 0 / 0.09) calc(100% - 9.5rem),
+            rgb(0 0 0 / 0.16) calc(100% - 8.75rem),
+            rgb(0 0 0 / 0.26) calc(100% - 8.05rem),
+            rgb(0 0 0 / 0.38) calc(100% - 7.4rem),
+            rgb(0 0 0 / 0.51) calc(100% - 6.8rem),
+            rgb(0 0 0 / 0.64) calc(100% - 6.2rem),
+            rgb(0 0 0 / 0.76) calc(100% - 5.65rem),
+            rgb(0 0 0 / 0.87) calc(100% - 5.1rem),
+            rgb(0 0 0 / 0.95) calc(100% - 4.55rem),
+            rgb(0 0 0) calc(100% - 3.85rem)
+          );
+        }
+        @media (min-width: 768px) {
+          html.light .lb4-plated .lb4-bleed {
+            background: linear-gradient(
+              90deg,
+              rgb(var(--pa, 124 118 140) / 0) calc(100% - 42rem),
+              rgb(var(--pa, 124 118 140) / 0.04) calc(100% - 38rem),
+              rgb(var(--pa, 124 118 140) / 0.05) calc(100% - 35.5rem),
+              rgb(var(--pb, 24 24 27) / 0.08) calc(100% - 33.5rem),
+              rgb(var(--pb, 24 24 27) / 0.13) calc(100% - 31rem),
+              rgb(var(--pb, 24 24 27) / 0.2) calc(100% - 29rem),
+              rgb(var(--pb, 24 24 27) / 0.28) calc(100% - 27.5rem),
+              rgb(var(--pb, 24 24 27) / 0.39) calc(100% - 26rem),
+              rgb(var(--pb, 24 24 27) / 0.51) calc(100% - 24.5rem),
+              rgb(var(--pb, 24 24 27) / 0.63) calc(100% - 23rem),
+              rgb(var(--pb, 24 24 27) / 0.75) calc(100% - 21.5rem),
+              rgb(var(--pb, 24 24 27) / 0.84) calc(100% - 20.25rem),
+              rgb(var(--pb, 24 24 27) / 0.91) calc(100% - 19.25rem),
+              rgb(var(--pb, 24 24 27) / 0.96) calc(100% - 18.25rem),
+              rgb(var(--pb, 24 24 27) / 0.99) calc(100% - 17.25rem),
+              rgb(var(--pb, 24 24 27)) calc(100% - 16.25rem)
+            );
+          }
+          html.light .lb4-plated {
+            --plate-mask: linear-gradient(
+              90deg,
+              transparent calc(100% - 40.5rem),
+              rgb(0 0 0 / 0.04) calc(100% - 36.5rem),
+              rgb(0 0 0 / 0.05) calc(100% - 34rem),
+              rgb(0 0 0 / 0.08) calc(100% - 32rem),
+              rgb(0 0 0 / 0.13) calc(100% - 29.5rem),
+              rgb(0 0 0 / 0.2) calc(100% - 27.5rem),
+              rgb(0 0 0 / 0.28) calc(100% - 26rem),
+              rgb(0 0 0 / 0.39) calc(100% - 24.5rem),
+              rgb(0 0 0 / 0.51) calc(100% - 23rem),
+              rgb(0 0 0 / 0.63) calc(100% - 21.5rem),
+              rgb(0 0 0 / 0.75) calc(100% - 20rem),
+              rgb(0 0 0 / 0.84) calc(100% - 18.75rem),
+              rgb(0 0 0 / 0.91) calc(100% - 17.75rem),
+              rgb(0 0 0 / 0.96) calc(100% - 16.75rem),
+              rgb(0 0 0 / 0.99) calc(100% - 15.75rem),
+              rgb(0 0 0) calc(100% - 14.75rem)
+            );
+          }
+        }
+
+        /* Stragglers over the art: the 24H delta lands where the descent is
+           still finishing (ground alpha ~0.63–0.91) and the status column
+           sits on the art's full-strength right edge — both get a halo in
+           the scene's own hue (reads as ambience, not smudge). The score
+           gets the same treatment via the --lb-halo gate on its inline
+           text-shadow at EVERY width: mobile because it has no gutter, and
+           desktop because the art now rests near full strength under the
+           score — bright scene features (cherry's moon) would otherwise
+           sit right behind the neon digits. The tool % and @username
+           captions keep their dim-caption role but need real ink on the
+           blush/tint — zinc-600 was tuned for white. */
+        html.light .lb4-plated .lb4-delta {
+          text-shadow:
+            0 1px 2px rgb(var(--pb, 9 10 13) / 0.95),
+            0 0 10px rgb(var(--pb, 9 10 13) / 0.8);
+        }
+        html.light .lb4-plated .lb4-pct {
+          color: rgb(var(--z300) / 0.8);
+        }
+        html.light .lb4-plated .lb4-cap {
+          color: rgb(var(--z300) / 0.8);
+        }
+        html.light .lb4-plated {
+          --lb-halo: 1;
+        }
+
+        /* Light rest for the art: 0.55 dimming was tuned for a fully dark
+           board, and even 0.75 read as a grey veil that only lifted on
+           hover. 0.85 keeps the scene saturated at rest — capped there
+           (not 1) because the row's right edge must stay inside the dark
+           row's own slope budget: dark shows art features at effective
+           0.55 alpha, and past ~0.87 the same features in light exceed
+           the bleed-verify slope probe's 1.6× ratio. Hover/focus still
+           blooms to full — these outrank the utility classes on the
+           wrapper, so restate the bloom for light. */
+        html.light .lb4-plated .lb4-art {
+          opacity: 0.85;
+        }
+        html.light .lb4-plated:hover .lb4-art,
+        html.light .lb4-plated:focus-within .lb4-art {
+          opacity: 1;
+        }
+
+        /* The showcase slab: full-bleed in both themes — the one wrapper
+           that groups base/bleed/art/YOU/flash under a shared geometry +
+           clip. */
         .lb4-slab {
           inset: 0;
-        }
-        html.light .lb4-plated .lb4-slab {
-          inset: 4px 6px;
-          border-radius: 12px;
-          border: 1px solid rgb(var(--pa, 161 161 170) / 0.4);
-          box-shadow:
-            0 6px 18px -6px rgb(var(--pa, 161 161 170) / 0.3),
-            0 12px 28px -18px rgb(9 9 11 / 0.45);
-          transition: box-shadow 300ms ease;
-        }
-        html.light .lb4-plated:hover .lb4-slab,
-        html.light .lb4-plated:focus-within .lb4-slab {
-          box-shadow:
-            0 8px 22px -6px rgb(var(--pa, 161 161 170) / 0.42),
-            0 14px 32px -18px rgb(9 9 11 / 0.55);
         }
 
         /* CPU guards — freeze every infinite animation when it can't be
@@ -1040,12 +1192,16 @@ function Row({
   const topTool = user.topTools?.[0]
   const pct = topScore > 0 ? Math.max(2, Math.round((user.score / topScore) * 100)) : 0
   const plated = Boolean(user.plate)
-  // Per-plate accent for the light-mode slab jewelry (ring + shadow tint).
-  // image-kind renders carry no accent in the catalog and unknown/retired
-  // ids resolve to null — both fall back to a neutral zinc triplet.
+  // Per-plate hues driving the light-mode runway dissolve: --pa (signature
+  // accent) opens the ramp as a pastel blush, --pb (deep scene hue) carries
+  // the descent into the art. image-kind renders carry neither in the
+  // catalog and unknown/retired ids resolve to null — both fall back to
+  // neutrals so the gradient stays valid.
   const plateDef = user.plate ? getPlate(user.plate) : null
+  const plateBleed =
+    plateDef?.render.kind === 'css' ? plateDef.render.bleed : '24 24 27'
   const plateAccent =
-    plateDef?.render.kind === 'css' ? plateDef.render.accent : '161 161 170'
+    plateDef?.render.kind === 'css' ? plateDef.render.accent : '124 118 140'
 
   return (
     <li
@@ -1055,6 +1211,7 @@ function Row({
       } ${flash ? 'lb4-row-flash' : ''}`}
       style={{
         ['--rd' as string]: `${Math.min(index, 12) * 34}ms`,
+        ['--pb' as string]: plated ? plateBleed : undefined,
         ['--pa' as string]: plated ? plateAccent : undefined,
         background: isYou && !plated ? 'rgb(var(--accent-rgb) / 0.045)' : undefined,
         boxShadow: isYou && !plated ? 'inset 2px 0 0 rgb(var(--accent-rgb))' : undefined
@@ -1062,8 +1219,8 @@ function Row({
     >
       {/* Row geometry: py-4 padding + h-9 avatar ⇒ ~68px rows. The plate
           art scenes are tuned against this height — keep the two in sync.
-          (Light mode's showcase slab shaves 4px top+bottom off the art
-          viewport; scenes are bottom/right-anchored and tolerate it.) */}
+          (The slab is full-bleed in both themes; light mode crops the art
+          horizontally via masks, never vertically.) */}
       <button
         type="button"
         onClick={() => onSelect(user)}
@@ -1076,43 +1233,54 @@ function Row({
       >
         {user.plate && (
           /* Showcase slab — the one wrapper that owns the plated
-             presentation, so every layer below (dark base, art, YOU
-             jewelry, flash) shares its geometry and clip. Dark mode pins
-             it full-bleed (.lb4-slab: inset 0 — pixel-identical to the
-             old edge-to-edge layers); in light mode it insets, rounds and
-             rings itself with the plate's own accent (--pa on the <li>)
-             so the fixed dark art reads as a mounted collectible on the
-             white table, not a leaked dark-mode strip. */
+             presentation, so every layer below (base/bleed, art, YOU
+             jewelry, flash) shares its geometry and clip. Full-bleed in
+             both themes (.lb4-slab: inset 0). Dark mode: the nameplate IS
+             the row, edge to edge, over the opaque dark base. Light mode:
+             the runway dissolve — the neutral base hides, the identity
+             zone stays pure panel white, and the .lb4-bleed gradient
+             carries one eased descent through an accent blush (--pa) into
+             the deep scene hue (--pb) while the art emerges through the
+             same interval; no neutral gray, no hard seam, no flat band. */
           <div aria-hidden className="lb4-slab absolute overflow-hidden">
             {/* Nameplate surface — plate art is authored against the dark
-                arena panel, so it always paints over an opaque dark base
-                (same treatment as the shop preview). Without it, light
-                mode bled the white panel through the art's rest opacity +
-                left fade and washed the whole product gray. Overlaid text
-                stays readable because .lb4-plated re-declares the row's
-                palette vars to their dark-theme values in light mode. */}
-            <div
-              className="absolute inset-0"
-              style={{ background: 'rgb(var(--lb-panel-bg))' }}
-            />
+                arena panel, so in dark mode it always paints over an opaque
+                dark base (same treatment as the shop preview). Light mode
+                hides it (.lb4-base): a neutral black under-layer is exactly
+                what made the old transition read as gray smog — the bleed
+                layer below is the light-mode ground instead. */}
+            <div className="lb4-base absolute inset-0" style={{ background: 'rgb(9 10 13)' }} />
+            {/* Runway ramp — light mode only. One gradient, two hues: the
+                accent blush opens at low alpha (ink text stays readable on
+                the pastel), hands off to the deep scene hue while still
+                translucent, and reaches full depth only at the score
+                column — the art's mask rises through the same interval so
+                the descent always shows scene texture. Cells past the
+                descent (.lb4-dk) re-pin their palette vars to dark-theme
+                values. */}
+            <div className="lb4-bleed absolute inset-0" />
             {/* the art rests dimmed (a page of 25 plated rows must stay
                 scannable) and blooms to full strength on hover/focus — the
                 single hover effect on a plated row, so no gray veil ever
-                crosses the artwork. PlateLayer clips itself, so the
-                score-gain pop can still float past the row's top edge;
-                lives inside the FLIP-measured <li>, so reordering carries
-                it along. */}
+                crosses the artwork. Dark rests at 0.55 (full-dark board);
+                light rests at 0.85 (.lb4-art) — near-full saturation
+                without the mouse, and the sliver of bleed hue blending
+                through is in the art's own color family. PlateLayer clips
+                itself, so the score-gain pop can still float past the
+                row's top edge; lives inside the FLIP-measured <li>, so
+                reordering carries it along. */}
             <div
-              className="absolute inset-0 opacity-[0.55] transition-opacity duration-300 group-hover:opacity-100 group-focus-visible:opacity-100"
+              className="lb4-art absolute inset-0 opacity-[0.55] transition-opacity duration-300 group-hover:opacity-100 group-focus-visible:opacity-100"
             >
               <PlateLayer plateId={user.plate} />
             </div>
             {isYou && (
               <>
                 {/* the YOU marker stays OFF the art: an accent keyline plus
-                    a short glow over the left fade zone (clean panel),
-                    replacing the full-row accent wash that muddied the
-                    plate colors */}
+                    a short wash over the left identity zone (dark panel in
+                    dark mode, the white half in light — reads like the
+                    non-plated YOU treatment there), replacing the full-row
+                    accent wash that muddied the plate colors */}
                 <div
                   className="pointer-events-none absolute inset-y-0 left-0 w-36 max-w-[45%]"
                   style={{
@@ -1176,7 +1344,7 @@ function Row({
             </span>
             {isProTier(user.tier) && <VerifiedBadge size={14} />}
             {user.team && <TeamMiniLogo team={user.team} size={14} />}
-            <span className="hidden shrink-0 text-[10px] text-zinc-600 lg:inline">
+            <span className="lb4-cap hidden shrink-0 text-[10px] text-zinc-600 lg:inline">
               @{user.username}
             </span>
             {isYou && (
@@ -1185,13 +1353,18 @@ function Row({
           </span>
         </div>
 
-        {/* top tool */}
+        {/* top tool — deliberately NOT .lb4-dk. In a light-plated row this
+            cell sits on the runway's opening tint (scene hue ≤ ~0.28 under
+            its text) and renders ink text exactly like a non-plated light
+            row — that's what buys the dissolve ~9rem of extra runway
+            before any cell demands a dark ground. Dark mode is unaffected:
+            the .lb4-dk pins only exist under html.light. */}
         <div className="relative hidden min-w-0 items-center gap-2 md:flex">
           {topTool ? (
             <>
               <ToolIcon name={topTool.name} size={13} className="shrink-0 text-zinc-400" />
               <span className="truncate text-xs text-zinc-300">{topTool.name}</span>
-              <span className="shrink-0 text-[9px] tabular-nums text-zinc-600">
+              <span className="lb4-pct shrink-0 text-[9px] tabular-nums text-zinc-600">
                 {topTool.percent}%
               </span>
             </>
@@ -1200,17 +1373,25 @@ function Row({
           )}
         </div>
 
-        {/* 24h gain */}
-        <div className="relative hidden text-right text-[11px] tabular-nums md:block">
+        {/* 24h gain — first dark-palette cell; its right-aligned span sits
+            where the runway's descent is finishing (ground alpha ~0.8–1),
+            so the delta gets a scene-hued halo (.lb4-delta) to hold it
+            against whatever the art paints beneath. */}
+        <div className="lb4-dk relative hidden text-right text-[11px] tabular-nums md:block">
           {user.todayScore > 0 ? (
-            <span style={{ color: 'rgb(var(--lb-up))' }}>+{formatCompact(user.todayScore)}</span>
+            <span className="lb4-delta" style={{ color: 'rgb(var(--lb-up))' }}>
+              +{formatCompact(user.todayScore)}
+            </span>
           ) : (
             <span className="text-zinc-700">·</span>
           )}
         </div>
 
-        {/* SCORE — the main thing */}
-        <div className="relative text-right">
+        {/* SCORE — the main thing. The mobile min-width pins the auto column
+            (and with it the bleed-side edge of the 1fr pilot column) so a
+            short score can't let a long name stretch under the full-strength
+            bleed; 7.5rem seats a 9-glyph pixel-font score ("9,999,999"). */}
+        <div className="lb4-dk relative min-w-[7.5rem] text-right md:min-w-0">
           {flash && (
             <span
               className="lb4-gain absolute -top-3 right-0 text-[9px] font-semibold tabular-nums"
@@ -1223,9 +1404,14 @@ function Row({
             className="text-[13px] leading-none tabular-nums [font-family:var(--font-pixel)]"
             style={{
               color: 'rgb(var(--lb-score))',
+              // --lb-halo (0 everywhere except light-plated rows) gates a
+              // scene-hued dark halo — same recipe as .lb4-delta: mobile
+              // because the score lands while the ground is still
+              // translucent, desktop because near-full-strength art (e.g.
+              // cherry's moon) can be bright right behind the neon digits.
               textShadow: medal
-                ? '0 0 12px rgb(var(--lb-score) / calc(0.4 * var(--lb-glow, 1)))'
-                : '0 0 10px rgb(var(--lb-score) / calc(0.22 * var(--lb-glow, 1)))'
+                ? '0 0 12px rgb(var(--lb-score) / calc(0.4 * var(--lb-glow, 1))), 0 1px 2px rgb(var(--pb, 9 10 13) / calc(0.95 * var(--lb-halo, 0))), 0 0 10px rgb(var(--pb, 9 10 13) / calc(0.8 * var(--lb-halo, 0)))'
+                : '0 0 10px rgb(var(--lb-score) / calc(0.22 * var(--lb-glow, 1))), 0 1px 2px rgb(var(--pb, 9 10 13) / calc(0.95 * var(--lb-halo, 0))), 0 0 10px rgb(var(--pb, 9 10 13) / calc(0.8 * var(--lb-halo, 0)))'
             }}
           >
             {formatNumber(user.score)}
@@ -1244,7 +1430,7 @@ function Row({
         </div>
 
         {/* status */}
-        <div className="relative hidden items-center justify-end gap-1.5 text-[10px] tabular-nums md:flex">
+        <div className="lb4-dk relative hidden items-center justify-end gap-1.5 text-[10px] tabular-nums md:flex">
           {user.isActive ? (
             <>
               <span
@@ -1254,12 +1440,17 @@ function Row({
                   boxShadow: '0 0 6px rgb(var(--lb-up) / 0.7)'
                 }}
               />
-              <span style={{ color: 'rgb(var(--lb-up))' }}>online</span>
+              {/* .lb4-delta: same scene-hued halo as the 24H delta — the
+                  status column sits over the art's right edge, the row's
+                  brightest ground on scenes like koi */}
+              <span className="lb4-delta" style={{ color: 'rgb(var(--lb-up))' }}>
+                online
+              </span>
             </>
           ) : (
             <>
               <span className="h-1.5 w-1.5 rounded-full bg-zinc-700" />
-              <span className="text-zinc-600">{formatRelative(user.lastSeen)}</span>
+              <span className="lb4-delta text-zinc-600">{formatRelative(user.lastSeen)}</span>
             </>
           )}
         </div>

@@ -65,6 +65,12 @@ export interface PlateCssRender {
   fx: PlateFx
   /** Dominant hue as an `R G B` triplet, for glows/chips around the plate. */
   accent: string
+  /** Deep scene hue the row dissolves through in light mode (`R G B`) — the
+   * color the art approaches at its left edge. Hand-tuned like `accent`:
+   * a saturated jewel tone from the scene's own palette, deep enough to sit
+   * under the art at full strength yet chromatic enough that its low-alpha
+   * stops tint white with visible color instead of neutral gray. */
+  bleed: string
 }
 
 export interface PlateImageRender {
@@ -984,7 +990,8 @@ export const PLATES: PlateDef[] = [
         'linear-gradient(180deg, rgb(10 4 30) 0%, rgb(34 9 58) 34%, rgb(92 20 92) 48%, rgb(178 40 110) 56%, rgb(24 7 40) 56.5%, rgb(11 4 22) 100%)'
       ],
       fx: 'synthwave-grid',
-      accent: '255 45 149'
+      accent: '255 45 149',
+      bleed: '56 16 92'
     }
   },
   {
@@ -1003,7 +1010,8 @@ export const PLATES: PlateDef[] = [
         'linear-gradient(180deg, rgb(7 8 18), rgb(2 3 9))'
       ],
       fx: 'deep-space',
-      accent: '129 140 248'
+      accent: '129 140 248',
+      bleed: '38 42 112'
     }
   },
   {
@@ -1021,7 +1029,8 @@ export const PLATES: PlateDef[] = [
         'linear-gradient(180deg, rgb(3 12 6), rgb(1 6 3))'
       ],
       fx: 'terminal-rain',
-      accent: '2 254 1'
+      accent: '2 254 1',
+      bleed: '6 70 28'
     }
   },
   {
@@ -1049,7 +1058,11 @@ export const PLATES: PlateDef[] = [
         'linear-gradient(180deg, rgb(43 116 208) 0%, rgb(70 142 220) 30%, rgb(116 176 234) 55%, rgb(168 210 244) 76%, rgb(232 243 252) 100%)'
       ],
       fx: 'cherry-blossom',
-      accent: '255 154 194'
+      accent: '255 154 194',
+      // twilight navy, not the daylight sky: this scene is the catalog's
+      // brightest, and the stat text needs the bleed to pull the ground
+      // dark where the art is still translucent
+      bleed: '6 26 74'
     }
   },
   {
@@ -1067,7 +1080,8 @@ export const PLATES: PlateDef[] = [
         'linear-gradient(180deg, rgb(20 14 30), rgb(10 7 17))'
       ],
       fx: 'keyboard-cat',
-      accent: '255 176 92'
+      accent: '255 176 92',
+      bleed: '56 38 100'
     }
   },
   {
@@ -1089,7 +1103,8 @@ export const PLATES: PlateDef[] = [
         'linear-gradient(180deg, rgb(30 21 5), rgb(11 7 2))'
       ],
       fx: 'champions-gold',
-      accent: '255 214 68'
+      accent: '255 214 68',
+      bleed: '108 76 10'
     }
   },
   {
@@ -1119,7 +1134,8 @@ export const PLATES: PlateDef[] = [
         'linear-gradient(180deg, rgb(20 9 26), rgb(9 4 13))'
       ],
       fx: 'ignition',
-      accent: '255 106 40'
+      accent: '255 106 40',
+      bleed: '84 22 88'
     }
   },
 
@@ -1143,7 +1159,8 @@ export const PLATES: PlateDef[] = [
         'linear-gradient(104deg, rgb(6 46 50) 0%, rgb(10 70 68) 28%, rgb(14 94 88) 55%, rgb(20 124 110) 80%, rgb(30 154 138) 100%)'
       ],
       fx: 'koi-pond',
-      accent: '255 122 60'
+      accent: '255 122 60',
+      bleed: '10 84 78'
     }
   },
   {
@@ -1170,7 +1187,10 @@ export const PLATES: PlateDef[] = [
         'linear-gradient(180deg, rgb(5 4 10), rgb(1 1 4))'
       ],
       fx: 'event-horizon',
-      accent: '255 199 122'
+      accent: '255 199 122',
+      // indigo, not the amber disk: the bleed shows at the plate's LEFT,
+      // where the scene's cold vignette sits
+      bleed: '34 40 104'
     }
   },
   {
@@ -1203,7 +1223,8 @@ export const PLATES: PlateDef[] = [
         'linear-gradient(180deg, rgb(9 11 15), rgb(4 5 8))'
       ],
       fx: 'prime-anomaly',
-      accent: '165 243 252'
+      accent: '165 243 252',
+      bleed: '46 40 116'
     }
   },
 
@@ -1225,7 +1246,8 @@ export const PLATES: PlateDef[] = [
         'linear-gradient(180deg, rgb(4 14 17), rgb(2 8 10))'
       ],
       fx: 'pro-circuit',
-      accent: '34 211 238'
+      accent: '34 211 238',
+      bleed: '6 66 78'
     }
   },
   {
@@ -1244,7 +1266,8 @@ export const PLATES: PlateDef[] = [
         'linear-gradient(180deg, rgb(5 9 22), rgb(2 4 12))'
       ],
       fx: 'aurora-drift',
-      accent: '94 234 212'
+      accent: '94 234 212',
+      bleed: '14 46 110'
     }
   },
   {
@@ -1264,7 +1287,8 @@ export const PLATES: PlateDef[] = [
         'linear-gradient(180deg, rgb(5 9 18), rgb(2 4 9))'
       ],
       fx: 'midnight-ops',
-      accent: '96 165 250'
+      accent: '96 165 250',
+      bleed: '12 42 96'
     }
   },
 
@@ -1284,7 +1308,8 @@ export const PLATES: PlateDef[] = [
         'linear-gradient(180deg, rgb(16 13 7), rgb(8 6 3))'
       ],
       fx: 'founder',
-      accent: '245 208 110'
+      accent: '245 208 110',
+      bleed: '78 60 16'
     }
   },
 
@@ -1312,7 +1337,8 @@ export const PLATES: PlateDef[] = [
         'linear-gradient(180deg, rgb(8 24 46), rgb(4 12 26))'
       ],
       fx: 'beta-tester',
-      accent: '125 211 252'
+      accent: '125 211 252',
+      bleed: '16 62 118'
     }
   }
 ]
