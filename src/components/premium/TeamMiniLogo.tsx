@@ -1,9 +1,16 @@
 'use client'
 
-// The affiliate mark: a small square team avatar sitting right next to a
-// member's name, everywhere the blue check renders (board rows, podium,
-// player card, /u/ profile). Square on purpose — companies are square,
-// pilots are round — and always clickable through to the team's /u/ page.
+// The affiliate mark, modeled 1:1 on X's affiliation badge: the team's
+// square profile picture sitting right next to a member's name at the
+// exact height of the verification badge beside it — small corner
+// radius plus X's hairline: a 1px semi-transparent ring drawn over the
+// image edge (inset overlay, not an outer border) so white logos hold
+// their shape on the light canvas and dark logos on the dark one.
+// Tailwind `white` resolves to --c-white, which flips to near-black ink
+// under html.light, so the one ring class covers both themes. Renders
+// everywhere the blue check renders (board rows, podium, player card,
+// /u/ profile). Always clickable through to the team's /u/ page, same
+// as X routes to the org.
 //
 // The server only emits `team` for ACTIVE affiliations to approved,
 // non-banned TEAM accounts (getAffiliatedTeamsBatch), so rendering this
@@ -33,7 +40,7 @@ export function TeamMiniLogo({
   className?: string
 }) {
   const href = `/u/${encodeURIComponent(team.username)}`
-  const label = `Affiliate of @${team.username}`
+  const label = `Affiliated with @${team.username}`
 
   const onClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.stopPropagation()
@@ -50,14 +57,23 @@ export function TeamMiniLogo({
       onAuxClick={(e) => e.stopPropagation()}
       title={label}
       aria-label={label}
-      className={`inline-flex shrink-0 overflow-hidden rounded-[4px] border border-[rgb(var(--lb-gold)/0.45)] transition-transform hover:scale-110 ${className}`}
-      style={{ width: size, height: size }}
+      className={`relative inline-flex shrink-0 overflow-hidden ${className}`}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: Math.max(2, Math.round(size * 0.22))
+      }}
     >
       <Avatar
         src={team.logo}
         char={team.name[0]?.toUpperCase() ?? '?'}
         imgClassName="h-full w-full object-cover"
         fallbackClassName="flex h-full w-full items-center justify-center bg-zinc-900 font-display text-[8px] leading-none text-zinc-300"
+      />
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-0 border border-white/15"
+        style={{ borderRadius: 'inherit' }}
       />
     </a>
   )
