@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabaseServer'
 import { z } from 'zod'
+import {
+  disabledNotificationTypes,
+  resolveNotificationPrefs
+} from '@/lib/notificationPrefs'
 import { getSessionUserId } from '@/lib/sessionAuth'
 
 export const dynamic = 'force-dynamic'
@@ -79,12 +83,34 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: session.error }, { status: session.status })
     }
 
+    // Categories muted in settings are excluded at query time — from the
+    // feed and the unread badge alike, so the count never advertises rows
+    // the panel won't show. A failed prefs lookup fails open to the
+    // unfiltered feed; preferences must never take notifications down.
+    const { data: owner, error: ownerError } = await supabase
+      .from('users')
+      .select('metadata')
+      .eq('id', session.userId)
+      .maybeSingle()
+
+    if (ownerError) {
+      console.error('[Notifications] Prefs lookup failed:', ownerError)
+    }
+
+    const disabled = disabledNotificationTypes(resolveNotificationPrefs(owner?.metadata))
+    const mutedList =
+      disabled.length > 0 ? `(${disabled.map((t) => `"${t}"`).join(',')})` : null
+
     // Season notifications arrive via the season_tick() cron fan-out
     // (migration 025) — the feed is a pure read.
-    const { data: notifications, error } = await supabase
+    let feedQuery = supabase
       .from('notifications')
       .select('id, type, title, body, data, read_at, created_at')
       .eq('user_id', session.userId)
+
+    if (mutedList) feedQuery = feedQuery.not('type', 'in', mutedList)
+
+    const { data: notifications, error } = await feedQuery
       .order('created_at', { ascending: false })
       .limit(FEED_LIMIT)
 
@@ -96,11 +122,15 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const { count: unreadCount, error: countError } = await supabase
+    let countQuery = supabase
       .from('notifications')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', session.userId)
       .is('read_at', null)
+
+    if (mutedList) countQuery = countQuery.not('type', 'in', mutedList)
+
+    const { count: unreadCount, error: countError } = await countQuery
 
     if (countError) {
       console.error('[Notifications] Unread count failed:', countError)
