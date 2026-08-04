@@ -132,30 +132,36 @@
   --lb-down: 251 113 133;
   --lb-panel-bg: 9 10 13;
   --lb-panel-edge: 255 255 255;
+  /* Neon text-shadow multiplier — glow alphas are authored as
+     calc(A * var(--lb-glow)) so a theme can dim them wholesale. Dark
+     runs full neon; light zeroes it below (glows smudge on white), and
+     the dark plated slabs re-pin it back to 1. */
+  --lb-glow: 1;
 }
 
 html.light {
-  /* Dossier paper — the landing page's light-mode descent set the tone
-     (warm archival paper, ink hairlines, orange annotations); the whole
-     site now sits on that same stock instead of clinical #fff. The hero
-     keeps its pure-white sheet via a scoped reset further down, and
+  /* Professional white — clean #fff canvas, cool neutral zinc/gray
+     mirrors and near-black ink (the settings hub palette, promoted
+     site-wide); the orange accent stays. The landing page opts out:
+     the hero re-pins its cool set via a scoped reset further down,
+     the descent re-pins the warm dossier palette in Descent.tsx, and
      floating chrome (.glass-pop modals/menus/toasts) stays true white. */
-  --background: #f6f4ee;
-  --foreground: #1c1811;
-  --panel: #fcfbf7;
+  --background: #ffffff;
+  --foreground: #09090b;
+  --panel: #fafafa;
 
   --accent: #ff5e00;
   --accent-rgb: 255 94 0;
 
-  /* Duotone inks on paper: ember joins the brand orange; ice darkens to a
+  /* Duotone inks on white: ember joins the brand orange; ice darkens to a
      print-blue ink so hairlines and rank numerals keep AA contrast. */
   --ember: #ff5e00;
   --ember-rgb: 255 94 0;
   --ice: #0e7490;
   --ice-rgb: 14 116 144;
 
-  /* rarity palette: archival slate / print blue / violet / burnt gold */
-  --r-common: 124 116 98;
+  /* rarity palette: neutral zinc / print blue / violet / burnt gold */
+  --r-common: 113 113 122;
   --r-rare: 2 132 199;
   --r-epic: 147 51 234;
   --r-legendary: 202 138 4;
@@ -163,9 +169,10 @@ html.light {
      than the print blue, so the ladder still reads at chip size */
   --r-mythic: 79 70 229;
 
-  /* stars become ink flecks on paper, dots the dossier's drafting ink */
-  --star-rgb: 62 55 40;
-  --dot-rgb: 52 45 24;
+  /* stars become neutral ink specks so the SpaceBackdrop starfield and
+     asteroid streaks still read on the white canvas */
+  --star-rgb: 63 63 70;
+  --dot-rgb: 9 9 11;
 
   --banner-a: 255 94 0;
   --banner-b: 255 94 0;
@@ -173,73 +180,75 @@ html.light {
   /* The Earth keeps its blue atmospheric halo in both color schemes. */
   --globe-glow-rgb: 70 145 255;
 
-  /* flipped monochrome anchors: "black" surfaces become the paper
-     canvas, "white" elements stamp in warm ink */
-  --c-black: 246 244 238;
-  --c-white: 28 24 18;
+  /* flipped monochrome anchors: "black" surfaces become the white
+     canvas, "white" elements stamp in near-black ink */
+  --c-black: 255 255 255;
+  --c-white: 9 9 11;
 
-  /* mirrored zinc scale on the paper axis:
-     zinc-50 = deep ink, zinc-950 = cream surface */
-  --z50: 28 24 17;
-  --z100: 43 38 29;
-  --z200: 60 54 42;
-  --z300: 84 76 60;
-  --z400: 106 97 79;
-  --z500: 129 120 101;
-  --z600: 159 151 131;
-  --z700: 202 195 178;
-  --z800: 222 216 200;
-  --z900: 238 234 223;
-  --z950: 245 242 233;
+  /* mirrored zinc scale on the cool axis:
+     zinc-50 = deep ink, zinc-950 = white surface */
+  --z50: 9 9 11;
+  --z100: 24 24 27;
+  --z200: 39 39 42;
+  --z300: 63 63 70;
+  --z400: 82 82 91;
+  --z500: 113 113 122;
+  --z600: 161 161 170;
+  --z700: 212 212 216;
+  --z800: 228 228 231;
+  --z900: 244 244 245;
+  --z950: 250 250 250;
 
-  /* mirrored gray scale — same paper axis, a hair deeper at the ink end */
-  --g50: 24 20 13;
-  --g100: 40 35 26;
-  --g200: 57 51 40;
-  --g300: 86 78 62;
-  --g400: 108 99 81;
-  --g500: 131 122 103;
-  --g600: 161 153 133;
-  --g700: 204 197 180;
-  --g800: 225 219 204;
-  --g900: 240 236 226;
-  --g950: 247 244 236;
+  /* mirrored gray scale — same cool axis, a hair deeper at the ink end */
+  --g50: 3 7 18;
+  --g100: 17 24 39;
+  --g200: 31 41 55;
+  --g300: 55 65 81;
+  --g400: 75 85 99;
+  --g500: 107 114 128;
+  --g600: 156 163 175;
+  --g700: 209 213 219;
+  --g800: 229 231 235;
+  --g900: 243 244 246;
+  --g950: 249 250 251;
 
-  /* Liquid glass — milky paper glass, ink borders, and the same warm
-     52 45 24 object-shadow ink the landing dossier casts */
-  --glass-tint: 253 251 245;
+  /* Liquid glass — milky white glass, neutral ink borders and shadows */
+  --glass-tint: 255 255 255;
   --glass-bg-top: 0.66;
   --glass-bg-bottom: 0.42;
-  --glass-border: rgb(47 41 28 / 0.12);
-  --glass-highlight: rgb(255 254 249 / 0.95);
+  --glass-border: rgb(9 9 11 / 0.12);
+  --glass-highlight: rgb(255 255 255 / 0.95);
   --glass-sheen: 0.5;
   --glass-shadow:
-    0 20px 44px -22px rgb(52 45 24 / 0.30),
-    0 4px 14px -10px rgb(52 45 24 / 0.14);
-  --glass-inset-bg: rgb(253 251 245 / 0.55);
-  --glass-inset-border: rgb(47 41 28 / 0.10);
+    0 20px 44px -22px rgb(9 9 11 / 0.30),
+    0 4px 14px -10px rgb(9 9 11 / 0.14);
+  --glass-inset-bg: rgb(255 255 255 / 0.55);
+  --glass-inset-border: rgb(9 9 11 / 0.10);
 
   /* hover / dynamic lensing */
-  --glass-border-hover: rgb(47 41 28 / 0.20);
-  --glass-highlight-hover: rgb(255 254 249 / 1);
+  --glass-border-hover: rgb(9 9 11 / 0.20);
+  --glass-highlight-hover: rgb(255 255 255 / 1);
   --glass-shadow-hover:
-    0 28px 60px -24px rgb(52 45 24 / 0.38),
-    0 6px 18px -10px rgb(52 45 24 / 0.18),
+    0 28px 60px -24px rgb(9 9 11 / 0.38),
+    0 6px 18px -10px rgb(9 9 11 / 0.18),
     0 0 30px -6px rgb(var(--accent-rgb) / 0.16);
 
-  /* Leaderboard arena palette — deeper metals so they hold on paper;
-     panels are cut from the dossier's card stock, edged in ink. */
+  /* Leaderboard arena palette — deeper metals so they hold on white;
+     panels are flat white, edged in near-black ink. */
   --lb-gold: 202 138 4;
   --lb-gold-hi: 234 179 8;
   --lb-silver: 100 116 139;
   --lb-bronze: 180 83 9;
-  /* lime goes to olive ink on paper (same move as --ref-lime) for AA
-     contrast against the cream panels */
+  /* lime goes to olive ink on white (same move as --ref-lime) for AA
+     contrast against the white panels */
   --lb-score: 96 108 0;
   --lb-up: 22 163 74;
   --lb-down: 225 29 72;
-  --lb-panel-bg: 252 251 247;
-  --lb-panel-edge: 47 41 28;
+  --lb-panel-bg: 255 255 255;
+  --lb-panel-edge: 9 9 11;
+  /* crisp ink instead of neon: text-shadow glows collapse on white
+     (the leaderboard's plated slabs restore them locally) */
+  --lb-glow: 0;
 }
 
 html {
@@ -791,16 +800,12 @@ html.light .lx-hero {
   --z950: 250 250 250;
 }
 
-/* Dossier canvas — the site-wide light-mode page texture, lifted from the
-   landing descent: warm paper gradient under a faint 56px drafting grid.
-   Inert in dark mode (pages keep their own black/space backdrops); in
-   light mode it replaces the flat page fill on any root that carries it.
-   Gradients scroll with the page, exactly like the landing dossier. */
+/* Dossier canvas — the site-wide light-mode page fill. Inert in dark
+   mode (pages keep their own black/space backdrops); in light mode it
+   paints the flat professional-white canvas on any root that carries
+   it, leaving the SpaceBackdrop star/asteroid layer to read on top. */
 html.light .dossier-canvas {
-  background:
-    repeating-linear-gradient(0deg, rgb(52 45 24 / 0.04) 0 1px, transparent 1px 56px),
-    repeating-linear-gradient(90deg, rgb(52 45 24 / 0.04) 0 1px, transparent 1px 56px),
-    linear-gradient(180deg, #f6f4ee 0%, #f1eee5 100%);
+  background: #ffffff;
 }
 
 /*
@@ -831,9 +836,9 @@ html.light .dossier-canvas {
 
 html.light .glass-pop {
   --glass-pop-scrim: rgb(255 255 255 / 0.85);
-  /* Floating chrome stays clinical white while the page canvas beneath is
-     dossier cream — modals/menus/toasts keep their original light-mode
-     material, so every glass token they consume is re-pinned here. */
+  /* Floating chrome pins its own clinical-white material — modals/menus/
+     toasts keep the exact same look regardless of what the page-level
+     light tokens do, so every glass token they consume is re-pinned here. */
   --glass-tint: 255 255 255;
   --glass-border: rgb(10 10 10 / 0.10);
   --glass-border-hover: rgb(10 10 10 / 0.18);
@@ -880,15 +885,15 @@ html.light .glass-pop {
 }
 
 html.light .comms-console {
-  --console-ink: #fdfcf8;
+  --console-ink: #ffffff;
   background:
     radial-gradient(140% 70px at 50% 0%, rgb(var(--accent-rgb) / 0.05), transparent),
-    linear-gradient(180deg, rgb(255 255 255 / 0.9), rgb(252 250 244 / 0.35) 96px, transparent 200px),
+    linear-gradient(180deg, rgb(255 255 255 / 0.9), rgb(255 255 255 / 0.35) 96px, transparent 200px),
     var(--console-ink);
-  border-color: rgb(47 41 28 / 0.16);
+  border-color: rgb(9 9 11 / 0.16);
   box-shadow:
-    0 36px 80px -30px rgb(52 45 24 / 0.5),
-    0 10px 26px -16px rgb(52 45 24 / 0.28),
+    0 36px 80px -30px rgb(9 9 11 / 0.5),
+    0 10px 26px -16px rgb(9 9 11 / 0.28),
     inset 0 1px 0 rgb(255 255 255 / 0.95);
 }
 
@@ -905,7 +910,7 @@ html.light .comms-console {
 html.light .comms-scanlines {
   background-image: repeating-linear-gradient(
     0deg,
-    rgb(52 45 24 / 0.035) 0 1px,
+    rgb(9 9 11 / 0.035) 0 1px,
     transparent 1px 3px
   );
 }
@@ -929,10 +934,10 @@ html.light .comms-scanlines {
   background-clip: padding-box;
 }
 html.light .comms-scroll {
-  scrollbar-color: rgb(47 41 28 / 0.25) transparent;
+  scrollbar-color: rgb(9 9 11 / 0.25) transparent;
 }
 html.light .comms-scroll::-webkit-scrollbar-thumb {
-  background: rgb(47 41 28 / 0.22);
+  background: rgb(9 9 11 / 0.22);
   border: 3px solid transparent;
   background-clip: padding-box;
 }
@@ -1028,11 +1033,9 @@ html.light .comms-scroll::-webkit-scrollbar-thumb {
   box-shadow: 0 22px 48px -26px rgb(0 0 0 / 0.85);
 }
 html.light .lb-panel {
-  background:
-    linear-gradient(180deg, rgb(255 254 249 / 0.6), transparent 46%),
-    rgb(var(--lb-panel-bg));
+  background: rgb(var(--lb-panel-bg));
   border-color: rgb(var(--lb-panel-edge) / 0.12);
-  box-shadow: 0 20px 44px -30px rgb(52 45 24 / 0.3);
+  box-shadow: 0 20px 44px -30px rgb(9 9 11 / 0.3);
 }
 
 /* Inset wells sitting on an .lb-panel (search field, chips, buttons) */
@@ -1515,7 +1518,7 @@ html[data-nav-exp='1'] {
 }
 
 html.light .app-nav-topbar {
-  --nav-scrim: rgb(252 251 247 / 0.55);
+  --nav-scrim: rgb(255 255 255 / 0.55);
 }
 
 .app-nav-topbar[data-scrolled] {
@@ -1651,6 +1654,162 @@ html[data-nav-exp='0'] .app-nav-rail .nav-row[aria-expanded='true'] > .nav-tip {
 }
 
 /* ---------------------------------------------------------------------------
+   Billboard flipper v3 — the paid-ad + hype banner that expands in-flow
+   under the nav on the dashboard and leaderboard (BillboardTicker.tsx).
+   Mounted as the first child inside .app-nav-inset, so it participates
+   in layout and pushes page content down in both topbar and left-rail
+   nav modes. News-flipper display: one item at a time in its own
+   accent-tinted sub-banner (BillboardCard lg), rotating with a vertical
+   flip after each hold.
+
+   Push-down without measuring: a grid slot animates grid-template-rows
+   0fr -> 1fr (the inner wrapper carries overflow:hidden + min-height:0),
+   so content below slides with the transition. The 560ms duration
+   matches the .app-nav-inset padding transition; BillboardTicker listens
+   for transitionend on grid-template-rows to advance phases and to
+   unmount after collapse (with a timer fallback for when the transition
+   can't fire).
+--------------------------------------------------------------------------- */
+
+.billboard-slot {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 560ms var(--nav-ease);
+}
+
+.billboard-slot-open {
+  grid-template-rows: 1fr;
+}
+
+.billboard-slot-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.billboard-shell {
+  /* Soft scrim seats the banner against busy content, fading out so it
+     never reads as a hard panel. Stops mirror the nav scrim. */
+  --billboard-scrim: rgb(0 0 0 / 0.55);
+  background: linear-gradient(180deg, var(--billboard-scrim), transparent);
+}
+
+html.light .billboard-shell {
+  --billboard-scrim: rgb(255 255 255 / 0.55);
+}
+
+/* Inverted-monochrome chrome: the label block reads as broadcast
+   furniture, not content — solid white block on the dark theme, solid
+   ink block in light. The live dot pulses in the block's own text color. */
+.billboard-label {
+  background: #fafafa;
+  color: #09090b;
+}
+
+html.light .billboard-label {
+  background: #09090b;
+  color: #fafafa;
+}
+
+@keyframes billboard-live-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.billboard-live-dot {
+  height: 5px;
+  width: 5px;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: billboard-live-pulse 1.6s ease-in-out infinite;
+}
+
+/* News flip: the outgoing sub-banner slides up and out while the
+   incoming slides up from below. 450ms — FLIP_MS in BillboardTicker
+   must match; the component drops the outgoing layer on a timer just
+   after, and `forwards` keeps it parked offscreen until then. */
+@keyframes billboard-flip-out {
+  to {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+}
+
+@keyframes billboard-flip-in {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
+.billboard-flip-out {
+  animation: billboard-flip-out 450ms var(--nav-ease) forwards;
+}
+
+.billboard-flip-in {
+  animation: billboard-flip-in 450ms var(--nav-ease);
+}
+
+/* Per-item countdown: scaleX 0 -> 1 over one hold. The duration comes
+   from the component (--billboard-hold-ms) so the bar and the rotation
+   timer share HOLD_MS; keyed remounts restart it per item, and the
+   -run class only lands once the show is actually looping. */
+@keyframes billboard-progress {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.billboard-progress-track {
+  background: rgb(255 255 255 / 0.12);
+}
+
+html.light .billboard-progress-track {
+  background: rgb(0 0 0 / 0.12);
+}
+
+.billboard-progress-fill {
+  transform: scaleX(0);
+  transform-origin: left;
+  background: #e4e4e7;
+}
+
+html.light .billboard-progress-fill {
+  background: #18181b;
+}
+
+.billboard-progress-run {
+  animation: billboard-progress var(--billboard-hold-ms, 8000ms) linear forwards;
+}
+
+/* Hovering the banner pauses the countdown bar here; BillboardTicker
+   pauses the rotation timer off the same hover, banking the remaining
+   hold so a resume picks up mid-item. */
+.billboard-shell:hover .billboard-progress-run {
+  animation-play-state: paused;
+}
+
+/* Reduced motion: instant push-down and instant swaps — the component
+   never mounts a leaving layer or the progress bar, and its fallback
+   timers cover the missing transitionend. The flip-out visibility guard
+   keeps a mid-show OS toggle from freezing a half-flipped layer on top
+   of the active one. */
+@media (prefers-reduced-motion: reduce) {
+  .billboard-slot {
+    transition: none;
+  }
+  .billboard-flip-in,
+  .billboard-live-dot,
+  .billboard-progress-run {
+    animation: none;
+  }
+  .billboard-flip-out {
+    animation: none;
+    visibility: hidden;
+  }
+}
+
+/* ---------------------------------------------------------------------------
    Dashboard duotone instrument kit — /dashboard only.
 
    .dash-duotone wraps the page and re-points the liquid-glass hover flare
@@ -1668,8 +1827,8 @@ html[data-nav-exp='0'] .app-nav-rail .nav-row[aria-expanded='true'] > .nav-tip {
 
 html.light .dash-duotone {
   --glass-shadow-hover:
-    0 28px 60px -24px rgb(52 45 24 / 0.38),
-    0 6px 18px -10px rgb(52 45 24 / 0.18),
+    0 28px 60px -24px rgb(9 9 11 / 0.38),
+    0 6px 18px -10px rgb(9 9 11 / 0.18),
     0 0 30px -6px rgb(var(--ember-rgb) / 0.18);
 }
 
@@ -1728,4 +1887,162 @@ html.light .dash-duotone {
     rgb(var(--ice-rgb) / 0.4) 19px 20px,
     transparent 20px 25px
   );
+}
+
+/* ---------------------------------------------------------------------------
+   Settings hub — scoped monochrome design system (/settings only).
+
+   Same isolation pattern as .referral-scope: every settings component
+   styles itself with the --st-* tokens below and NEVER with Tailwind
+   zinc/gray/black/white utilities — light mode remaps those scales to
+   warm cream values, and this surface must stay pure neutral in both
+   themes (Linear/Vercel restraint: the accent IS the foreground, red is
+   reserved for danger, nothing else carries color).
+
+   Dark is the default; html.light overrides to a true-white system.
+   Typography: Geist, injected by the settings layout as --font-settings.
+--------------------------------------------------------------------------- */
+
+.settings-scope {
+  /* surfaces */
+  --st-canvas: #0a0a0b;
+  --st-panel: #131316;
+  --st-panel-hover: #1b1b1f;
+  --st-border: rgba(255, 255, 255, 0.07);
+  --st-border-strong: rgba(255, 255, 255, 0.14);
+  /* ink */
+  --st-text: #f4f4f5;
+  --st-text-muted: #9fa0a8;
+  --st-text-faint: #6a6b75;
+  /* monochrome accent — white in dark, near-black in light */
+  --st-accent: #fafafa;
+  --st-accent-contrast: #0a0a0b;
+  /* danger — the only hue on the surface */
+  --st-danger: #f5504e;
+  --st-danger-muted: rgba(245, 80, 78, 0.4);
+  --st-danger-bg: rgba(245, 80, 78, 0.08);
+  /* focus ring */
+  --st-focus: rgba(250, 250, 250, 0.6);
+  /* elevation (light mode leans on shadows since panel == canvas there) */
+  --st-panel-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+  --st-savebar-shadow: 0 12px 32px -8px rgb(0 0 0 / 0.65);
+  /* sticky offset: clears the fixed top bar; zeroed in rail mode below */
+  --st-sticky-top: var(--nav-topbar-h);
+
+  font-family: var(--font-settings), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--st-text);
+  background: var(--st-canvas);
+  /* fill the viewport under the nav (mirrors .app-nav-inset) */
+  min-height: calc(100vh - var(--nav-topbar-h));
+}
+
+@media (min-width: 768px) {
+  html[data-nav-pos='left'] .settings-scope {
+    --st-sticky-top: 0px;
+    min-height: 100vh;
+  }
+}
+
+html.light .settings-scope {
+  --st-canvas: #ffffff;
+  --st-panel: #ffffff;
+  --st-panel-hover: #f4f4f5;
+  --st-border: #e4e4e7;
+  --st-border-strong: #d4d4d8;
+  --st-text: #09090b;
+  --st-text-muted: #71717a;
+  --st-text-faint: #a1a1aa;
+  --st-accent: #09090b;
+  --st-accent-contrast: #ffffff;
+  --st-danger: #dc2626;
+  --st-danger-muted: rgba(220, 38, 38, 0.35);
+  --st-danger-bg: rgba(220, 38, 38, 0.05);
+  --st-focus: rgba(9, 9, 11, 0.4);
+  --st-panel-shadow: 0 1px 2px rgb(9 9 11 / 0.04);
+  --st-savebar-shadow: 0 12px 32px -8px rgb(9 9 11 / 0.16);
+}
+
+/* Keyboard focus — one visible ring for everything in the scope. Text
+   fields opt out below in favor of an accent border swap. */
+.settings-scope :focus-visible {
+  outline: 2px solid var(--st-focus);
+  outline-offset: 2px;
+}
+
+/* Quiet 1px-bordered text controls (Field.tsx) */
+.settings-scope .st-input {
+  background: var(--st-canvas);
+  border: 1px solid var(--st-border-strong);
+  color: var(--st-text);
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.settings-scope .st-input::placeholder {
+  color: var(--st-text-faint);
+}
+
+.settings-scope .st-input:focus-visible {
+  outline: none;
+}
+
+.settings-scope .st-input:focus {
+  border-color: var(--st-accent);
+}
+
+.settings-scope .st-input[aria-invalid='true'] {
+  border-color: var(--st-danger);
+}
+
+.settings-scope .st-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Mobile section tabs — scrollable pills without a visible scrollbar */
+.st-no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.st-no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Sticky save bar entrance (SaveBar.tsx) */
+.st-savebar {
+  box-shadow: var(--st-savebar-shadow);
+  animation: st-savebar-in 150ms ease-out backwards;
+}
+
+@keyframes st-savebar-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .st-savebar {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Reduce motion — in-app preference from /settings/appearance. Stored in
+   localStorage (cribble.motion) and seeded onto <html data-motion> before
+   first paint by the nav boot script (navBoot.ts), so nothing animates on
+   load. Complements the OS-level prefers-reduced-motion media query.
+--------------------------------------------------------------------------- */
+
+html[data-motion='reduced'] *,
+html[data-motion='reduced'] *::before,
+html[data-motion='reduced'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
 }

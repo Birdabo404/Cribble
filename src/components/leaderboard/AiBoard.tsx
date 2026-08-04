@@ -25,7 +25,7 @@ import {
   IconUsers,
   ToolIcon
 } from '@/components/leaderboard/icons'
-import { medalA, medalFor } from '@/components/leaderboard/types'
+import { medalA, medalFor, medalGlow } from '@/components/leaderboard/types'
 import type { AiBoardTotals, AiToolRow } from '@/lib/aiLeaderboard'
 
 const ROW_GRID =
@@ -106,7 +106,7 @@ export function AiBoard() {
             label="COMBINED SCORE"
             valueStyle={{
               color: 'rgb(var(--lb-score))',
-              textShadow: '0 0 14px rgb(var(--lb-score) / 0.4)'
+              textShadow: '0 0 14px rgb(var(--lb-score) / calc(0.4 * var(--lb-glow, 1)))'
             }}
             hint="every pilot, every tool"
           >
@@ -310,7 +310,7 @@ function ToolRow({
               color: medal.fg,
               border: `1px solid ${medalA(medal.rgb, 0.5)}`,
               background: medalA(medal.rgb, 0.08),
-              textShadow: `0 0 10px ${medalA(medal.rgb, 0.55)}`
+              textShadow: `0 0 10px ${medalGlow(medal.rgb, 0.55)}`
             }}
           >
             {tool.rank}
@@ -366,8 +366,8 @@ function ToolRow({
           style={{
             color: 'rgb(var(--lb-score))',
             textShadow: medal
-              ? '0 0 12px rgb(var(--lb-score) / 0.4)'
-              : '0 0 10px rgb(var(--lb-score) / 0.22)'
+              ? '0 0 12px rgb(var(--lb-score) / calc(0.4 * var(--lb-glow, 1)))'
+              : '0 0 10px rgb(var(--lb-score) / calc(0.22 * var(--lb-glow, 1)))'
           }}
         >
           {formatScore(tool.score)}
@@ -394,16 +394,18 @@ function SkeletonRow({ index }: { index: number }) {
       className="lbai-row-in border-b border-[rgb(var(--lb-panel-edge)/0.05)]"
       style={{ ['--rd' as string]: `${index * 50}ms` }}
     >
+      {/* shimmer blocks ride the panel-edge ink so they read on the white
+          panel too */}
       <div className={`${ROW_GRID} animate-pulse py-4`}>
-        <span className="h-8 w-8 rounded-lg bg-white/[0.05]" />
+        <span className="h-8 w-8 rounded-lg bg-[rgb(var(--lb-panel-edge)/0.05)]" />
         <span className="flex items-center gap-3">
-          <span className="h-9 w-9 rounded-full bg-white/[0.05]" />
-          <span className="h-3 w-28 rounded bg-white/[0.05]" />
+          <span className="h-9 w-9 rounded-full bg-[rgb(var(--lb-panel-edge)/0.05)]" />
+          <span className="h-3 w-28 rounded bg-[rgb(var(--lb-panel-edge)/0.05)]" />
         </span>
-        <span className="hidden h-3 w-10 justify-self-end rounded bg-white/[0.04] md:block" />
-        <span className="hidden h-3 w-12 justify-self-end rounded bg-white/[0.04] md:block" />
-        <span className="hidden h-3 w-10 justify-self-end rounded bg-white/[0.04] md:block" />
-        <span className="h-3.5 w-20 justify-self-end rounded bg-white/[0.06]" />
+        <span className="hidden h-3 w-10 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:block" />
+        <span className="hidden h-3 w-12 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:block" />
+        <span className="hidden h-3 w-10 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:block" />
+        <span className="h-3.5 w-20 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.06)]" />
       </div>
     </li>
   )

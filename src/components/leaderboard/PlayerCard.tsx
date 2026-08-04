@@ -2,9 +2,9 @@
 
 // Animated player profile card. Opens from any leaderboard row with a
 // zoom-in spring, then behaves like a holographic trading card: pointer
-// tilt, a light sheen that follows the cursor, and medal theming for the
-// podium ranks. Identity/tools render instantly from the standings row;
-// badges and consistency stats hydrate from /api/leaderboard/profile.
+// tilt and medal theming for the podium ranks. Identity/tools render
+// instantly from the standings row; badges hydrate from
+// /api/leaderboard/profile.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -12,7 +12,6 @@ import AnimatedCounter from '@/components/AnimatedCounter'
 import { PixelIcon } from '@/components/achievements/PixelIcon'
 import { FollowButton, FollowsYouChip, type FollowChange } from '@/components/profile/FollowButton'
 import {
-  formatDuration,
   formatNumber,
   formatRelative,
   formatScore
@@ -28,14 +27,11 @@ import { ROLE_ICONS } from '@/components/roleIcons'
 import {
   IconClose,
   IconCrown,
+  IconExpand,
   IconLock,
   IconTarget,
   MoveGlyph,
-  SocialIcon,
-  SOCIAL_LABEL,
-  socialHref,
-  ToolIcon,
-  type SocialKind
+  ToolIcon
 } from './icons'
 import {
   medalA,
@@ -46,8 +42,6 @@ import {
   type LeaderRow,
   type PlayerProfile
 } from './types'
-
-const SOCIAL_KINDS: SocialKind[] = ['x', 'github', 'youtube', 'linkedin']
 
 const rarityColor = (rarity: string) => `rgb(var(--r-${rarity}))`
 const rarityColorA = (rarity: string, alpha: number) =>
@@ -147,10 +141,10 @@ export function PlayerCard({
     }
   }, [requestClose])
 
-  // ---- holographic tilt + pointer glow -------------------------------
+  // ---- holographic tilt ----------------------------------------------
   // Writes are coalesced to one per frame (pointermove can fire at 240Hz on
-  // gaming mice), and the glow is a transform-positioned element rather
-  // than a repainting gradient — the whole effect stays on the compositor.
+  // gaming mice), and the tilt is a pure transform — the effect stays on
+  // the compositor.
   const pointerPos = useRef<{ x: number; y: number } | null>(null)
   const tiltRaf = useRef(0)
 
@@ -168,9 +162,6 @@ export function PlayerCard({
       const y = (p.y - r.top) / r.height
       el.style.setProperty('--rx', `${((0.5 - y) * 5).toFixed(2)}deg`)
       el.style.setProperty('--ry', `${((x - 0.5) * 7).toFixed(2)}deg`)
-      el.style.setProperty('--gx', `${(p.x - r.left).toFixed(1)}px`)
-      el.style.setProperty('--gy', `${(p.y - r.top).toFixed(1)}px`)
-      el.style.setProperty('--go', '1')
     })
   }, [])
 
@@ -183,7 +174,6 @@ export function PlayerCard({
     if (!el) return
     el.style.setProperty('--rx', '0deg')
     el.style.setProperty('--ry', '0deg')
-    el.style.setProperty('--go', '0')
   }, [])
 
   useEffect(
@@ -198,11 +188,6 @@ export function PlayerCard({
   const todayScore = profile?.todayScore ?? row.todayScore
   const weekScore = profile?.weekScore ?? row.weekScore
   const badges = profile?.badges ?? null
-  const socials = profile?.socials ?? row.socials ?? {}
-  const socialEntries = SOCIAL_KINDS.map((kind) => ({
-    kind,
-    value: socials[kind]
-  })).filter((e): e is { kind: SocialKind; value: string } => Boolean(e.value))
 
   const roleKey = (profile?.role ?? row.role) || null
   const RoleIcon = roleKey ? ROLE_ICONS[roleKey] : undefined
@@ -252,21 +237,6 @@ export function PlayerCard({
     [isPrivateAccount, loadProfile]
   )
 
-  const statCells: { label: string; value: string | null }[] = [
-    {
-      label: 'ACTIVE DAYS',
-      value: profile ? formatNumber(profile.activeDays) : null
-    },
-    {
-      label: 'BEST STREAK',
-      value: profile ? `${formatNumber(profile.longestStreak)}d` : null
-    },
-    {
-      label: 'FOCUS TIME',
-      value: profile ? formatDuration(profile.totalActiveMs) : null
-    }
-  ]
-
   return createPortal(
     <div
       className="pc-root fixed inset-0 z-[70] flex items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-6 sm:pb-[max(1.5rem,env(safe-area-inset-bottom))] font-mono"
@@ -291,19 +261,6 @@ export function PlayerCard({
               : '0 30px 80px -30px rgb(0 0 0 / 0.95)'
           }}
         >
-          {/* holo glow — pinned to the scrollport, moved purely by transform
-              so following the pointer never repaints a gradient */}
-          <div aria-hidden className="pointer-events-none sticky top-0 z-30 h-0">
-            <span
-              className="pc-glow"
-              style={{
-                background: `radial-gradient(closest-side, ${
-                  medal ? medalA(medal.rgb, 0.1) : 'rgb(var(--lb-panel-edge) / 0.07)'
-                }, transparent 70%)`
-              }}
-            />
-          </div>
-
           {/* ---------- banner ---------- */}
           <div className="relative h-28 overflow-hidden">
             {/* default banner always paints; a live banner_image covers it */}
@@ -381,19 +338,33 @@ export function PlayerCard({
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={requestClose}
-              autoFocus
-              aria-label="Close profile"
-              className="absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-full text-zinc-300 transition-colors hover:text-white sm:h-8 sm:w-8"
-              style={{
-                background: 'rgb(0 0 0 / 0.55)',
-                border: '1px solid rgb(255 255 255 / 0.14)'
-              }}
-            >
-              <IconClose size={14} />
-            </button>
+            <div className="absolute right-3 top-3 flex items-center gap-2">
+              <a
+                href={`/u/${encodeURIComponent(row.username)}`}
+                aria-label="Open full profile"
+                title="Open full profile"
+                className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-300 transition-colors hover:text-zinc-50 sm:h-8 sm:w-8"
+                style={{
+                  background: 'rgb(0 0 0 / 0.55)',
+                  border: '1px solid rgb(255 255 255 / 0.14)'
+                }}
+              >
+                <IconExpand size={14} />
+              </a>
+              <button
+                type="button"
+                onClick={requestClose}
+                autoFocus
+                aria-label="Close profile"
+                className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-300 transition-colors hover:text-zinc-50 sm:h-8 sm:w-8"
+                style={{
+                  background: 'rgb(0 0 0 / 0.55)',
+                  border: '1px solid rgb(255 255 255 / 0.14)'
+                }}
+              >
+                <IconClose size={14} />
+              </button>
+            </div>
           </div>
 
           {/* ---------- identity ---------- */}
@@ -510,7 +481,7 @@ export function PlayerCard({
                 </span>
               )}
               {roleLabel && (
-                <span className="flex items-center gap-1.5 rounded border border-zinc-700/70 bg-white/[0.03] px-2 py-0.5 text-[9px] tracking-[0.25em] text-zinc-400">
+                <span className="flex items-center gap-1.5 rounded border border-zinc-700/70 bg-[rgb(var(--lb-panel-edge)/0.03)] px-2 py-0.5 text-[9px] tracking-[0.25em] text-zinc-400">
                   {RoleIcon && <RoleIcon size={10} />}
                   {roleLabel}
                 </span>
@@ -527,8 +498,8 @@ export function PlayerCard({
               style={{
                 color: 'rgb(var(--lb-score))',
                 textShadow: medal
-                  ? '0 0 18px rgb(var(--lb-score) / 0.55), 0 0 44px rgb(var(--lb-score) / 0.22)'
-                  : '0 0 18px rgb(var(--lb-score) / 0.28)'
+                  ? '0 0 18px rgb(var(--lb-score) / calc(0.55 * var(--lb-glow, 1))), 0 0 44px rgb(var(--lb-score) / calc(0.22 * var(--lb-glow, 1)))'
+                  : '0 0 18px rgb(var(--lb-score) / calc(0.28 * var(--lb-glow, 1)))'
               }}
             >
               <AnimatedCounter
@@ -578,29 +549,6 @@ export function PlayerCard({
             )}
           </div>
 
-          {/* ---------- consistency stats ---------- */}
-          <div className="mt-5 grid grid-cols-3 gap-2 px-6">
-            {statCells.map((cell) => (
-              <div
-                key={cell.label}
-                className="rounded-xl px-2 py-2.5 text-center"
-                style={{
-                  background: 'rgb(var(--lb-panel-edge) / 0.035)',
-                  border: '1px solid rgb(var(--lb-panel-edge) / 0.08)'
-                }}
-              >
-                <div className="text-[9px] tracking-[0.3em] text-zinc-600 sm:text-[8px]">{cell.label}</div>
-                {cell.value !== null ? (
-                  <div className="mt-1.5 font-display text-sm font-semibold tabular-nums text-zinc-100">
-                    {cell.value}
-                  </div>
-                ) : (
-                  <div className="mx-auto mt-2 h-3.5 w-10 animate-pulse rounded bg-white/[0.07]" />
-                )}
-              </div>
-            ))}
-          </div>
-
           {/* ---------- top tools ---------- */}
           <div className="mt-5 px-6">
             <div className="flex items-center justify-between text-[9px] tracking-[0.35em] text-zinc-500">
@@ -640,7 +588,7 @@ export function PlayerCard({
                         {tool.percent}%
                       </span>
                     </div>
-                    <div className="mt-1 h-1 overflow-hidden rounded-full bg-white/[0.06]">
+                    <div className="mt-1 h-1 overflow-hidden rounded-full bg-[rgb(var(--lb-panel-edge)/0.06)]">
                       <div
                         className="pc-bar h-full rounded-full"
                         style={{
@@ -681,7 +629,7 @@ export function PlayerCard({
               {badges === null && !profileFailed && (
                 <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-8">
                   {Array.from({ length: 8 }, (_, i) => (
-                    <div key={i} className="aspect-square animate-pulse rounded-lg bg-white/[0.05]" />
+                    <div key={i} className="aspect-square animate-pulse rounded-lg bg-[rgb(var(--lb-panel-edge)/0.05)]" />
                   ))}
                 </div>
               )}
@@ -739,44 +687,8 @@ export function PlayerCard({
             </div>
           </div>
 
-          {/* ---------- full profile link ---------- */}
-          <div className="mt-5 px-6">
-            <a
-              href={`/u/${encodeURIComponent(row.username)}`}
-              className="flex items-center justify-center gap-2 rounded-lg py-2 text-[9px] tracking-[0.35em] text-zinc-400 transition-colors hover:text-zinc-100"
-              style={{
-                border: '1px solid rgb(var(--lb-panel-edge) / 0.12)',
-                background: 'rgb(var(--lb-panel-edge) / 0.03)'
-              }}
-            >
-              OPEN FULL PROFILE
-              <span aria-hidden>→</span>
-            </a>
-          </div>
-
-          {/* ---------- socials + footer ---------- */}
+          {/* ---------- footer ---------- */}
           <div className="mt-5 border-t px-6 pb-5 pt-4" style={{ borderColor: 'rgb(var(--lb-panel-edge) / 0.08)' }}>
-            {socialEntries.length > 0 && (
-              <div className="flex items-center justify-center gap-1.5 pb-3">
-                {socialEntries.map(({ kind, value }) => (
-                  <a
-                    key={kind}
-                    href={socialHref(kind, value)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={`@${row.username} on ${SOCIAL_LABEL[kind]}`}
-                    title={SOCIAL_LABEL[kind]}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition-all hover:-translate-y-0.5 hover:text-zinc-100"
-                    style={{
-                      background: 'rgb(var(--lb-panel-edge) / 0.04)',
-                      border: '1px solid rgb(var(--lb-panel-edge) / 0.1)'
-                    }}
-                  >
-                    <SocialIcon kind={kind} size={14} />
-                  </a>
-                ))}
-              </div>
-            )}
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[9px] tracking-[0.25em] text-zinc-600 tabular-nums">
               <span>JOINED SINCE {monthYear(profile?.memberSince ?? row.memberSince)}</span>
               {!row.isActive && (
@@ -796,8 +708,8 @@ export function PlayerCard({
           animation: pc-backdrop-in 260ms ease backwards;
         }
         html.light .pc-backdrop {
-          /* paper veil — matches the dossier canvas instead of cooling it */
-          background: rgb(246 244 238 / 0.72);
+          /* white veil — matches the light canvas instead of dimming it */
+          background: rgb(255 255 255 / 0.72);
         }
         @keyframes pc-backdrop-in {
           from {
@@ -859,19 +771,6 @@ export function PlayerCard({
           display: none;
         }
 
-        .pc-glow {
-          position: absolute;
-          left: 0;
-          top: 0;
-          width: 340px;
-          height: 340px;
-          border-radius: 9999px;
-          transform: translate3d(var(--gx, 50%), var(--gy, 40px), 0) translate(-50%, -50%);
-          opacity: var(--go, 0);
-          transition: opacity 320ms ease;
-          will-change: transform;
-        }
-
         .pc-crown {
           animation: pc-crown-bob 2.6s ease-in-out infinite;
           filter: drop-shadow(0 0 8px rgb(var(--lb-gold) / 0.7));
@@ -917,9 +816,6 @@ export function PlayerCard({
             transform: none;
             transition: none;
             will-change: auto;
-          }
-          .pc-glow {
-            display: none;
           }
         }
       `}</style>

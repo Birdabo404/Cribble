@@ -1,19 +1,12 @@
-import type { ReactNode } from 'react'
-import {
-  BrandClaude,
-  BrandCopilot,
-  BrandCursor,
-  BrandGemini,
-  BrandOpenAI,
-  BrandPerplexity,
-  type IconProps
-} from '@/components/welcome/icons'
+import { useId, type ReactNode } from 'react'
+import { BRAND_PATHS, type IconProps } from '@/components/welcome/icons'
 
 /**
  * Icon set for the leaderboard arena.
  * Stroke glyphs are drawn on a 24px grid (Lucide path data, ISC license).
  * Social/tool brand marks use official path data from Simple Icons (CC0).
- * Everything renders in currentColor so parents control the hue.
+ * Glyphs and social marks render in currentColor so parents control the
+ * hue; known AI tool marks paint their own official brand colors.
  */
 
 function Stroke({
@@ -159,6 +152,17 @@ export function IconClose(p: IconProps) {
     <Stroke {...p}>
       <path d="M18 6 6 18" />
       <path d="m6 6 12 12" />
+    </Stroke>
+  )
+}
+
+export function IconExpand(p: IconProps) {
+  return (
+    <Stroke {...p}>
+      <path d="M15 3h6v6" />
+      <path d="m21 3-7 7" />
+      <path d="m3 21 7-7" />
+      <path d="M9 21H3v-6" />
     </Stroke>
   )
 }
@@ -335,46 +339,112 @@ export function SocialIcon({
 }
 
 /* ------------------------------------------------------------------ */
-/* AI tool marks — brand icon where we have one, monogram otherwise    */
+/* AI tool marks — known brands render their official colors,          */
+/* the monogram fallback keeps currentColor                            */
 /* ------------------------------------------------------------------ */
 
-/** Grok ships under the X brand — the X mark is its recognizable face. */
-function BrandGrok({ size = 16, className = '' }: IconProps) {
+/**
+ * Full ink for officially monochrome brands (OpenAI, Copilot, Cursor,
+ * Grok): near-black on light surfaces, near-white on dark, and flipped
+ * back to white inside dark plate slabs via the `.lb4-plated` var re-pin.
+ */
+const BRAND_INK = 'rgb(var(--z100))'
+
+/** Brand marks paint their fill inline so official colors beat wrapper
+ *  tints like `text-zinc-400`; unknown-tool monograms keep currentColor. */
+function BrandMark({
+  d,
+  color,
+  size = 16,
+  className = ''
+}: IconProps & { d: string; color: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
       width={size}
       height={size}
-      fill="currentColor"
       className={className}
+      style={{ fill: color }}
       aria-hidden
     >
-      <path d={SOCIAL_PATHS.x} />
+      <path d={d} />
     </svg>
   )
 }
 
+function MarkOpenAI(p: IconProps) {
+  return <BrandMark {...p} d={BRAND_PATHS.openai} color={BRAND_INK} />
+}
+
+function MarkClaude(p: IconProps) {
+  return <BrandMark {...p} d={BRAND_PATHS.claude} color="#D97757" />
+}
+
+/** Official Gemini gradient, top-left blue to bottom-right violet.
+ *  `useId` keeps the gradient def unique across instances on one page. */
+function MarkGemini({ size = 16, className = '' }: IconProps) {
+  const gradientId = useId()
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      className={className}
+      aria-hidden
+    >
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#217BFE" />
+          <stop offset="0.35" stopColor="#078EFB" />
+          <stop offset="0.7" stopColor="#A190FF" />
+          <stop offset="1" stopColor="#BD99FE" />
+        </linearGradient>
+      </defs>
+      <path d={BRAND_PATHS.gemini} fill={`url(#${gradientId})`} />
+    </svg>
+  )
+}
+
+function MarkPerplexity(p: IconProps) {
+  return <BrandMark {...p} d={BRAND_PATHS.perplexity} color="#1FB8CD" />
+}
+
+function MarkCursor(p: IconProps) {
+  return <BrandMark {...p} d={BRAND_PATHS.cursor} color={BRAND_INK} />
+}
+
+function MarkCopilot(p: IconProps) {
+  return <BrandMark {...p} d={BRAND_PATHS.copilot} color={BRAND_INK} />
+}
+
+/** Grok ships under the X brand — Simple Icons carries no Grok/xAI mark
+ *  (as of v16), so the X mark stays its recognizable face. */
+function MarkGrok(p: IconProps) {
+  return <BrandMark {...p} d={SOCIAL_PATHS.x} color={BRAND_INK} />
+}
+
 const TOOL_BRANDS: Record<string, (p: IconProps) => JSX.Element> = {
-  ChatGPT: BrandOpenAI,
-  OpenAI: BrandOpenAI,
-  'DALL·E': BrandOpenAI,
-  'OpenAI Playground': BrandOpenAI,
-  'OpenAI Beta': BrandOpenAI,
-  Claude: BrandClaude,
-  Gemini: BrandGemini,
-  'AI Studio': BrandGemini,
-  Bard: BrandGemini,
-  Perplexity: BrandPerplexity,
-  Cursor: BrandCursor,
-  Copilot: BrandCopilot,
-  'GitHub Copilot': BrandCopilot,
-  Grok: BrandGrok,
+  ChatGPT: MarkOpenAI,
+  OpenAI: MarkOpenAI,
+  'DALL·E': MarkOpenAI,
+  'OpenAI Playground': MarkOpenAI,
+  'OpenAI Beta': MarkOpenAI,
+  Claude: MarkClaude,
+  Gemini: MarkGemini,
+  'AI Studio': MarkGemini,
+  Bard: MarkGemini,
+  Perplexity: MarkPerplexity,
+  Cursor: MarkCursor,
+  Copilot: MarkCopilot,
+  'GitHub Copilot': MarkCopilot,
+  Grok: MarkGrok,
   Bolt: IconBolt
 }
 
 /**
- * Icon chip for a resolved tool name. Known brands render their mark;
- * everything else gets a clean monogram so no tool ever looks broken.
+ * Icon chip for a resolved tool name. Known brands render their mark in
+ * official brand colors; everything else gets a clean monogram (in
+ * currentColor) so no tool ever looks broken.
  */
 export function ToolIcon({
   name,

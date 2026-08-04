@@ -49,9 +49,10 @@ import { AiBoard } from '@/components/leaderboard/AiBoard'
 import { Avatar } from '@/components/leaderboard/Avatar'
 import { PlayerCard, type ChaseInfo } from '@/components/leaderboard/PlayerCard'
 import { Podium } from '@/components/leaderboard/Podium'
-import { medalA, medalFor, type LeaderRow } from '@/components/leaderboard/types'
+import { medalA, medalFor, medalGlow, type LeaderRow } from '@/components/leaderboard/types'
 import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
+import { getPlate } from '@/lib/cosmetics/plates'
 import { isProTier } from '@/lib/entitlements'
 
 const PAGE_SIZE = 25
@@ -657,12 +658,14 @@ export default function LeaderboardArena() {
 
         /* Plated rows are physical nameplates. The art is a fixed dark
            product (authored against the dark arena panel), so in light mode
-           the whole row keeps the dark arena palette: the row paints its
-           own dark surface and every palette var used by its cells (zinc
-           text scale, medal hues, movement colors, hairlines) is re-declared
-           to the dark-theme value. The plate reads identically in both
-           themes — vivid art, light text — instead of washing out against
-           the white panel. */
+           the plated slab keeps the dark arena palette: it paints its own
+           dark surface and every palette var used by the row's cells (zinc
+           text scale, medal hues, movement colors, hairlines — and the neon
+           glow multiplier, so score/medal glows re-light on the dark slab)
+           is re-declared to the dark-theme value. The plate reads
+           identically in both themes — vivid art, light text — instead of
+           washing out against the white panel; what changes per theme is
+           the mounting (.lb4-slab below). */
         html.light .lb4-plated {
           --z50: 250 250 250;
           --z100: 244 244 245;
@@ -684,6 +687,32 @@ export default function LeaderboardArena() {
           --lb-down: 251 113 133;
           --lb-panel-bg: 9 10 13;
           --lb-panel-edge: 255 255 255;
+          --lb-glow: 1;
+        }
+
+        /* The showcase slab. Dark (default): full-bleed — the nameplate IS
+           the row, exactly as before the wrapper existed. Light: an
+           edge-to-edge dark strip on the white panel reads as a bug, so
+           the slab becomes an inset, rounded mount floating on the table,
+           ringed and shadow-tinted by the plate's own accent (--pa, set
+           per row from the catalog) — deliberate per-plate jewelry. */
+        .lb4-slab {
+          inset: 0;
+        }
+        html.light .lb4-plated .lb4-slab {
+          inset: 4px 6px;
+          border-radius: 12px;
+          border: 1px solid rgb(var(--pa, 161 161 170) / 0.4);
+          box-shadow:
+            0 6px 18px -6px rgb(var(--pa, 161 161 170) / 0.3),
+            0 12px 28px -18px rgb(9 9 11 / 0.45);
+          transition: box-shadow 300ms ease;
+        }
+        html.light .lb4-plated:hover .lb4-slab,
+        html.light .lb4-plated:focus-within .lb4-slab {
+          box-shadow:
+            0 8px 22px -6px rgb(var(--pa, 161 161 170) / 0.42),
+            0 14px 32px -18px rgb(9 9 11 / 0.55);
         }
 
         /* CPU guards — freeze every infinite animation when it can't be
@@ -911,7 +940,7 @@ function StatBar({
           className="mt-2.5 text-sm tabular-nums [font-family:var(--font-pixel)] md:text-base"
           style={{
             color: 'rgb(var(--lb-score))',
-            textShadow: '0 0 14px rgb(var(--lb-score) / 0.4)'
+            textShadow: '0 0 14px rgb(var(--lb-score) / calc(0.4 * var(--lb-glow, 1)))'
           }}
         >
           <AnimatedCounter value={topScore} duration={1100} formatter={(v) => formatCompact(Math.round(v))} />
@@ -1011,6 +1040,12 @@ function Row({
   const topTool = user.topTools?.[0]
   const pct = topScore > 0 ? Math.max(2, Math.round((user.score / topScore) * 100)) : 0
   const plated = Boolean(user.plate)
+  // Per-plate accent for the light-mode slab jewelry (ring + shadow tint).
+  // image-kind renders carry no accent in the catalog and unknown/retired
+  // ids resolve to null — both fall back to a neutral zinc triplet.
+  const plateDef = user.plate ? getPlate(user.plate) : null
+  const plateAccent =
+    plateDef?.render.kind === 'css' ? plateDef.render.accent : '161 161 170'
 
   return (
     <li
@@ -1020,12 +1055,15 @@ function Row({
       } ${flash ? 'lb4-row-flash' : ''}`}
       style={{
         ['--rd' as string]: `${Math.min(index, 12) * 34}ms`,
+        ['--pa' as string]: plated ? plateAccent : undefined,
         background: isYou && !plated ? 'rgb(var(--accent-rgb) / 0.045)' : undefined,
         boxShadow: isYou && !plated ? 'inset 2px 0 0 rgb(var(--accent-rgb))' : undefined
       }}
     >
       {/* Row geometry: py-4 padding + h-9 avatar ⇒ ~68px rows. The plate
-          art scenes are tuned against this height — keep the two in sync. */}
+          art scenes are tuned against this height — keep the two in sync.
+          (Light mode's showcase slab shaves 4px top+bottom off the art
+          viewport; scenes are bottom/right-anchored and tolerate it.) */}
       <button
         type="button"
         onClick={() => onSelect(user)}
@@ -1037,7 +1075,15 @@ function Row({
         }`}
       >
         {user.plate && (
-          <>
+          /* Showcase slab — the one wrapper that owns the plated
+             presentation, so every layer below (dark base, art, YOU
+             jewelry, flash) shares its geometry and clip. Dark mode pins
+             it full-bleed (.lb4-slab: inset 0 — pixel-identical to the
+             old edge-to-edge layers); in light mode it insets, rounds and
+             rings itself with the plate's own accent (--pa on the <li>)
+             so the fixed dark art reads as a mounted collectible on the
+             white table, not a leaked dark-mode strip. */
+          <div aria-hidden className="lb4-slab absolute overflow-hidden">
             {/* Nameplate surface — plate art is authored against the dark
                 arena panel, so it always paints over an opaque dark base
                 (same treatment as the shop preview). Without it, light
@@ -1046,7 +1092,6 @@ function Row({
                 stays readable because .lb4-plated re-declares the row's
                 palette vars to their dark-theme values in light mode. */}
             <div
-              aria-hidden
               className="absolute inset-0"
               style={{ background: 'rgb(var(--lb-panel-bg))' }}
             />
@@ -1058,7 +1103,6 @@ function Row({
                 lives inside the FLIP-measured <li>, so reordering carries
                 it along. */}
             <div
-              aria-hidden
               className="absolute inset-0 opacity-[0.55] transition-opacity duration-300 group-hover:opacity-100 group-focus-visible:opacity-100"
             >
               <PlateLayer plateId={user.plate} />
@@ -1070,7 +1114,6 @@ function Row({
                     replacing the full-row accent wash that muddied the
                     plate colors */}
                 <div
-                  aria-hidden
                   className="pointer-events-none absolute inset-y-0 left-0 w-36 max-w-[45%]"
                   style={{
                     background:
@@ -1078,7 +1121,6 @@ function Row({
                   }}
                 />
                 <div
-                  aria-hidden
                   className="pointer-events-none absolute inset-y-0 left-0 w-[2px]"
                   style={{ background: 'rgb(var(--accent-rgb))' }}
                 />
@@ -1086,8 +1128,8 @@ function Row({
             )}
             {/* score-flash repainted above the plate (the li background
                 sits underneath the opaque nameplate surface) */}
-            {flash && <div aria-hidden className="lb4-row-flash pointer-events-none absolute inset-0" />}
-          </>
+            {flash && <div className="lb4-row-flash pointer-events-none absolute inset-0" />}
+          </div>
         )}
 
         {/* rank + movement */}
@@ -1099,7 +1141,7 @@ function Row({
                 color: medal.fg,
                 border: `1px solid ${medalA(medal.rgb, 0.5)}`,
                 background: medalA(medal.rgb, 0.08),
-                textShadow: `0 0 10px ${medalA(medal.rgb, 0.55)}`
+                textShadow: `0 0 10px ${medalGlow(medal.rgb, 0.55)}`
               }}
             >
               {user.rank}
@@ -1132,7 +1174,7 @@ function Row({
             >
               {user.display_name || `@${user.username}`}
             </span>
-            {isProTier(user.tier) && <VerifiedBadge size={13} />}
+            {isProTier(user.tier) && <VerifiedBadge size={14} />}
             {user.team && <TeamMiniLogo team={user.team} size={14} />}
             <span className="hidden shrink-0 text-[10px] text-zinc-600 lg:inline">
               @{user.username}
@@ -1182,8 +1224,8 @@ function Row({
             style={{
               color: 'rgb(var(--lb-score))',
               textShadow: medal
-                ? '0 0 12px rgb(var(--lb-score) / 0.4)'
-                : '0 0 10px rgb(var(--lb-score) / 0.22)'
+                ? '0 0 12px rgb(var(--lb-score) / calc(0.4 * var(--lb-glow, 1)))'
+                : '0 0 10px rgb(var(--lb-score) / calc(0.22 * var(--lb-glow, 1)))'
             }}
           >
             {formatNumber(user.score)}
@@ -1233,17 +1275,18 @@ function SkeletonRow({ index }: { index: number }) {
       style={{ ['--rd' as string]: `${index * 50}ms` }}
     >
       {/* mirrors the live Row geometry (py-4 + h-9 avatar ⇒ ~68px) so the
-          table doesn't jump when data lands */}
+          table doesn't jump when data lands; shimmer blocks ride the
+          panel-edge ink so they read on the white panel too */}
       <div className={`${ROW_GRID} animate-pulse py-4`}>
-        <span className="h-8 w-8 rounded-lg bg-white/[0.05]" />
+        <span className="h-8 w-8 rounded-lg bg-[rgb(var(--lb-panel-edge)/0.05)]" />
         <span className="flex items-center gap-3">
-          <span className="h-9 w-9 rounded-full bg-white/[0.05]" />
-          <span className="h-3 w-32 rounded bg-white/[0.05]" />
+          <span className="h-9 w-9 rounded-full bg-[rgb(var(--lb-panel-edge)/0.05)]" />
+          <span className="h-3 w-32 rounded bg-[rgb(var(--lb-panel-edge)/0.05)]" />
         </span>
-        <span className="hidden h-3 w-20 rounded bg-white/[0.04] md:block" />
-        <span className="hidden h-3 w-10 justify-self-end rounded bg-white/[0.04] md:block" />
-        <span className="h-3.5 w-24 justify-self-end rounded bg-white/[0.06]" />
-        <span className="hidden h-3 w-14 justify-self-end rounded bg-white/[0.04] md:block" />
+        <span className="hidden h-3 w-20 rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:block" />
+        <span className="hidden h-3 w-10 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:block" />
+        <span className="h-3.5 w-24 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.06)]" />
+        <span className="hidden h-3 w-14 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:block" />
       </div>
     </li>
   )
@@ -1255,10 +1298,10 @@ function PodiumSkeleton() {
       {[64, 96, 48].map((h, i) => (
         <div key={i} className={`animate-pulse ${i === 1 ? 'md:order-2' : i === 0 ? 'md:order-1' : 'md:order-3'}`}>
           <div className="lb-panel rounded-2xl p-5">
-            <div className="mx-auto h-16 w-16 rounded-full bg-white/[0.05]" />
-            <div className="mx-auto mt-4 h-3 w-24 rounded bg-white/[0.05]" />
-            <div className="mx-auto mt-3 h-5 w-32 rounded bg-white/[0.07]" />
-            <div className="mx-auto mt-4 rounded bg-white/[0.03]" style={{ height: h / 2 }} />
+            <div className="mx-auto h-16 w-16 rounded-full bg-[rgb(var(--lb-panel-edge)/0.05)]" />
+            <div className="mx-auto mt-4 h-3 w-24 rounded bg-[rgb(var(--lb-panel-edge)/0.05)]" />
+            <div className="mx-auto mt-3 h-5 w-32 rounded bg-[rgb(var(--lb-panel-edge)/0.07)]" />
+            <div className="mx-auto mt-4 rounded bg-[rgb(var(--lb-panel-edge)/0.03)]" style={{ height: h / 2 }} />
           </div>
         </div>
       ))}

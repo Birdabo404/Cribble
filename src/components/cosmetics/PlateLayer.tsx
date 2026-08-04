@@ -6360,17 +6360,23 @@ function FxOverlay({ fx }: { fx: PlateFx }) {
  * identity text sits on a real row. The panel is the DARK board surface
  * as a literal, not the theme var: plate art is authored against black,
  * and a white fade-out in light mode washes the whole product. A plate is
- * a product — it must look identical in both themes. */
+ * a product — it must look identical in both themes. Only the mounting
+ * adapts: in light mode the tile's neutral hairline becomes the plate's
+ * own accent ring, matching the leaderboard's showcase-slab language. */
 export function PlatePreview({ plateId, className = '' }: PlatePreviewProps) {
   const plate = getPlate(plateId)
   if (!plate) return null
 
+  // image-kind renders carry no accent in the catalog — neutral fallback
+  const accent = plate.render.kind === 'css' ? plate.render.accent : '161 161 170'
+
   return (
     <div
-      className={`relative aspect-[4/1] w-full overflow-hidden rounded-xl ${className}`}
+      className={`plx-preview relative aspect-[4/1] w-full overflow-hidden rounded-xl ${className}`}
       style={{
         background: 'rgb(9 10 13)',
-        border: '1px solid rgb(255 255 255 / 0.1)'
+        border: '1px solid var(--plx-ring)',
+        ['--pa' as string]: accent
       }}
     >
       <PlateLayer plateId={plateId} />
@@ -6384,6 +6390,14 @@ export function PlatePreview({ plateId, className = '' }: PlatePreviewProps) {
           {plate.name}
         </span>
       </div>
+      <style jsx global>{`
+        .plx-preview {
+          --plx-ring: rgb(255 255 255 / 0.1);
+        }
+        html.light .plx-preview {
+          --plx-ring: rgb(var(--pa) / 0.35);
+        }
+      `}</style>
     </div>
   )
 }

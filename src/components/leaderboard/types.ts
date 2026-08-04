@@ -128,3 +128,10 @@ export const PLATE_UP = '74 222 128'
 export const PLATE_DOWN = '251 113 133'
 
 export const medalA = (rgb: string, alpha: number) => `rgb(${rgb} / ${alpha})`
+
+/** medalA for TEXT-SHADOW glows only: the alpha rides the --lb-glow
+ * multiplier, which light mode zeroes (neon smudges on white panels) and
+ * the dark plated slabs re-pin to 1. Chip borders/backgrounds keep plain
+ * medalA — they must hold in both themes. */
+export const medalGlow = (rgb: string, alpha: number) =>
+  `rgb(${rgb} / calc(${alpha} * var(--lb-glow, 1)))`

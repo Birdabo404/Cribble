@@ -15,7 +15,7 @@ import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { isProTier } from '@/lib/entitlements'
 import { Avatar, SafeBannerImg } from './Avatar'
 import { IconCrown, MoveGlyph, ToolIcon } from './icons'
-import { medalA, medalFor, PLATE_DOWN, PLATE_UP, type LeaderRow } from './types'
+import { medalA, medalFor, medalGlow, PLATE_DOWN, PLATE_UP, type LeaderRow } from './types'
 
 /** 4-point star used for the champion's ambient sparks. */
 function Spark({ size = 10, className = '', style }: { size?: number; className?: string; style?: React.CSSProperties }) {
@@ -120,19 +120,22 @@ function PodiumCard({
         <DefaultBanner rankRgb={medal.rgb} champion={champion} />
         {user.plate && (
           <>
+            {/* plate art is authored against the dark arena panel — an
+                opaque dark base (same guard as the standings rows) keeps
+                it from blending into the light DefaultBanner underneath */}
+            <span aria-hidden className="absolute inset-0" style={{ background: 'rgb(9 10 13)' }} />
             <PlateLayer plateId={user.plate} fade="none" />
             {/* melt-into-the-body scrim, confined to the bottom band: it
-                only has to seat the overlapping avatar, and any higher
-                start visibly washes the art toward white in light mode.
-                60% of the taller banner keeps the fade band at roughly the
-                same absolute height it had at 52% of the old one. */}
-            <span
-              aria-hidden
-              className="absolute inset-0"
-              style={{
-                background: `linear-gradient(180deg, transparent 60%, rgb(var(--lb-panel-bg) / 0.92))`
-              }}
-            />
+                only has to seat the overlapping avatar. Dark mode fades
+                the art into the panel body (60% of the taller banner keeps
+                the fade band at roughly the same absolute height it had at
+                52% of the old one); in light mode the panel is white and
+                that same fade washed the art toward white, so the seat
+                becomes a short dark vignette instead, capped by an ink
+                hairline where the art meets the card body — a framed
+                artwork window, not a fade-out. Themed via .pod-melt. */}
+            <span aria-hidden className="pod-melt absolute inset-0" />
+            <span aria-hidden className="pod-melt-sill absolute inset-x-0 bottom-0 h-px" />
           </>
         )}
         {user.banner_image && (
@@ -263,8 +266,8 @@ function PodiumCard({
           style={{
             color: 'rgb(var(--lb-score))',
             textShadow: champion
-              ? '0 0 20px rgb(var(--lb-score) / 0.65), 0 0 52px rgb(var(--lb-score) / 0.3), 0 0 90px rgb(var(--lb-score) / 0.16)'
-              : '0 0 16px rgb(var(--lb-score) / 0.45)'
+              ? '0 0 20px rgb(var(--lb-score) / calc(0.65 * var(--lb-glow, 1))), 0 0 52px rgb(var(--lb-score) / calc(0.3 * var(--lb-glow, 1))), 0 0 90px rgb(var(--lb-score) / calc(0.16 * var(--lb-glow, 1)))'
+              : '0 0 16px rgb(var(--lb-score) / calc(0.45 * var(--lb-glow, 1)))'
           }}
         >
           <AnimatedCounter
@@ -425,7 +428,7 @@ function CompactPodiumCard({
         className="mt-2 block text-[16px] leading-none tabular-nums [font-family:var(--font-pixel)]"
         style={{
           color: 'rgb(var(--lb-score))',
-          textShadow: '0 0 16px rgb(var(--lb-score) / 0.45)'
+          textShadow: '0 0 16px rgb(var(--lb-score) / calc(0.45 * var(--lb-glow, 1)))'
         }}
       >
         <AnimatedCounter
@@ -485,7 +488,7 @@ function Pedestal({ rank }: { rank: number }) {
         style={{
           fontSize: rank === 1 ? 40 : 22,
           color: medalA(medal.rgb, rank === 1 ? 0.5 : 0.35),
-          textShadow: `0 0 18px ${medalA(medal.rgb, 0.35)}`
+          textShadow: `0 0 18px ${medalGlow(medal.rgb, 0.35)}`
         }}
       >
         {rank}
@@ -606,6 +609,23 @@ export function Podium({
         .pod-card:focus-visible {
           outline: 2px solid rgb(var(--accent-rgb) / 0.7);
           outline-offset: 2px;
+        }
+
+        /* plate-banner seat — dark melts the art into the panel body;
+           light frames it instead (dark vignette + ink hairline), because
+           a white panel-bg melt washes the fixed dark art gray */
+        .pod-melt {
+          background: linear-gradient(180deg, transparent 60%, rgb(var(--lb-panel-bg) / 0.92));
+        }
+        .pod-melt-sill {
+          display: none;
+        }
+        html.light .pod-melt {
+          background: linear-gradient(180deg, transparent 58%, rgb(0 0 0 / 0.42));
+        }
+        html.light .pod-melt-sill {
+          display: block;
+          background: rgb(9 9 11 / 0.65);
         }
 
         /* champion aura — breathing gold field behind the center column */
