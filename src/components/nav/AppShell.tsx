@@ -13,6 +13,8 @@
 import type { ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
 import SpaceBackdrop from '@/components/SpaceBackdrop'
+import { BillboardRails } from '@/components/billboard/BillboardRails'
+import { BillboardTicker } from '@/components/billboard/BillboardTicker'
 import { AmbientGlow } from '@/components/dashboard-v3/AmbientGlow'
 import { GlassTilt } from '@/components/dashboard-v3/GlassTilt'
 import { AppNav } from './AppNav'
@@ -40,7 +42,15 @@ export function AppShell({ children }: { children: ReactNode }) {
             }}
           />
           <AppNav />
-          <div className="app-nav-inset relative z-10">{children}</div>
+          <div className="app-nav-inset relative z-10">
+            {/* first in-flow child so the banner pushes page content down;
+                self-gates by pathname (dashboard/leaderboard) + frequency cap */}
+            <BillboardTicker />
+            {/* fixed sponsor columns flanking the profile pages; self-gates
+                by pathname (profile routes) + ≥1440px viewports */}
+            <BillboardRails />
+            {children}
+          </div>
         </div>
       </NavStatusProvider>
     </NavPrefsProvider>

@@ -87,7 +87,7 @@ export function isPublicHostname(hostname: string): boolean {
   return true
 }
 
-interface ResolvedPublicAddress {
+export interface ResolvedPublicAddress {
   address: string
   family: 4 | 6
 }
@@ -97,7 +97,7 @@ interface ResolvedPublicAddress {
  * pin the HTTP request to a validated answer. Rejecting mixed DNS answers
  * and pinning closes DNS-rebinding/TOCTOU pivots.
  */
-async function resolvePublicAddress(target: URL): Promise<ResolvedPublicAddress | null> {
+export async function resolvePublicAddress(target: URL): Promise<ResolvedPublicAddress | null> {
   const hostname = target.hostname.replace(/^\[|\]$/g, '')
   if (!isPublicHostname(hostname)) return null
 

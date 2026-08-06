@@ -1750,10 +1750,40 @@ html.light .billboard-label {
   animation: billboard-flip-in 450ms var(--nav-ease);
 }
 
+/* Broadcast lower-third build-in: the title line rises and fades in
+   first, the text line follows 150ms behind. BillboardCard applies
+   these via its animateIn prop (the ticker's hype layer inlines the
+   same classes); CSS animations start when the classes land on fresh
+   DOM, so they play on each flip-in mount and on each solo replay
+   re-key. `backwards` keeps the delayed text line hidden until its
+   turn. Two identical keyframes so the lines can be tuned apart later. */
+@keyframes billboard-build-title {
+  from {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+}
+
+@keyframes billboard-build-text {
+  from {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+}
+
+.billboard-build-title {
+  animation: billboard-build-title 400ms var(--nav-ease) backwards;
+}
+
+.billboard-build-text {
+  animation: billboard-build-text 400ms var(--nav-ease) 150ms backwards;
+}
+
 /* Per-item countdown: scaleX 0 -> 1 over one hold. The duration comes
    from the component (--billboard-hold-ms) so the bar and the rotation
-   timer share HOLD_MS; keyed remounts restart it per item, and the
-   -run class only lands once the show is actually looping. */
+   timer share one cadence — HOLD_MS on multi-item shows, SOLO_REPLAY_MS
+   on solo ones; keyed remounts restart it per item (or per solo replay),
+   and the -run class only lands once the show is actually looping. */
 @keyframes billboard-progress {
   to {
     transform: scaleX(1);
@@ -1793,12 +1823,18 @@ html.light .billboard-progress-fill {
    never mounts a leaving layer or the progress bar, and its fallback
    timers cover the missing transitionend. The flip-out visibility guard
    keeps a mid-show OS toggle from freezing a half-flipped layer on top
-   of the active one. */
+   of the active one. Build-ins are off too, and BillboardTicker skips
+   the solo replay re-key entirely under reduced motion — with these
+   animations disabled a re-key would be invisible DOM churn (plus a
+   pointless <img> remount), so a solo item simply holds for the whole
+   show, as it did before replays existed. */
 @media (prefers-reduced-motion: reduce) {
   .billboard-slot {
     transition: none;
   }
   .billboard-flip-in,
+  .billboard-build-title,
+  .billboard-build-text,
   .billboard-live-dot,
   .billboard-progress-run {
     animation: none;
@@ -1806,6 +1842,189 @@ html.light .billboard-progress-fill {
   .billboard-flip-out {
     animation: none;
     visibility: hidden;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Billboard profile rails — the always-on sponsor columns flanking the
+   profile pages (BillboardRails.tsx). The component gates itself to
+   profile routes on ≥1440px viewports, so these rules never meet a
+   narrow screen; geometry plus the cards' entrance and idle motion live
+   here. The top offset clears the fixed top bar; in left-rail nav mode
+   (md+) the bar is gone, so the columns ride up and the LEFT column's
+   inset reads --nav-rail-w to track the rail's expand/collapse in
+   lockstep, like .app-nav-inset.
+--------------------------------------------------------------------------- */
+
+.billboard-rail-col {
+  top: calc(var(--nav-topbar-h) + 20px);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  transition: top 560ms var(--nav-ease);
+}
+
+.billboard-rail-col-left {
+  left: 16px;
+  transition: left 560ms var(--nav-ease), top 560ms var(--nav-ease);
+}
+
+.billboard-rail-col-right {
+  right: 16px;
+}
+
+@media (min-width: 768px) {
+  html[data-nav-pos='left'] .billboard-rail-col {
+    top: 24px;
+  }
+  html[data-nav-pos='left'] .billboard-rail-col-left {
+    left: calc(var(--nav-rail-w) + 20px);
+  }
+}
+
+/* Every slot cell — sold card or open-slot CTA — is one fixed,
+   monitor-derived size, so a column reads as a solid instrument panel
+   with no text-length variance. Width: 208px is the proven fit beside
+   the expanded 232px nav rail at the component's 1440px gate; the
+   11.5vw + 42px ramp only overtakes it past ~1443px, topping out at
+   264px on ~1930px monitors. Height: the top offset (--nav-topbar-h
+   + 20px — the top-bar mode's tighter budget; left-nav mode just
+   gains slack), three 18px gaps and ~24px of bottom breathing room
+   must fit in 100vh, so each cell takes a quarter of the remainder —
+   floored at 124px so stubby windows keep a legible card (the card's
+   overflow-hidden clips gracefully) and capped at 176px so tall
+   monitors don't stretch the cards into posters. */
+.billboard-rail-cell {
+  width: clamp(208px, 11.5vw + 42px, 264px);
+  height: clamp(124px, calc((100vh - var(--nav-topbar-h) - 20px - 54px - 24px) / 4), 176px);
+}
+
+/* The paid card fills its cell — same 0,1,0 specificity as CARD_RAIL's
+   w-52 but after @tailwind utilities, so 100% wins here while the
+   admin queue, status tracker and submit-form previews (which never
+   get this class) keep intrinsic sizing. `safe center` balances short
+   copy vertically in the fixed cell and falls back to top-aligned
+   when a full card meets the 124px floor (or the keyword is
+   unsupported), so overflow only ever clips the bottom line, never
+   the logo row. */
+.billboard-rail-card-fill {
+  width: 100%;
+  height: 100%;
+  justify-content: safe center;
+}
+
+/* Entrance: each slot cell fades up in turn — BillboardRails sets the
+   per-slot delay inline (100ms × index within its column), so both
+   columns cascade top to bottom. `backwards` keeps the delayed cards
+   invisible until their turn instead of flashing in early. */
+@keyframes billboard-rail-enter {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+}
+
+.billboard-rail-enter {
+  animation: billboard-rail-enter 400ms var(--nav-ease) backwards;
+}
+
+/* Idle life: the card's 3px top stripe breathes on a slow cycle so a
+   parked profile page doesn't read as frozen. Near-subliminal on
+   purpose — a slow exhale, not a blinking light. */
+@keyframes billboard-rail-breathe {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.billboard-rail-breathe {
+  animation: billboard-rail-breathe 7s ease-in-out infinite;
+}
+
+/* Vacant slot CTA (BillboardRails' open cells) — an empty hangar bay
+   in the dashboard's dossier language: four corner ticks over an
+   ultra-faint diagonal hatch instead of a bordered card, so open
+   space reads as open space. Hover swaps the tick ink to the
+   leaderboard gold (--lb-gold flips with the theme on its own) and
+   brightens the hatch a touch; html.light needs near-black ink since
+   the white-alpha strokes vanish on cream. */
+.billboard-rail-vacant {
+  --rail-vacant-ink: rgb(255 255 255 / 0.2);
+  --rail-vacant-hatch: rgb(255 255 255 / 0.035);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--rail-vacant-hatch) 0 1px,
+    transparent 1px 8px
+  );
+}
+
+html.light .billboard-rail-vacant {
+  --rail-vacant-ink: rgb(9 9 11 / 0.28);
+  --rail-vacant-hatch: rgb(9 9 11 / 0.05);
+}
+
+.billboard-rail-vacant:hover {
+  --rail-vacant-ink: rgb(var(--lb-gold) / 0.75);
+  --rail-vacant-hatch: rgb(255 255 255 / 0.055);
+}
+
+html.light .billboard-rail-vacant:hover {
+  --rail-vacant-hatch: rgb(9 9 11 / 0.08);
+}
+
+/* Corner brackets — the dash-frame technique (eight stacked
+   gradients, two 10px × 1px strokes per corner) floated just inside
+   the cell radius, idling on the same breathe cycle as the paid
+   cards' top stripes. */
+.billboard-rail-vacant::after {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--rail-vacant-ink), var(--rail-vacant-ink)),
+    linear-gradient(var(--rail-vacant-ink), var(--rail-vacant-ink)),
+    linear-gradient(var(--rail-vacant-ink), var(--rail-vacant-ink)),
+    linear-gradient(var(--rail-vacant-ink), var(--rail-vacant-ink)),
+    linear-gradient(var(--rail-vacant-ink), var(--rail-vacant-ink)),
+    linear-gradient(var(--rail-vacant-ink), var(--rail-vacant-ink)),
+    linear-gradient(var(--rail-vacant-ink), var(--rail-vacant-ink)),
+    linear-gradient(var(--rail-vacant-ink), var(--rail-vacant-ink));
+  background-size:
+    10px 1px, 1px 10px,
+    10px 1px, 1px 10px,
+    10px 1px, 1px 10px,
+    10px 1px, 1px 10px;
+  background-position:
+    0 0, 0 0,
+    100% 0, 100% 0,
+    0 100%, 0 100%,
+    100% 100%, 100% 100%;
+  background-repeat: no-repeat;
+  animation: billboard-rail-breathe 7s ease-in-out infinite;
+}
+
+/* The TAKE THIS SPACE arrow rides the same gold as the brackets. */
+.billboard-rail-vacant-arrow {
+  transition: color 150ms ease;
+}
+
+.billboard-rail-vacant:hover .billboard-rail-vacant-arrow {
+  color: rgb(var(--lb-gold) / 0.9);
+}
+
+/* Reduced motion: cards land instantly (the entrance's `backwards`
+   fill goes with the animation, so nothing starts hidden) and the
+   stripes and vacant-cell brackets hold steady. */
+@media (prefers-reduced-motion: reduce) {
+  .billboard-rail-col,
+  .billboard-rail-col-left {
+    transition: none;
+  }
+  .billboard-rail-enter,
+  .billboard-rail-breathe,
+  .billboard-rail-vacant::after {
+    animation: none;
   }
 }
 

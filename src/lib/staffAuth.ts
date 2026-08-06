@@ -35,6 +35,7 @@ export type StaffAction =
   | 'invite.manage'
   | 'season.manage'
   | 'team.review'
+  | 'billboard.review'
   | 'debug.manage'
 
 export function minRoleFor(action: StaffAction): StaffRole {
@@ -63,6 +64,10 @@ export function minRoleFor(action: StaffAction): StaffRole {
     // Team approval hands out the gold badge — the anti-impersonation
     // gate is an owner call, same as entitlements.
     case 'team.review':
+    // Billboard ads are paid placements shown to every visitor —
+    // approving copy and flipping paid/live state is an owner call,
+    // same as team review (payment is handled manually via Polar).
+    case 'billboard.review':
     case 'debug.manage':
       return 'owner'
     default: {

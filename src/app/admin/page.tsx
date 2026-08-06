@@ -198,6 +198,64 @@ function StaffSection() {
   )
 }
 
+function BillboardSection() {
+  const [counts, setCounts] = useState<{
+    queue: number
+    awaiting: number
+    live: number
+    maxLive: number
+  } | null>(null)
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    const load = async () => {
+      const res = await fetch('/api/admin/billboard', { credentials: 'include' })
+      const data = await res.json().catch(() => null)
+      setCounts(
+        res.ok && Array.isArray(data?.queue)
+          ? {
+              queue: data.queue.length,
+              awaiting: Array.isArray(data.awaiting) ? data.awaiting.length : 0,
+              live: Number(data.liveCount) || 0,
+              maxLive: Number(data.maxLive) || 0
+            }
+          : null
+      )
+      setLoaded(true)
+    }
+    load()
+  }, [])
+
+  return (
+    <section className="rounded-md border border-white/10 bg-zinc-950/80 p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-[10px] tracking-[0.25em] text-zinc-500">BILLBOARD</h2>
+        <Link
+          href="/admin/billboard"
+          className="text-[10px] tracking-[0.2em] text-zinc-500 hover:text-zinc-200 transition-colors"
+        >
+          REVIEW QUEUE →
+        </Link>
+      </div>
+      {!loaded ? (
+        <p className="text-xs text-zinc-600">Loading…</p>
+      ) : !counts ? (
+        <p className="text-xs text-zinc-600">Billboard stats unavailable.</p>
+      ) : (
+        <p className="text-xs text-zinc-400">
+          <span className={counts.queue > 0 ? 'text-amber-300' : undefined}>
+            {counts.queue} awaiting review
+          </span>
+          {' · '}
+          {counts.awaiting} awaiting payment
+          {' · '}
+          {counts.live}/{counts.maxLive} live
+        </p>
+      )}
+    </section>
+  )
+}
+
 function RecentActivitySection() {
   const [entries, setEntries] = useState<AuditRow[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -268,6 +326,9 @@ function AdminHome({ me }: { me: StaffMe }) {
       </div>
       <UserSearchSection />
       {me.role === 'owner' && <StaffSection />}
+      {/* Billboard review is owner-gated like team review — hiding the
+          card for moderators is cosmetic; the API still 403s. */}
+      {me.role === 'owner' && <BillboardSection />}
       <RecentActivitySection />
     </>
   )
