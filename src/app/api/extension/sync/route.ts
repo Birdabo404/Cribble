@@ -52,7 +52,12 @@ const syncRequestSchema = z.object({
   deviceUuid: z.string().uuid(),
   userId: z.number().int().positive().optional(),
   events: z.array(extensionEventSchema).max(200),
-  batchId: z.string().min(1)
+  batchId: z.string().min(1),
+  // IANA zone name sent by the dashboard handshake ("Europe/Berlin"),
+  // stored on user_devices as a coarse cohort dimension for aggregate
+  // insights. Length-capped and charset-checked so junk can't land in
+  // the column; anything malformed just fails validation of the field.
+  timezone: z.string().min(1).max(64).regex(/^[A-Za-z0-9_+/-]+$/).optional()
 })
 
 // Helper function to parse user agent
@@ -474,7 +479,7 @@ export async function POST(request: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ success: false, error: 'Invalid payload', details: parsed.error.flatten() }, { status: 400 })
     }
-    const { deviceUuid, userId: claimedUserId, events } = parsed.data
+    const { deviceUuid, userId: claimedUserId, events, timezone } = parsed.data
     const batchId = parsed.data.batchId
 
     // Look up the current device binding. maybeSingle() only reports an
@@ -589,6 +594,19 @@ export async function POST(request: NextRequest) {
           code: 'REGISTRATION_FAILED'
         }, { status: 500 })
       }
+
+      // Cohort dimension from the dashboard handshake. Best effort: a
+      // registration must not fail over an insights column (e.g. before
+      // migration 032 is applied).
+      if (timezone) {
+        const { error: timezoneError } = await supabase
+          .from('user_devices')
+          .update({ timezone })
+          .eq('device_uuid', deviceUuid)
+        if (timezoneError) {
+          console.warn('[Extension Sync] Failed to store device timezone:', timezoneError.message)
+        }
+      }
     }
 
     // Final gate: device must be active and bound to the resolved user
@@ -616,10 +634,19 @@ export async function POST(request: NextRequest) {
       }, { status: 500 })
     }
 
-    // Update device last sync time
+    // Update device last sync time. The country cohort dimension rides the
+    // same statement, refreshed on every sync: only the two-letter
+    // x-vercel-ip-country edge header is persisted — the IP is never stored.
+    const countryHeader = request.headers.get('x-vercel-ip-country')?.trim() ?? ''
+    const countryCode = /^[A-Z]{2}$/i.test(countryHeader)
+      ? countryHeader.toUpperCase()
+      : null
     await supabase
       .from('user_devices')
-      .update({ last_sync_at: new Date().toISOString() })
+      .update({
+        last_sync_at: new Date().toISOString(),
+        ...(countryCode ? { country_code: countryCode } : {})
+      })
       .eq('device_uuid', deviceUuid)
 
     // Recalculate scores with the same policy the dashboard uses, so the

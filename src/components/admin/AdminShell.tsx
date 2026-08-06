@@ -95,7 +95,7 @@ export function AdminShell({
             >
               {me.role.toUpperCase()}
             </span>
-            <nav className="ml-auto flex items-center gap-4">
+            <nav className="ml-auto flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
               <Link href="/admin" className={navLink}>
                 PANEL
               </Link>
@@ -104,6 +104,9 @@ export function AdminShell({
               </Link>
               <Link href="/admin/feedback" className={navLink}>
                 FEEDBACK
+              </Link>
+              <Link href="/admin/trends" className={navLink}>
+                TRENDS
               </Link>
               {/* Invites create accounts, seasons control everyone's
                   scores and team review hands out gold badges — owner-only,

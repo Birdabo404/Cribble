@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 }
 
 const CONTACT_EMAIL = 'hello@cribble.dev'
-const LAST_UPDATED = 'July 20, 2026'
+const LAST_UPDATED = 'August 4, 2026'
 
 export default function PrivacyPage() {
   return (
@@ -95,21 +95,42 @@ export default function PrivacyPage() {
               <CollectedItem text="Profile details you choose to add (role, goals, preferred tools)" />
               <CollectedItem text="Usage stats derived from extension data: scores, streaks, and ranks" />
               <CollectedItem text="Records linking your browser extension to your account" />
+              <CollectedItem text="Your browser's timezone and a two-letter country code, used as coarse context for aggregate trends" />
             </ul>
+            <p className="mt-5">
+              The timezone is reported by your browser. The country code is
+              derived from request metadata at the moment the extension
+              syncs — the IP address it comes from is never stored.
+            </p>
           </Section>
 
           <Section index={4} title="How your data is used">
             <p>
-              Usage data exists for one purpose: computing your scores,
-              streaks, and leaderboard positions. Leaderboards and profiles
-              are visible to other Cribble users, so your username, avatar,
-              and scores are public within the app.
+              Usage data exists first to compute your scores, streaks, and
+              leaderboard positions. Leaderboards and profiles are visible
+              to other Cribble users, so your username, avatar, and scores
+              are public within the app.
+            </p>
+            <p className="mt-4">
+              We may also publish aggregated, anonymized usage trends — for
+              example, total active minutes per AI tool across all users.
+              Aggregates are computed over minimum cohort sizes so they can
+              never identify an individual. Because a true aggregate
+              contains no individual data, aggregates computed before you
+              delete your account persist after it. If you would rather not
+              be counted at all, you can opt out of aggregate insights in
+              settings.
             </p>
             <p className="mt-4">
               We do not sell your data, show ads, or share your data with
               third parties, except for the infrastructure providers (hosting
               and database services) that process it on our behalf to run
               Cribble.
+            </p>
+            <p className="mt-4">
+              If Cribble is ever acquired or merged into another company,
+              your data transfers with it under the same commitments in this
+              policy.
             </p>
           </Section>
 
@@ -119,6 +140,12 @@ export default function PrivacyPage() {
               delete your account at any time from the in-app settings; this
               permanently removes your usage events, daily metrics, scores,
               linked devices, notifications, and sessions.
+            </p>
+            <p className="mt-4">
+              One carve-out: anonymized aggregates already computed under
+              Section 4 persist after deletion. They hold totals across many
+              users, no individual rows, and nothing that can be traced back
+              to you.
             </p>
             <p className="mt-4">
               Uninstalling the extension stops all collection immediately —

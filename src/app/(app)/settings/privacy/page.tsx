@@ -1,10 +1,12 @@
 'use client'
 
-// Privacy settings — the private-account toggle (is_private via GET/PATCH
-// /api/user/profile; the PATCH echoes only { success }, so the switch is
-// optimistic with revert-on-failure) plus static explainer rows covering
-// sign-in, telemetry and deletion, ported from the old PrivacyModal copy
-// in sentence case.
+// Privacy settings — the private-account and aggregate-insights toggles
+// (is_private / insights_opt_out via GET/PATCH /api/user/profile; the
+// PATCH echoes only { success }, so both switches are optimistic with
+// revert-on-failure) plus static explainer rows covering sign-in,
+// telemetry and deletion, ported from the old PrivacyModal copy in
+// sentence case. The insights switch reads positively (checked =
+// included), so it maps to the inverse of the stored opt-out flag.
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
@@ -35,12 +37,14 @@ const inlineLinkCls =
 
 export default function PrivacySettingsPage() {
   const [isPrivate, setIsPrivate] = useState<boolean | null>(null)
+  const [insightsIncluded, setInsightsIncluded] = useState<boolean | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     let cancelled = false
     setIsPrivate(null)
+    setInsightsIncluded(null)
     setLoadFailed(false)
 
     fetch('/api/user/profile', { cache: 'no-store', credentials: 'include' })
@@ -49,6 +53,7 @@ export default function PrivacySettingsPage() {
         if (cancelled) return
         if (data?.success && data.profile) {
           setIsPrivate(data.profile.is_private === true)
+          setInsightsIncluded(data.profile.insights_opt_out !== true)
         } else {
           setLoadFailed(true)
         }
@@ -83,6 +88,27 @@ export default function PrivacySettingsPage() {
     }
   }
 
+  const toggleInsights = async (value: boolean) => {
+    setInsightsIncluded(value)
+    try {
+      const res = await fetch('/api/user/profile', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ insights_opt_out: !value })
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.success) throw new Error('save failed')
+    } catch {
+      setInsightsIncluded(!value)
+      toast({
+        kind: 'error',
+        title: 'SAVE FAILED',
+        body: 'Could not update your aggregate insights preference. Try again.'
+      })
+    }
+  }
+
   const loading = isPrivate === null && !loadFailed
 
   return (
@@ -96,6 +122,18 @@ export default function PrivacySettingsPage() {
             description="Only followers can see your tools, badges, and achievements. Your rank stays visible on the leaderboard."
           >
             <Switch checked={isPrivate} onChange={togglePrivate} aria-label="Private account" />
+          </SettingsRow>
+        )}
+        {insightsIncluded !== null && (
+          <SettingsRow
+            label="Aggregate insights"
+            description="Count your activity in anonymized, aggregated usage trends — totals across many users, never your individual data. Turn off to be excluded."
+          >
+            <Switch
+              checked={insightsIncluded}
+              onChange={toggleInsights}
+              aria-label="Aggregate insights"
+            />
           </SettingsRow>
         )}
       </SettingsSection>

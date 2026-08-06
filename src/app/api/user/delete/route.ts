@@ -138,6 +138,8 @@ export async function DELETE(request: NextRequest) {
     // All of these cascade from the users delete in the live schema, but
     // explicit deletes make failures visible now (and cover databases built
     // from the repo migrations, where user_devices has no FK at all).
+    // daily_tool_aggregates is intentionally absent: true anonymized
+    // aggregates persist after deletion, per the privacy policy.
     const cascadeTargets: {
       table: string
       run: () => PromiseLike<{ error: { code?: string; message?: string } | null }>
@@ -149,6 +151,7 @@ export async function DELETE(request: NextRequest) {
       { table: 'leaderboard_ranks', run: () => supabase.from('leaderboard_ranks').delete().eq('user_id', userId) },
       { table: 'follows', run: () => supabase.from('follows').delete().or(`follower_id.eq.${userId},followee_id.eq.${userId}`) },
       { table: 'user_scores', run: () => supabase.from('user_scores').delete().eq('user_id', userId) },
+      { table: 'usage_sessions', run: () => supabase.from('usage_sessions').delete().eq('user_id', userId) },
       { table: 'user_sessions', run: () => supabase.from('user_sessions').delete().eq('user_id', userId) }
     ]
     for (const target of cascadeTargets) {

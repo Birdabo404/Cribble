@@ -128,6 +128,7 @@ export async function GET(request: NextRequest) {
         equipped_plate: str(meta.equipped_plate),
         role: isRoleId(user.user_type) ? user.user_type : null,
         is_private: meta.is_private === true,
+        insights_opt_out: meta.insights_opt_out === true,
         socials: {
           x: str(socials.x),
           github: str(socials.github),
@@ -150,6 +151,7 @@ interface ProfilePatchPayload {
   equipped_plate?: unknown
   role?: unknown
   is_private?: unknown
+  insights_opt_out?: unknown
   socials?: Record<string, unknown>
 }
 
@@ -248,6 +250,10 @@ export async function PATCH(request: NextRequest) {
     // Private mode: strict boolean — anything that isn't literal true
     // stores false, so a malformed payload can never lock an account.
     if ('is_private' in body) merged.is_private = body.is_private === true
+
+    // Aggregate-insights opt-out: same strict boolean — only literal true
+    // excludes the account from anonymized trend rollups.
+    if ('insights_opt_out' in body) merged.insights_opt_out = body.insights_opt_out === true
 
     if (body.socials && typeof body.socials === 'object') {
       const nextSocials: Record<string, unknown> = { ...currentSocials }

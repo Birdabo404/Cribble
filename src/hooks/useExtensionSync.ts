@@ -77,10 +77,23 @@ interface RegistrationResult {
   syncToken: string | null
 }
 
+// Coarse cohort dimension for aggregate insights. Guarded because some
+// embedders/browsers throw on Intl access; registration must never fail
+// over a missing timezone.
+function detectTimezone(): string | null {
+  try {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    return typeof timezone === 'string' && timezone.length > 0 ? timezone : null
+  } catch {
+    return null
+  }
+}
+
 async function registerDeviceWithBackend(
   userId: number,
   deviceUuid: string
 ): Promise<RegistrationResult> {
+  const timezone = detectTimezone()
   const res = await fetch('/api/extension/sync', {
     method: 'POST',
     credentials: 'include',
@@ -89,7 +102,8 @@ async function registerDeviceWithBackend(
       deviceUuid,
       userId,
       events: [],
-      batchId: crypto.randomUUID()
+      batchId: crypto.randomUUID(),
+      ...(timezone ? { timezone } : {})
     })
   })
   if (!res.ok) return { ok: false, syncToken: null }
