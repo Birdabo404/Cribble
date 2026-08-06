@@ -50,6 +50,7 @@ Desktop.ini
 # Tooling
 .claude/
 .cursor/
+.cursor-artifacts/
 .eslintcache
 .vercel
 

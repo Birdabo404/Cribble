@@ -27,11 +27,9 @@ export const dynamic = 'force-dynamic'
 const supabase = createServiceClient()
 
 function secretMatches(supplied: string | null): boolean {
-  // Read at request time, NOT via @/lib/env: that module validates the
-  // whole env eagerly at import, which detonates during Next's page-data
-  // collection (production NODE_ENV, no NEXT_PHASE) and would also make
-  // every build/boot hard-require CRON_SECRET. Absent secret here means
-  // the endpoint stays locked (401), never a build failure.
+  // Read at request time so Next's page-data collection and every build/boot
+  // do not hard-require CRON_SECRET. An absent secret keeps the endpoint
+  // locked (401), never a build failure.
   const expected =
     process.env.CRON_SECRET ??
     (process.env.NODE_ENV !== 'production' ? 'dev-cron-secret' : null)

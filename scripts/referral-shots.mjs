@@ -1,5 +1,5 @@
 // Throwaway CDP harness for the profile ReferralPlate: authenticates with a
-// pre-minted cribble_session cookie, mocks GET /api/user/referral at the
+// cribble_session cookie supplied via SESSION_TOKEN, mocks GET /api/user/referral at the
 // network layer (the backend may not exist yet), and captures the plate +
 // modal across themes/viewports plus animation frames to scripts/shots-referral.
 //
@@ -9,8 +9,7 @@
 //   base-url  default http://localhost:3000
 //
 // Env:
-//   SESSION_TOKEN  cribble_session value (default: the QA token minted for
-//                  this visual pass — see user_sessions row for user 13)
+//   SESSION_TOKEN  required cribble_session value
 //   PROFILE_PATH   profile page to visit (default /u/Birdabo404)
 //   MOCK=0         disable the referral API mock (use the real endpoint)
 //
@@ -24,7 +23,11 @@ const LABEL = process.argv[2] || 'shot'
 const BASE = process.argv[3] || 'http://localhost:3000'
 const PORT = 9231
 const OUT = new URL('./shots-referral/', import.meta.url).pathname
-const SESSION = process.env.SESSION_TOKEN || 'a3f6d2e8-referral-qa-7c1b-visual-pass'
+const SESSION = process.env.SESSION_TOKEN
+if (!SESSION) {
+  console.error('SESSION_TOKEN is required. Supply it explicitly to run referral-shots.mjs.')
+  process.exit(1)
+}
 const PROFILE = process.env.PROFILE_PATH || '/u/Birdabo404'
 const MOCK = process.env.MOCK !== '0'
 
@@ -134,7 +137,7 @@ async function main() {
   await cdp.send('Runtime.enable')
   await cdp.send('Network.enable')
 
-  // ---- auth cookie (session minted directly in user_sessions) ----
+  // ---- auth cookie ----
   await cdp.send('Network.setCookie', {
     name: 'cribble_session',
     value: SESSION,

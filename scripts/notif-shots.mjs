@@ -1,5 +1,5 @@
 // Throwaway CDP harness for the NotificationBell comms console: authenticates
-// with a pre-minted cribble_session cookie, mocks GET /api/user/notifications
+// with a cribble_session cookie supplied via SESSION_TOKEN, mocks GET /api/user/notifications
 // at the network layer, and captures the panel across nav placements, themes,
 // viewports and states to scripts/shots-notif.
 //
@@ -9,8 +9,7 @@
 //   base-url  default http://localhost:3000
 //
 // Env:
-//   SESSION_TOKEN  cribble_session value (default: the QA token minted for
-//                  visual passes — see user_sessions row for user 13)
+//   SESSION_TOKEN  required cribble_session value
 //   PAGE_PATH      page to visit (default /u/Birdabo404)
 //
 // Spawns its own headless browser on port 9232 and kills it when done.
@@ -23,7 +22,11 @@ const LABEL = process.argv[2] || 'shot'
 const BASE = process.argv[3] || 'http://localhost:3000'
 const PORT = 9232
 const OUT = new URL('./shots-notif/', import.meta.url).pathname
-const SESSION = process.env.SESSION_TOKEN || 'a3f6d2e8-referral-qa-7c1b-visual-pass'
+const SESSION = process.env.SESSION_TOKEN
+if (!SESSION) {
+  console.error('SESSION_TOKEN is required. Supply it explicitly to run notif-shots.mjs.')
+  process.exit(1)
+}
 const PAGE = process.env.PAGE_PATH || '/u/Birdabo404'
 
 const BROWSER = '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'

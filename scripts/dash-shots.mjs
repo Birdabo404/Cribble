@@ -1,5 +1,5 @@
 // Throwaway CDP harness for the /dashboard duotone instrument redesign:
-// authenticates with a pre-minted cribble_session cookie, mocks every
+// authenticates with a cribble_session cookie supplied via SESSION_TOKEN, mocks every
 // dashboard API at the network layer with rich fixtures, and captures the
 // console across themes, viewports, hover and reduced-motion states to
 // scripts/shots-dash.
@@ -10,8 +10,7 @@
 //   base-url  default http://localhost:3000
 //
 // Env:
-//   SESSION_TOKEN  cribble_session value (default: the QA token minted for
-//                  visual passes — see user_sessions row for user 13)
+//   SESSION_TOKEN  required cribble_session value
 //
 // Spawns its own headless browser on port 9233 and kills it when done.
 
@@ -23,7 +22,11 @@ const LABEL = process.argv[2] || 'shot'
 const BASE = process.argv[3] || 'http://localhost:3000'
 const PORT = 9233
 const OUT = new URL('./shots-dash/', import.meta.url).pathname
-const SESSION = process.env.SESSION_TOKEN || 'a3f6d2e8-referral-qa-7c1b-visual-pass'
+const SESSION = process.env.SESSION_TOKEN
+if (!SESSION) {
+  console.error('SESSION_TOKEN is required. Supply it explicitly to run dash-shots.mjs.')
+  process.exit(1)
+}
 const PAGE = '/dashboard'
 
 const BROWSER = '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'

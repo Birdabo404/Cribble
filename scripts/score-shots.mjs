@@ -1,9 +1,12 @@
 // Throwaway CDP harness for the lime score-numeral pass: authenticates with
-// the pre-minted cribble_session QA cookie and captures the leaderboard
+// a cribble_session QA cookie supplied via SESSION_TOKEN and captures the leaderboard
 // (dark + light, podium + rows + stat bar) and the landing arena preview
 // into scripts/shots-score.
 //
 //   node scripts/score-shots.mjs [label] [base-url]
+//
+// Env:
+//   SESSION_TOKEN  required cribble_session value
 
 import fs from 'node:fs'
 import http from 'node:http'
@@ -13,7 +16,11 @@ const LABEL = process.argv[2] || 'shot'
 const BASE = process.argv[3] || 'http://localhost:3000'
 const PORT = 9233
 const OUT = new URL('./shots-score/', import.meta.url).pathname
-const SESSION = process.env.SESSION_TOKEN || 'a3f6d2e8-referral-qa-7c1b-visual-pass'
+const SESSION = process.env.SESSION_TOKEN
+if (!SESSION) {
+  console.error('SESSION_TOKEN is required. Supply it explicitly to run score-shots.mjs.')
+  process.exit(1)
+}
 
 const BROWSER = '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'
 

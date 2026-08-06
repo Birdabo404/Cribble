@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 
 /** Canonical public origin — mirrors the NEXT_PUBLIC_DOMAIN fallback in
- *  src/lib/env.ts and middleware.ts. */
+ *  middleware.ts. */
 const PRODUCTION_ORIGIN = 'https://cribble.dev'
 
 function isLocalOrigin(origin: string): boolean {
