@@ -28,13 +28,20 @@ import { BuyChip, OwnedChip, PriceTag } from './chips'
  * hand center-out like held cards. Center-out stacking means each wing
  * card is overlapped on its center-facing edge, so labels anchor to the
  * outward edge (`labelEnd` on the right wing) to stay clear of the
- * neighbor on top. */
+ * neighbor on top.
+ *
+ * The entrance deals the hand from a squared deck at center: `fi` is the
+ * slot's pitch count to center (deck `translateX` = fi × slot pitch, so
+ * it survives every width breakpoint), `srot` the deck's held-cards
+ * rotation jitter, `dstag` the outward ripple delay per ring. Symmetry
+ * again keeps mobile honest — with the outer pair hidden the middle
+ * three read `fi` 1/0/-1 and deal as a 3-card hand. */
 const FAN_SLOTS = [
-  { rot: '-13deg', ty: '26px', z: 1, labelEnd: false },
-  { rot: '-6.5deg', ty: '10px', z: 2, labelEnd: false },
-  { rot: '0deg', ty: '0px', z: 3, labelEnd: false },
-  { rot: '6.5deg', ty: '10px', z: 2, labelEnd: true },
-  { rot: '13deg', ty: '26px', z: 1, labelEnd: true }
+  { rot: '-13deg', ty: '26px', z: 1, labelEnd: false, fi: 2, srot: '-3deg', dstag: '110ms' },
+  { rot: '-6.5deg', ty: '10px', z: 2, labelEnd: false, fi: 1, srot: '2deg', dstag: '55ms' },
+  { rot: '0deg', ty: '0px', z: 3, labelEnd: false, fi: 0, srot: '0deg', dstag: '0ms' },
+  { rot: '6.5deg', ty: '10px', z: 2, labelEnd: true, fi: -1, srot: '-2deg', dstag: '55ms' },
+  { rot: '13deg', ty: '26px', z: 1, labelEnd: true, fi: -2, srot: '3deg', dstag: '110ms' }
 ] as const
 
 /** The anchor targets live inside horizontal scroll-snap shelves, so the
@@ -107,8 +114,9 @@ export function MarqueeFan({
 
         /* fan card — a held-hand spread: per-card --rot/--ty/--z from the
            slot config, transform-origin at the hand's pivot. margin-inline
-           overlaps neighbors symmetrically, so hiding the outer pair on
-           mobile can't skew the centering.
+           (via --mi, which the deck-deal entrance below also needs) overlaps
+           neighbors symmetrically, so hiding the outer pair on mobile can't
+           skew the centering.
 
            will-change pre-promotes exactly these 5 cards to compositor
            layers: the hover transform (lift + scale) otherwise created the
@@ -117,7 +125,12 @@ export function MarqueeFan({
            contain is layout+style, NOT paint: paint containment would clip
            the glow pseudos exactly like overflow: hidden. */
         .shpm-card {
-          margin-inline: -12px;
+          --mi: -12px;
+          /* deck pose: pull this card --fi slot-pitches toward center. The
+             translateX percentage is the card's own width, so pitch =
+             100% + 2 × margin — correct at every width breakpoint. */
+          --stack-x: calc(var(--fi, 0) * (100% + var(--mi) * 2));
+          margin-inline: var(--mi);
           background: rgb(9 10 13);
           border: 1px solid rgb(var(--tile-accent) / 0.5);
           z-index: var(--z, 1);
@@ -129,10 +142,28 @@ export function MarqueeFan({
           transition:
             transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
             border-color 320ms cubic-bezier(0.22, 1, 0.36, 1);
+          /* deck-deal entrance — one-shot, transform-only, zero steady-state
+             cost. backwards fill holds the squared deck through the delay
+             (the page reveal fades it in), then center settles first and the
+             wings ripple outward (--dstag per ring) with a slight spring
+             overshoot. The 'to' pose == the static transform above, so the
+             animation releases into the resting fan with no snap and hover
+             transitions take over untouched. */
+          animation: shpm-deal 700ms cubic-bezier(0.3, 1.35, 0.35, 1) backwards;
+          animation-delay: calc(480ms + var(--dstag, 0ms));
         }
         @media (min-width: 1024px) {
           .shpm-card {
-            margin-inline: -14px;
+            --mi: -14px;
+          }
+        }
+        @keyframes shpm-deal {
+          from {
+            transform: translateX(var(--stack-x)) translateY(16px)
+              rotate(var(--srot, 0deg)) scale(0.97);
+          }
+          to {
+            transform: translateY(var(--ty)) rotate(var(--rot));
           }
         }
 
@@ -220,17 +251,28 @@ export function MarqueeFan({
           color: rgb(var(--tile-accent) / 0.9);
         }
 
+        /* reduced motion: the deal needs an explicit animation: none — the
+           global data-motion kill-switch caps animation-duration but NOT
+           animation-delay, which would leave a frozen deck (backwards fill)
+           for 480ms and then a snap. Opted out here, the fan simply renders
+           open. */
         @media (prefers-reduced-motion: reduce) {
           .shpm-card,
           .shpm-card::before,
           .shpm-card::after {
             transition: none;
           }
+          .shpm-card {
+            animation: none;
+          }
         }
         html[data-motion='reduced'] .shpm-card,
         html[data-motion='reduced'] .shpm-card::before,
         html[data-motion='reduced'] .shpm-card::after {
           transition: none;
+        }
+        html[data-motion='reduced'] .shpm-card {
+          animation: none;
         }
       `}</style>
     </nav>
@@ -277,7 +319,10 @@ function FanCard({
         ['--tile-accent' as string]: accent,
         ['--rot' as string]: slot.rot,
         ['--ty' as string]: slot.ty,
-        ['--z' as string]: slot.z
+        ['--z' as string]: slot.z,
+        ['--fi' as string]: slot.fi,
+        ['--srot' as string]: slot.srot,
+        ['--dstag' as string]: slot.dstag
       }}
     >
       {/* rounded clip for the art — the root itself must stay
