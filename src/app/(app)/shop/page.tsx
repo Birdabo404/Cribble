@@ -39,6 +39,7 @@ import { ReserveCard } from '@/components/shop/ReserveCard'
 import { Shelf } from '@/components/shop/Shelf'
 import { toast } from '@/components/Toaster'
 import { requestNotificationsRefresh } from '@/hooks/useNotifications'
+import { BILLBOARD_PRICE_CENTS, BILLBOARD_RAIL_PRICE_CENTS } from '@/lib/billboard'
 
 /* ================= cosmetics state ================= */
 
@@ -286,6 +287,44 @@ function TeamPointerBand({ loading, isTeam }: { loading: boolean; isTeam: boolea
   )
 }
 
+/* ================= Billboard pointer ================= */
+
+/** Billboard sells sponsor slots from its own page (/billboard) — the
+ * shop carries a slim neutral pointer band beside the Team one. No
+ * tier-gated variant: slots are bought with dollars, not tiers, so
+ * everyone gets the same door. Neutral panel-edge ink, not gold — gold
+ * is reserved for the Team band. */
+function BillboardPointerBand() {
+  return (
+    <Link
+      href="/billboard#pitch"
+      className="shp-billband group flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl px-4 py-3"
+    >
+      <span
+        className="shrink-0 rounded px-2 py-1 text-[9px] leading-none tracking-[0.3em] [font-family:var(--font-pixel)]"
+        style={{
+          color: 'rgb(var(--lb-panel-edge) / 0.85)',
+          border: '1px solid rgb(var(--lb-panel-edge) / 0.3)',
+          background: 'rgb(var(--lb-panel-edge) / 0.05)',
+          textShadow: '0 0 10px rgb(var(--lb-panel-edge) / 0.35)'
+        }}
+      >
+        BILLBOARD
+      </span>
+      <span className="min-w-0 flex-1 basis-40 text-[11px] leading-relaxed text-zinc-400">
+        Your logo on the board — flipper ads from ${BILLBOARD_PRICE_CENTS / 100}/wk,
+        profile rails ${BILLBOARD_RAIL_PRICE_CENTS / 100}/wk.
+      </span>
+      <span className="inline-flex shrink-0 items-center gap-1.5 text-[9px] tracking-[0.3em] text-zinc-200">
+        GET A SLOT{' '}
+        <span aria-hidden className="transition-transform group-hover:translate-x-0.5">
+          →
+        </span>
+      </span>
+    </Link>
+  )
+}
+
 /* ================= the depot ================= */
 
 function ShopDepot() {
@@ -509,6 +548,11 @@ function ShopDepot() {
         {/* ---------- Cribble Team — sold from /teams now ---------- */}
         <section className="shp-reveal" style={{ ['--rv' as string]: '160ms' }}>
           <TeamPointerBand loading={loading} isTeam={isTeam} />
+        </section>
+
+        {/* ---------- Billboard — sponsor slots, sold from /billboard ---------- */}
+        <section className="shp-reveal" style={{ ['--rv' as string]: '180ms' }}>
+          <BillboardPointerBand />
         </section>
 
         {/* ---------- The Reserve — mythic class, shelf in the band ---------- */}
@@ -763,6 +807,38 @@ function ShopDepot() {
           opacity: 1;
         }
 
+        /* Billboard pointer band — the Team band's neutral sibling: same
+           pre-painted hover-glow pseudo, keyed to the panel-edge ink
+           instead of gold so the two monetization bands don't compete. */
+        .shp-billband {
+          position: relative;
+          isolation: isolate;
+          border: 1px solid rgb(var(--lb-panel-edge) / 0.14);
+          background:
+            linear-gradient(90deg, rgb(var(--lb-panel-edge) / 0.04), rgb(var(--lb-panel-edge) / 0.01) 55%, transparent),
+            rgb(var(--lb-panel-bg));
+          transition: border-color 220ms ease;
+        }
+        .shp-billband::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+          box-shadow: 0 0 30px -12px rgb(var(--lb-panel-edge) / 0.3);
+          opacity: 0;
+          transition: opacity 220ms ease;
+          pointer-events: none;
+          z-index: -1;
+        }
+        a.shp-billband:hover,
+        a.shp-billband:focus-visible {
+          border-color: rgb(var(--lb-panel-edge) / 0.32);
+        }
+        a.shp-billband:hover::after,
+        a.shp-billband:focus-visible::after {
+          opacity: 1;
+        }
+
         /* ---- animation stage budget --------------------------------- */
 
         /* Cards flip data-offstage via the shared IntersectionObserver in
@@ -798,7 +874,8 @@ function ShopDepot() {
         [data-perf='low'] .shpc-buy::after,
         [data-perf='low'] .shpp-go::before,
         [data-perf='low'] .shpg-founder::after,
-        [data-perf='low'] .shp-teamband::after {
+        [data-perf='low'] .shp-teamband::after,
+        [data-perf='low'] .shp-billband::after {
           display: none;
         }
         /* the fan's rest shadow lives on ::before (static paint — keep
