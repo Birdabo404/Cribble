@@ -10,13 +10,14 @@
 // own editor (BannerStudioModal) so GIF hunting never convolutes this
 // form.
 //
-// Layout system, deliberately small: four sections (IDENTITY / BASE /
-// COMMS / COSMETICS) with the same `// HEADER` treatment as the profile
-// page cards; exactly three type sizes (10px section, 9px label, 12px
-// control); one 36px control height shared by inputs, status chips, and
-// footer buttons. Social inputs carry their brand mark.
+// Layout system, deliberately small: one flat column of compact rows in
+// a max-w-2xl glass panel — two-up grids where natural — sized to fit
+// typical viewports without scrolling. Sans type on the settings-kit
+// scale (13px medium labels, 12px muted hints, 14px controls at 36px),
+// and strictly monochrome chrome: selection, focus, and the privacy
+// toggle all speak zinc/white — the site's green stays out of here.
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { PlatePreview } from '@/components/cosmetics/PlateLayer'
 import { SocialIcon, type SocialKind } from '@/components/leaderboard/icons'
@@ -43,14 +44,17 @@ interface CosmeticsInfo {
 }
 
 const SOCIAL_FIELDS: { kind: SocialKind; label: string; placeholder: string }[] = [
-  { kind: 'x', label: 'X / TWITTER', placeholder: '@handle' },
-  { kind: 'github', label: 'GITHUB', placeholder: 'username' },
-  { kind: 'youtube', label: 'YOUTUBE', placeholder: '@channel' },
-  { kind: 'linkedin', label: 'LINKEDIN', placeholder: 'username' }
+  { kind: 'x', label: 'X / Twitter', placeholder: '@handle' },
+  { kind: 'github', label: 'GitHub', placeholder: 'username' },
+  { kind: 'youtube', label: 'YouTube', placeholder: '@channel' },
+  { kind: 'linkedin', label: 'LinkedIn', placeholder: 'username' }
 ]
 
+const labelCls = 'text-[13px] font-medium leading-5 text-zinc-200'
+const hintCls = 'text-xs leading-5 text-zinc-500'
+
 const inputCls =
-  'h-9 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 text-xs text-zinc-100 placeholder:text-zinc-600 transition-colors focus:border-accent/50 focus:bg-white/[0.05] focus:outline-none'
+  'h-9 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 text-sm text-zinc-100 placeholder:text-zinc-600 transition-colors focus:border-zinc-400 focus:bg-white/[0.05] focus:outline-none'
 
 export function EditProfileModal({
   initial,
@@ -152,22 +156,19 @@ export function EditProfileModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center p-4 font-mono"
+      className="fixed inset-0 z-[80] flex items-center justify-center p-4 font-sans"
       role="dialog"
       aria-modal="true"
       aria-label="Edit profile"
     >
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} aria-hidden />
       <div
-        className="relative flex max-h-[calc(100vh-3rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl glass-pop"
+        className="relative flex max-h-[calc(100vh-3rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl glass-pop"
         style={{ animation: 'glass-modal-in 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards' }}
       >
         {/* ---------- header ---------- */}
-        <div className="flex items-center justify-between border-b border-white/[0.08] px-5 py-3.5">
-          <div className="flex items-center gap-2.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_8px_rgb(var(--accent-rgb)/0.7)]" />
-            <span className="text-[10px] tracking-[0.4em] text-zinc-200">EDIT PROFILE</span>
-          </div>
+        <div className="flex items-center justify-between border-b border-white/[0.08] px-5 py-3">
+          <h2 className="text-sm font-semibold tracking-tight text-zinc-100">Edit profile</h2>
           <button
             onClick={onClose}
             className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-zinc-200"
@@ -183,226 +184,214 @@ export function EditProfileModal({
         </div>
 
         {/* ---------- body ---------- */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          <Section title="IDENTITY" first>
-            <Field label="BIO" hint={`${form.bio.length}/${BIO_MAX}`}>
-              <textarea
-                value={form.bio}
-                onChange={(e) => set({ bio: e.target.value.slice(0, BIO_MAX) })}
-                rows={3}
-                placeholder="Who are you? What are you building?"
-                className={`${inputCls} h-auto resize-none py-2.5 leading-relaxed`}
-              />
-            </Field>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          {/* bio */}
+          <label className="block">
+            <span className="flex items-baseline justify-between">
+              <span className={labelCls}>Bio</span>
+              <span className="text-[11.5px] tabular-nums text-zinc-500">
+                {form.bio.length}/{BIO_MAX}
+              </span>
+            </span>
+            <textarea
+              value={form.bio}
+              onChange={(e) => set({ bio: e.target.value.slice(0, BIO_MAX) })}
+              rows={3}
+              placeholder="Who are you? What are you building?"
+              className={`${inputCls} mt-1.5 h-auto resize-none py-2 leading-5`}
+            />
+          </label>
 
-            {/* role picker is button-based, so no <label> wrapper — a label
-                would re-dispatch clicks to its first button */}
-            <div role="group" aria-label="Status">
-              <div className="flex items-baseline justify-between">
-                <span className="text-[9px] tracking-[0.3em] text-zinc-500">STATUS</span>
-                <span className="text-[9px] tracking-[0.15em] text-zinc-600">SHOWN ON YOUR PROFILE</span>
+          {/* status — button-based picker, so no <label> wrapper: a label
+              would re-dispatch clicks to its first button */}
+          <div role="group" aria-label="Status">
+            <div className="flex items-baseline justify-between">
+              <span className={labelCls}>Status</span>
+              <span className={hintCls}>Shown on your profile</span>
+            </div>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {ROLE_OPTIONS.map((r) => {
+                const Icon = ROLE_ICONS[r.id]
+                const selected = form.role === r.id
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => set({ role: selected ? null : r.id })}
+                    aria-pressed={selected}
+                    title={r.hint}
+                    className={`flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] transition-colors ${
+                      selected
+                        ? 'border-zinc-200 bg-zinc-100/10 text-zinc-50'
+                        : 'border-white/10 bg-white/[0.02] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'
+                    }`}
+                  >
+                    {Icon && <Icon size={13} className={selected ? 'text-zinc-100' : 'text-zinc-500'} />}
+                    {r.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* location | website */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className={`block ${labelCls}`}>Location</span>
+              <input
+                value={form.location}
+                onChange={(e) => set({ location: e.target.value.slice(0, 30) })}
+                placeholder="City, Country"
+                className={`${inputCls} mt-1.5`}
+              />
+            </label>
+            <label className="block">
+              <span className={`block ${labelCls}`}>Website</span>
+              <input
+                value={form.website}
+                onChange={(e) => set({ website: e.target.value.slice(0, 100) })}
+                placeholder="https://yoursite.dev"
+                className={`${inputCls} mt-1.5`}
+              />
+            </label>
+          </div>
+
+          {/* social links — one group label; each input carries its brand
+              mark and keeps an aria-label since the visible label is shared */}
+          <div>
+            <span className={`block ${labelCls}`}>Social links</span>
+            <div className="mt-1.5 grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
+              {SOCIAL_FIELDS.map(({ kind, label, placeholder }) => (
+                <span key={kind} className="relative block">
+                  <SocialIcon
+                    kind={kind}
+                    size={13}
+                    className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 transition-colors ${
+                      form.socials[kind] ? 'text-zinc-300' : 'text-zinc-600'
+                    }`}
+                  />
+                  <input
+                    value={form.socials[kind]}
+                    onChange={(e) => setSocial(kind, e.target.value)}
+                    placeholder={placeholder}
+                    aria-label={label}
+                    className={`${inputCls} pl-9`}
+                  />
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* private account */}
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2.5">
+            <div className="min-w-0">
+              <div className={labelCls}>Private account</div>
+              <p className="mt-0.5 text-xs leading-4 text-zinc-500">
+                Only your followers can see your top tools and service record.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={form.is_private}
+              aria-label="Private account"
+              onClick={() => set({ is_private: !form.is_private })}
+              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors duration-150 ease-out ${
+                form.is_private
+                  ? 'border-zinc-100 bg-zinc-100'
+                  : 'border-zinc-700 bg-white/[0.04]'
+              }`}
+            >
+              <span
+                aria-hidden
+                className={`pointer-events-none block h-4 w-4 rounded-full transition-transform duration-150 ease-out ${
+                  form.is_private
+                    ? 'translate-x-[17px] bg-zinc-950'
+                    : 'translate-x-[1px] bg-zinc-500'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* leaderboard plate — button-based picker, same no-<label>
+              reasoning as the status picker above */}
+          <div role="group" aria-label="Leaderboard plate">
+            <div className="flex items-baseline justify-between">
+              <span className={labelCls}>Leaderboard plate</span>
+              <span className={hintCls}>Shown on the board</span>
+            </div>
+
+            {cosmetics === 'loading' ? (
+              <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div className="aspect-[4/1] animate-pulse rounded-xl bg-white/[0.04]" />
+                <div className="aspect-[4/1] animate-pulse rounded-xl bg-white/[0.04]" />
+                <div className="aspect-[4/1] animate-pulse rounded-xl bg-white/[0.04]" />
               </div>
-              <div className="mt-1.5 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-                {ROLE_OPTIONS.map((r) => {
-                  const Icon = ROLE_ICONS[r.id]
-                  const selected = form.role === r.id
+            ) : usablePlates.length === 0 ? (
+              <a
+                href="/shop"
+                className="mt-1.5 flex items-center justify-between gap-3 rounded-lg border border-dashed border-white/[0.08] bg-white/[0.02] px-3 py-2.5 text-xs text-zinc-500 transition-colors hover:border-zinc-500 hover:text-zinc-300"
+              >
+                {cosmetics === 'error' ? 'Plates are unavailable right now.' : 'No plates yet.'}
+                <span className="shrink-0 text-zinc-400">Get plates in the shop →</span>
+              </a>
+            ) : (
+              <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={() => set({ equipped_plate: null })}
+                  aria-pressed={form.equipped_plate === null}
+                  className={`flex aspect-[4/1] w-full items-center justify-center rounded-xl border text-xs font-medium transition-colors ${
+                    form.equipped_plate === null
+                      ? 'border-zinc-200 bg-zinc-100/10 text-zinc-50'
+                      : 'border-white/10 bg-white/[0.02] text-zinc-500 hover:border-zinc-600 hover:text-zinc-200'
+                  }`}
+                >
+                  None
+                </button>
+                {usablePlates.map((plate) => {
+                  const selected = form.equipped_plate === plate.id
                   return (
                     <button
-                      key={r.id}
+                      key={plate.id}
                       type="button"
-                      onClick={() => set({ role: selected ? null : r.id })}
+                      onClick={() => set({ equipped_plate: selected ? null : plate.id })}
                       aria-pressed={selected}
-                      title={r.hint}
-                      className={`flex h-9 items-center justify-center gap-1.5 rounded-lg border text-[11px] transition-colors ${
+                      title={plate.tagline}
+                      className={`relative overflow-hidden rounded-xl transition-shadow ${
                         selected
-                          ? 'border-accent/60 bg-accent/10 text-zinc-50'
-                          : 'border-white/[0.08] bg-white/[0.02] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'
+                          ? 'ring-2 ring-zinc-200'
+                          : 'ring-1 ring-white/[0.06] hover:ring-zinc-600'
                       }`}
                     >
-                      {Icon && <Icon size={12} className={selected ? 'text-accent' : 'text-zinc-500'} />}
-                      {r.label}
+                      <PlatePreview plateId={plate.id} />
                     </button>
                   )
                 })}
               </div>
-            </div>
-          </Section>
-
-          <Section title="BASE">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="LOCATION">
-                <input
-                  value={form.location}
-                  onChange={(e) => set({ location: e.target.value.slice(0, 30) })}
-                  placeholder="Sector 7, Earth"
-                  className={inputCls}
-                />
-              </Field>
-              <Field label="WEBSITE">
-                <input
-                  value={form.website}
-                  onChange={(e) => set({ website: e.target.value.slice(0, 100) })}
-                  placeholder="https://yoursite.dev"
-                  className={inputCls}
-                />
-              </Field>
-            </div>
-
-            <div className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2.5">
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5 text-[9px] tracking-[0.3em] text-zinc-300">
-                  <svg
-                    viewBox="0 0 24 24"
-                    width={10}
-                    height={10}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={1.9}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="text-zinc-500"
-                    aria-hidden
-                  >
-                    <rect width="18" height="11" x="3" y="11" rx="2" />
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                  </svg>
-                  PRIVATE ACCOUNT
-                </div>
-                <p className="mt-1 text-[10px] leading-relaxed text-zinc-600">
-                  Only your followers can see your top tools and service record.
-                </p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={form.is_private}
-                aria-label="Private account"
-                onClick={() => set({ is_private: !form.is_private })}
-                className={`relative h-5 w-9 shrink-0 rounded-full border transition-colors ${
-                  form.is_private
-                    ? 'border-accent/60 bg-accent/25'
-                    : 'border-zinc-700 bg-white/[0.04]'
-                }`}
-              >
-                <span
-                  className={`absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 rounded-full transition-all ${
-                    form.is_private
-                      ? 'left-[18px] bg-accent shadow-[0_0_8px_rgb(var(--accent-rgb)/0.7)]'
-                      : 'left-[3px] bg-zinc-500'
-                  }`}
-                />
-              </button>
-            </div>
-          </Section>
-
-          <Section title="COMMS">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {SOCIAL_FIELDS.map(({ kind, label, placeholder }) => (
-                <Field key={kind} label={label}>
-                  <span className="relative block">
-                    <SocialIcon
-                      kind={kind}
-                      size={12}
-                      className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 transition-colors ${
-                        form.socials[kind] ? 'text-zinc-300' : 'text-zinc-600'
-                      }`}
-                    />
-                    <input
-                      value={form.socials[kind]}
-                      onChange={(e) => setSocial(kind, e.target.value)}
-                      placeholder={placeholder}
-                      className={`${inputCls} pl-8`}
-                    />
-                  </span>
-                </Field>
-              ))}
-            </div>
-          </Section>
-
-          <Section title="COSMETICS">
-            {/* plate picker is button-based, so no <label> wrapper — same
-                reasoning as the status picker above */}
-            <div role="group" aria-label="Leaderboard plate">
-              <div className="flex items-baseline justify-between">
-                <span className="text-[9px] tracking-[0.3em] text-zinc-500">
-                  LEADERBOARD PLATE
-                </span>
-                <span className="text-[9px] tracking-[0.15em] text-zinc-600">
-                  SHOWN ON THE BOARD
-                </span>
-              </div>
-
-              {cosmetics === 'loading' ? (
-                <div className="mt-1.5 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-                  <div className="aspect-[4/1] animate-pulse rounded-xl bg-white/[0.04]" />
-                  <div className="aspect-[4/1] animate-pulse rounded-xl bg-white/[0.04]" />
-                </div>
-              ) : usablePlates.length === 0 ? (
-                <a
-                  href="/shop"
-                  className="mt-1.5 flex items-center justify-between gap-3 rounded-lg border border-dashed border-white/[0.08] bg-white/[0.02] px-3 py-2.5 text-[10px] tracking-[0.15em] text-zinc-500 transition-colors hover:border-accent/40 hover:text-zinc-300"
-                >
-                  {cosmetics === 'error' ? 'PLATES UNAVAILABLE RIGHT NOW' : 'NO PLATES YET'}
-                  <span className="shrink-0 text-accent">GET PLATES IN THE SHOP →</span>
-                </a>
-              ) : (
-                <div className="mt-1.5 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={() => set({ equipped_plate: null })}
-                    aria-pressed={form.equipped_plate === null}
-                    className={`flex aspect-[4/1] w-full items-center justify-center rounded-xl border text-[10px] tracking-[0.3em] transition-colors ${
-                      form.equipped_plate === null
-                        ? 'border-accent/60 bg-accent/10 text-zinc-100'
-                        : 'border-white/[0.08] bg-white/[0.02] text-zinc-500 hover:border-zinc-600 hover:text-zinc-200'
-                    }`}
-                  >
-                    NONE
-                  </button>
-                  {usablePlates.map((plate) => {
-                    const selected = form.equipped_plate === plate.id
-                    return (
-                      <button
-                        key={plate.id}
-                        type="button"
-                        onClick={() => set({ equipped_plate: selected ? null : plate.id })}
-                        aria-pressed={selected}
-                        title={plate.tagline}
-                        className={`relative overflow-hidden rounded-xl transition-shadow ${
-                          selected
-                            ? 'ring-2 ring-accent/70 shadow-[0_0_14px_rgb(var(--accent-rgb)/0.25)]'
-                            : 'ring-1 ring-white/[0.06] hover:ring-zinc-600'
-                        }`}
-                      >
-                        <PlatePreview plateId={plate.id} />
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          </Section>
+            )}
+          </div>
         </div>
 
         {/* ---------- footer ---------- */}
         <div className="flex items-center gap-3 border-t border-white/[0.08] px-5 py-3">
-          <span className="min-w-0 flex-1 truncate text-[10px] text-rose-300" role="alert">
+          <span className="min-w-0 flex-1 truncate text-xs text-rose-400" role="alert">
             {error}
           </span>
           <button
             type="button"
             onClick={onClose}
-            className="h-9 rounded-lg border border-zinc-800 px-4 text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-100"
+            className="h-9 rounded-lg border border-white/10 px-4 text-[13px] font-medium text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-100"
           >
-            CANCEL
+            Cancel
           </button>
           <button
             type="button"
             onClick={save}
             disabled={saving}
-            className="h-9 rounded-lg bg-accent px-6 text-[10px] font-bold tracking-[0.3em] text-black shadow-[0_0_14px_rgb(var(--accent-rgb)/0.25)] transition-all hover:brightness-110 disabled:opacity-60"
+            className="h-9 rounded-lg bg-zinc-100 px-5 text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50 disabled:opacity-60"
           >
-            {saving ? 'SAVING…' : 'SAVE'}
+            {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
       </div>
@@ -410,47 +399,3 @@ export function EditProfileModal({
     document.body
   )
 }
-
-/** Section block with the same `// HEADER` voice as the profile page cards. */
-function Section({
-  title,
-  first = false,
-  children
-}: {
-  title: string
-  first?: boolean
-  children: ReactNode
-}) {
-  return (
-    <section className={first ? '' : 'mt-5 border-t border-white/[0.06] pt-5'}>
-      <h3 className="text-[10px] tracking-[0.35em] text-zinc-300">
-        <span className="text-accent/80">{'// '}</span>
-        {title}
-      </h3>
-      <div className="mt-3 space-y-4">{children}</div>
-    </section>
-  )
-}
-
-function Field({
-  label,
-  hint,
-  children
-}: {
-  label: string
-  hint?: string
-  children: ReactNode
-}) {
-  return (
-    <label className="block">
-      <span className="flex items-baseline justify-between">
-        <span className="text-[9px] tracking-[0.3em] text-zinc-500">{label}</span>
-        {hint && (
-          <span className="text-[9px] tabular-nums tracking-[0.15em] text-zinc-600">{hint}</span>
-        )}
-      </span>
-      <span className="mt-1.5 block">{children}</span>
-    </label>
-  )
-}
-
