@@ -22,13 +22,12 @@ export const NAV_ITEMS: NavItemDef[] = [
   // SHOP earns a top-bar chip: it is the revenue surface, and its label is
   // short enough that a third chip still fits the md bar comfortably.
   { href: '/shop', label: 'SHOP', icon: 'shop', topBar: true },
+  // BAG earns a top-bar chip too: it is the collection page, and its
+  // short label lets a fourth chip fit without crowding the md bar.
+  { href: '/bag', label: 'BAG', icon: 'bag', topBar: true },
   // The team console exists only for company accounts; everyone else
   // never sees the row (visibleNavItems filters it out).
-  { href: '/team', label: 'TEAM', icon: 'team', exact: true, teamOnly: true },
-  // Achievements stays out of the top bar on purpose — it is one click away
-  // in the account menu (and in the rail/drawer), and its long label crowded
-  // the bar without earning its place.
-  { href: '/dashboard/achievements', label: 'ACHIEVEMENTS', icon: 'award' }
+  { href: '/team', label: 'TEAM', icon: 'team', exact: true, teamOnly: true }
 ]
 
 /** Nav items the current session may see. Tier gating only — the TEAM row
