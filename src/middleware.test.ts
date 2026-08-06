@@ -62,7 +62,7 @@ describe('middleware security headers', () => {
   it('preserves security headers when the site lock rejects a route', () => {
     vi.stubEnv('SITE_LOCKED', 'true')
 
-    const response = middleware(new NextRequest('https://cribble.dev/api/user/delete'))
+    const response = middleware(new NextRequest('https://cribble.dev/api/shop/checkout'))
 
     expect(response.status).toBe(404)
     expect(response.headers.get('x-frame-options')).toBe('DENY')
@@ -87,7 +87,18 @@ describe('middleware site lock', () => {
     vi.stubEnv('SITE_LOCKED', '1')
     // Any page outside the allowlist rewrites in place. /shop is its own
     // case now — sealed or open depending on the session cookie (below).
-    expect(rewriteTarget('/settings')).toBe('/maintenance')
+    expect(rewriteTarget('/roadmap')).toBe('/maintenance')
+  })
+
+  it('keeps the settings hub open while locked', () => {
+    vi.stubEnv('SITE_LOCKED', '1')
+    // Settings left the modal stack for real /settings/* routes — same
+    // allowlist class as /dashboard so the account menu deep-links land.
+    expect(rewriteTarget('/settings')).toBeNull()
+    expect(rewriteTarget('/settings/account')).toBeNull()
+    expect(rewriteTarget('/settings/privacy')).toBeNull()
+    expect(middleware(request('/api/user/settings')).status).toBe(200)
+    expect(middleware(request('/api/user/delete')).status).toBe(200)
   })
 
   it('keeps the void screens themselves reachable while locked', () => {
@@ -117,6 +128,12 @@ describe('middleware site lock', () => {
     expect(middleware(request('/api/team/roster')).status).toBe(200)
     expect(middleware(request('/api/webhooks/polar')).status).toBe(200)
     expect(middleware(request('/api/user/subscription/sync')).status).toBe(200)
+    // Bag + billboard shipped after the lock allowlist froze — keep them
+    // reachable so new surfaces don't land on the void screen in beta.
+    expect(rewriteTarget('/bag')).toBeNull()
+    expect(rewriteTarget('/billboard')).toBeNull()
+    expect(middleware(request('/api/billboard')).status).toBe(200)
+    expect(middleware(request('/api/billboard/slots')).status).toBe(200)
   })
 
   it('walls /shop behind sign-in for signed-out visitors while locked', () => {

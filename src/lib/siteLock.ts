@@ -37,18 +37,29 @@ export function isAllowedDuringLock(pathname: string, hasSession = false): boole
   if (pathname.startsWith('/audio/')) return true
   if (!pathname.startsWith('/api/') && STATIC_ASSET_RE.test(pathname)) return true
   if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) return true
+  // Settings hub replaced the account-menu modals; keep every section
+  // reachable while the beta is locked (same class as /dashboard).
+  if (pathname === '/settings' || pathname.startsWith('/settings/')) return true
+  // Collection page — plates + badges for signed-in pilots in the shell.
+  if (pathname === '/bag' || pathname.startsWith('/bag/')) return true
   if (pathname === '/admin' || pathname.startsWith('/admin/')) return true
   if (pathname.startsWith('/api/admin/')) return true
   if (pathname === '/leaderboard' || pathname.startsWith('/leaderboard/')) return true
   // Public pilot profiles (+ the /profile redirect into your own).
   if (pathname === '/profile' || pathname.startsWith('/u/')) return true
+  // Billboard pitch + live placements (ticker/rails APIs back the shell).
+  if (pathname === '/billboard' || pathname.startsWith('/billboard/')) return true
+  if (pathname.startsWith('/api/billboard')) return true
   if (/^\/api\/waitlist\/?$/.test(pathname)) return true
   if (pathname.startsWith('/api/auth/')) return true
   // Season calendar backs the dashboard rail + leaderboard countdown, and
   // the cron backup trigger must stay reachable while locked.
   if (pathname === '/api/season') return true
   if (pathname === '/api/cron/season') return true
-  if (/^\/api\/user\/(onboarding|me|tools|activity|follow|profile|achievements|notifications|referral)\/?$/.test(pathname)) return true
+  if (pathname === '/api/cron/insights-rollup') return true
+  // settings + delete ride the settings hub; cosmetics stays on its own
+  // lane below with the shop/billing paths.
+  if (/^\/api\/user\/(onboarding|me|tools|activity|follow|profile|achievements|notifications|referral|settings|delete)\/?$/.test(pathname)) return true
   // Beta feedback comes from testers inside the locked app shell.
   if (/^\/api\/feedback\/?$/.test(pathname)) return true
   if (pathname.startsWith('/api/profile/')) return true
