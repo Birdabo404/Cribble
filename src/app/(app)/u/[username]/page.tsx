@@ -470,7 +470,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
               </h1>
               {isProTier(profile.tier) && <VerifiedBadge size={18} />}
               {profile.isTeam && <TeamBadge size={18} />}
-              {profile.team && <TeamMiniLogo team={profile.team} size={17} />}
+              {profile.team && <TeamMiniLogo team={profile.team} size={18} />}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className="flex items-center gap-1.5 text-[12px] text-zinc-500">

@@ -360,10 +360,69 @@ export function Descent() {
         }
 
         html.light .lx-descent {
-          /* annotation grays: theme-flipped zinc-600/700 are too pale on
-             paper — remap to warm archival inks (descent scope only) */
+          /* The global light theme is professional white; the descent
+             keeps the warm dossier-paper palette it was authored
+             against, so every flipped token it consumes is re-pinned
+             here (same isolation pattern as the hero's scoped reset
+             in globals.css). */
+          --background: #f6f4ee;
+          --foreground: #1c1811;
+          --panel: #fcfbf7;
+          --r-common: 124 116 98;
+          --star-rgb: 62 55 40;
+          --dot-rgb: 52 45 24;
+          --c-black: 246 244 238;
+          --c-white: 28 24 18;
+          --z50: 28 24 17;
+          --z100: 43 38 29;
+          --z200: 60 54 42;
+          --z300: 84 76 60;
+          --z400: 106 97 79;
+          --z500: 129 120 101;
+          /* annotation grays: mirrored zinc-600/700 are too pale on
+             paper — these two stay the descent's own archival inks */
           --z600: 110 105 90;
           --z700: 140 134 116;
+          --z800: 222 216 200;
+          --z900: 238 234 223;
+          --z950: 245 242 233;
+          --g50: 24 20 13;
+          --g100: 40 35 26;
+          --g200: 57 51 40;
+          --g300: 86 78 62;
+          --g400: 108 99 81;
+          --g500: 131 122 103;
+          --g600: 161 153 133;
+          --g700: 204 197 180;
+          --g800: 225 219 204;
+          --g900: 240 236 226;
+          --g950: 247 244 236;
+          --glass-tint: 253 251 245;
+          --glass-bg-top: 0.66;
+          --glass-bg-bottom: 0.42;
+          --glass-border: rgb(47 41 28 / 0.12);
+          --glass-highlight: rgb(255 254 249 / 0.95);
+          --glass-sheen: 0.5;
+          --glass-shadow:
+            0 20px 44px -22px rgb(52 45 24 / 0.30),
+            0 4px 14px -10px rgb(52 45 24 / 0.14);
+          --glass-inset-bg: rgb(253 251 245 / 0.55);
+          --glass-inset-border: rgb(47 41 28 / 0.10);
+          --glass-border-hover: rgb(47 41 28 / 0.20);
+          --glass-highlight-hover: rgb(255 254 249 / 1);
+          --glass-shadow-hover:
+            0 28px 60px -24px rgb(52 45 24 / 0.38),
+            0 6px 18px -10px rgb(52 45 24 / 0.18),
+            0 0 30px -6px rgb(var(--accent-rgb) / 0.16);
+          --lb-gold: 202 138 4;
+          --lb-gold-hi: 234 179 8;
+          --lb-silver: 100 116 139;
+          --lb-bronze: 180 83 9;
+          --lb-score: 96 108 0;
+          --lb-up: 22 163 74;
+          --lb-down: 225 29 72;
+          --lb-panel-bg: 252 251 247;
+          --lb-panel-edge: 47 41 28;
           /* top edge: the hero (white in light mode) hands off into warm
              dossier paper; a faint drafting grid keeps it technical */
           background:

@@ -76,7 +76,7 @@ function BoardRow({ pilot }: { pilot: DemoPilot }) {
         </span>
         {pilot.affiliate && (
           <>
-            <VerifiedBadge size={13} />
+            <VerifiedBadge size={14} />
             <TeamMiniLogo team={DEMO_TEAM} size={14} />
           </>
         )}

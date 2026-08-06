@@ -258,12 +258,9 @@ export function VoidScreen({ variant }: { variant: VoidScreenVariant }) {
             linear-gradient(180deg, var(--space-zenith) 0%, var(--space-mid) 52%, var(--space-deep) 100%);
           background-size: 210px 210px, 260px 260px, 320px 320px, 100% 100%;
         }
-        /* Light mode: the site-wide dossier paper (warm stock + drafting grid). */
+        /* Light mode: the site-wide flat professional-white canvas. */
         html.light .void-scene {
-          background:
-            repeating-linear-gradient(0deg, rgb(52 45 24 / 0.04) 0 1px, transparent 1px 56px),
-            repeating-linear-gradient(90deg, rgb(52 45 24 / 0.04) 0 1px, transparent 1px 56px),
-            linear-gradient(180deg, #f6f4ee 0%, #f1eee5 100%);
+          background: #ffffff;
         }
 
         /* Entrance cascade — rise + deblur, staggered via --vr (same
