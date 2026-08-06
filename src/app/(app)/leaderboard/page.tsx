@@ -45,6 +45,7 @@ import {
   ToolIcon
 } from '@/components/leaderboard/icons'
 import { PlateLayer } from '@/components/cosmetics/PlateLayer'
+import { AsteroidShower } from '@/components/dashboard-v3/AsteroidShower'
 import { AiBoard } from '@/components/leaderboard/AiBoard'
 import { Avatar } from '@/components/leaderboard/Avatar'
 import { PlayerCard, type ChaseInfo } from '@/components/leaderboard/PlayerCard'
@@ -297,597 +298,601 @@ export default function LeaderboardArena() {
   )
 
   return (
-    <div
-      className={`page-zoom-out lb4-root relative mx-auto max-w-6xl px-4 sm:px-6 pb-16 pt-6 ${
-        selected ? 'lb4-freeze' : ''
-      }`}
-    >
-      {/* arena atmosphere — gold spotlight + faint synthwave side washes */}
-      <div aria-hidden className="lb4-arena pointer-events-none absolute inset-x-0 top-0 h-[620px]" />
+    <>
+      <AsteroidShower />
 
-      {/* ---------- title lockup ---------- */}
-      <header className="lb4-reveal relative mt-3 flex flex-col items-center" style={{ ['--rv' as string]: '0ms' }}>
-        <div className="flex items-center gap-2.5 text-[rgb(var(--lb-gold))]">
-          <span className="h-px w-8 bg-gradient-to-r from-transparent to-[rgb(var(--lb-gold)/0.6)]" />
-          <IconCrown size={13} />
-          <span className="font-display text-[10px] font-semibold tracking-[0.42em] sm:tracking-[0.55em]">
-            {view === 'ai' ? 'THE AI' : view === 'alltime' ? 'ALL-TIME' : 'SEASON'}
-          </span>
-          <IconCrown size={13} className="-scale-x-100" />
-          <span className="h-px w-8 bg-gradient-to-l from-transparent to-[rgb(var(--lb-gold)/0.6)]" />
-        </div>
-        <h1 className="lb4-title mt-4 select-none text-center leading-none [font-family:var(--font-pixel)]">
-          LEADERBOARD
-        </h1>
-        <p className="mt-4 text-[10px] tracking-[0.24em] sm:tracking-[0.3em] text-zinc-600">
-          <span className="text-[rgb(var(--lb-gold)/0.85)]">
-            {seasonMeta?.phase === 'intermission'
-              ? 'INTERMISSION'
-              : seasonMeta?.current?.name ?? 'SEASON'}
-          </span>
-          <span className="mx-2 text-zinc-800">·</span>
-          {view === 'ai' ? (
-            'the machines, ranked by pilot usage'
-          ) : (
-            <>
-              {view === 'alltime' ? 'ranked by lifetime score' : 'ranked by season score'}
-              <span className="mx-2 text-zinc-800">·</span>
-              <SyncStatus lastSyncAt={lastSyncAt} />
-            </>
-          )}
-        </p>
-      </header>
+      <div
+        className={`page-zoom-out lb4-root relative mx-auto max-w-6xl px-4 sm:px-6 pb-16 pt-6 ${
+          selected ? 'lb4-freeze' : ''
+        }`}
+      >
+        {/* arena atmosphere — gold spotlight + faint synthwave side washes */}
+        <div aria-hidden className="lb4-arena pointer-events-none absolute inset-x-0 top-0 h-[620px]" />
 
-      <main className="mt-8 space-y-5">
-        {/* ---------- stat bar ---------- */}
-        {view !== 'ai' && (
-          <section className="lb4-reveal" style={{ ['--rv' as string]: '90ms' }}>
-            <StatBar
-              totalPlayers={totals.totalPlayers}
-              activePlayers={totals.activePlayers}
-              topScore={topScore}
-              leaderName={leader?.username ?? null}
-              season={seasonMeta}
-            />
-          </section>
-        )}
-
-        {/* ---------- view controls ---------- */}
-        <div
-          className={`lb4-reveal flex flex-wrap items-center justify-between gap-2 ${
-            view !== 'ai' ? '!mt-3' : ''
-          }`}
-          style={{ ['--rv' as string]: '150ms' }}
-        >
-          {/* board switch — pilots or the machines */}
-          <div
-            className="lb-inset flex items-center gap-0.5 rounded-lg p-0.5"
-            role="tablist"
-            aria-label="Leaderboard view"
-          >
-            {BOARD_TABS.map((tab) => {
-              const active = view === tab.id
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => handleViewChange(tab.id)}
-                  className={`rounded-md px-3.5 py-2 sm:px-3 sm:py-1 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] transition-colors ${
-                    active ? '' : 'text-zinc-500 hover:text-zinc-100'
-                  }`}
-                  style={
-                    active
-                      ? {
-                          border: '1px solid rgb(var(--lb-gold) / 0.5)',
-                          color: 'rgb(var(--lb-gold))',
-                          background: 'rgb(var(--lb-gold) / 0.07)'
-                        }
-                      : { border: '1px solid transparent' }
-                  }
-                >
-                  {tab.label}
-                </button>
-              )
-            })}
+        {/* ---------- title lockup ---------- */}
+        <header className="lb4-reveal relative mt-3 flex flex-col items-center" style={{ ['--rv' as string]: '0ms' }}>
+          <div className="flex items-center gap-2.5 text-[rgb(var(--lb-gold))]">
+            <span className="h-px w-8 bg-gradient-to-r from-transparent to-[rgb(var(--lb-gold)/0.6)]" />
+            <IconCrown size={13} />
+            <span className="font-display text-[10px] font-semibold tracking-[0.42em] sm:tracking-[0.55em]">
+              {view === 'ai' ? 'THE AI' : view === 'alltime' ? 'ALL-TIME' : 'SEASON'}
+            </span>
+            <IconCrown size={13} className="-scale-x-100" />
+            <span className="h-px w-8 bg-gradient-to-l from-transparent to-[rgb(var(--lb-gold)/0.6)]" />
           </div>
+          <h1 className="lb4-title mt-4 select-none text-center leading-none [font-family:var(--font-pixel)]">
+            LEADERBOARD
+          </h1>
+          <p className="mt-4 text-[10px] tracking-[0.24em] sm:tracking-[0.3em] text-zinc-600">
+            <span className="text-[rgb(var(--lb-gold)/0.85)]">
+              {seasonMeta?.phase === 'intermission'
+                ? 'INTERMISSION'
+                : seasonMeta?.current?.name ?? 'SEASON'}
+            </span>
+            <span className="mx-2 text-zinc-800">·</span>
+            {view === 'ai' ? (
+              'the machines, ranked by pilot usage'
+            ) : (
+              <>
+                {view === 'alltime' ? 'ranked by lifetime score' : 'ranked by season score'}
+                <span className="mx-2 text-zinc-800">·</span>
+                <SyncStatus lastSyncAt={lastSyncAt} />
+              </>
+            )}
+          </p>
+        </header>
 
+        <main className="mt-8 space-y-5">
+          {/* ---------- stat bar ---------- */}
           {view !== 'ai' && (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleRefresh}
-                disabled={refreshing}
-                className="lb-inset flex items-center gap-2 rounded-lg px-3 py-2 sm:py-1.5 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100 disabled:cursor-wait"
-                aria-label="Refresh leaderboard"
-              >
-                <IconRefresh size={11} className={refreshing ? 'animate-spin' : ''} />
-                {refreshing ? 'SYNCING' : 'REFRESH'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowPodium((v) => !v)}
-                className="lb-inset flex items-center gap-2 rounded-lg px-3 py-2 sm:py-1.5 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100"
-                aria-expanded={showPodium}
-              >
-                PODIUM
-                <IconChevronDown
-                  size={11}
-                  className={`transition-transform duration-300 ${showPodium ? '' : '-rotate-90'}`}
-                />
-              </button>
-            </div>
+            <section className="lb4-reveal" style={{ ['--rv' as string]: '90ms' }}>
+              <StatBar
+                totalPlayers={totals.totalPlayers}
+                activePlayers={totals.activePlayers}
+                topScore={topScore}
+                leaderName={leader?.username ?? null}
+                season={seasonMeta}
+              />
+            </section>
           )}
-        </div>
 
-        {/* ---------- THE AI LEADERBOARD ---------- */}
-        {view === 'ai' && <AiBoard />}
-
-        {/* ---------- intermission: standings locked ---------- */}
-        {view === 'season' && seasonMeta?.phase === 'intermission' && (
-          <IntermissionBanner state={seasonMeta} />
-        )}
-
-        {/* ---------- podium (collapsible) ---------- */}
-        {/* visibility joins the transition so the collapsed podium drops out
-            of paint, tab order and screen readers; lb4-pod-off freezes its
-            infinite FX so they stop burning frames while hidden */}
-        {view !== 'ai' && (
-        <div
-          className={`lb4-reveal grid transition-[grid-template-rows,opacity,margin,visibility] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-            showPodium ? '' : 'lb4-pod-off'
-          }`}
-          style={{
-            ['--rv' as string]: '210ms',
-            gridTemplateRows: showPodium ? '1fr' : '0fr',
-            opacity: showPodium ? 1 : 0,
-            marginTop: showPodium ? undefined : 0,
-            visibility: showPodium ? 'visible' : 'hidden'
-          }}
-          aria-hidden={!showPodium}
-        >
-          <div className="min-h-0 overflow-hidden">
-            <div className="px-1 pt-8 pb-1">
-              {!loading && top3.length > 0 && (
-                <Podium top3={top3} currentUserId={currentUserId} onSelect={handleSelect} />
-              )}
-              {loading && <PodiumSkeleton />}
+          {/* ---------- view controls ---------- */}
+          <div
+            className={`lb4-reveal flex flex-wrap items-center justify-between gap-2 ${
+              view !== 'ai' ? '!mt-3' : ''
+            }`}
+            style={{ ['--rv' as string]: '150ms' }}
+          >
+            {/* board switch — pilots or the machines */}
+            <div
+              className="lb-inset flex items-center gap-0.5 rounded-lg p-0.5"
+              role="tablist"
+              aria-label="Leaderboard view"
+            >
+              {BOARD_TABS.map((tab) => {
+                const active = view === tab.id
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => handleViewChange(tab.id)}
+                    className={`rounded-md px-3.5 py-2 sm:px-3 sm:py-1 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] transition-colors ${
+                      active ? '' : 'text-zinc-500 hover:text-zinc-100'
+                    }`}
+                    style={
+                      active
+                        ? {
+                            border: '1px solid rgb(var(--lb-gold) / 0.5)',
+                            color: 'rgb(var(--lb-gold))',
+                            background: 'rgb(var(--lb-gold) / 0.07)'
+                          }
+                        : { border: '1px solid transparent' }
+                    }
+                  >
+                    {tab.label}
+                  </button>
+                )
+              })}
             </div>
-          </div>
-        </div>
-        )}
 
-        {/* ---------- standings ---------- */}
-        {view !== 'ai' && (
-        <section className="lb4-reveal relative" style={{ ['--rv' as string]: '300ms' }}>
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-baseline gap-3">
-              <h2 className="font-display text-[11px] font-semibold tracking-[0.45em] text-zinc-300">
-                STANDINGS
-              </h2>
-              {!loading && filtered.length > 0 && (
-                <span className="text-[10px] tracking-[0.2em] text-zinc-600 tabular-nums">
-                  {showingFrom}–{showingTo} / {formatNumber(filtered.length)}
-                </span>
-              )}
-            </div>
-            <SearchBar value={query} onChange={setQuery} />
-          </div>
-
-          <div className="lb-panel relative overflow-hidden rounded-2xl">
-            <HeaderRow />
-            <ul className="relative">
-              {loading &&
-                Array.from({ length: 8 }, (_, i) => <SkeletonRow key={i} index={i} />)}
-              {!loading && filtered.length === 0 && (
-                <li className="py-14 text-center text-xs tracking-[0.15em] text-zinc-500">
-                  {query
-                    ? 'No pilots match that callsign.'
-                    : 'Standings appear once pilots start syncing.'}
-                </li>
-              )}
-              {!loading &&
-                paged.map((u, i) => (
-                  <Row
-                    key={u.userId}
-                    user={u}
-                    index={i}
-                    topScore={topScore}
-                    isYou={u.userId === currentUserId}
-                    flash={flashes.get(u.userId) ?? null}
-                    onSelect={handleSelect}
-                    setRef={setRowRef}
+            {view !== 'ai' && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                  className="lb-inset flex items-center gap-2 rounded-lg px-3 py-2 sm:py-1.5 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100 disabled:cursor-wait"
+                  aria-label="Refresh leaderboard"
+                >
+                  <IconRefresh size={11} className={refreshing ? 'animate-spin' : ''} />
+                  {refreshing ? 'SYNCING' : 'REFRESH'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPodium((v) => !v)}
+                  className="lb-inset flex items-center gap-2 rounded-lg px-3 py-2 sm:py-1.5 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100"
+                  aria-expanded={showPodium}
+                >
+                  PODIUM
+                  <IconChevronDown
+                    size={11}
+                    className={`transition-transform duration-300 ${showPodium ? '' : '-rotate-90'}`}
                   />
-                ))}
-            </ul>
+                </button>
+              </div>
+            )}
           </div>
 
-          {!loading && totalPages > 1 && (
-            <Pagination page={page} totalPages={totalPages} onPage={setPage} />
+          {/* ---------- THE AI LEADERBOARD ---------- */}
+          {view === 'ai' && <AiBoard />}
+
+          {/* ---------- intermission: standings locked ---------- */}
+          {view === 'season' && seasonMeta?.phase === 'intermission' && (
+            <IntermissionBanner state={seasonMeta} />
           )}
 
-          {/* ---------- sticky YOU bar ---------- */}
-          {me && (
-            <div className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 mt-4">
-              <YouBar me={me} chase={chaseFor(me)} rows={rows} onSelect={handleSelect} />
+          {/* ---------- podium (collapsible) ---------- */}
+          {/* visibility joins the transition so the collapsed podium drops out
+              of paint, tab order and screen readers; lb4-pod-off freezes its
+              infinite FX so they stop burning frames while hidden */}
+          {view !== 'ai' && (
+          <div
+            className={`lb4-reveal grid transition-[grid-template-rows,opacity,margin,visibility] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+              showPodium ? '' : 'lb4-pod-off'
+            }`}
+            style={{
+              ['--rv' as string]: '210ms',
+              gridTemplateRows: showPodium ? '1fr' : '0fr',
+              opacity: showPodium ? 1 : 0,
+              marginTop: showPodium ? undefined : 0,
+              visibility: showPodium ? 'visible' : 'hidden'
+            }}
+            aria-hidden={!showPodium}
+          >
+            <div className="min-h-0 overflow-hidden">
+              <div className="px-1 pt-8 pb-1">
+                {!loading && top3.length > 0 && (
+                  <Podium top3={top3} currentUserId={currentUserId} onSelect={handleSelect} />
+                )}
+                {loading && <PodiumSkeleton />}
+              </div>
             </div>
+          </div>
           )}
-        </section>
+
+          {/* ---------- standings ---------- */}
+          {view !== 'ai' && (
+          <section className="lb4-reveal relative" style={{ ['--rv' as string]: '300ms' }}>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-baseline gap-3">
+                <h2 className="font-display text-[11px] font-semibold tracking-[0.45em] text-zinc-300">
+                  STANDINGS
+                </h2>
+                {!loading && filtered.length > 0 && (
+                  <span className="text-[10px] tracking-[0.2em] text-zinc-600 tabular-nums">
+                    {showingFrom}–{showingTo} / {formatNumber(filtered.length)}
+                  </span>
+                )}
+              </div>
+              <SearchBar value={query} onChange={setQuery} />
+            </div>
+
+            <div className="lb-panel relative overflow-hidden rounded-2xl">
+              <HeaderRow />
+              <ul className="relative">
+                {loading &&
+                  Array.from({ length: 8 }, (_, i) => <SkeletonRow key={i} index={i} />)}
+                {!loading && filtered.length === 0 && (
+                  <li className="py-14 text-center text-xs tracking-[0.15em] text-zinc-500">
+                    {query
+                      ? 'No pilots match that callsign.'
+                      : 'Standings appear once pilots start syncing.'}
+                  </li>
+                )}
+                {!loading &&
+                  paged.map((u, i) => (
+                    <Row
+                      key={u.userId}
+                      user={u}
+                      index={i}
+                      topScore={topScore}
+                      isYou={u.userId === currentUserId}
+                      flash={flashes.get(u.userId) ?? null}
+                      onSelect={handleSelect}
+                      setRef={setRowRef}
+                    />
+                  ))}
+              </ul>
+            </div>
+
+            {!loading && totalPages > 1 && (
+              <Pagination page={page} totalPages={totalPages} onPage={setPage} />
+            )}
+
+            {/* ---------- sticky YOU bar ---------- */}
+            {me && (
+              <div className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 mt-4">
+                <YouBar me={me} chase={chaseFor(me)} rows={rows} onSelect={handleSelect} />
+              </div>
+            )}
+          </section>
+          )}
+        </main>
+
+        <footer className="mt-10 flex items-center justify-between text-[10px] tracking-[0.3em] text-zinc-600">
+          <span>CRIBBLE · {new Date().getFullYear()}</span>
+          <span className="text-zinc-700">{'// the board never sleeps'}</span>
+        </footer>
+
+        {selected && (
+          <PlayerCard
+            row={selected}
+            isYou={selected.userId === currentUserId}
+            chase={chaseFor(selected)}
+            onClose={handleCardClose}
+          />
         )}
-      </main>
 
-      <footer className="mt-10 flex items-center justify-between text-[10px] tracking-[0.3em] text-zinc-600">
-        <span>CRIBBLE · {new Date().getFullYear()}</span>
-        <span className="text-zinc-700">{'// the board never sleeps'}</span>
-      </footer>
+        <style jsx global>{`
+          /* arena atmosphere — dark mode gets the full stage lighting */
+          .lb4-arena {
+            background:
+              radial-gradient(46% 340px at 50% -40px, rgb(var(--lb-gold) / 0.1), transparent 70%),
+              radial-gradient(30% 300px at 12% 60px, rgb(var(--banner-a) / 0.05), transparent 70%),
+              radial-gradient(30% 300px at 88% 60px, rgb(var(--banner-b) / 0.05), transparent 70%);
+            mask-image: linear-gradient(180deg, black 55%, transparent);
+            -webkit-mask-image: linear-gradient(180deg, black 55%, transparent);
+          }
+          html.light .lb4-arena {
+            background: radial-gradient(46% 320px at 50% -40px, rgb(var(--lb-gold) / 0.09), transparent 70%);
+          }
 
-      {selected && (
-        <PlayerCard
-          row={selected}
-          isYou={selected.userId === currentUserId}
-          chase={chaseFor(selected)}
-          onClose={handleCardClose}
-        />
-      )}
+          /* retro-arcade title: white face, gold drop, magenta echo */
+          .lb4-title {
+            font-size: clamp(19px, 4.4vw, 42px);
+            color: rgb(var(--z50));
+            letter-spacing: 0.03em;
+            text-shadow:
+              0 0 26px rgb(var(--lb-gold) / 0.3),
+              0.09em 0.09em 0 rgb(var(--lb-gold) / 0.5),
+              0.18em 0.18em 0 rgb(var(--banner-a) / 0.22);
+          }
+          html.light .lb4-title {
+            text-shadow:
+              0.09em 0.09em 0 rgb(var(--lb-gold) / 0.45),
+              0.18em 0.18em 0 rgb(var(--banner-a) / 0.16);
+          }
 
-      <style jsx global>{`
-        /* arena atmosphere — dark mode gets the full stage lighting */
-        .lb4-arena {
-          background:
-            radial-gradient(46% 340px at 50% -40px, rgb(var(--lb-gold) / 0.1), transparent 70%),
-            radial-gradient(30% 300px at 12% 60px, rgb(var(--banner-a) / 0.05), transparent 70%),
-            radial-gradient(30% 300px at 88% 60px, rgb(var(--banner-b) / 0.05), transparent 70%);
-          mask-image: linear-gradient(180deg, black 55%, transparent);
-          -webkit-mask-image: linear-gradient(180deg, black 55%, transparent);
-        }
-        html.light .lb4-arena {
-          background: radial-gradient(46% 320px at 50% -40px, rgb(var(--lb-gold) / 0.09), transparent 70%);
-        }
+          .lb4-live-dot {
+            background: rgb(var(--lb-up));
+            box-shadow: 0 0 8px rgb(var(--lb-up) / 0.8);
+            animation: lb4-live-pulse 2s ease-in-out infinite;
+          }
+          @keyframes lb4-live-pulse {
+            0%,
+            100% {
+              opacity: 1;
+              transform: scale(1);
+            }
+            50% {
+              opacity: 0.45;
+              transform: scale(0.8);
+            }
+          }
 
-        /* retro-arcade title: white face, gold drop, magenta echo */
-        .lb4-title {
-          font-size: clamp(19px, 4.4vw, 42px);
-          color: rgb(var(--z50));
-          letter-spacing: 0.03em;
-          text-shadow:
-            0 0 26px rgb(var(--lb-gold) / 0.3),
-            0.09em 0.09em 0 rgb(var(--lb-gold) / 0.5),
-            0.18em 0.18em 0 rgb(var(--banner-a) / 0.22);
-        }
-        html.light .lb4-title {
-          text-shadow:
-            0.09em 0.09em 0 rgb(var(--lb-gold) / 0.45),
-            0.18em 0.18em 0 rgb(var(--banner-a) / 0.16);
-        }
+          /* first-paint cascade */
+          .lb4-reveal {
+            animation: lb4-reveal-in 640ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+            animation-delay: var(--rv, 0ms);
+          }
+          @keyframes lb4-reveal-in {
+            from {
+              opacity: 0;
+              transform: translateY(14px);
+            }
+          }
 
-        .lb4-live-dot {
-          background: rgb(var(--lb-up));
-          box-shadow: 0 0 8px rgb(var(--lb-up) / 0.8);
-          animation: lb4-live-pulse 2s ease-in-out infinite;
-        }
-        @keyframes lb4-live-pulse {
-          0%,
-          100% {
-            opacity: 1;
-            transform: scale(1);
+          /* countdown digits tick in place */
+          @keyframes lb4-tick {
+            0% {
+              opacity: 0.3;
+              transform: translateY(-3px);
+            }
+            100% {
+              opacity: 1;
+              transform: translateY(0);
+            }
           }
-          50% {
-            opacity: 0.45;
-            transform: scale(0.8);
+          .lb4-tick {
+            animation: lb4-tick 0.4s ease-out;
+            display: inline-block;
+            min-width: 1.5ch;
+            text-align: center;
           }
-        }
 
-        /* first-paint cascade */
-        .lb4-reveal {
-          animation: lb4-reveal-in 640ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
-          animation-delay: var(--rv, 0ms);
-        }
-        @keyframes lb4-reveal-in {
-          from {
-            opacity: 0;
-            transform: translateY(14px);
+          /* score-gain pop — floats up off the score and fades */
+          .lb4-gain {
+            animation: lb4-gain-float ${FLASH_MS}ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+            pointer-events: none;
           }
-        }
+          @keyframes lb4-gain-float {
+            0% {
+              opacity: 0;
+              transform: translateY(4px);
+            }
+            12% {
+              opacity: 1;
+            }
+            70% {
+              opacity: 1;
+            }
+            100% {
+              opacity: 0;
+              transform: translateY(-14px);
+            }
+          }
 
-        /* countdown digits tick in place */
-        @keyframes lb4-tick {
-          0% {
-            opacity: 0.3;
-            transform: translateY(-3px);
+          /* row flash when its score just moved */
+          .lb4-row-flash {
+            animation: lb4-row-glow ${FLASH_MS}ms ease-out;
           }
-          100% {
-            opacity: 1;
-            transform: translateY(0);
+          @keyframes lb4-row-glow {
+            0%,
+            100% {
+              background-color: transparent;
+            }
+            15% {
+              background-color: rgb(var(--lb-gold) / 0.07);
+            }
           }
-        }
-        .lb4-tick {
-          animation: lb4-tick 0.4s ease-out;
-          display: inline-block;
-          min-width: 1.5ch;
-          text-align: center;
-        }
 
-        /* score-gain pop — floats up off the score and fades */
-        .lb4-gain {
-          animation: lb4-gain-float ${FLASH_MS}ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
-          pointer-events: none;
-        }
-        @keyframes lb4-gain-float {
-          0% {
-            opacity: 0;
-            transform: translateY(4px);
+          /* row entrance stagger on first table paint */
+          .lb4-row-in {
+            animation: lb4-row-enter 480ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+            animation-delay: var(--rd, 0ms);
           }
-          12% {
-            opacity: 1;
+          @keyframes lb4-row-enter {
+            from {
+              opacity: 0;
+              transform: translateY(8px);
+            }
           }
-          70% {
-            opacity: 1;
-          }
-          100% {
-            opacity: 0;
-            transform: translateY(-14px);
-          }
-        }
 
-        /* row flash when its score just moved */
-        .lb4-row-flash {
-          animation: lb4-row-glow ${FLASH_MS}ms ease-out;
-        }
-        @keyframes lb4-row-glow {
-          0%,
-          100% {
-            background-color: transparent;
+          /* Plated rows are physical nameplates, and the art is a fixed dark
+             product (authored against the dark arena panel). In light mode a
+             plated row is a RUNWAY DISSOLVE: a single long two-hue ramp —
+             white, a pastel blush of the plate's accent (--pa), a descent
+             through its deep scene hue (--pb) with the art fading in through
+             it — with the steep segment landed in text-free gutters. Only
+             the cells over the finished descent — 24H / SCORE / STATUS,
+             tagged .lb4-dk — re-declare their palette vars to the dark-theme
+             values (zinc text scale, medal hues, movement colors, hairlines —
+             and the neon glow multiplier, so the score glow re-lights over
+             the art). The TOP TOOL cell is deliberately untagged: it renders
+             ink on the blush like a non-plated row, which is what gives the
+             ramp its runway. Dark mode is untouched: the bleed layer stays
+             hidden, the opaque base stays full-bleed, and PlateLayer keeps
+             its default left fade. */
+          html.light .lb4-plated .lb4-dk {
+            --z50: 250 250 250;
+            --z100: 244 244 245;
+            --z200: 228 228 231;
+            --z300: 212 212 216;
+            --z400: 161 161 170;
+            --z500: 113 113 122;
+            --z600: 82 82 91;
+            --z700: 63 63 70;
+            --z800: 39 39 42;
+            --z900: 24 24 27;
+            --z950: 9 9 11;
+            --lb-gold: 255 214 68;
+            --lb-gold-hi: 255 240 160;
+            --lb-silver: 216 228 242;
+            --lb-bronze: 255 145 77;
+            --lb-score: 252 255 0;
+            --lb-up: 74 222 128;
+            --lb-down: 251 113 133;
+            --lb-panel-bg: 9 10 13;
+            --lb-panel-edge: 255 255 255;
+            --lb-glow: 1;
           }
-          15% {
-            background-color: rgb(var(--lb-gold) / 0.07);
+
+          /* Runway geometry. The identity zone is PURE WHITE — no art, no
+             tint — until past the pilot cell (the grey wash that used to sit
+             under names was dark art at 8–30% alpha over white). From there
+             ONE eased dissolve runs to the score column, built as a matched
+             pair: ground (.lb4-bleed) and art (--plate-mask) ride the same
+             slow–fast–slow alpha ladder (~0.08 alpha/rem peak on desktop,
+             soft shoulders on both ends — plateaus and slope steps are what
+             read as a "band"), with the art trailing the ground by ~1.5rem
+             (0.65rem mobile) so it always fades in over its own scene hue
+             (--pb is the color the art approaches at its left edge), never
+             over white — mid-fade stays chromatic instead of washing out to
+             grey. The ramp opens as a whisper-alpha blush of the plate's
+             ACCENT (--pa, cap 0.05 — a warm pass-through, not a visible
+             band) and hands off to --pb while total alpha is ≤ ~0.08: any
+             momentary sRGB desaturation between the two hues renders at
+             L≥240 over white — invisible. Zones:
+               white (avatar, name, @user — clean panel white)
+               → blush→tint (tool cell, ink text on ≤ ~0.28 scene tint)
+               → descent (text-free gutters: tool cell's empty right end +
+                 the right-aligned 24H cell's empty left end)
+               → full scene (score/status, .lb4-dk dark palette; ground
+                 ≥ 0.9 by the score column, opaque under the score text,
+                 art full ~1.5rem after the ground).
+             Anchors: desktop right block = 31rem columns + 3 gaps + 1.25rem
+             pad ⇒ tool cell starts at 100% − 34.5rem (its text ends near
+             −28rem), score column at 100% − 19.25rem, score text from
+             ≈ −16rem. Every stop sits inside ~42rem and positions stay
+             monotonic, so a ~45rem row (768px viewport) keeps the whole
+             ladder on-canvas — nothing clamps to 0 and murks the name the
+             way the old 70rem-start mask did at tablet widths.
+             Mobile: pilot truncates at 100% − 9.25rem (1rem pad + 7.5rem
+             score cell + 0.75rem gap) and has no gutter — the ramp is still
+             ≤ ~0.17 at the truncation anchor and the score rides a
+             scene-hued halo (--lb-halo) instead of a solid ground. */
+          .lb4-bleed {
+            display: none;
           }
-        }
-
-        /* row entrance stagger on first table paint */
-        .lb4-row-in {
-          animation: lb4-row-enter 480ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
-          animation-delay: var(--rd, 0ms);
-        }
-        @keyframes lb4-row-enter {
-          from {
-            opacity: 0;
-            transform: translateY(8px);
+          html.light .lb4-plated .lb4-base {
+            display: none;
           }
-        }
-
-        /* Plated rows are physical nameplates, and the art is a fixed dark
-           product (authored against the dark arena panel). In light mode a
-           plated row is a RUNWAY DISSOLVE: a single long two-hue ramp —
-           white, a pastel blush of the plate's accent (--pa), a descent
-           through its deep scene hue (--pb) with the art fading in through
-           it — with the steep segment landed in text-free gutters. Only
-           the cells over the finished descent — 24H / SCORE / STATUS,
-           tagged .lb4-dk — re-declare their palette vars to the dark-theme
-           values (zinc text scale, medal hues, movement colors, hairlines —
-           and the neon glow multiplier, so the score glow re-lights over
-           the art). The TOP TOOL cell is deliberately untagged: it renders
-           ink on the blush like a non-plated row, which is what gives the
-           ramp its runway. Dark mode is untouched: the bleed layer stays
-           hidden, the opaque base stays full-bleed, and PlateLayer keeps
-           its default left fade. */
-        html.light .lb4-plated .lb4-dk {
-          --z50: 250 250 250;
-          --z100: 244 244 245;
-          --z200: 228 228 231;
-          --z300: 212 212 216;
-          --z400: 161 161 170;
-          --z500: 113 113 122;
-          --z600: 82 82 91;
-          --z700: 63 63 70;
-          --z800: 39 39 42;
-          --z900: 24 24 27;
-          --z950: 9 9 11;
-          --lb-gold: 255 214 68;
-          --lb-gold-hi: 255 240 160;
-          --lb-silver: 216 228 242;
-          --lb-bronze: 255 145 77;
-          --lb-score: 252 255 0;
-          --lb-up: 74 222 128;
-          --lb-down: 251 113 133;
-          --lb-panel-bg: 9 10 13;
-          --lb-panel-edge: 255 255 255;
-          --lb-glow: 1;
-        }
-
-        /* Runway geometry. The identity zone is PURE WHITE — no art, no
-           tint — until past the pilot cell (the grey wash that used to sit
-           under names was dark art at 8–30% alpha over white). From there
-           ONE eased dissolve runs to the score column, built as a matched
-           pair: ground (.lb4-bleed) and art (--plate-mask) ride the same
-           slow–fast–slow alpha ladder (~0.08 alpha/rem peak on desktop,
-           soft shoulders on both ends — plateaus and slope steps are what
-           read as a "band"), with the art trailing the ground by ~1.5rem
-           (0.65rem mobile) so it always fades in over its own scene hue
-           (--pb is the color the art approaches at its left edge), never
-           over white — mid-fade stays chromatic instead of washing out to
-           grey. The ramp opens as a whisper-alpha blush of the plate's
-           ACCENT (--pa, cap 0.05 — a warm pass-through, not a visible
-           band) and hands off to --pb while total alpha is ≤ ~0.08: any
-           momentary sRGB desaturation between the two hues renders at
-           L≥240 over white — invisible. Zones:
-             white (avatar, name, @user — clean panel white)
-             → blush→tint (tool cell, ink text on ≤ ~0.28 scene tint)
-             → descent (text-free gutters: tool cell's empty right end +
-               the right-aligned 24H cell's empty left end)
-             → full scene (score/status, .lb4-dk dark palette; ground
-               ≥ 0.9 by the score column, opaque under the score text,
-               art full ~1.5rem after the ground).
-           Anchors: desktop right block = 31rem columns + 3 gaps + 1.25rem
-           pad ⇒ tool cell starts at 100% − 34.5rem (its text ends near
-           −28rem), score column at 100% − 19.25rem, score text from
-           ≈ −16rem. Every stop sits inside ~42rem and positions stay
-           monotonic, so a ~45rem row (768px viewport) keeps the whole
-           ladder on-canvas — nothing clamps to 0 and murks the name the
-           way the old 70rem-start mask did at tablet widths.
-           Mobile: pilot truncates at 100% − 9.25rem (1rem pad + 7.5rem
-           score cell + 0.75rem gap) and has no gutter — the ramp is still
-           ≤ ~0.17 at the truncation anchor and the score rides a
-           scene-hued halo (--lb-halo) instead of a solid ground. */
-        .lb4-bleed {
-          display: none;
-        }
-        html.light .lb4-plated .lb4-base {
-          display: none;
-        }
-        html.light .lb4-plated .lb4-bleed {
-          display: block;
-          background: linear-gradient(
-            90deg,
-            rgb(var(--pa, 124 118 140) / 0) calc(100% - 13rem),
-            rgb(var(--pa, 124 118 140) / 0.04) calc(100% - 11.75rem),
-            rgb(var(--pa, 124 118 140) / 0.05) calc(100% - 10.9rem),
-            rgb(var(--pb, 24 24 27) / 0.09) calc(100% - 10.15rem),
-            rgb(var(--pb, 24 24 27) / 0.16) calc(100% - 9.4rem),
-            rgb(var(--pb, 24 24 27) / 0.26) calc(100% - 8.7rem),
-            rgb(var(--pb, 24 24 27) / 0.38) calc(100% - 8.05rem),
-            rgb(var(--pb, 24 24 27) / 0.51) calc(100% - 7.45rem),
-            rgb(var(--pb, 24 24 27) / 0.64) calc(100% - 6.85rem),
-            rgb(var(--pb, 24 24 27) / 0.76) calc(100% - 6.3rem),
-            rgb(var(--pb, 24 24 27) / 0.87) calc(100% - 5.75rem),
-            rgb(var(--pb, 24 24 27) / 0.95) calc(100% - 5.2rem),
-            rgb(var(--pb, 24 24 27)) calc(100% - 4.5rem)
-          );
-        }
-        html.light .lb4-plated {
-          --plate-mask: linear-gradient(
-            90deg,
-            transparent calc(100% - 12.35rem),
-            rgb(0 0 0 / 0.04) calc(100% - 11.1rem),
-            rgb(0 0 0 / 0.05) calc(100% - 10.25rem),
-            rgb(0 0 0 / 0.09) calc(100% - 9.5rem),
-            rgb(0 0 0 / 0.16) calc(100% - 8.75rem),
-            rgb(0 0 0 / 0.26) calc(100% - 8.05rem),
-            rgb(0 0 0 / 0.38) calc(100% - 7.4rem),
-            rgb(0 0 0 / 0.51) calc(100% - 6.8rem),
-            rgb(0 0 0 / 0.64) calc(100% - 6.2rem),
-            rgb(0 0 0 / 0.76) calc(100% - 5.65rem),
-            rgb(0 0 0 / 0.87) calc(100% - 5.1rem),
-            rgb(0 0 0 / 0.95) calc(100% - 4.55rem),
-            rgb(0 0 0) calc(100% - 3.85rem)
-          );
-        }
-        @media (min-width: 768px) {
           html.light .lb4-plated .lb4-bleed {
+            display: block;
             background: linear-gradient(
               90deg,
-              rgb(var(--pa, 124 118 140) / 0) calc(100% - 42rem),
-              rgb(var(--pa, 124 118 140) / 0.04) calc(100% - 38rem),
-              rgb(var(--pa, 124 118 140) / 0.05) calc(100% - 35.5rem),
-              rgb(var(--pb, 24 24 27) / 0.08) calc(100% - 33.5rem),
-              rgb(var(--pb, 24 24 27) / 0.13) calc(100% - 31rem),
-              rgb(var(--pb, 24 24 27) / 0.2) calc(100% - 29rem),
-              rgb(var(--pb, 24 24 27) / 0.28) calc(100% - 27.5rem),
-              rgb(var(--pb, 24 24 27) / 0.39) calc(100% - 26rem),
-              rgb(var(--pb, 24 24 27) / 0.51) calc(100% - 24.5rem),
-              rgb(var(--pb, 24 24 27) / 0.63) calc(100% - 23rem),
-              rgb(var(--pb, 24 24 27) / 0.75) calc(100% - 21.5rem),
-              rgb(var(--pb, 24 24 27) / 0.84) calc(100% - 20.25rem),
-              rgb(var(--pb, 24 24 27) / 0.91) calc(100% - 19.25rem),
-              rgb(var(--pb, 24 24 27) / 0.96) calc(100% - 18.25rem),
-              rgb(var(--pb, 24 24 27) / 0.99) calc(100% - 17.25rem),
-              rgb(var(--pb, 24 24 27)) calc(100% - 16.25rem)
+              rgb(var(--pa, 124 118 140) / 0) calc(100% - 13rem),
+              rgb(var(--pa, 124 118 140) / 0.04) calc(100% - 11.75rem),
+              rgb(var(--pa, 124 118 140) / 0.05) calc(100% - 10.9rem),
+              rgb(var(--pb, 24 24 27) / 0.09) calc(100% - 10.15rem),
+              rgb(var(--pb, 24 24 27) / 0.16) calc(100% - 9.4rem),
+              rgb(var(--pb, 24 24 27) / 0.26) calc(100% - 8.7rem),
+              rgb(var(--pb, 24 24 27) / 0.38) calc(100% - 8.05rem),
+              rgb(var(--pb, 24 24 27) / 0.51) calc(100% - 7.45rem),
+              rgb(var(--pb, 24 24 27) / 0.64) calc(100% - 6.85rem),
+              rgb(var(--pb, 24 24 27) / 0.76) calc(100% - 6.3rem),
+              rgb(var(--pb, 24 24 27) / 0.87) calc(100% - 5.75rem),
+              rgb(var(--pb, 24 24 27) / 0.95) calc(100% - 5.2rem),
+              rgb(var(--pb, 24 24 27)) calc(100% - 4.5rem)
             );
           }
           html.light .lb4-plated {
             --plate-mask: linear-gradient(
               90deg,
-              transparent calc(100% - 40.5rem),
-              rgb(0 0 0 / 0.04) calc(100% - 36.5rem),
-              rgb(0 0 0 / 0.05) calc(100% - 34rem),
-              rgb(0 0 0 / 0.08) calc(100% - 32rem),
-              rgb(0 0 0 / 0.13) calc(100% - 29.5rem),
-              rgb(0 0 0 / 0.2) calc(100% - 27.5rem),
-              rgb(0 0 0 / 0.28) calc(100% - 26rem),
-              rgb(0 0 0 / 0.39) calc(100% - 24.5rem),
-              rgb(0 0 0 / 0.51) calc(100% - 23rem),
-              rgb(0 0 0 / 0.63) calc(100% - 21.5rem),
-              rgb(0 0 0 / 0.75) calc(100% - 20rem),
-              rgb(0 0 0 / 0.84) calc(100% - 18.75rem),
-              rgb(0 0 0 / 0.91) calc(100% - 17.75rem),
-              rgb(0 0 0 / 0.96) calc(100% - 16.75rem),
-              rgb(0 0 0 / 0.99) calc(100% - 15.75rem),
-              rgb(0 0 0) calc(100% - 14.75rem)
+              transparent calc(100% - 12.35rem),
+              rgb(0 0 0 / 0.04) calc(100% - 11.1rem),
+              rgb(0 0 0 / 0.05) calc(100% - 10.25rem),
+              rgb(0 0 0 / 0.09) calc(100% - 9.5rem),
+              rgb(0 0 0 / 0.16) calc(100% - 8.75rem),
+              rgb(0 0 0 / 0.26) calc(100% - 8.05rem),
+              rgb(0 0 0 / 0.38) calc(100% - 7.4rem),
+              rgb(0 0 0 / 0.51) calc(100% - 6.8rem),
+              rgb(0 0 0 / 0.64) calc(100% - 6.2rem),
+              rgb(0 0 0 / 0.76) calc(100% - 5.65rem),
+              rgb(0 0 0 / 0.87) calc(100% - 5.1rem),
+              rgb(0 0 0 / 0.95) calc(100% - 4.55rem),
+              rgb(0 0 0) calc(100% - 3.85rem)
             );
           }
-        }
-
-        /* Stragglers over the art: the 24H delta lands where the descent is
-           still finishing (ground alpha ~0.63–0.91) and the status column
-           sits on the art's full-strength right edge — both get a halo in
-           the scene's own hue (reads as ambience, not smudge). The score
-           gets the same treatment via the --lb-halo gate on its inline
-           text-shadow at EVERY width: mobile because it has no gutter, and
-           desktop because the art now rests near full strength under the
-           score — bright scene features (cherry's moon) would otherwise
-           sit right behind the neon digits. The tool % and @username
-           captions keep their dim-caption role but need real ink on the
-           blush/tint — zinc-600 was tuned for white. */
-        html.light .lb4-plated .lb4-delta {
-          text-shadow:
-            0 1px 2px rgb(var(--pb, 9 10 13) / 0.95),
-            0 0 10px rgb(var(--pb, 9 10 13) / 0.8);
-        }
-        html.light .lb4-plated .lb4-pct {
-          color: rgb(var(--z300) / 0.8);
-        }
-        html.light .lb4-plated .lb4-cap {
-          color: rgb(var(--z300) / 0.8);
-        }
-        html.light .lb4-plated {
-          --lb-halo: 1;
-        }
-
-        /* Light rest for the art: 0.55 dimming was tuned for a fully dark
-           board, and even 0.75 read as a grey veil that only lifted on
-           hover. 0.85 keeps the scene saturated at rest — capped there
-           (not 1) because the row's right edge must stay inside the dark
-           row's own slope budget: dark shows art features at effective
-           0.55 alpha, and past ~0.87 the same features in light exceed
-           the bleed-verify slope probe's 1.6× ratio. Hover/focus still
-           blooms to full — these outrank the utility classes on the
-           wrapper, so restate the bloom for light. */
-        html.light .lb4-plated .lb4-art {
-          opacity: 0.85;
-        }
-        html.light .lb4-plated:hover .lb4-art,
-        html.light .lb4-plated:focus-within .lb4-art {
-          opacity: 1;
-        }
-
-        /* The showcase slab: full-bleed in both themes — the one wrapper
-           that groups base/bleed/art/YOU/flash under a shared geometry +
-           clip. */
-        .lb4-slab {
-          inset: 0;
-        }
-
-        /* CPU guards — freeze every infinite animation when it can't be
-           seen: the whole arena while the profile modal covers it (its
-           backdrop blur would otherwise re-sample animating pixels every
-           frame), and the podium FX while the podium is collapsed. */
-        .lb4-freeze *,
-        .lb4-pod-off * {
-          animation-play-state: paused !important;
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .lb4-reveal,
-          .lb4-tick,
-          .lb4-gain,
-          .lb4-row-flash,
-          .lb4-row-in,
-          .lb4-live-dot {
-            animation: none;
+          @media (min-width: 768px) {
+            html.light .lb4-plated .lb4-bleed {
+              background: linear-gradient(
+                90deg,
+                rgb(var(--pa, 124 118 140) / 0) calc(100% - 42rem),
+                rgb(var(--pa, 124 118 140) / 0.04) calc(100% - 38rem),
+                rgb(var(--pa, 124 118 140) / 0.05) calc(100% - 35.5rem),
+                rgb(var(--pb, 24 24 27) / 0.08) calc(100% - 33.5rem),
+                rgb(var(--pb, 24 24 27) / 0.13) calc(100% - 31rem),
+                rgb(var(--pb, 24 24 27) / 0.2) calc(100% - 29rem),
+                rgb(var(--pb, 24 24 27) / 0.28) calc(100% - 27.5rem),
+                rgb(var(--pb, 24 24 27) / 0.39) calc(100% - 26rem),
+                rgb(var(--pb, 24 24 27) / 0.51) calc(100% - 24.5rem),
+                rgb(var(--pb, 24 24 27) / 0.63) calc(100% - 23rem),
+                rgb(var(--pb, 24 24 27) / 0.75) calc(100% - 21.5rem),
+                rgb(var(--pb, 24 24 27) / 0.84) calc(100% - 20.25rem),
+                rgb(var(--pb, 24 24 27) / 0.91) calc(100% - 19.25rem),
+                rgb(var(--pb, 24 24 27) / 0.96) calc(100% - 18.25rem),
+                rgb(var(--pb, 24 24 27) / 0.99) calc(100% - 17.25rem),
+                rgb(var(--pb, 24 24 27)) calc(100% - 16.25rem)
+              );
+            }
+            html.light .lb4-plated {
+              --plate-mask: linear-gradient(
+                90deg,
+                transparent calc(100% - 40.5rem),
+                rgb(0 0 0 / 0.04) calc(100% - 36.5rem),
+                rgb(0 0 0 / 0.05) calc(100% - 34rem),
+                rgb(0 0 0 / 0.08) calc(100% - 32rem),
+                rgb(0 0 0 / 0.13) calc(100% - 29.5rem),
+                rgb(0 0 0 / 0.2) calc(100% - 27.5rem),
+                rgb(0 0 0 / 0.28) calc(100% - 26rem),
+                rgb(0 0 0 / 0.39) calc(100% - 24.5rem),
+                rgb(0 0 0 / 0.51) calc(100% - 23rem),
+                rgb(0 0 0 / 0.63) calc(100% - 21.5rem),
+                rgb(0 0 0 / 0.75) calc(100% - 20rem),
+                rgb(0 0 0 / 0.84) calc(100% - 18.75rem),
+                rgb(0 0 0 / 0.91) calc(100% - 17.75rem),
+                rgb(0 0 0 / 0.96) calc(100% - 16.75rem),
+                rgb(0 0 0 / 0.99) calc(100% - 15.75rem),
+                rgb(0 0 0) calc(100% - 14.75rem)
+              );
+            }
           }
-        }
-      `}</style>
-    </div>
+
+          /* Stragglers over the art: the 24H delta lands where the descent is
+             still finishing (ground alpha ~0.63–0.91) and the status column
+             sits on the art's full-strength right edge — both get a halo in
+             the scene's own hue (reads as ambience, not smudge). The score
+             gets the same treatment via the --lb-halo gate on its inline
+             text-shadow at EVERY width: mobile because it has no gutter, and
+             desktop because the art now rests near full strength under the
+             score — bright scene features (cherry's moon) would otherwise
+             sit right behind the neon digits. The tool % and @username
+             captions keep their dim-caption role but need real ink on the
+             blush/tint — zinc-600 was tuned for white. */
+          html.light .lb4-plated .lb4-delta {
+            text-shadow:
+              0 1px 2px rgb(var(--pb, 9 10 13) / 0.95),
+              0 0 10px rgb(var(--pb, 9 10 13) / 0.8);
+          }
+          html.light .lb4-plated .lb4-pct {
+            color: rgb(var(--z300) / 0.8);
+          }
+          html.light .lb4-plated .lb4-cap {
+            color: rgb(var(--z300) / 0.8);
+          }
+          html.light .lb4-plated {
+            --lb-halo: 1;
+          }
+
+          /* Light rest for the art: 0.55 dimming was tuned for a fully dark
+             board, and even 0.75 read as a grey veil that only lifted on
+             hover. 0.85 keeps the scene saturated at rest — capped there
+             (not 1) because the row's right edge must stay inside the dark
+             row's own slope budget: dark shows art features at effective
+             0.55 alpha, and past ~0.87 the same features in light exceed
+             the bleed-verify slope probe's 1.6× ratio. Hover/focus still
+             blooms to full — these outrank the utility classes on the
+             wrapper, so restate the bloom for light. */
+          html.light .lb4-plated .lb4-art {
+            opacity: 0.85;
+          }
+          html.light .lb4-plated:hover .lb4-art,
+          html.light .lb4-plated:focus-within .lb4-art {
+            opacity: 1;
+          }
+
+          /* The showcase slab: full-bleed in both themes — the one wrapper
+             that groups base/bleed/art/YOU/flash under a shared geometry +
+             clip. */
+          .lb4-slab {
+            inset: 0;
+          }
+
+          /* CPU guards — freeze every infinite animation when it can't be
+             seen: the whole arena while the profile modal covers it (its
+             backdrop blur would otherwise re-sample animating pixels every
+             frame), and the podium FX while the podium is collapsed. */
+          .lb4-freeze *,
+          .lb4-pod-off * {
+            animation-play-state: paused !important;
+          }
+
+          @media (prefers-reduced-motion: reduce) {
+            .lb4-reveal,
+            .lb4-tick,
+            .lb4-gain,
+            .lb4-row-flash,
+            .lb4-row-in,
+            .lb4-live-dot {
+              animation: none;
+            }
+          }
+        `}</style>
+      </div>
+    </>
   )
 }
 
