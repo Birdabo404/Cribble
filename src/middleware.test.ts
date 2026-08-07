@@ -128,27 +128,29 @@ describe('middleware site lock', () => {
     expect(middleware(request('/api/team/roster')).status).toBe(200)
     expect(middleware(request('/api/webhooks/polar')).status).toBe(200)
     expect(middleware(request('/api/user/subscription/sync')).status).toBe(200)
-    // Bag + billboard shipped after the lock allowlist froze — keep them
-    // reachable so new surfaces don't land on the void screen in beta.
-    expect(rewriteTarget('/bag')).toBeNull()
+    // Billboard shipped after the lock allowlist froze — keep it
+    // reachable so the pitch page doesn't land on the void screen in beta.
+    // /bag is session-gated like /shop (covered below).
     expect(rewriteTarget('/billboard')).toBeNull()
     expect(middleware(request('/api/billboard')).status).toBe(200)
     expect(middleware(request('/api/billboard/slots')).status).toBe(200)
   })
 
-  it('walls /shop behind sign-in for signed-out visitors while locked', () => {
+  it('walls /shop and /bag behind sign-in for signed-out visitors while locked', () => {
     vi.stubEnv('SITE_LOCKED', '1')
-    // Not the maintenance screen: a session would open this sector, so
+    // Not the maintenance screen: a session would open these sectors, so
     // the visitor gets the sign-in wall instead of "under construction".
     expect(rewriteTarget('/shop')).toBe('/restricted')
+    expect(rewriteTarget('/bag')).toBe('/restricted')
   })
 
-  it('keeps /shop open for signed-in pilots while locked', () => {
+  it('keeps /shop and /bag open for signed-in pilots while locked', () => {
     vi.stubEnv('SITE_LOCKED', '1')
     // Presence-only gate: the middleware never validates the token, so any
-    // cribble_session cookie opens the storefront shell — the data lanes
-    // behind it still enforce real auth.
+    // cribble_session cookie opens the shell — the data lanes behind it
+    // still enforce real auth.
     expect(rewriteTarget('/shop', 'cribble_session=beta-tester')).toBeNull()
+    expect(rewriteTarget('/bag', 'cribble_session=beta-tester')).toBeNull()
   })
 
   it('does not rewrite anything when unlocked', () => {

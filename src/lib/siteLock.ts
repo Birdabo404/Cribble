@@ -40,8 +40,9 @@ export function isAllowedDuringLock(pathname: string, hasSession = false): boole
   // Settings hub replaced the account-menu modals; keep every section
   // reachable while the beta is locked (same class as /dashboard).
   if (pathname === '/settings' || pathname.startsWith('/settings/')) return true
-  // Collection page — plates + badges for signed-in pilots in the shell.
-  if (pathname === '/bag' || pathname.startsWith('/bag/')) return true
+  // Collection page — plates + badges for signed-in pilots only while
+  // locked (same session-presence gate as /shop).
+  if (pathname === '/bag' || pathname.startsWith('/bag/')) return hasSession
   if (pathname === '/admin' || pathname.startsWith('/admin/')) return true
   if (pathname.startsWith('/api/admin/')) return true
   if (pathname === '/leaderboard' || pathname.startsWith('/leaderboard/')) return true
