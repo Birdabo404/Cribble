@@ -3,7 +3,8 @@
 // Ephemeral toast stack (bottom-right), styled on the liquid-glass system.
 // `toast()` is callable from anywhere (hooks included) via a module-level
 // store, sonner-style; pages that want toasts rendered mount <Toaster />.
-// Emitting with no viewport mounted is a silent no-op.
+// Emitting with no viewport mounted is a silent no-op. Overflow past
+// MAX_VISIBLE evicts the oldest live toast through its animated exit path.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatNumber } from '@/components/dashboard-v2/format'
@@ -14,7 +15,7 @@ export interface ToastInput {
   kind: ToastKind
   title: string
   body?: string
-  /** Rendered as a glowing "+N PTS" readout — the sync-confirmation hero. */
+  /** Rendered as an accent "+N PTS" readout — the sync-confirmation hero. */
   scoreDelta?: number
   durationMs?: number
 }
@@ -98,16 +99,30 @@ function StrokeIcon({ d, className = 'h-3.5 w-3.5' }: { d: string; className?: s
   )
 }
 
-function ToastCard({ item, onDone }: { item: ToastItem; onDone: (id: number) => void }) {
+interface ToastCardProps {
+  item: ToastItem
+  /** Parent-driven exit (eviction past MAX_VISIBLE); fires even while hovered. */
+  forceExit: boolean
+  /** Reports any exit start (timer, dismiss, eviction) so the stack counts live toasts. */
+  onExitStart: (id: number) => void
+  onDone: (id: number) => void
+}
+
+function ToastCard({ item, forceExit, onExitStart, onDone }: ToastCardProps) {
   const [leaving, setLeaving] = useState(false)
   const [hovered, setHovered] = useState(false)
   const remainingRef = useRef(item.durationMs)
   const resumedAtRef = useRef(Date.now())
+  const leavingRef = useRef(false)
+  const removeTimerRef = useRef<number | null>(null)
 
   const beginExit = useCallback(() => {
+    if (leavingRef.current) return
+    leavingRef.current = true
     setLeaving(true)
-    window.setTimeout(() => onDone(item.id), EXIT_MS)
-  }, [item.id, onDone])
+    onExitStart(item.id)
+    removeTimerRef.current = window.setTimeout(() => onDone(item.id), EXIT_MS)
+  }, [item.id, onExitStart, onDone])
 
   // Auto-dismiss timer that pauses while hovered (the progress bar pauses
   // in lockstep via animation-play-state below).
@@ -121,6 +136,21 @@ function ToastCard({ item, onDone }: { item: ToastItem; onDone: (id: number) => 
     const timer = window.setTimeout(beginExit, Math.max(400, remainingRef.current))
     return () => window.clearTimeout(timer)
   }, [hovered, leaving, beginExit])
+
+  // Eviction: begin the exit regardless of hover. beginExit no-ops if this
+  // card already started leaving on its own.
+  useEffect(() => {
+    if (forceExit) beginExit()
+  }, [forceExit, beginExit])
+
+  // The removal timeout outlives interaction; clear it if the whole stack
+  // unmounts mid-exit.
+  useEffect(
+    () => () => {
+      if (removeTimerRef.current !== null) window.clearTimeout(removeTimerRef.current)
+    },
+    []
+  )
 
   const style = toastStyle(item.kind)
 
@@ -149,13 +179,13 @@ function ToastCard({ item, onDone }: { item: ToastItem; onDone: (id: number) => 
 
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[10px] tracking-[0.3em] text-zinc-100">
+                <span className="text-[10px] tracking-[0.16em] text-zinc-100">
                   {item.title}
                 </span>
                 {item.scoreDelta !== null && item.scoreDelta > 0 && (
-                  <span className="shrink-0 text-sm font-semibold text-accent cribble-score-glow">
+                  <span className="shrink-0 text-sm font-semibold text-accent">
                     +{formatNumber(item.scoreDelta)}
-                    <span className="ml-1 text-[9px] tracking-[0.2em] text-accent/60">
+                    <span className="ml-1 text-[9px] tracking-[0.2em] text-zinc-500">
                       PTS
                     </span>
                   </span>
@@ -197,14 +227,31 @@ function ToastCard({ item, onDone }: { item: ToastItem; onDone: (id: number) => 
   )
 }
 
+interface ToastEntry {
+  item: ToastItem
+  /** Exit in progress — self-initiated (timer/dismiss) or an eviction. */
+  exiting: boolean
+}
+
 export function Toaster() {
-  const [items, setItems] = useState<ToastItem[]>([])
+  const [entries, setEntries] = useState<ToastEntry[]>([])
 
   useEffect(() => {
     const add: ToastListener = (item) => {
-      setItems((prev) => {
-        const next = [...prev, item]
-        return next.length > MAX_VISIBLE ? next.slice(next.length - MAX_VISIBLE) : next
+      setEntries((prev) => {
+        const next: ToastEntry[] = [...prev, { item, exiting: false }]
+        // The cap counts live (non-exiting) toasts. On overflow, mark the
+        // oldest live ones as exiting so they animate out via ToastCard's
+        // exit path instead of vanishing with a layout jump.
+        let overflow = next.filter((entry) => !entry.exiting).length - MAX_VISIBLE
+        if (overflow <= 0) return next
+        return next.map((entry) => {
+          if (overflow > 0 && !entry.exiting) {
+            overflow -= 1
+            return { ...entry, exiting: true }
+          }
+          return entry
+        })
       })
     }
     listeners.add(add)
@@ -213,19 +260,35 @@ export function Toaster() {
     }
   }, [])
 
-  const remove = useCallback((id: number) => {
-    setItems((prev) => prev.filter((item) => item.id !== id))
+  const markExiting = useCallback((id: number) => {
+    setEntries((prev) => {
+      const target = prev.find((entry) => entry.item.id === id)
+      if (!target || target.exiting) return prev
+      return prev.map((entry) =>
+        entry.item.id === id ? { ...entry, exiting: true } : entry
+      )
+    })
   }, [])
 
-  if (items.length === 0) return null
+  const remove = useCallback((id: number) => {
+    setEntries((prev) => prev.filter((entry) => entry.item.id !== id))
+  }, [])
 
+  // Always mounted (even when empty) so the aria-live region exists before
+  // toasts arrive — screen readers announce additions reliably that way.
   return (
     <div
       aria-live="polite"
-      className="pointer-events-none fixed bottom-5 right-5 z-[70] flex w-[min(92vw,360px)] flex-col font-mono"
+      className="pointer-events-none fixed bottom-5 right-5 z-[70] flex w-[min(92vw,360px)] flex-col"
     >
-      {items.map((item) => (
-        <ToastCard key={item.id} item={item} onDone={remove} />
+      {entries.map((entry) => (
+        <ToastCard
+          key={entry.item.id}
+          item={entry.item}
+          forceExit={entry.exiting}
+          onExitStart={markExiting}
+          onDone={remove}
+        />
       ))}
     </div>
   )

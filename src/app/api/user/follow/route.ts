@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
       await insertMissingNotifications(supabase, target.id, [
         {
           type: 'social',
-          title: 'NEW WINGMAN',
+          title: 'NEW FOLLOWER',
           body: `@${followerName} started following you.`,
           data: { followerId: session.userId, username: followerName },
           dedupeKey: `follow_from_${session.userId}`

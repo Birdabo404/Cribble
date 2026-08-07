@@ -1,13 +1,16 @@
 'use client'
 
-// Header notification bell + comms-console feed. Persistent notifications
+// Header notification bell + feed panel. Persistent notifications
 // (rank buckets, milestones, season updates, future social events) live
 // here; ephemeral sync confirmations stay in the toast stack.
 //
-// The panel is styled as a solid instrument (.comms-console), not floating
-// glass: it opens over arbitrary page content and needs to read as its own
-// surface. Entries are grouped by day (TODAY / YESTERDAY / …) with compact
-// right-aligned timestamps, log-style.
+// The panel is a solid ink surface (.notif-panel), not floating glass: it
+// opens over arbitrary page content and needs to read as its own surface.
+// Styling follows the quiet zinc chrome of AccountMenu — monochrome rows,
+// caps titles with modest tracking, hairline separators; the accent
+// appears only as a small unread dot beside the timestamp. Entries are
+// grouped by day (TODAY / YESTERDAY / …) with compact right-aligned
+// timestamps.
 //
 // Read model: opening the panel snapshots which items are unread (so their
 // "new" styling survives the mark-read call), then marks everything read —
@@ -22,8 +25,9 @@ import { ACHIEVEMENTS_BY_ID } from '@/lib/achievements'
 import { followActor, teamActor } from '@/types/notifications'
 import type { AppNotification, NotificationType } from '@/types/notifications'
 
-// Mirrors FEED_LIMIT in /api/user/notifications — at cap the footer says
-// the log is truncated instead of implying this is everything.
+// Mirrors FEED_LIMIT in /api/user/notifications — at cap a footer notes
+// only the most recent items are shown instead of implying this is
+// everything.
 const FEED_CAP = 30
 
 const ICON_PATHS = {
@@ -41,7 +45,10 @@ const ICON_PATHS = {
   crown: 'M2 20h20 M4 20 2 7l5.5 4L12 4l4.5 7L22 7l-2 13z',
   truck:
     'M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2 M15 18H9 M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14 M17 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M7 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
-  chevronDown: 'm6 9 6 6 6-6'
+  chevronDown: 'm6 9 6 6 6-6',
+  // Same gear as AccountMenu, so the two menus' chrome stays one family.
+  settings:
+    'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z'
 }
 
 interface TypeMeta {
@@ -90,14 +97,14 @@ function typeMeta(type: NotificationType, data: Record<string, unknown>): TypeMe
   }
 }
 
-/** Log-style compact age: NOW → 5M → 2H → 3D → 2W. */
+/** Compact age for row timestamps: now → 5m → 2h → 3d → 2w. */
 function shortTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
-  if (diff < 60_000) return 'NOW'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}M`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}H`
-  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)}D`
-  return `${Math.floor(diff / (7 * 86_400_000))}W`
+  if (diff < 60_000) return 'now'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`
+  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)}d`
+  return `${Math.floor(diff / (7 * 86_400_000))}w`
 }
 
 /** One renderable feed entry: a plain notification, or an X-style stack
@@ -111,7 +118,7 @@ interface FeedGroup {
   items: FeedItem[]
 }
 
-/** Day buckets for the log. Input arrives newest-first, so consecutive
+/** Day buckets for the feed. Input arrives newest-first, so consecutive
  *  runs of the same label fold into one group. Within a bucket, 2+ follow
  *  events collapse into one stacked entry at the newest follow's position
  *  — one feed line instead of N. A lone follow stays a normal row. */
@@ -284,6 +291,9 @@ function SingleFeedRow({
 }) {
   const actorUsername =
     n.type === 'social' && typeof n.data?.username === 'string' ? n.data.username : null
+  // Follow rows written before the copy change still carry the legacy
+  // "NEW WINGMAN" title in the DB; normalize to follower terminology here.
+  const title = followActor(n) ? 'NEW FOLLOWER' : n.title
   const href =
     n.type === 'team_invite'
       ? '/team/invites'
@@ -292,38 +302,39 @@ function SingleFeedRow({
         : actorUsername
           ? `/u/${encodeURIComponent(actorUsername)}`
           : null
-  const rowCls = `comms-row-in relative flex items-start gap-3 border-b border-white/[0.045] px-4 py-3 last:border-b-0 ${
-    fresh ? 'bg-accent/[0.045]' : ''
+  const rowCls = `notif-row-in flex items-start gap-3 border-b border-white/[0.045] px-4 py-3 last:border-b-0 ${
+    fresh ? 'bg-white/[0.03]' : ''
   }`
   const content = (
     <>
-      {/* unread signal bar */}
-      {fresh && (
-        <span
-          className="absolute inset-y-1.5 left-0 w-[2px] rounded-r-full bg-accent shadow-[0_0_10px_rgb(var(--accent-rgb)/0.55)]"
-          aria-hidden
-        />
-      )}
       <NotificationGlyph notification={n} dimmed={!fresh} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-3">
           <span
-            className={`truncate text-[10px] tracking-[0.22em] ${
-              fresh ? 'text-zinc-50' : 'text-zinc-300'
+            className={`truncate text-[11px] tracking-[0.12em] ${
+              fresh ? 'text-zinc-50' : 'text-zinc-400'
             }`}
           >
-            {n.title}
+            {title}
           </span>
-          <span
-            className={`ml-auto shrink-0 text-[8px] tabular-nums tracking-[0.2em] ${
-              fresh ? 'text-accent/80' : 'text-zinc-600'
-            }`}
-          >
-            {shortTime(n.created_at)}
+          <span className="ml-auto flex shrink-0 items-center gap-1.5">
+            <span
+              className={`text-[10px] tabular-nums ${fresh ? 'text-zinc-500' : 'text-zinc-600'}`}
+            >
+              {shortTime(n.created_at)}
+            </span>
+            {/* unread dot */}
+            {fresh && <span className="h-[5px] w-[5px] rounded-full bg-accent" aria-hidden />}
           </span>
         </div>
         {n.body && (
-          <p className="mt-1 text-[11px] leading-relaxed text-zinc-400">{n.body}</p>
+          <p
+            className={`mt-1 text-[11px] leading-relaxed ${
+              fresh ? 'text-zinc-400' : 'text-zinc-500'
+            }`}
+          >
+            {n.body}
+          </p>
         )}
       </div>
     </>
@@ -332,9 +343,7 @@ function SingleFeedRow({
     <a
       href={href}
       style={{ animationDelay: delay }}
-      className={`${rowCls} transition-colors ${
-        fresh ? 'hover:bg-accent/[0.08]' : 'hover:bg-white/[0.04]'
-      }`}
+      className={`${rowCls} transition-colors hover:bg-white/[0.04]`}
     >
       {content}
     </a>
@@ -345,8 +354,8 @@ function SingleFeedRow({
   )
 }
 
-/** Facepile circle: 22px avatar ringed in console ink so overlaps read
- *  as a deck of faces, X-style. */
+/** Facepile circle: avatar ringed in panel ink so overlaps read as a
+ *  deck of faces, X-style. */
 function StackFace({
   username,
   avatarUrl,
@@ -363,7 +372,7 @@ function StackFace({
       className={`relative inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center overflow-hidden rounded-full border-2 ${
         overlap ? '-ml-2' : ''
       }`}
-      style={{ borderColor: 'var(--console-ink)', zIndex: z }}
+      style={{ borderColor: 'var(--panel-ink)', zIndex: z }}
     >
       <Avatar
         src={avatarUrl}
@@ -404,17 +413,10 @@ function FollowStackRow({
         aria-expanded={expanded}
         aria-label={`${items.length} new followers — ${expanded ? 'collapse' : 'expand'}`}
         style={{ animationDelay: delay }}
-        className={`comms-row-in relative flex w-full items-start gap-3 border-b border-white/[0.045] px-4 py-3 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-zinc-500 ${
-          fresh ? 'bg-accent/[0.045] hover:bg-accent/[0.08]' : 'hover:bg-white/[0.04]'
+        className={`notif-row-in flex w-full items-start gap-3 border-b border-white/[0.045] px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-zinc-500 ${
+          fresh ? 'bg-white/[0.03]' : ''
         }`}
       >
-        {/* unread signal bar */}
-        {fresh && (
-          <span
-            className="absolute inset-y-1.5 left-0 w-[2px] rounded-r-full bg-accent shadow-[0_0_10px_rgb(var(--accent-rgb)/0.55)]"
-            aria-hidden
-          />
-        )}
         <span className={`mt-0.5 flex shrink-0 items-center ${fresh ? '' : 'opacity-70'}`}>
           {faces.map((face, i) => (
             <StackFace
@@ -428,7 +430,7 @@ function FollowStackRow({
           {overflow > 0 && (
             <span
               className="relative z-0 -ml-2 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full border-2 glass-inset-lite text-[8px] font-bold tabular-nums text-zinc-300"
-              style={{ borderColor: 'var(--console-ink)' }}
+              style={{ borderColor: 'var(--panel-ink)' }}
             >
               +{overflow}
             </span>
@@ -437,21 +439,31 @@ function FollowStackRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-3">
             <span
-              className={`truncate text-[10px] tracking-[0.22em] ${
-                fresh ? 'text-zinc-50' : 'text-zinc-300'
+              className={`truncate text-[11px] tracking-[0.12em] ${
+                fresh ? 'text-zinc-50' : 'text-zinc-400'
               }`}
             >
-              NEW WINGMEN
+              NEW FOLLOWERS
             </span>
-            <span
-              className={`ml-auto shrink-0 text-[8px] tabular-nums tracking-[0.2em] ${
-                fresh ? 'text-accent/80' : 'text-zinc-600'
-              }`}
-            >
-              {shortTime(items[0].created_at)}
+            <span className="ml-auto flex shrink-0 items-center gap-1.5">
+              <span
+                className={`text-[10px] tabular-nums ${fresh ? 'text-zinc-500' : 'text-zinc-600'}`}
+              >
+                {shortTime(items[0].created_at)}
+              </span>
+              {/* unread dot */}
+              {fresh && (
+                <span className="h-[5px] w-[5px] rounded-full bg-accent" aria-hidden />
+              )}
             </span>
           </div>
-          <p className="mt-1 text-[11px] leading-relaxed text-zinc-400">{stackBody(items)}</p>
+          <p
+            className={`mt-1 text-[11px] leading-relaxed ${
+              fresh ? 'text-zinc-400' : 'text-zinc-500'
+            }`}
+          >
+            {stackBody(items)}
+          </p>
         </div>
         <span
           className={`mt-1 shrink-0 text-zinc-500 transition-transform duration-150 ${
@@ -467,8 +479,8 @@ function FollowStackRow({
           const actor = followActor(n)
           const username = actor?.username ?? null
           const rowFresh = isNew(n.id, n.read_at)
-          const memberCls = `comms-row-in flex items-center gap-3 border-b border-white/[0.045] py-2 pl-8 pr-4 transition-colors last:border-b-0 ${
-            rowFresh ? 'bg-accent/[0.03] hover:bg-accent/[0.07]' : 'hover:bg-white/[0.04]'
+          const memberCls = `notif-row-in flex items-center gap-3 border-b border-white/[0.045] py-2 pl-8 pr-4 transition-colors last:border-b-0 hover:bg-white/[0.04] ${
+            rowFresh ? 'bg-white/[0.03]' : ''
           }`
           const inner = (
             <>
@@ -486,8 +498,18 @@ function FollowStackRow({
                 {username ? `@${username}` : 'A player'}{' '}
                 <span className="text-zinc-500">started following you</span>
               </span>
-              <span className="ml-auto shrink-0 text-[8px] tabular-nums tracking-[0.2em] text-zinc-600">
-                {shortTime(n.created_at)}
+              <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                <span
+                  className={`text-[10px] tabular-nums ${
+                    rowFresh ? 'text-zinc-500' : 'text-zinc-600'
+                  }`}
+                >
+                  {shortTime(n.created_at)}
+                </span>
+                {/* unread dot */}
+                {rowFresh && (
+                  <span className="h-[5px] w-[5px] rounded-full bg-accent" aria-hidden />
+                )}
               </span>
             </>
           )
@@ -523,22 +545,14 @@ function FeedSkeleton() {
   )
 }
 
-/** Inbox-zero radar: slow accent sweep inside hairline rings. */
+/** Inbox zero: a muted bell tile and a note on what will land here. */
 function EmptyFeed() {
   return (
     <div className="px-6 py-12 text-center">
-      <div className="relative mx-auto flex h-24 w-24 items-center justify-center">
-        <span className="absolute inset-0 rounded-full border border-white/[0.07]" aria-hidden />
-        <span className="absolute inset-[15px] rounded-full border border-white/[0.09]" aria-hidden />
-        <span
-          className="comms-radar-sweep absolute inset-[1px] rounded-full opacity-60"
-          aria-hidden
-        />
-        <span className="relative flex h-10 w-10 items-center justify-center rounded-full glass-inset-lite text-accent">
-          <StrokeIcon d={ICON_PATHS.bell} className="h-4 w-4" />
-        </span>
+      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl glass-inset-lite text-zinc-500">
+        <StrokeIcon d={ICON_PATHS.bell} className="h-5 w-5" />
       </div>
-      <div className="mt-4 text-[10px] tracking-[0.35em] text-zinc-200">ALL CLEAR</div>
+      <div className="mt-4 text-xs text-zinc-300">No notifications yet</div>
       <p className="mx-auto mt-2 max-w-[240px] text-[11px] leading-relaxed text-zinc-500">
         Rank changes, achievements, and season milestones will land here.
       </p>
@@ -675,31 +689,27 @@ export function NotificationBell({
         <div
           role="dialog"
           aria-label="Notifications"
-          className={`${panelPlacementCls} comms-console flex flex-col overflow-hidden rounded-2xl`}
+          className={`${panelPlacementCls} notif-panel flex flex-col overflow-hidden rounded-2xl`}
           style={{ animation: panelAnimation }}
         >
-          {/* status strip — scanline band, live dot, fresh counter */}
-          <div className="comms-scanlines flex shrink-0 items-center justify-between border-b border-white/[0.08] px-4 py-3">
-            <div className="flex items-center gap-2.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_8px_rgb(var(--accent-rgb)/0.7)]" />
-              <span className="text-[10px] tracking-[0.4em] text-zinc-200">NOTIFICATIONS</span>
+          {/* header — title, quiet fresh count, settings shortcut */}
+          <div className="flex shrink-0 items-center justify-between border-b border-white/[0.08] px-4 py-3">
+            <span className="text-[10px] tracking-[0.2em] text-zinc-200">NOTIFICATIONS</span>
+            <div className="flex items-center gap-3">
+              {freshCount > 0 && (
+                <span className="text-[10px] text-zinc-400">{freshCount} new</span>
+              )}
+              <a
+                href="/settings/notifications"
+                aria-label="Notification settings"
+                className="rounded text-zinc-500 transition-colors hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
+              >
+                <StrokeIcon d={ICON_PATHS.settings} className="h-3.5 w-3.5" />
+              </a>
             </div>
-            {freshCount > 0 ? (
-              <span className="rounded border border-accent/30 bg-accent/10 px-1.5 py-[3px] text-[8px] leading-none tracking-[0.25em] text-accent">
-                {freshCount} NEW
-              </span>
-            ) : (
-              <span className="text-[8px] tracking-[0.3em] text-zinc-600">
-                {loading && notifications.length === 0
-                  ? 'SYNCING'
-                  : notifications.length > 0
-                    ? `${notifications.length} LOGGED`
-                    : 'STANDBY'}
-              </span>
-            )}
           </div>
 
-          <div className="comms-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div className="notif-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {loading && notifications.length === 0 ? (
               <FeedSkeleton />
             ) : notifications.length === 0 ? (
@@ -710,9 +720,9 @@ export function NotificationBell({
                   {/* sticky day marker — solid ink so rows slide beneath it */}
                   <div
                     className="sticky top-0 z-10 flex items-center gap-3 px-4 pb-1.5 pt-3"
-                    style={{ background: 'var(--console-ink)' }}
+                    style={{ background: 'var(--panel-ink)' }}
                   >
-                    <span className="text-[8px] tracking-[0.35em] text-zinc-500">
+                    <span className="text-[9px] tracking-[0.2em] text-zinc-600">
                       {group.label}
                     </span>
                     <span className="h-px flex-1 bg-white/[0.06]" aria-hidden />
@@ -750,9 +760,9 @@ export function NotificationBell({
             )}
           </div>
 
-          {notifications.length > 0 && (
-            <div className="shrink-0 border-t border-white/[0.07] px-4 py-2 text-center text-[8px] tracking-[0.4em] text-zinc-600">
-              {notifications.length >= FEED_CAP ? `LAST ${FEED_CAP} SHOWN` : 'END OF FEED'}
+          {notifications.length >= FEED_CAP && (
+            <div className="shrink-0 border-t border-white/[0.07] px-4 py-2 text-center text-[10px] text-zinc-600">
+              Showing the last {FEED_CAP}
             </div>
           )}
         </div>

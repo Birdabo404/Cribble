@@ -1,4 +1,4 @@
-// Throwaway CDP harness for the NotificationBell comms console: authenticates
+// Throwaway CDP harness for the NotificationBell panel: authenticates
 // with a cribble_session cookie supplied via SESSION_TOKEN, mocks GET /api/user/notifications
 // at the network layer, and captures the panel across nav placements, themes,
 // viewports and states to scripts/shots-notif.
@@ -45,10 +45,12 @@ const avi = (bg, letter) =>
     `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="${bg}"/><text x="40" y="53" font-family="Menlo,monospace" font-size="34" font-weight="700" fill="#fff" text-anchor="middle">${letter}</text></svg>`
   )}`
 
+// Matches what /api/user/follow writes today; rows stored before the copy
+// change ("NEW WINGMAN") are normalized to this at display time anyway.
 const follow = (id, username, color, letter, createdAgo, readAgo) => ({
   id,
   type: 'social',
-  title: 'NEW WINGMAN',
+  title: 'NEW FOLLOWER',
   body: `@${username} started following you.`,
   data: { followerId: 100 + id, username, avatarUrl: avi(color, letter) },
   read_at: readAgo == null ? null : iso(readAgo),
@@ -448,7 +450,7 @@ async function main() {
 
   // scrolled feed — sticky day markers over rows
   await evalJs(
-    `document.querySelector('${PANEL} .comms-scroll').scrollTop = 260; 'ok'`
+    `document.querySelector('${PANEL} .notif-scroll').scrollTop = 260; 'ok'`
   )
   await sleep(400)
   await shot('03-panel-dark-scrolled', await panelRect())
@@ -495,7 +497,7 @@ async function main() {
   feedMode = 'full'
   await closePanel()
 
-  // ---- reduced-motion freeze check (radar sweep must park) ----
+  // ---- reduced-motion freeze check (empty panel must hold still) ----
   feedMode = 'empty'
   await cdp.send('Emulation.setEmulatedMedia', {
     features: [{ name: 'prefers-reduced-motion', value: 'reduce' }]
