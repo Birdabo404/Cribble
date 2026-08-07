@@ -2,6 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getEventsIdentityColumn } from './eventsIdentity'
 import { fetchAllEventPages } from './eventsFetch'
 import { fetchActiveSeasonWindow, type SeasonWindowMs } from './seasonServer'
+import { buildRollupWriteColumns, computeUserStatsRollup } from './userStats'
+import type { RankedTool } from './topTools'
 
 // ============================================================================
 // Cribble scoring — policy v3 (session-based)
@@ -439,7 +441,7 @@ async function recalculateUserScoreFallback(supabase: SupabaseClient, userId: nu
   const scoreBuckets = calculateScoreBuckets(events, now, seasonLookup.window)
 
   const nowIso = now.toISOString()
-  const payload: Record<string, number | string> = {
+  const payload: Record<string, number | string | RankedTool[]> = {
     user_id: userId,
     // Lifetime total carries the referral bonus; today/week/month/season
     // buckets stay pure event competition.
@@ -458,9 +460,37 @@ async function recalculateUserScoreFallback(supabase: SupabaseClient, userId: nu
     payload.season_score = seasonLookup.window ? scoreBuckets.seasonScore : 0
   }
 
-  const { error: upsertError } = await supabase
+  // Stats rollup (migration 036) rides the same upsert: this path already
+  // holds the full event list, so refreshing top_tools / active_days /
+  // longest_streak / total_active_ms here is what lets every read path
+  // skip events_raw entirely.
+  const rollupColumns = buildRollupWriteColumns(
+    computeUserStatsRollup(events),
+    nowIso
+  )
+
+  let { error: upsertError } = await supabase
     .from('user_scores')
-    .upsert(payload, { onConflict: 'user_id' })
+    .upsert({ ...payload, ...rollupColumns }, { onConflict: 'user_id' })
+
+  // PGRST204 = a payload column is missing from the schema cache. If the
+  // rollup columns are what's missing (migration 036 not applied on this
+  // database), the score write itself must still land — retry without
+  // them rather than letting scores go permanently stale.
+  if (
+    upsertError &&
+    upsertError.code === 'PGRST204' &&
+    /top_tools|active_days|longest_streak|total_active_ms|stats_updated_at/.test(
+      upsertError.message || ''
+    )
+  ) {
+    console.warn(
+      '[Scoring] Stats rollup columns missing (apply migrations/036_user_stats_rollup.sql); writing scores only.'
+    )
+    ;({ error: upsertError } = await supabase
+      .from('user_scores')
+      .upsert(payload, { onConflict: 'user_id' }))
+  }
 
   if (upsertError) {
     console.error('[Scoring] Fallback score upsert failed:', upsertError)

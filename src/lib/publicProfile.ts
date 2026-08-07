@@ -9,7 +9,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   ACHIEVEMENTS_BY_ID,
-  longestStreakFromDayKeys,
   type AchievementIcon,
   type AchievementRarity
 } from '@/lib/achievements'
@@ -19,9 +18,12 @@ import {
   isProTier,
   resolveEquippedPlate
 } from '@/lib/entitlements'
-import { fetchAllUserEvents, normalizeLegacyEventValues } from '@/lib/scoring'
 import { getAffiliatedTeamsBatch } from '@/lib/teams'
-import { rankToolsFromEvents } from '@/lib/topTools'
+import {
+  ensureUserStatsRollup,
+  USER_STATS_ROLLUP_SELECT,
+  type UserStatsRollupColumns
+} from '@/lib/userStats'
 
 export interface PublicProfileTool {
   name: string
@@ -97,12 +99,14 @@ interface ProfileUserRow {
   user_type: string | null
   status: string | null
   metadata: Record<string, unknown> | null
-  user_scores: {
-    total_score: number | null
-    today_score: number | null
-    week_score: number | null
-    last_calculated_at: string | null
-  } | null
+  user_scores:
+    | ({
+        total_score: number | null
+        today_score: number | null
+        week_score: number | null
+        last_calculated_at: string | null
+      } & UserStatsRollupColumns)
+    | null
 }
 
 const PROFILE_USER_SELECT = `
@@ -117,7 +121,7 @@ const PROFILE_USER_SELECT = `
   user_type,
   status,
   metadata,
-  user_scores(total_score, today_score, week_score, last_calculated_at)
+  user_scores(total_score, today_score, week_score, last_calculated_at, ${USER_STATS_ROLLUP_SELECT})
 `
 
 const sameUtcDay = (iso: string | null | undefined, now: Date) => {
@@ -195,13 +199,14 @@ export async function loadPublicProfile(
   const totalScore = Math.round(row.user_scores?.total_score || 0)
   const tier = normalizeTier(row.subscription_tier)
 
-  // Rank + movement, unlocked badges, this player's events, their owned
-  // plates, and their team affiliation — all in parallel. Events are
-  // fetched with pagination so profiles of heavy users aren't computed
-  // from a 1000-row subset. TEAM accounts skip the rank count entirely:
-  // company accounts are excluded from the individual boards, so a
-  // profile rank would point at a standing that doesn't exist.
-  const [rankRes, snapshotRes, badgesRes, eventsRes, ownedPlateIds, affiliatedTeams] =
+  // Rank + movement, unlocked badges, this player's stats rollup, their
+  // owned plates, and their team affiliation — all in parallel. The
+  // rollup reads straight off the already-fetched user_scores columns;
+  // only a row that predates migration 036 (stats_updated_at NULL) pays
+  // a one-time events backfill here. TEAM accounts skip the rank count
+  // entirely: company accounts are excluded from the individual boards,
+  // so a profile rank would point at a standing that doesn't exist.
+  const [rankRes, snapshotRes, badgesRes, rollup, ownedPlateIds, affiliatedTeams] =
     await Promise.all([
       totalScore > 0 && tier !== 'TEAM'
         ? supabase
@@ -219,7 +224,7 @@ export async function loadPublicProfile(
         .select('achievement_id, unlocked_at')
         .eq('user_id', row.id)
         .order('unlocked_at', { ascending: false }),
-      fetchAllUserEvents(supabase, row.id),
+      ensureUserStatsRollup(supabase, row.id, row.user_scores ?? null),
       getOwnedPlateIds(supabase, row.id),
       getAffiliatedTeamsBatch(supabase, [row.id])
     ])
@@ -261,25 +266,13 @@ export async function loadPublicProfile(
     })
     .filter((b): b is PublicProfileBadge => b !== null)
 
-  // Consistency stats from raw events. Counting goes through the scoring
-  // normalizer: heartbeat rows are not visits, and visit rows carry no
-  // verified active time.
-  const events = eventsRes.events || []
-
-  const dayKeys = new Set<string>()
-  let totalActiveMs = 0
-  for (const ev of events) {
-    totalActiveMs += normalizeLegacyEventValues(ev).activeMs
-    const t = ev.timestamp ? Date.parse(String(ev.timestamp)) : NaN
-    if (Number.isFinite(t)) {
-      dayKeys.add(new Date(t).toISOString().split('T')[0])
-    }
-  }
-
-  // Top tools via the shared score-first ranker — identical output to the
-  // dashboard tools API and the leaderboard, so surfaces never disagree
-  // about a player's #1 tool.
-  const topTools: PublicProfileTool[] = rankToolsFromEvents(events)
+  // Consistency stats and top tools from the user_scores rollup — the
+  // same aggregation this builder used to run over raw events per view
+  // (and the same score-first tool ranker as the dashboard tools API and
+  // the leaderboard), so surfaces never disagree about a player's #1
+  // tool. A null rollup (backfill needed but events unreadable) degrades
+  // to zeros/empty, exactly like a failed events fetch did before.
+  const topTools: PublicProfileTool[] = (rollup?.topTools ?? [])
     .slice(0, 3)
     .map(({ name, visits, active_ms, percent }) => ({
       name,
@@ -370,9 +363,9 @@ export async function loadPublicProfile(
       score: totalScore,
       todayScore,
       weekScore,
-      activeDays: dayKeys.size,
-      longestStreak: longestStreakFromDayKeys(dayKeys),
-      totalActiveMs,
+      activeDays: rollup?.activeDays ?? 0,
+      longestStreak: rollup?.longestStreak ?? 0,
+      totalActiveMs: rollup?.totalActiveMs ?? 0,
       topTools,
       badges,
       isPrivate: readAccountIsPrivate(meta),

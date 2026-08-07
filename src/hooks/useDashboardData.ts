@@ -4,22 +4,19 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from '@/components/Toaster'
 import { requestNotificationsRefresh } from '@/hooks/useNotifications'
+import { fetchMe as requestMe, invalidate as invalidateMe } from '@/lib/client/fetchMe'
 import {
   EMPTY_SCORES,
   EMPTY_STATS,
   type ActiveDevice,
   type ActivityDay,
-  type LeaderUser,
   type MeFetchResult,
-  type MeResponsePayload,
   type MeScores,
   type MeStats,
   type MeUser,
-  type OnboardingProfile,
+  type RankInfo,
   type ToolRow
 } from '@/types/dashboard'
-
-export type RefreshScope = 'core' | 'full'
 
 const POLL_INTERVAL_MS = 30_000
 const PUSH_REFRESH_DEBOUNCE_MS = 1_200
@@ -31,12 +28,11 @@ export interface DashboardData {
   activeDevice: ActiveDevice | null
   tools: ToolRow[]
   activity: ActivityDay[]
-  leaderboard: LeaderUser[]
-  profile: OnboardingProfile
+  rank: RankInfo | null
   loading: boolean
   error: string | null
   fetchMe: () => Promise<MeFetchResult>
-  refreshDashboard: (opts: { scope: RefreshScope }) => Promise<MeFetchResult>
+  refreshDashboard: () => Promise<MeFetchResult>
 }
 
 export function useDashboardData(): DashboardData {
@@ -50,8 +46,7 @@ export function useDashboardData(): DashboardData {
   const [activeDevice, setActiveDevice] = useState<ActiveDevice | null>(null)
   const [tools, setTools] = useState<ToolRow[]>([])
   const [activity, setActivity] = useState<ActivityDay[]>([])
-  const [leaderboard, setLeaderboard] = useState<LeaderUser[]>([])
-  const [profile, setProfile] = useState<OnboardingProfile>({ role: null, goal: null })
+  const [rank, setRank] = useState<RankInfo | null>(null)
 
   // True once a /api/user/me response has populated state. Transient
   // failures after that point must keep the last good data on screen
@@ -59,18 +54,16 @@ export function useDashboardData(): DashboardData {
   const hasDataRef = useRef(false)
 
   const fetchMe = useCallback(async (): Promise<MeFetchResult> => {
-    let data: MeResponsePayload
-    try {
-      const res = await fetch('/api/user/me', { credentials: 'include' })
+    // Goes through the shared /me client cache, so a dashboard mount
+    // reuses the nav shell's request instead of firing a duplicate.
+    const result = await requestMe()
+    if (!result.ok) {
       // 401 means the session is genuinely gone (the API returns 503 for
       // transient lookup failures) — only then is a login bounce correct.
-      if (res.status === 401) {
+      if (result.status === 401) {
         router.push('/login')
         return { ok: false }
       }
-      if (!res.ok) throw new Error(`me fetch failed (${res.status})`)
-      data = await res.json()
-    } catch {
       // Network blips (dev-server rebuilds, wake from sleep) and 5xx land
       // here. Callers run from intervals and fire-and-forget listeners, so
       // this must resolve — a throw becomes an unhandled rejection. Only
@@ -79,12 +72,15 @@ export function useDashboardData(): DashboardData {
       if (!hasDataRef.current) setError('Failed to load profile')
       return { ok: false }
     }
+    const data = result.data
     hasDataRef.current = true
     setError(null)
     setUser(data.user)
     if (data.scores) setScores(data.scores)
     if (data.stats) setStats(data.stats)
     setActiveDevice(data.activeDevice || null)
+    // rank is a newer /me field; older server builds omit it entirely.
+    setRank(data.rank ?? null)
     return { ok: true, data }
   }, [router])
 
@@ -106,79 +102,31 @@ export function useDashboardData(): DashboardData {
     } catch {}
   }, [])
 
-  const fetchLeaderboard = useCallback(async () => {
-    try {
-      const res = await fetch('/api/leaderboard', { cache: 'no-store' })
-      if (!res.ok) return
-      const data = await res.json()
-      if (!data.success) return
-      const rows = Array.isArray(data.data)
-        ? data.data
-        : Array.isArray(data.leaderboard)
-          ? data.leaderboard
-          : []
-      if (rows.length > 0) {
-        setLeaderboard(rows)
-      } else {
-        setLeaderboard([])
-      }
-    } catch {}
-  }, [])
+  const refreshDashboard = useCallback(async (): Promise<MeFetchResult> => {
+    // Refreshes announce "something changed server-side" (extension sync,
+    // manual refresh, poll tick) — skip the short /me TTL cache so the
+    // new state is actually fetched.
+    invalidateMe()
+    const [me] = await Promise.all([fetchMe(), fetchTools(), fetchActivity()])
+    return me
+  }, [fetchMe, fetchTools, fetchActivity])
 
-  const fetchOnboarding = useCallback(async () => {
-    try {
-      const res = await fetch('/api/user/onboarding', { credentials: 'include' })
-      if (!res.ok) return
-      const data = await res.json()
-      const metaRole =
-        data?.role ||
-        (typeof data?.metadata?.role === 'string' ? data.metadata.role : null)
-      const metaGoal =
-        typeof data?.metadata?.goal === 'string' ? data.metadata.goal : null
-      setProfile({ role: metaRole, goal: metaGoal })
-    } catch {}
-  }, [])
-
-  const refreshDashboard = useCallback(
-    async ({ scope }: { scope: RefreshScope }): Promise<MeFetchResult> => {
-      const me = await fetchMe()
-      if (!me.ok) return me
-      const tasks: Promise<unknown>[] = [fetchTools(), fetchActivity()]
-      switch (scope) {
-        case 'core':
-          break
-        case 'full':
-          tasks.push(fetchLeaderboard())
-          break
-      }
-      await Promise.all(tasks)
-      return me
-    },
-    [fetchMe, fetchTools, fetchActivity, fetchLeaderboard]
-  )
-
-  // Onboarding is only ever fetched here.
+  // First load: everything in parallel, and the loading gate clears when
+  // the core trio (me + tools + activity) settles. None of these reject:
+  // on a dead session /me handles the login bounce while tools/activity
+  // quietly 401 — same signed-out end state as before, minus the
+  // sequential waterfall.
   useEffect(() => {
     let cancelled = false
     const init = async () => {
-      const me = await fetchMe()
-      if (!me.ok || cancelled) {
-        setLoading(false)
-        return
-      }
-      await Promise.all([
-        fetchTools(),
-        fetchActivity(),
-        fetchLeaderboard(),
-        fetchOnboarding()
-      ])
+      await Promise.all([fetchMe(), fetchTools(), fetchActivity()])
       if (!cancelled) setLoading(false)
     }
     void init()
     return () => {
       cancelled = true
     }
-  }, [fetchMe, fetchTools, fetchActivity, fetchLeaderboard, fetchOnboarding])
+  }, [fetchMe, fetchTools, fetchActivity])
 
   // Keeps the poll/listener effects from tearing down on every refresh.
   const refreshRef = useRef(refreshDashboard)
@@ -198,10 +146,30 @@ export function useDashboardData(): DashboardData {
   const userId = user?.id ?? null
   useEffect(() => {
     if (userId === null) return
+    // Data is fresh when this effect mounts (init/login just fetched), so
+    // the staleness clock starts now.
+    let lastRefreshAt = Date.now()
+    const runRefresh = () => {
+      lastRefreshAt = Date.now()
+      void refreshRef.current()
+    }
     const id = setInterval(() => {
-      void refreshRef.current({ scope: 'core' })
+      // Hidden tabs skip the poll entirely; the visibility handler below
+      // catches up the moment the player returns.
+      if (document.hidden) return
+      runRefresh()
     }, POLL_INTERVAL_MS)
-    return () => clearInterval(id)
+    const onVisibilityChange = () => {
+      if (document.hidden) return
+      // Only refresh when the tab was hidden long enough to have missed a
+      // tick — quick tab flips shouldn't burst requests.
+      if (Date.now() - lastRefreshAt >= POLL_INTERVAL_MS) runRefresh()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [userId])
 
   useEffect(() => {
@@ -213,7 +181,7 @@ export function useDashboardData(): DashboardData {
       timer = setTimeout(async () => {
         timer = null
         const previousTotal = totalScoreRef.current
-        const result = await refreshRef.current({ scope: 'core' })
+        const result = await refreshRef.current()
         if (!result.ok || !result.data.scores) return
         const delta = result.data.scores.total_score - previousTotal
         // previousTotal > 0 guards the first load, where the "gain" would
@@ -252,8 +220,7 @@ export function useDashboardData(): DashboardData {
     activeDevice,
     tools,
     activity,
-    leaderboard,
-    profile,
+    rank,
     loading,
     error,
     fetchMe,

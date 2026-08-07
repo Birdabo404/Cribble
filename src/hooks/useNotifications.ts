@@ -52,10 +52,28 @@ export function useNotifications(): NotificationsApi {
 
   useEffect(() => {
     void refresh()
-    const id = setInterval(() => {
+    let lastFetchAt = Date.now()
+    const run = () => {
+      lastFetchAt = Date.now()
       void refresh()
+    }
+    const id = setInterval(() => {
+      // Hidden tabs skip the poll entirely; the visibility handler below
+      // catches up when the tab comes back.
+      if (document.hidden) return
+      run()
     }, POLL_INTERVAL_MS)
-    return () => clearInterval(id)
+    const onVisibilityChange = () => {
+      if (document.hidden) return
+      // Only refetch when hidden long enough to have missed a tick —
+      // quick tab flips shouldn't burst requests.
+      if (Date.now() - lastFetchAt >= POLL_INTERVAL_MS) run()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [refresh])
 
   useEffect(() => {

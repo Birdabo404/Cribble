@@ -20,6 +20,7 @@ import {
   useRef,
   useState
 } from 'react'
+import { fetchMe as requestMe } from '@/lib/client/fetchMe'
 import { prefersReducedMotion } from '@/lib/motion'
 import { countdownTo, type SeasonState } from '@/lib/season'
 import AnimatedCounter from '@/components/AnimatedCounter'
@@ -135,12 +136,12 @@ export default function LeaderboardArena() {
   }, [fetchData])
 
   const fetchMe = useCallback(async () => {
-    try {
-      const res = await fetch('/api/user/me', { credentials: 'include' })
-      if (!res.ok) return
-      const data = await res.json()
-      if (data?.user?.id) setCurrentUserId(Number(data.user.id))
-    } catch {}
+    // Shared /me client cache — on a hard load this reuses the nav
+    // shell's request instead of firing a duplicate.
+    const result = await requestMe()
+    if (!result.ok) return
+    const id = result.data.user?.id
+    if (id) setCurrentUserId(Number(id))
   }, [])
 
   // initial load + poll + refetch when the tab regains focus.

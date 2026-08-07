@@ -34,6 +34,7 @@ import {
   type AchievementRarity,
   type AchievementUnit
 } from '@/lib/achievements'
+import { fetchMe } from '@/lib/client/fetchMe'
 import {
   PLATES,
   PLATE_RARITY_META,
@@ -162,12 +163,13 @@ async function fetchCosmetics(): Promise<CosmeticsData> {
 
 async function fetchIdentity(): Promise<Identity> {
   try {
-    const res = await fetch('/api/user/me', { credentials: 'include' })
-    if (!res.ok) return NEUTRAL_IDENTITY
-    const data = await res.json()
-    const user = data?.user
+    // Shared /me client cache — reuses the nav shell's request on a
+    // hard load instead of firing a duplicate.
+    const result = await fetchMe()
+    if (!result.ok) return NEUTRAL_IDENTITY
+    const user = result.data.user
     if (!user) return NEUTRAL_IDENTITY
-    const totalScore = Number(data?.scores?.total_score)
+    const totalScore = Number(result.data.scores?.total_score)
     return {
       name:
         typeof user.twitter_name === 'string' && user.twitter_name

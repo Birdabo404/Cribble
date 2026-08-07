@@ -6,6 +6,7 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { fetchMe } from '@/lib/client/fetchMe'
 
 export default function ProfileRedirect() {
   const router = useRouter()
@@ -14,14 +15,15 @@ export default function ProfileRedirect() {
     let cancelled = false
     const resolve = async () => {
       try {
-        const res = await fetch('/api/user/me', { credentials: 'include' })
-        if (res.status === 401) {
-          router.replace('/login')
-          return
+        const result = await fetchMe()
+        if (!result.ok) {
+          if (result.status === 401) {
+            router.replace('/login')
+            return
+          }
+          throw new Error('me fetch failed')
         }
-        if (!res.ok) throw new Error('me fetch failed')
-        const data = await res.json()
-        const username = data?.user?.twitter_username
+        const username = result.data.user?.twitter_username
         if (cancelled) return
         if (username) {
           router.replace(`/u/${encodeURIComponent(username)}`)

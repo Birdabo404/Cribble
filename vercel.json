@@ -1,4 +1,5 @@
 {
+  "regions": ["sin1"],
   "crons": [
     {
       "path": "/api/cron/insights-rollup",

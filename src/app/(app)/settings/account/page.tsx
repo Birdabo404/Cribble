@@ -16,6 +16,7 @@ import {
   SkeletonRow,
   TextField
 } from '@/components/settings'
+import { fetchMe } from '@/lib/client/fetchMe'
 import { EXTENSION_INSTALL_URL, isExtensionUnlinked } from '@/lib/extensionInstall'
 import type { ActiveDevice, MeUser, Tier } from '@/types/dashboard'
 
@@ -143,18 +144,18 @@ export default function AccountSettingsPage() {
 
   const load = useCallback(async () => {
     setMe({ phase: 'loading' })
-    try {
-      const res = await fetch('/api/user/me', { credentials: 'include' })
-      if (!res.ok) throw new Error('Failed to load')
-      const data = (await res.json()) as {
-        user?: MeUser
-        activeDevice?: ActiveDevice | null
-      }
-      if (!data.user) throw new Error('Failed to load')
-      setMe({ phase: 'ready', user: data.user, activeDevice: data.activeDevice ?? null })
-    } catch {
+    // Shared /me client cache (failures are never cached, so the retry
+    // button always refetches).
+    const result = await fetchMe()
+    if (!result.ok || !result.data.user) {
       setMe({ phase: 'error' })
+      return
     }
+    setMe({
+      phase: 'ready',
+      user: result.data.user,
+      activeDevice: result.data.activeDevice ?? null
+    })
   }, [])
 
   useEffect(() => {

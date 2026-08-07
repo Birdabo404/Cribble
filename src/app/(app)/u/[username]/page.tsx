@@ -49,6 +49,7 @@ import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { toast } from '@/components/Toaster'
 import { ACHIEVEMENTS } from '@/lib/achievements'
+import { fetchMe } from '@/lib/client/fetchMe'
 import { isApprovedTeam, isProTier } from '@/lib/entitlements'
 import type { PublicProfileData } from '@/types/profile'
 import { ROLE_ICONS } from '@/components/roleIcons'
@@ -253,18 +254,21 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
   // Whether the VIEWER may recruit is session-side state the public
   // payload deliberately omits, so ask /api/user/me — but only once, and
   // only after the profile shows an invitable pilot: signed-out visitors,
-  // own-profile views and team profiles never pay for the call. Anything
-  // short of an approved TEAM account leaves recruiterHandle null, which
-  // keeps the button unrendered (the server re-checks regardless).
+  // own-profile views and team profiles never pay for the call. Goes
+  // through the shared /me client cache, so it often reuses the nav
+  // shell's response. Anything short of an approved TEAM account leaves
+  // recruiterHandle null, which keeps the button unrendered (the server
+  // re-checks regardless).
   useEffect(() => {
     if (!inviteEligibleProfile || recruiterChecked.current) return
     recruiterChecked.current = true
     let cancelled = false
-    fetch('/api/user/me', { credentials: 'include', cache: 'no-store' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (cancelled || !data?.user || !isApprovedTeam(data.user)) return
-        const handle = String(data.user.twitter_username || '').trim()
+    fetchMe()
+      .then((result) => {
+        if (cancelled || !result.ok) return
+        const user = result.data.user
+        if (!user || !isApprovedTeam(user)) return
+        const handle = String(user.twitter_username || '').trim()
         if (handle) setRecruiterHandle(handle)
       })
       .catch(() => {})

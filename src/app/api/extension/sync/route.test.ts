@@ -184,6 +184,10 @@ vi.mock('@/lib/achievementsServer', () => ({
   evaluateAchievements: vi.fn(async () => undefined)
 }))
 
+vi.mock('@/lib/leaderboardSnapshot', () => ({
+  refreshLeaderboardSnapshot: vi.fn(async () => undefined)
+}))
+
 vi.mock('@/lib/notifications', () => ({
   evaluateScoreNotifications: vi.fn(async () => undefined)
 }))

@@ -25,7 +25,6 @@ import { useExtensionSync } from '@/hooks/useExtensionSync'
 import { useSeason } from '@/hooks/useSeason'
 import { calculateStreak } from '@/lib/activity'
 import { daysUntil, seasonProgress } from '@/lib/season'
-import type { RankInfo } from '@/types/dashboard'
 
 export default function DashboardV3() {
   const {
@@ -35,7 +34,7 @@ export default function DashboardV3() {
     activeDevice,
     tools,
     activity,
-    leaderboard,
+    rank,
     loading,
     error,
     fetchMe,
@@ -53,20 +52,13 @@ export default function DashboardV3() {
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
     try {
-      await refreshDashboard({ scope: 'full' })
+      await refreshDashboard()
     } finally {
       setRefreshing(false)
     }
   }, [refreshDashboard])
 
   const streak = useMemo(() => calculateStreak(activity), [activity])
-
-  const rankInfo: RankInfo | null = useMemo(() => {
-    if (!user || leaderboard.length === 0) return null
-    const idx = leaderboard.findIndex((u) => u.userId === user.id)
-    if (idx === -1) return null
-    return { position: idx + 1, total: leaderboard.length }
-  }, [user, leaderboard])
 
   const { state: seasonState } = useSeason()
 
@@ -132,7 +124,7 @@ export default function DashboardV3() {
           <ExtensionNudge user={user} activeDevice={activeDevice} phase={phase} />
           <HeroCard
             scores={scores}
-            rank={rankInfo}
+            rank={rank}
             tier={user.subscription_tier}
             activity={activity}
             onRefresh={handleRefresh}

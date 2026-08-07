@@ -39,6 +39,7 @@ import {
   type BillboardPlacement,
   type SlotBoard
 } from '@/lib/billboard'
+import { fetchMe } from '@/lib/client/fetchMe'
 import type { MeUser } from '@/types/dashboard'
 
 type BillboardView = 'mine' | 'buy'
@@ -92,20 +93,17 @@ export function BillboardLanding() {
   useEffect(() => {
     let cancelled = false
     const load = async () => {
-      try {
-        const res = await fetch('/api/user/me', { credentials: 'include' })
-        if (cancelled) return
-        if (res.status === 401) {
-          setSignedIn(false)
-          return
-        }
-        if (!res.ok) return
-        const data = await res.json()
-        if (cancelled) return
-        const user = (data?.user ?? null) as MeUser | null
-        setAvatarUrl(user?.twitter_profile_image || null)
-        setSignedIn(true)
-      } catch {}
+      // Shared /me client cache — never throws, resolves ok:false on
+      // network failure so the page keeps its read-only pitch.
+      const result = await fetchMe()
+      if (cancelled) return
+      if (!result.ok) {
+        if (result.status === 401) setSignedIn(false)
+        return
+      }
+      const user: MeUser | null = result.data.user ?? null
+      setAvatarUrl(user?.twitter_profile_image || null)
+      setSignedIn(true)
     }
     void load()
     return () => {

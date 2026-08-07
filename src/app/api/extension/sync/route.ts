@@ -5,6 +5,7 @@ import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib
 import { getSessionUserId } from '@/lib/sessionAuth'
 import { resolveTrackedAiDomain } from '@/lib/aiDomains'
 import { evaluateAchievements } from '@/lib/achievementsServer'
+import { refreshLeaderboardSnapshot } from '@/lib/leaderboardSnapshot'
 import { evaluateScoreNotifications } from '@/lib/notifications'
 import { maybeGrantReferralReward } from '@/lib/referrals'
 import { recalculateUserScore } from '@/lib/scoring'
@@ -664,6 +665,12 @@ export async function POST(request: NextRequest) {
         await evaluateScoreNotifications(supabase, finalUserId)
         await evaluateAchievements(supabase, finalUserId)
         await maybeGrantReferralReward(supabase, finalUserId)
+
+        // Rank snapshots + demotion notifications moved off the
+        // leaderboard GET (which is now read-only): this user's fresh
+        // score can shift everyone's rank, so the whole top-100 standing
+        // is re-diffed here on the write path. Never throws.
+        await refreshLeaderboardSnapshot(supabase)
 
         // Read the totals recalculateUserScore just upserted so the
         // response carries the same numbers the dashboard shows. The

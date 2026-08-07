@@ -1,12 +1,15 @@
 'use client'
 
 // Session user for the persistent nav shell. Fetched once per hard load
-// (the (app) layout never remounts on client-side navigation). Tolerates
-// signed-out visitors — the leaderboard is viewable without a session, so
-// the nav swaps the account menu for a SIGN IN link instead of redirecting.
+// (the (app) layout never remounts on client-side navigation) through the
+// shared /me client cache, so this and the mounting page's own /me fetch
+// collapse into a single request. Tolerates signed-out visitors — the
+// leaderboard is viewable without a session, so the nav swaps the account
+// menu for a SIGN IN link instead of redirecting.
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { fetchMe, invalidate as invalidateMe } from '@/lib/client/fetchMe'
 import type { ActiveDevice, MeUser } from '@/types/dashboard'
 
 export interface NavUserState {
@@ -25,17 +28,13 @@ export function useNavUser(): NavUserState {
   useEffect(() => {
     let cancelled = false
     const load = async () => {
-      try {
-        const res = await fetch('/api/user/me', { credentials: 'include' })
-        if (cancelled || !res.ok) return
-        const data = await res.json()
-        if (cancelled) return
-        setUser(data.user ?? null)
-        setActiveDevice(data.activeDevice ?? null)
-      } catch {
-      } finally {
-        if (!cancelled) setLoaded(true)
+      const result = await fetchMe()
+      if (cancelled) return
+      if (result.ok) {
+        setUser(result.data.user ?? null)
+        setActiveDevice(result.data.activeDevice ?? null)
       }
+      setLoaded(true)
     }
     void load()
     return () => {
@@ -47,6 +46,9 @@ export function useNavUser(): NavUserState {
     try {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
     } finally {
+      // The session is gone but /login is a soft navigation — drop the
+      // cached /me so nothing keeps rendering the dead session's user.
+      invalidateMe()
       router.push('/login')
     }
   }, [router])

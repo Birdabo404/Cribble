@@ -49,22 +49,6 @@ export interface ToolRow {
   percent: number
 }
 
-export interface LeaderUser {
-  userId: number
-  username: string
-  display_name: string
-  profile_image: string | null
-  score: number
-  rank: number
-  tier: Tier
-  isActive: boolean
-}
-
-export interface OnboardingProfile {
-  role: string | null
-  goal: string | null
-}
-
 export interface RankInfo {
   position: number
   total: number
@@ -81,6 +65,9 @@ export interface MeResponsePayload {
   scores?: MeScores
   stats?: MeStats
   activeDevice?: ActiveDevice | null
+  /** Leaderboard standing computed server-side; null while unranked.
+   *  Optional defensively: older server builds don't send it. */
+  rank?: RankInfo | null
 }
 
 export type MeFetchResult =

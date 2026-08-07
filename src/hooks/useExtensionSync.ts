@@ -123,7 +123,7 @@ export interface UseExtensionSyncArgs {
   user: MeUser | null
   activeDevice: ActiveDevice | null
   fetchMe: () => Promise<MeFetchResult>
-  refreshDashboard: (opts: { scope: 'core' | 'full' }) => Promise<MeFetchResult>
+  refreshDashboard: () => Promise<MeFetchResult>
 }
 
 export interface ExtensionSyncApi {
@@ -220,7 +220,7 @@ export function useExtensionSync({
       userId: sessionUserId,
       ...(issuedSyncToken ? { syncToken: issuedSyncToken } : {})
     })
-    await refreshDashboard({ scope: 'full' })
+    await refreshDashboard()
     transition('linked')
     return true
   }, [transition, refreshDashboard])
@@ -245,14 +245,14 @@ export function useExtensionSync({
 
       const forceResult = await forceExtensionSync()
 
-      const afterFetch = await refreshDashboard({ scope: 'full' })
+      const afterFetch = await refreshDashboard()
       let after = takeSnapshot(afterFetch, before)
 
       // SYNC_COMPLETE can fire before user_scores is written; one retry
       // covers the gap without falling back to the 30s poll.
       if (forceResult.success && !snapshotChanged(before, after)) {
         await new Promise((resolve) => setTimeout(resolve, STALE_SYNC_RETRY_MS))
-        const retryFetch = await refreshDashboard({ scope: 'core' })
+        const retryFetch = await refreshDashboard()
         after = takeSnapshot(retryFetch, after)
       }
 

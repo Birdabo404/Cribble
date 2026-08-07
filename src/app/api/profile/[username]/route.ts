@@ -1,3 +1,4 @@
+import { unstable_cache } from 'next/cache'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabaseServer'
 import { getSessionUserId } from '@/lib/sessionAuth'
@@ -22,6 +23,32 @@ export const dynamic = 'force-dynamic'
 
 const USERNAME_RE = /^[A-Za-z0-9_.-]{1,40}$/
 
+const PROFILE_REVALIDATE_SECONDS = 60
+
+/** Thrown (never returned) inside the cached loader so a transient
+ *  database failure is not cached for the whole revalidate window;
+ *  genuine 404s ARE cached — an absent user stays absent. */
+const PROFILE_LOAD_FAILED = 'PROFILE_LOAD_FAILED'
+
+// The assembled profile is identical for every viewer (privacy gating,
+// follow counts and viewer context are applied per request below), so it
+// lives in the Data Cache for a minute, keyed by the lowercased handle —
+// the lookup is case-insensitive, so every casing of a shared /u/ link
+// rides one cache entry.
+const loadPublicProfileCached = unstable_cache(
+  async (usernameLower: string) => {
+    const result = await loadPublicProfile(createServiceClient(), {
+      username: usernameLower
+    })
+    if (!result.ok && result.status >= 500) {
+      throw new Error(PROFILE_LOAD_FAILED)
+    }
+    return result
+  },
+  ['public-profile'],
+  { revalidate: PROFILE_REVALIDATE_SECONDS }
+)
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ username: string }> }
@@ -37,7 +64,14 @@ export async function GET(
   const supabase = createServiceClient()
 
   try {
-    const result = await loadPublicProfile(supabase, { username })
+    // Viewer identity is optional — a missing/expired session just means
+    // no relationship context, never an error. It resolves in parallel
+    // with the profile itself instead of after it.
+    const [result, session] = await Promise.all([
+      loadPublicProfileCached(username.toLowerCase()),
+      getSessionUserId(request)
+    ])
+
     if (!result.ok) {
       return NextResponse.json(
         { success: false, error: result.error },
@@ -45,10 +79,6 @@ export async function GET(
       )
     }
     const profile = result.profile
-
-    // Viewer identity is optional — a missing/expired session just means
-    // no relationship context, never an error.
-    const session = await getSessionUserId(request)
     const viewerId = session.ok ? session.userId : null
 
     // The Affiliates roster only exists for approved Team accounts —
@@ -79,6 +109,12 @@ export async function GET(
       }
     })
   } catch (err) {
+    if (err instanceof Error && err.message === PROFILE_LOAD_FAILED) {
+      return NextResponse.json(
+        { success: false, error: 'Profile lookup failed' },
+        { status: 500 }
+      )
+    }
     console.error('[PublicProfile] Unexpected error:', err)
     return NextResponse.json(
       { success: false, error: 'Unexpected error' },
