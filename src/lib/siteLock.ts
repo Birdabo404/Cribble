@@ -37,19 +37,18 @@ export function isAllowedDuringLock(pathname: string, hasSession = false): boole
   if (pathname.startsWith('/audio/')) return true
   if (!pathname.startsWith('/api/') && STATIC_ASSET_RE.test(pathname)) return true
   if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) return true
-  // Settings hub replaced the account-menu modals; keep every section
-  // reachable while the beta is locked (same class as /dashboard).
-  if (pathname === '/settings' || pathname.startsWith('/settings/')) return true
-  // Collection page — plates + badges for signed-in pilots only while
-  // locked (same session-presence gate as /shop).
+  // Settings hub, bag, and the billboard pitch page are signed-in only
+  // while locked (same session-presence gate as /shop). Billboard APIs
+  // stay open below — the ticker/rails mount on allowlisted shell pages.
+  if (pathname === '/settings' || pathname.startsWith('/settings/')) return hasSession
   if (pathname === '/bag' || pathname.startsWith('/bag/')) return hasSession
+  if (pathname === '/billboard' || pathname.startsWith('/billboard/')) return hasSession
   if (pathname === '/admin' || pathname.startsWith('/admin/')) return true
   if (pathname.startsWith('/api/admin/')) return true
   if (pathname === '/leaderboard' || pathname.startsWith('/leaderboard/')) return true
   // Public pilot profiles (+ the /profile redirect into your own).
   if (pathname === '/profile' || pathname.startsWith('/u/')) return true
-  // Billboard pitch + live placements (ticker/rails APIs back the shell).
-  if (pathname === '/billboard' || pathname.startsWith('/billboard/')) return true
+  // Live placements for the ticker + rails (pages above are session-gated).
   if (pathname.startsWith('/api/billboard')) return true
   if (/^\/api\/waitlist\/?$/.test(pathname)) return true
   if (pathname.startsWith('/api/auth/')) return true

@@ -90,13 +90,10 @@ describe('middleware site lock', () => {
     expect(rewriteTarget('/roadmap')).toBe('/maintenance')
   })
 
-  it('keeps the settings hub open while locked', () => {
+  it('keeps settings APIs reachable while the hub is session-gated', () => {
     vi.stubEnv('SITE_LOCKED', '1')
-    // Settings left the modal stack for real /settings/* routes — same
-    // allowlist class as /dashboard so the account menu deep-links land.
-    expect(rewriteTarget('/settings')).toBeNull()
-    expect(rewriteTarget('/settings/account')).toBeNull()
-    expect(rewriteTarget('/settings/privacy')).toBeNull()
+    // Pages are session-gated (below); the data lanes still need to answer
+    // once a pilot is in — they enforce real auth themselves.
     expect(middleware(request('/api/user/settings')).status).toBe(200)
     expect(middleware(request('/api/user/delete')).status).toBe(200)
   })
@@ -128,29 +125,34 @@ describe('middleware site lock', () => {
     expect(middleware(request('/api/team/roster')).status).toBe(200)
     expect(middleware(request('/api/webhooks/polar')).status).toBe(200)
     expect(middleware(request('/api/user/subscription/sync')).status).toBe(200)
-    // Billboard shipped after the lock allowlist froze — keep it
-    // reachable so the pitch page doesn't land on the void screen in beta.
-    // /bag is session-gated like /shop (covered below).
-    expect(rewriteTarget('/billboard')).toBeNull()
+    // Billboard APIs back the ticker/rails on allowlisted shell pages;
+    // the /billboard pitch page itself is session-gated (below).
     expect(middleware(request('/api/billboard')).status).toBe(200)
     expect(middleware(request('/api/billboard/slots')).status).toBe(200)
   })
 
-  it('walls /shop and /bag behind sign-in for signed-out visitors while locked', () => {
+  it('walls /shop /bag /settings /billboard behind sign-in while locked', () => {
     vi.stubEnv('SITE_LOCKED', '1')
     // Not the maintenance screen: a session would open these sectors, so
     // the visitor gets the sign-in wall instead of "under construction".
     expect(rewriteTarget('/shop')).toBe('/restricted')
     expect(rewriteTarget('/bag')).toBe('/restricted')
+    expect(rewriteTarget('/settings')).toBe('/restricted')
+    expect(rewriteTarget('/settings/account')).toBe('/restricted')
+    expect(rewriteTarget('/billboard')).toBe('/restricted')
   })
 
-  it('keeps /shop and /bag open for signed-in pilots while locked', () => {
+  it('keeps /shop /bag /settings /billboard open for signed-in pilots while locked', () => {
     vi.stubEnv('SITE_LOCKED', '1')
     // Presence-only gate: the middleware never validates the token, so any
     // cribble_session cookie opens the shell — the data lanes behind it
     // still enforce real auth.
-    expect(rewriteTarget('/shop', 'cribble_session=beta-tester')).toBeNull()
-    expect(rewriteTarget('/bag', 'cribble_session=beta-tester')).toBeNull()
+    const cookie = 'cribble_session=beta-tester'
+    expect(rewriteTarget('/shop', cookie)).toBeNull()
+    expect(rewriteTarget('/bag', cookie)).toBeNull()
+    expect(rewriteTarget('/settings', cookie)).toBeNull()
+    expect(rewriteTarget('/settings/privacy', cookie)).toBeNull()
+    expect(rewriteTarget('/billboard', cookie)).toBeNull()
   })
 
   it('does not rewrite anything when unlocked', () => {
