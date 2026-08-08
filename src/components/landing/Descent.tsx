@@ -345,14 +345,33 @@ export function Descent() {
            The hero's zenith gradient settles to --space-deep at the
            fold; the descent continues that exact tone under a sparser,
            dimmer star field — five stages falling through one night.
+           An altitude gradient rides ABOVE the star tiles (first in the
+           background list = topmost paint): transparent at orbit, a
+           whisper of stratosphere blue through the middle stages — which
+           also veils the stars, so "entering atmosphere" happens for
+           free — then a faint warm accent tint at the very bottom,
+           handing off to the Finale's landing-pad glow. Scroll position
+           itself reveals the altitude change; no JS. Alphas stay in the
+           0.02–0.07 band on purpose: atmosphere, not a banner gradient.
            (Panels and hardware keep their own near-black surfaces, so
            they still read as objects sitting on the page.) */
         .lx-descent {
           background:
+            linear-gradient(
+              180deg,
+              rgb(56 106 205 / 0) 0%,
+              rgb(56 106 205 / 0) 16%,
+              rgb(50 96 190 / 0.04) 34%,
+              rgb(56 106 205 / 0.07) 54%,
+              rgb(64 118 218 / 0.05) 70%,
+              rgb(56 106 205 / 0.015) 84%,
+              rgb(var(--accent-rgb) / 0.028) 94%,
+              rgb(var(--accent-rgb) / 0.05) 100%
+            ),
             radial-gradient(1.2px 1.2px at 37px 63px, rgb(190 210 255 / 0.22) 50%, transparent 55%),
             radial-gradient(1px 1px at 141px 158px, rgb(255 255 255 / 0.14) 50%, transparent 55%),
             var(--space-deep);
-          background-size: 240px 240px, 300px 300px, auto;
+          background-size: 100% 100%, 240px 240px, 300px 300px, auto;
           /* decorative glows/beams may poke past the viewport on phones;
              clip (not hidden) keeps this from becoming a scroll container,
              so page scroll + the roadmap's sticky column stay intact */

@@ -3,10 +3,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTheme } from 'next-themes'
 import {
-  createEarthRenderer,
+  createStylizedEarthRenderer,
   type EarthRenderer,
+  type PinScreenPosition,
   type RGB,
-} from '@/components/pixelEarthRenderer'
+} from '@/components/stylizedEarthRenderer'
+import { PILOTS } from '@/components/landing/pilots'
+import { ACCENT, accentA } from '@/lib/theme'
 
 interface GlobeProps {
   className?: string
@@ -23,6 +26,8 @@ const MAX_FLING = 0.22
 const THEME_LERP = 0.055
 const DARK_MARKER: RGB = [0.008, 0.996, 0.004]
 const LIGHT_MARKER: RGB = [1, 0.37, 0]
+// How long each pilot chip stays up before cycling to the next front pin.
+const CHIP_CYCLE_MS = 4000
 
 const mixRGB = (from: RGB, to: RGB, amount: number): RGB => [
   from[0] + (to[0] - from[0]) * amount,
@@ -42,6 +47,14 @@ export default function Globe({ className = '', size = 400 }: GlobeProps) {
   const rot = useRef(0)
   const vel = useRef(0)
   const targetLightMode = useRef(isLight ? 1 : 0)
+
+  // Pilot chip state: the render loop projects pins each frame and steers
+  // the chip node directly (no per-frame React state); React only re-renders
+  // when the featured pilot changes (every CHIP_CYCLE_MS).
+  const [activePin, setActivePin] = useState(-1)
+  const activePinRef = useRef(-1)
+  const pinPositionsRef = useRef<PinScreenPosition[]>([])
+  const chipRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
@@ -88,7 +101,7 @@ export default function Globe({ className = '', size = 400 }: GlobeProps) {
 
     setRenderStatus('loading')
 
-    void createEarthRenderer(canvas)
+    void createStylizedEarthRenderer(canvas)
       .then((createdRenderer) => {
         if (disposed) {
           createdRenderer.destroy()
@@ -129,6 +142,22 @@ export default function Globe({ className = '', size = 400 }: GlobeProps) {
             lightMode: liveLightMode,
             accent: mixRGB(DARK_MARKER, LIGHT_MARKER, liveLightMode),
           })
+
+          // Project the pins and steer the pilot chip: it rides its pin
+          // while the globe spins and hides when the pin swings behind.
+          const positions = renderer.getPinScreenPositions()
+          pinPositionsRef.current = positions
+          const chip = chipRef.current
+          if (chip) {
+            const pin = positions[activePinRef.current]
+            if (pin?.front) {
+              chip.style.transform = `translate(${pin.x.toFixed(1)}px, ${pin.y.toFixed(1)}px)`
+              chip.style.visibility = 'visible'
+            } else {
+              chip.style.visibility = 'hidden'
+            }
+          }
+
           animationFrame = window.requestAnimationFrame(draw)
         }
 
@@ -162,6 +191,37 @@ export default function Globe({ className = '', size = 400 }: GlobeProps) {
     }
   }, [size])
 
+  // Cycle the featured pilot through whichever pins currently face the
+  // camera. Reduced motion picks one pilot and keeps it (no cycling).
+  useEffect(() => {
+    if (renderStatus !== 'ready') return
+    const reduceMotion = window.matchMedia(
+      '(prefers-reduced-motion: reduce)',
+    ).matches
+
+    const advance = () => {
+      const front = pinPositionsRef.current.filter((pin) => pin.front)
+      if (!front.length) return
+      const next =
+        front.find((pin) => pin.index > activePinRef.current) ?? front[0]
+      activePinRef.current = next.index
+      setActivePin(next.index)
+    }
+
+    // Small delay so the first projected positions exist before picking.
+    const firstPick = window.setTimeout(advance, 350)
+    const cycle = reduceMotion
+      ? 0
+      : window.setInterval(advance, CHIP_CYCLE_MS)
+    return () => {
+      window.clearTimeout(firstPick)
+      if (cycle) window.clearInterval(cycle)
+    }
+  }, [renderStatus])
+
+  const activePilot = activePin >= 0 ? PILOTS[activePin] : null
+  const chipInitial = pinPositionsRef.current[activePin]
+
   return (
     <div
       className={`relative flex w-full items-center justify-center ${className}`}
@@ -181,7 +241,7 @@ export default function Globe({ className = '', size = 400 }: GlobeProps) {
       )}
       <canvas
         ref={canvasRef}
-        aria-label="A rotating Earth showing major AI hubs"
+        aria-label="A stylized rotating Earth showing Cribble users worldwide"
         role="img"
         onPointerDown={(e) => {
           if (e.button !== 0) return
@@ -204,6 +264,58 @@ export default function Globe({ className = '', size = 400 }: GlobeProps) {
           renderStatus === 'ready' ? 'opacity-100' : 'opacity-0'
         }`}
       />
+
+      {/* Cycling pilot chip — anchored to the projected pin position. The
+          outer node is steered per-frame by the render loop; the keyed
+          remount replays the enter animation on every pilot change. */}
+      {renderStatus === 'ready' && activePilot && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 overflow-hidden"
+        >
+          <div
+            key={activePin}
+            ref={chipRef}
+            className="absolute left-0 top-0 will-change-transform"
+            style={{
+              transform: chipInitial
+                ? `translate(${chipInitial.x.toFixed(1)}px, ${chipInitial.y.toFixed(1)}px)`
+                : undefined,
+              visibility: chipInitial?.front ? 'visible' : 'hidden',
+            }}
+          >
+            <span className="globe-chip inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-zinc-800 bg-zinc-950/85 px-2.5 py-1 font-mono text-[10px] tracking-[0.18em] text-zinc-300">
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{
+                  background: ACCENT,
+                  boxShadow: `0 0 8px ${accentA(0.69)}`,
+                }}
+              />
+              @{activePilot.callsign} · {activePilot.city.toUpperCase()}
+            </span>
+          </div>
+
+          <style jsx>{`
+            .globe-chip {
+              transform: translate(-50%, calc(-100% - 12px));
+              animation: globe-chip-in 340ms cubic-bezier(0.22, 1, 0.36, 1)
+                backwards;
+            }
+            @keyframes globe-chip-in {
+              from {
+                opacity: 0;
+                transform: translate(-50%, calc(-100% - 4px));
+              }
+            }
+            @media (prefers-reduced-motion: reduce) {
+              .globe-chip {
+                animation: none;
+              }
+            }
+          `}</style>
+        </div>
+      )}
     </div>
   )
 }

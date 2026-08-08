@@ -25,6 +25,8 @@ import { ACCENT, accentA } from '@/lib/theme'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { LiquidMark } from '@/components/brand/LiquidMark'
 import { Descent } from '@/components/landing/Descent'
+import { PILOTS } from '@/components/landing/pilots'
+import { prefersReducedMotion } from '@/lib/motion'
 
 export default function HomeV2() {
   const [email, setEmail] = useState('')
@@ -226,9 +228,9 @@ export default function HomeV2() {
             </div>
 
             {/* RIGHT — globe */}
-            <div className="order-2">
+            <HeroGlobeRecede>
               <GlobeStage />
-            </div>
+            </HeroGlobeRecede>
           </div>
         </main>
 
@@ -240,7 +242,156 @@ export default function HomeV2() {
     {/* THE DESCENT — hero stays exactly as it was; the story continues
         below the fold: arena → cockpit → identity → honors → flight plan. */}
     <Descent />
+
+    {/* FILM GRAIN — deliberately a sibling of the hero and the descent:
+        outside the hero's overflow-hidden shell and outside every
+        .page-zoom-out wrapper, so the fixed sheet covers the viewport
+        1:1 without being rescaled or clipped. */}
+    <FilmGrain />
     </>
+  )
+}
+
+// Scroll-linked recede: as the visitor leaves the hero for the Descent, the
+// Earth pulls back — a gentle shrink, upward drift and dim across the first
+// ~0.85 viewport of scroll, so the planet reads as falling away behind you.
+// Desktop only (the stacked mobile hero scrolls the globe away naturally)
+// and skipped entirely under prefers-reduced-motion. Same rAF-throttled
+// passive-scroll pattern as DescentHud, but progress is written straight to
+// the node's style (no React state → no re-render per scroll frame).
+//
+// This wrapper lives inside .page-zoom-out (zoom: 0.9, see globals.css), so
+// the whole effect is already rendered in zoomed units: scale/opacity are
+// ratios and the px drift shrinks with everything else — nothing to
+// compensate, and attaching here (not on the zoom wrapper) means the hero
+// copy never moves.
+function HeroGlobeRecede({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const raf = useRef(0)
+
+  useEffect(() => {
+    if (prefersReducedMotion()) return
+    const desktop = window.matchMedia('(min-width: 1024px)')
+
+    const apply = () => {
+      raf.current = 0
+      const node = ref.current
+      if (!node) return
+      if (!desktop.matches) {
+        node.style.transform = ''
+        node.style.opacity = ''
+        node.style.willChange = ''
+        return
+      }
+      const p = Math.min(
+        1,
+        Math.max(0, window.scrollY / (window.innerHeight * 0.85))
+      )
+      node.style.willChange = 'transform, opacity'
+      node.style.transform = `translateY(${(-28 * p).toFixed(2)}px) scale(${(1 - 0.1 * p).toFixed(4)})`
+      node.style.opacity = (1 - 0.1 * p).toFixed(3)
+    }
+    const onScroll = () => {
+      if (!raf.current) raf.current = requestAnimationFrame(apply)
+    }
+    apply()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
+      cancelAnimationFrame(raf.current)
+    }
+  }, [])
+
+  return (
+    <div ref={ref} className="order-2">
+      {children}
+    </div>
+  )
+}
+
+// FILM GRAIN — one fixed, non-interactive sheet over the whole landing page
+// (hero + descent together; app pages never render it). A tiled SVG
+// feTurbulence noise texture at ~3.5% opacity with soft-light blending, so
+// it modulates the picture like emulsion instead of graying it out. The
+// tile is oversized (-50% inset) and a steps() jitter re-seats it ~10x a
+// second: grain that crawls reads as film, grain that sits still reads as
+// a dirty monitor. Reduced motion keeps the static texture, drops the
+// jitter. z-50 clears the descent HUD (z-40) — harmless above everything,
+// since pointer-events-none keeps it out of the input path — and the
+// inset-0 frame clips the oversized tile so it can never mint scrollbars.
+function FilmGrain() {
+  return (
+    <div
+      aria-hidden
+      className="lx-grain pointer-events-none fixed inset-0 z-50 overflow-hidden"
+    >
+      <div className="lx-grain-tile" />
+
+      <style jsx global>{`
+        .lx-grain {
+          /* opacity + blend belong on this viewport frame: it sits in the
+             page's stacking context, so soft-light composites against the
+             real page. (On the inner tile they'd blend against this
+             frame's empty backdrop and render as flat noise instead.) */
+          opacity: 0.035;
+          mix-blend-mode: soft-light;
+        }
+        /* soft-light is a near no-op over pure white, so on the light
+           theme the grain only registers on inked/toned areas — paper
+           tooth, not smoke. A notch lower anyway; tune here if the
+           dossier ever looks smudged. */
+        html.light .lx-grain {
+          opacity: 0.03;
+        }
+        .lx-grain-tile {
+          position: absolute;
+          inset: -50%;
+          background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='256'%20height='256'%3E%3Cfilter%20id='lxg'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.9'%20numOctaves='2'%20stitchTiles='stitch'/%3E%3C/filter%3E%3Crect%20width='256'%20height='256'%20filter='url(%23lxg)'/%3E%3C/svg%3E");
+          background-size: 256px 256px;
+          animation: lx-grain-jitter 0.8s steps(1, end) infinite;
+        }
+        /* eight re-seats per 800ms loop ≈ 10 grain frames a second; the
+           offsets are odd non-multiples of the 256px tile so the pattern
+           never lands back on the same phase, and every jump stays far
+           inside the -50% bleed (≥50vw/50vh of slack). */
+        @keyframes lx-grain-jitter {
+          0% {
+            transform: translate(0, 0);
+          }
+          12.5% {
+            transform: translate(-29px, 17px);
+          }
+          25% {
+            transform: translate(13px, -37px);
+          }
+          37.5% {
+            transform: translate(-41px, -11px);
+          }
+          50% {
+            transform: translate(23px, 31px);
+          }
+          62.5% {
+            transform: translate(-7px, -43px);
+          }
+          75% {
+            transform: translate(37px, 5px);
+          }
+          87.5% {
+            transform: translate(-19px, -27px);
+          }
+          100% {
+            transform: translate(0, 0);
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .lx-grain-tile {
+            animation: none;
+          }
+        }
+      `}</style>
+    </div>
   )
 }
 
@@ -419,7 +570,7 @@ function GlobeStage() {
 
       {/* tiny corner annotation */}
       <div className="absolute bottom-2 right-2 text-[9px] tracking-[0.3em] text-zinc-700 pointer-events-none">
-        {'// 15 ai hubs · drag to spin'}
+        {`// ${PILOTS.length} pilots worldwide · drag to spin`}
       </div>
 
       <style jsx global>{`
