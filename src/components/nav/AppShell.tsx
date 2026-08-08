@@ -24,13 +24,20 @@ import { NavStatusProvider } from './NavStatusContext'
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? ''
   const profileRoute = pathname === '/profile' || pathname.startsWith('/u/')
+  // Light-mode AmbientGlow reads as a blurry orange haze on the data-dense
+  // dashboard and leaderboard pages, so those routes drop it (dark mode
+  // already hides the layer via CSS).
+  const noGlowRoute =
+    pathname === '/leaderboard' ||
+    pathname === '/dashboard' ||
+    pathname.startsWith('/dashboard/')
 
   return (
     <NavPrefsProvider>
       <NavStatusProvider>
         <div className="dossier-canvas min-h-screen bg-black font-mono text-zinc-100 selection:bg-accent/20">
           {!profileRoute && <SpaceBackdrop />}
-          {!profileRoute && <AmbientGlow />}
+          {!profileRoute && !noGlowRoute && <AmbientGlow />}
           <GlassTilt />
           {/* horizon line — thin accent scanline at the bottom for retro hint */}
           <div
