@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   BILLBOARD_COMPANY_MAX,
   BILLBOARD_TEXT_MAX,
-  type BillboardPlacement
+  isRailSlot,
+  RAIL_SLOTS,
+  type BillboardPlacement,
+  type RailSlot
 } from '@/lib/billboard'
 import { cleanBillboardUrl, extractAccentColor } from '@/lib/billboardServer'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
@@ -27,6 +30,7 @@ type AdFields = {
   linkUrl: string
   logoUrl: string | null
   placement: BillboardPlacement
+  requestedRailSlot: RailSlot | null
 }
 
 /**
@@ -45,8 +49,15 @@ type AdFields = {
  *                  Absent or blank stores NULL and the ticker falls back
  *                  to the owner's avatar.
  *   placement    — optional 'flipper' | 'rail' (migration 035); absent
- *                  defaults to 'flipper'. rail_slot is never accepted
- *                  from buyers — the admin assigns it at activation.
+ *                  defaults to 'flipper'. rail_slot is still never
+ *                  accepted from buyers — the admin assigns it at
+ *                  activation; the buyer's wish rides in
+ *                  requested_rail_slot instead.
+ *   requested_rail_slot — optional rail-slot preference (migration 038):
+ *                  a valid RailSlot when present, absent/null means "any
+ *                  slot", forced NULL on flipper ads. A preference,
+ *                  never a hold — slots go to the first confirmed
+ *                  payment.
  */
 function parseAdFields(body: Record<string, unknown>): AdFields | { error: string } {
   const rawText = typeof body.text === 'string' ? body.text : ''
@@ -92,7 +103,18 @@ function parseAdFields(body: Record<string, unknown>): AdFields | { error: strin
     placement = rawPlacement
   }
 
-  return { text, companyName, linkUrl, logoUrl, placement }
+  const rawRequestedSlot = body.requested_rail_slot
+  let requestedRailSlot: RailSlot | null = null
+  if (rawRequestedSlot !== undefined && rawRequestedSlot !== null) {
+    if (!isRailSlot(rawRequestedSlot)) {
+      return { error: `requested_rail_slot must be one of ${RAIL_SLOTS.join(', ')}` }
+    }
+    requestedRailSlot = rawRequestedSlot
+  }
+  // A slot preference only makes sense on the product that has slots.
+  if (placement !== 'rail') requestedRailSlot = null
+
+  return { text, companyName, linkUrl, logoUrl, placement, requestedRailSlot }
 }
 
 export async function POST(request: NextRequest) {
@@ -173,9 +195,12 @@ export async function POST(request: NextRequest) {
         logo_url: fields.logoUrl,
         accent_color: accentColor,
         placement: fields.placement,
+        requested_rail_slot: fields.requestedRailSlot,
         status: 'PENDING'
       })
-      .select('id, status, text, company_name, link_url, logo_url, placement, created_at')
+      .select(
+        'id, status, text, company_name, link_url, logo_url, placement, requested_rail_slot, created_at'
+      )
       .single()
 
     if (insertError || !ad) {

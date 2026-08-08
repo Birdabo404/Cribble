@@ -13,9 +13,11 @@
 // The tab default is chosen once, when /api/user/me and
 // /api/billboard/mine first resolve (signed-out or zero ads -> buy,
 // existing ads -> mine); manual switches after that are never
-// overridden. claimSlot (an open rail cell) jumps to the buy view and
-// remounts the composer with the placement preselected — the form reads
-// `initial` at mount only, so the key must change on every claim.
+// overridden. claimSlot (an open rail cell, or a ?slot= deep link from
+// a vacant rail CTA) jumps to the buy view and remounts the composer
+// with the placement — and, for rails, the exact slot — preselected;
+// the form reads `initial` at mount only, so the key must change on
+// every claim.
 
 import { useCallback, useEffect, useState } from 'react'
 import {
@@ -34,9 +36,12 @@ import {
 } from '@/components/settings'
 import {
   BILLBOARD_DURATION_DAYS,
-  BILLBOARD_RAIL_PRICE_CENTS,
+  BILLBOARD_PAYMENT_X_HANDLE,
+  BILLBOARD_RAIL_PRICE_MIN_CENTS,
   BILLBOARD_TEXT_MAX,
+  isRailSlot,
   type BillboardPlacement,
+  type RailSlot,
   type SlotBoard
 } from '@/lib/billboard'
 import { fetchMe } from '@/lib/client/fetchMe'
@@ -59,8 +64,8 @@ const STEPS: { label: string; body: string }[] = [
     body: 'An admin approves it, asks for a redo with written feedback, or rejects it with the reason. It all shows up in Your ads.'
   },
   {
-    label: 'Polar payment link',
-    body: 'Once approved you receive a Polar payment link by DM or notification — no self-serve checkout in v1.'
+    label: 'Pay over DM',
+    body: `Once approved, DM @${BILLBOARD_PAYMENT_X_HANDLE} on X to arrange payment. After it's confirmed, allow a few minutes to a few hours for your ad to be activated and go live.`
   },
   {
     label: `Live for ${BILLBOARD_DURATION_DAYS} days`,
@@ -85,9 +90,11 @@ export function BillboardLanding() {
   /** null = not chosen yet — a skeleton holds the page until the first
    *  signed-in/ads resolution picks the default tab (no tab flash). */
   const [view, setView] = useState<BillboardView | null>(null)
-  /** Placement the composer mounts with after claimSlot; the nonce
-   *  forces a remount even when the same placement is claimed twice. */
+  /** Placement (and, for rails, the exact slot) the composer mounts
+   *  with after claimSlot; the nonce forces a remount even when the
+   *  same claim is made twice. */
   const [placementIntent, setPlacementIntent] = useState<BillboardPlacement>('flipper')
+  const [slotIntent, setSlotIntent] = useState<RailSlot | null>(null)
   const [composerNonce, setComposerNonce] = useState(0)
 
   useEffect(() => {
@@ -165,9 +172,10 @@ export function BillboardLanding() {
     setView(signedIn === true && ads !== null && ads.length > 0 ? 'mine' : 'buy')
   }, [view, signedIn, ads, adsError])
 
-  const claimSlot = useCallback((placement: BillboardPlacement) => {
+  const claimSlot = useCallback((placement: BillboardPlacement, slot?: RailSlot) => {
     setView('buy')
     setPlacementIntent(placement)
+    setSlotIntent(slot ?? null)
     setComposerNonce((n) => n + 1)
     // #pitch only exists in the buy view — the double rAF lets the view
     // swap commit and paint before scrolling.
@@ -178,8 +186,16 @@ export function BillboardLanding() {
     })
   }, [])
 
+  // The vacant rail CTAs deep-link /billboard?slot=L2#pitch. Read
+  // window.location directly in a mount effect — useSearchParams would
+  // drag the whole page behind a Suspense boundary for one read — and
+  // claim like a board click: buy view, rail placement, that slot.
+  useEffect(() => {
+    const slot = new URLSearchParams(window.location.search).get('slot')
+    if (isRailSlot(slot)) claimSlot('rail', slot)
+  }, [claimSlot])
+
   const openRails = board ? board.rails.filter((rail) => !rail.takenUntil).length : 0
-  const railPriceCents = board?.rails[0]?.priceCents ?? BILLBOARD_RAIL_PRICE_CENTS
   const flipperLine = board
     ? `${board.flipper.taken}/${board.flipper.max} taken${
         board.flipper.taken >= board.flipper.max
@@ -195,7 +211,8 @@ export function BillboardLanding() {
     text: '',
     link_url: '',
     logo_url: '',
-    placement: placementIntent
+    placement: placementIntent,
+    requested_rail_slot: slotIntent
   }
 
   return (
@@ -287,7 +304,7 @@ export function BillboardLanding() {
                               className="text-[13px] font-medium"
                               style={{ color: 'rgb(var(--lb-gold))' }}
                             >
-                              ${railPriceCents / 100}/wk
+                              from ${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}/wk
                             </span>
                           </div>
                           <p className="mt-1 text-[13px] leading-5 text-[color:var(--st-text-muted)]">
@@ -321,7 +338,7 @@ export function BillboardLanding() {
                               key={rail.slot}
                               type="button"
                               aria-label={`Claim rail slot ${rail.slot}`}
-                              onClick={() => claimSlot('rail')}
+                              onClick={() => claimSlot('rail', rail.slot)}
                               className="rounded-lg border border-[color:var(--st-border)] bg-[color:var(--st-panel)] px-2.5 py-2 text-left transition-colors hover:border-[color:var(--st-border-strong)] hover:bg-[color:var(--st-panel-hover)]"
                             >
                               <p className="text-[12px] font-medium text-[color:var(--st-text-faint)]">
@@ -340,6 +357,10 @@ export function BillboardLanding() {
                           )
                         )}
                       </div>
+
+                      <p className="mt-2 text-[12px] leading-4 text-[color:var(--st-text-faint)]">
+                        {`Pitching a slot doesn't reserve it — the first confirmed payment takes it. If yours sells first, you can switch to any open slot.`}
+                      </p>
                     </>
                   )}
                 </section>
@@ -387,8 +408,8 @@ export function BillboardLanding() {
                     ))}
                   </SettingsSection>
                   <p className="mt-2 text-[12px] leading-5 text-[color:var(--st-text-faint)]">
-                    Payment is manual in v1 — approval first, the Polar link follows. Nothing
-                    charges itself.
+                    No self-serve checkout — payment is arranged over DM after approval. Nothing
+                    charges automatically.
                   </p>
                 </div>
               </div>

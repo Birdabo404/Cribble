@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   BILLBOARD_COMPANY_MAX,
   BILLBOARD_TEXT_MAX,
-  type BillboardPlacement
+  isRailSlot,
+  RAIL_SLOTS,
+  type BillboardPlacement,
+  type RailSlot
 } from '@/lib/billboard'
 import { cleanBillboardUrl, extractAccentColor } from '@/lib/billboardServer'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
@@ -30,6 +33,7 @@ type AdFields = {
   linkUrl: string
   logoUrl: string | null
   placement: BillboardPlacement
+  requestedRailSlot: RailSlot | null
 }
 
 /**
@@ -51,8 +55,14 @@ type AdFields = {
  *   placement    — optional 'flipper' | 'rail' (migration 035); absent
  *                  defaults to 'flipper'. Editable only while the ad is
  *                  (PENDING / CHANGES_REQUESTED, which is all this route
- *                  ever touches). rail_slot is never accepted from
- *                  buyers — the admin assigns it at activation.
+ *                  ever touches). rail_slot is still never accepted from
+ *                  buyers — the admin assigns it at activation; the
+ *                  buyer's wish rides in requested_rail_slot instead.
+ *   requested_rail_slot — optional rail-slot preference (migration 038):
+ *                  a valid RailSlot when present, absent/null means "any
+ *                  slot", forced NULL on flipper ads. A preference,
+ *                  never a hold — slots go to the first confirmed
+ *                  payment.
  */
 function parseAdFields(body: Record<string, unknown>): AdFields | { error: string } {
   const rawText = typeof body.text === 'string' ? body.text : ''
@@ -98,7 +108,18 @@ function parseAdFields(body: Record<string, unknown>): AdFields | { error: strin
     placement = rawPlacement
   }
 
-  return { text, companyName, linkUrl, logoUrl, placement }
+  const rawRequestedSlot = body.requested_rail_slot
+  let requestedRailSlot: RailSlot | null = null
+  if (rawRequestedSlot !== undefined && rawRequestedSlot !== null) {
+    if (!isRailSlot(rawRequestedSlot)) {
+      return { error: `requested_rail_slot must be one of ${RAIL_SLOTS.join(', ')}` }
+    }
+    requestedRailSlot = rawRequestedSlot
+  }
+  // A slot preference only makes sense on the product that has slots.
+  if (placement !== 'rail') requestedRailSlot = null
+
+  return { text, companyName, linkUrl, logoUrl, placement, requestedRailSlot }
 }
 
 export async function PATCH(
@@ -169,6 +190,7 @@ export async function PATCH(
       link_url: fields.linkUrl,
       logo_url: fields.logoUrl,
       placement: fields.placement,
+      requested_rail_slot: fields.requestedRailSlot,
       updated_at: new Date().toISOString()
     }
     // A redo answer goes back into the review queue; the note it
@@ -210,7 +232,9 @@ export async function PATCH(
       .eq('id', adId)
       .eq('owner_user_id', session.userId)
       .eq('status', currentStatus)
-      .select('id, status, text, company_name, link_url, logo_url, placement, review_note, updated_at')
+      .select(
+        'id, status, text, company_name, link_url, logo_url, placement, requested_rail_slot, review_note, updated_at'
+      )
 
     if (updateError) {
       console.error('[BillboardEdit] Update failed:', updateError)

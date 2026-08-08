@@ -66,7 +66,7 @@ export function minRoleFor(action: StaffAction): StaffRole {
     case 'team.review':
     // Billboard ads are paid placements shown to every visitor —
     // approving copy and flipping paid/live state is an owner call,
-    // same as team review (payment is handled manually via Polar).
+    // same as team review (payment is collected manually over X DM).
     case 'billboard.review':
     case 'debug.manage':
       return 'owner'

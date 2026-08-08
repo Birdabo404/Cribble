@@ -48,11 +48,28 @@ export const BILLBOARD_TEXT_MAX = 80
 /** Cap on the company/brand title line (migration 034), counted in
  *  code points like BILLBOARD_TEXT_MAX. */
 export const BILLBOARD_COMPANY_MAX = 40
-/** $100 per flipper slot per rolling 7 days; payment is manual in v1. */
-export const BILLBOARD_PRICE_CENTS = 10000
-/** $150 per rail slot per rolling 7 days — same manual-payment flow. */
-export const BILLBOARD_RAIL_PRICE_CENTS = 15000
+/** $200 per flipper slot per rolling 7 days; payment is manual in v1. */
+export const BILLBOARD_PRICE_CENTS = 20000
+/** Weekly rail price per slot: a scarcity ladder by row — the top row
+ *  (L1/R1) dearest, the bottom (L4/R4) cheapest — same price on both
+ *  sides. Same manual-payment flow as the flipper. */
+export const RAIL_SLOT_PRICE_CENTS: Record<RailSlot, number> = {
+  L1: 49900,
+  R1: 49900,
+  L2: 39900,
+  R2: 39900,
+  L3: 29900,
+  R3: 29900,
+  L4: 19900,
+  R4: 19900
+}
+/** The ladder's floor — every "from $199/wk" surface derives from this. */
+export const BILLBOARD_RAIL_PRICE_MIN_CENTS = 19900
 export const BILLBOARD_DURATION_DAYS = 7
+/** Payment is manual in v1: arranged over X DM after approval — these
+ *  feed every "DM @birdabo" surface (notifications, tracker, admin). */
+export const BILLBOARD_PAYMENT_X_HANDLE = 'birdabo'
+export const BILLBOARD_PAYMENT_X_URL = 'https://x.com/birdabo'
 
 /** Row shape of billboard_ads (timestamptz columns arrive as ISO strings). */
 export type BillboardAd = {
@@ -76,9 +93,16 @@ export type BillboardAd = {
    *  backfill to 'flipper'. */
   placement: BillboardPlacement
   /** The rail slot a rail ad occupies while live — assigned by the
-   *  admin activate route at go-live, never buyer-settable. NULL on
-   *  flipper ads and on rail ads not yet activated. */
+   *  admin activate route at go-live, never buyer-settable (the buyer's
+   *  wish travels in requested_rail_slot instead). NULL on flipper ads
+   *  and on rail ads not yet activated. */
   rail_slot: RailSlot | null
+  /** The slot a rail buyer asked for at submission (migration 038) — a
+   *  preference, never a hold: slots go to the first confirmed payment,
+   *  and the admin still assigns the live rail_slot at activation.
+   *  Buyer-settable, unlike rail_slot. NULL = any slot; always NULL on
+   *  flipper ads. */
+  requested_rail_slot: RailSlot | null
   status: BillboardStatus
   /** Admin feedback shown to the buyer on redo / reject. */
   review_note: string | null

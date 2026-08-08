@@ -6,10 +6,12 @@
 
 import type { Metadata } from 'next'
 import { BillboardLanding } from '@/components/billboard/BillboardLanding'
+import { BILLBOARD_RAIL_PRICE_MIN_CENTS } from '@/lib/billboard'
 
 const TITLE = 'Get on the Billboard — Cribble'
 const DESCRIPTION =
-  'Your logo, one line, and one link — on the leaderboard, dashboard, and every profile page for 7 days. From $100 a week, every card reviewed by a human.'
+  'Your logo, one line, and one link — on the leaderboard, dashboard, and every profile page ' +
+  `for 7 days. From $${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100} a week, every card reviewed by a human.`
 
 export const metadata: Metadata = {
   title: TITLE,

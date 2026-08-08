@@ -20,6 +20,11 @@ import {
 import { SettingsButton } from '@/components/settings'
 import {
   BILLBOARD_DURATION_DAYS,
+  BILLBOARD_PAYMENT_X_HANDLE,
+  BILLBOARD_PAYMENT_X_URL,
+  BILLBOARD_PRICE_CENTS,
+  BILLBOARD_RAIL_PRICE_MIN_CENTS,
+  RAIL_SLOT_PRICE_CENTS,
   type BillboardPlacement,
   type BillboardStatus,
   type RailSlot
@@ -41,6 +46,10 @@ export interface MineAd {
   /** Rail slot code (L1-R4), assigned by the admin at activation; null
    *  until then and always null on flipper ads. */
   rail_slot: RailSlot | null
+  /** The slot the buyer asked for at submission — a preference, not a
+   *  hold (first confirmed payment wins). Null = any slot; always null
+   *  on flipper ads. */
+  requested_rail_slot: RailSlot | null
   review_note: string | null
   starts_at: string | null
   ends_at: string | null
@@ -68,7 +77,7 @@ interface ChipMeta {
 
 /** Lifecycle chip. APPROVED fans out by payment/window state: the admin
  *  stamps paid_at + the 7-day window together at activation, so a bare
- *  APPROVED row is still waiting on the manual Polar payment step. */
+ *  APPROVED row is still waiting on the manual X-DM payment step. */
 function chipMeta(ad: MineAd, now: Date): ChipMeta {
   switch (ad.status) {
     case 'PENDING':
@@ -109,6 +118,17 @@ function hostOfLink(linkUrl: string): string | null {
 
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+
+/** The dollar ask while payment is pending: the flipper's flat price,
+ *  the requested slot's ladder price, or the ladder floor when the
+ *  buyer left the slot open. */
+function adPriceLabel(ad: MineAd): string {
+  if (ad.placement !== 'rail') return `$${BILLBOARD_PRICE_CENTS / 100}/wk`
+  if (ad.requested_rail_slot) {
+    return `$${RAIL_SLOT_PRICE_CENTS[ad.requested_rail_slot] / 100}/wk`
+  }
+  return `from $${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}/wk`
+}
 
 const daysLeft = (endsAt: string, now: Date) =>
   Math.max(0, Math.ceil((new Date(endsAt).getTime() - now.getTime()) / 86_400_000))
@@ -270,8 +290,17 @@ function AdRow({
   }
 
   const title = ad.company_name ?? hostOfLink(ad.link_url) ?? 'Untitled'
+  // A rail ad wears its assigned slot once the admin stamps one; until
+  // then the buyer's request shows as a wish ("wants R1"), never as if
+  // the slot were already theirs.
   const placementLabel =
-    ad.placement === 'rail' ? `Rail${ad.rail_slot ? ` · ${ad.rail_slot}` : ''}` : 'Flipper'
+    ad.placement === 'rail'
+      ? ad.rail_slot
+        ? `Rail · ${ad.rail_slot}`
+        : ad.requested_rail_slot
+          ? `Rail · wants ${ad.requested_rail_slot}`
+          : 'Rail'
+      : 'Flipper'
   const regionId = `billboard-ad-${ad.id}`
 
   return (
@@ -350,9 +379,19 @@ function AdRow({
 
           {ad.status === 'APPROVED' && !ad.isLive && !ad.ends_at && (
             <p className="text-[13px] leading-relaxed text-[color:var(--st-text-muted)]">
-              Approved. A Polar payment link is on its way via DM / notification — no
-              self-serve checkout yet. Once payment is confirmed your{' '}
-              {BILLBOARD_DURATION_DAYS}-day run starts.
+              Approved — payment ({adPriceLabel(ad)}) is handled personally: DM{' '}
+              <a
+                href={BILLBOARD_PAYMENT_X_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-[color:var(--st-text)] transition-colors hover:text-[color:var(--st-text-muted)]"
+              >
+                @{BILLBOARD_PAYMENT_X_HANDLE}
+              </a>{' '}
+              on X to complete it. Once confirmed, your ad is activated by hand — usually
+              within minutes, at most a few hours — and your {BILLBOARD_DURATION_DAYS}-day run
+              starts the moment {`it's`} live. Slots go to the first confirmed payment; if
+              yours fills first, pick another open slot over DM.
             </p>
           )}
 
@@ -394,7 +433,8 @@ function AdRow({
                   text: ad.text,
                   link_url: ad.link_url,
                   logo_url: ad.logo_url ?? '',
-                  placement: ad.placement
+                  placement: ad.placement,
+                  requested_rail_slot: ad.requested_rail_slot
                 }}
                 fallbackLogoUrl={fallbackLogoUrl}
                 signedIn={true}

@@ -8,8 +8,10 @@ import { BillboardCard } from '@/components/billboard/BillboardCard'
 import {
   BILLBOARD_DURATION_DAYS,
   BILLBOARD_MAX_LIVE,
+  BILLBOARD_PAYMENT_X_HANDLE,
   BILLBOARD_PRICE_CENTS,
-  BILLBOARD_RAIL_PRICE_CENTS,
+  BILLBOARD_RAIL_PRICE_MIN_CENTS,
+  RAIL_SLOT_PRICE_CENTS,
   RAIL_SLOTS,
   type BillboardPlacement,
   type BillboardStatus,
@@ -17,19 +19,21 @@ import {
 } from '@/lib/billboard'
 
 // Billboard queue: review paid ad submissions with an exact-render
-// preview (the same BillboardCard the public surfaces ship), send the
-// Polar payment link manually after approving, then mark paid + go
-// live. Two products share the queue: flipper ads (capped at 8
-// concurrent) and profile-rail ads (one live ad per slot; activation
-// picks a free slot from a picker whose occupancy derives client-side
-// from the live bucket's rail_slot values — the server re-checks and
-// answers 409 if the slot filled meanwhile). Expired ads surface in
-// RECENT_DECISIONS with the same activate controls relabelled as a
-// renewal — payment is collected manually again and the activate
-// route stamps a fresh window, keeping paid_at. Buyer-controlled fields
-// (text, link_url, logo_url) are untrusted: text renders as plain text
-// and link_url is shown verbatim for inspection, never as a clickable
-// link.
+// preview (the same BillboardCard the public surfaces ship), collect
+// payment over X DM after approving, then mark paid + go live. Two
+// products share the queue: flipper ads (capped at 8 concurrent) and
+// profile-rail ads (one live ad per slot; activation picks a free slot
+// from a picker whose occupancy derives client-side from the live
+// bucket's rail_slot values — the server re-checks and answers 409 if
+// the slot filled meanwhile). A rail ad may carry the buyer's
+// requested_rail_slot — surfaced as a WANTS chip and preselected in
+// the picker while free, but never binding: first confirmed payment
+// wins the slot. Expired ads surface in RECENT_DECISIONS with the same
+// activate controls relabelled as a renewal — payment is collected
+// manually again and the activate route stamps a fresh window, keeping
+// paid_at. Buyer-controlled fields (text, link_url, logo_url) are
+// untrusted: text renders as plain text and link_url is shown verbatim
+// for inspection, never as a clickable link.
 
 interface AdOwner {
   userId: number
@@ -53,6 +57,9 @@ interface AdRow {
   /** Rail slot code (L1-R4), stamped at activation; null until then and
    *  always null on flipper ads. */
   rail_slot: RailSlot | null
+  /** The slot the buyer asked for at submission — a preference, never a
+   *  hold. Null = any slot; always null on flipper ads. */
+  requested_rail_slot: RailSlot | null
   status: BillboardStatus
   review_note: string | null
   reviewed_at: string | null
@@ -109,6 +116,20 @@ function PlacementChip({ ad }: { ad: AdRow }) {
   const label =
     ad.placement === 'rail' ? (ad.rail_slot ? `RAIL · ${ad.rail_slot}` : 'RAIL') : 'FLIPPER'
   return <span className={`${chipCls} border-zinc-600/40 text-zinc-300`}>{label}</span>
+}
+
+/** The buyer's slot wish with its exact price — worn by queue/awaiting
+ *  (and expired-renewal) rows so the DM conversation about money can
+ *  start from the list. Nothing to show on flipper ads or open-slot
+ *  pitches. */
+function RequestedSlotChip({ ad }: { ad: AdRow }) {
+  if (ad.placement !== 'rail' || !ad.requested_rail_slot) return null
+  return (
+    <span className={`${chipCls} border-amber-400/30 text-amber-300`}>
+      WANTS {ad.requested_rail_slot} · $
+      {RAIL_SLOT_PRICE_CENTS[ad.requested_rail_slot] / 100}/WK
+    </span>
+  )
 }
 
 /** Title fallback for rows predating company_name: the link's host,
@@ -200,12 +221,12 @@ const actionBtn = (tone: 'green' | 'red' | 'sky' | 'zinc') => {
 const railFullMsg = `All ${RAIL_SLOTS.length} rail slots are occupied — archive one or wait for a window to end.`
 
 /** The controls that put a paid ad on the board: rail ads get a slot
- *  picker (occupied slots disabled, defaulting to the first free one)
- *  plus the activate button, flipper ads just the button, disabled
- *  while the cap is full. Shared by AWAITING_PAYMENT (first
- *  activation) and the expired rows of RECENT_DECISIONS (renewal —
- *  the same route keeps paid_at and stamps a fresh window); only the
- *  button label differs. */
+ *  picker (occupied slots disabled, defaulting to the ad's requested
+ *  slot while it's free, else the first free one) plus the activate
+ *  button, flipper ads just the button, disabled while the cap is
+ *  full. Shared by AWAITING_PAYMENT (first activation) and the expired
+ *  rows of RECENT_DECISIONS (renewal — the same route keeps paid_at
+ *  and stamps a fresh window); only the button label differs. */
 function ActivateControls({
   ad,
   label,
@@ -230,11 +251,18 @@ function ActivateControls({
   onPickSlot: (slot: RailSlot) => void
   onActivate: (ad: AdRow, slot?: RailSlot) => void
 }) {
-  // The picked slot, falling back to the first free one; a pick that
-  // got occupied since (activation, refresh) falls back too rather
-  // than aiming at a taken slot.
+  // The picked slot, falling back to the buyer's requested slot while
+  // it's free, then to the first free one; a pick (or request) that got
+  // occupied since (activation, refresh) falls through rather than
+  // aiming at a taken slot.
+  const requestedFreeSlot =
+    ad.requested_rail_slot !== null && !occupiedSlots.has(ad.requested_rail_slot)
+      ? ad.requested_rail_slot
+      : undefined
   const chosenSlot =
-    pick !== undefined && !occupiedSlots.has(pick) ? pick : firstFreeSlot
+    pick !== undefined && !occupiedSlots.has(pick)
+      ? pick
+      : requestedFreeSlot ?? firstFreeSlot
   return ad.placement === 'rail' ? (
     <>
       <label className="flex items-center gap-2 text-[9px] tracking-[0.3em] text-zinc-600">
@@ -248,7 +276,7 @@ function ActivateControls({
           {chosenSlot === undefined && <option value="">ALL TAKEN</option>}
           {RAIL_SLOTS.map((slot) => (
             <option key={slot} value={slot} disabled={occupiedSlots.has(slot)}>
-              {slot}
+              {slot} — ${RAIL_SLOT_PRICE_CENTS[slot] / 100}/wk
               {occupiedSlots.has(slot) ? ' — TAKEN' : ''}
             </option>
           ))}
@@ -349,7 +377,8 @@ function BillboardQueue({ me }: { me: StaffMe }) {
       ad,
       `/api/admin/billboard/${ad.id}/review`,
       { action: 'approve' },
-      () => `Ad #${ad.id} approved — send the Polar payment link, then mark paid + go live.`
+      () =>
+        `Ad #${ad.id} approved — collect payment over X DM (@${BILLBOARD_PAYMENT_X_HANDLE}), then mark paid + go live.`
     )
 
   /** Flipper ads activate bare; rail ads must name the slot they take. */
@@ -427,9 +456,10 @@ function BillboardQueue({ me }: { me: StaffMe }) {
         <p className="text-sm text-gray-400">
           Paid ad slots, two placements — the flipper train on the dashboard + leaderboard ($
           {BILLBOARD_PRICE_CENTS / 100}/wk, max {BILLBOARD_MAX_LIVE} live) and the always-on
-          profile rails (${BILLBOARD_RAIL_PRICE_CENTS / 100}/wk, {RAIL_SLOTS.length} fixed
-          slots). Approve the copy here, send the Polar payment link manually, then mark paid +
-          go live — rail ads take their slot at activation.
+          profile rails (${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}–$
+          {RAIL_SLOT_PRICE_CENTS.L1 / 100}/wk by row, {RAIL_SLOTS.length} fixed slots).
+          Approve the copy here, collect payment over X DM (@{BILLBOARD_PAYMENT_X_HANDLE}),
+          then mark paid + go live — rail ads take their slot at activation.
         </p>
       </div>
 
@@ -458,6 +488,7 @@ function BillboardQueue({ me }: { me: StaffMe }) {
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
                         <span className={`${chipCls} ${chip.className}`}>{chip.label}</span>
                         <PlacementChip ad={ad} />
+                        <RequestedSlotChip ad={ad} />
                         <span className="text-zinc-600">#{ad.id}</span>
                         <OwnerLine ad={ad} />
                         <span className="text-zinc-600">
@@ -511,7 +542,8 @@ function BillboardQueue({ me }: { me: StaffMe }) {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className={headingCls}>AWAITING_PAYMENT ({data.awaiting.length})</h2>
               <p className="text-[10px] text-zinc-600">
-                The Polar payment link is sent manually — nothing here bills the buyer.
+                Payment is collected over X DM (@{BILLBOARD_PAYMENT_X_HANDLE}) — nothing here
+                bills the buyer.
               </p>
             </div>
             {flipperFull &&
@@ -535,6 +567,7 @@ function BillboardQueue({ me }: { me: StaffMe }) {
                           APPROVED
                         </span>
                         <PlacementChip ad={ad} />
+                        <RequestedSlotChip ad={ad} />
                         <span className="text-zinc-600">#{ad.id}</span>
                         <OwnerLine ad={ad} />
                         <span className="text-zinc-600">
@@ -641,6 +674,7 @@ function BillboardQueue({ me }: { me: StaffMe }) {
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
                         <span className={`${chipCls} ${chip.className}`}>{chip.label}</span>
                         <PlacementChip ad={ad} />
+                        {expired && <RequestedSlotChip ad={ad} />}
                         <span className="text-zinc-600">#{ad.id}</span>
                         <OwnerLine ad={ad} />
                         <span className="text-zinc-600">{formatDate(ad.updated_at)}</span>
@@ -704,7 +738,7 @@ function BillboardQueue({ me }: { me: StaffMe }) {
       {dialog?.kind === 'archive' && (
         <ReasonDialog
           title={`ARCHIVE AD #${dialog.ad.id}`}
-          description="Takes the ad off the billboard immediately. Click stats are kept; the slot is not refunded here — refunds happen manually in Polar if owed."
+          description="Takes the ad off the billboard immediately. Click stats are kept; the slot is not refunded here — refunds are handled manually if owed."
           confirmLabel="ARCHIVE AD"
           danger
           onConfirm={(reason) => confirmDialog(dialog, reason)}

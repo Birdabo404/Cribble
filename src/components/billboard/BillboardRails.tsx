@@ -13,10 +13,11 @@
 // attempt retries ~30s later; nothing renders until the first fetch
 // succeeds — the loaded gate keeps an OPEN box from ever flashing over
 // a sold slot — and then every slot does: a paid card where the slot
-// is sold, a vacant-slot CTA linking to the /billboard#pitch composer
-// where it isn't. The vacant cell is not an ad — no counting redirect,
-// no AD tag — just corner brackets and a price pitch (see
-// .billboard-rail-vacant in globals.css).
+// is sold, a vacant-slot CTA deep-linking its own slot into the
+// /billboard composer (?slot=L2#pitch) where it isn't. The vacant cell
+// is not an ad — no counting redirect, no AD tag — just corner
+// brackets and that slot's price pitch (see .billboard-rail-vacant in
+// globals.css).
 //
 // Geometry and motion live in globals.css: two fixed columns pinned
 // below the top bar (.billboard-rail-col) of uniform viewport-clamped
@@ -32,7 +33,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BILLBOARD_RAIL_PRICE_CENTS, RAIL_SLOTS } from '@/lib/billboard'
+import { RAIL_SLOT_PRICE_CENTS, RAIL_SLOTS } from '@/lib/billboard'
 import type { RailItem, RailSlot } from '@/lib/billboard'
 import { BillboardCard } from './BillboardCard'
 
@@ -156,7 +157,7 @@ export function BillboardRails() {
                      code up top, the pitch pinned to the bottom, and the
                      brackets + hatch from .billboard-rail-vacant. */
                   <Link
-                    href="/billboard#pitch"
+                    href={`/billboard?slot=${slot}#pitch`}
                     className="billboard-rail-vacant relative flex h-full w-full flex-col justify-between rounded-lg px-3.5 py-3 transition-transform duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 motion-safe:hover:-translate-y-0.5"
                   >
                     <span className="text-[9px] tracking-[0.3em] text-zinc-500">{slot}</span>
@@ -165,7 +166,7 @@ export function BillboardRails() {
                         OPEN SLOT
                       </span>
                       <span className="text-[9px] leading-4 tracking-[0.2em] text-zinc-500">
-                        ${BILLBOARD_RAIL_PRICE_CENTS / 100}/WK · TAKE THIS SPACE{' '}
+                        ${RAIL_SLOT_PRICE_CENTS[slot] / 100}/WK · TAKE THIS SPACE{' '}
                         <span aria-hidden className="billboard-rail-vacant-arrow">
                           →
                         </span>

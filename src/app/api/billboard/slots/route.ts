@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import {
   BILLBOARD_MAX_LIVE,
   BILLBOARD_PRICE_CENTS,
-  BILLBOARD_RAIL_PRICE_CENTS,
+  RAIL_SLOT_PRICE_CENTS,
   RAIL_SLOTS,
   type SlotBoard
 } from '@/lib/billboard'
@@ -106,14 +106,17 @@ const loadSlotBoard = unstable_cache(
         return {
           slot,
           side: slot.startsWith('L') ? 'left' : 'right',
-          priceCents: BILLBOARD_RAIL_PRICE_CENTS,
+          priceCents: RAIL_SLOT_PRICE_CENTS[slot],
           takenUntil: occupant?.takenUntil ?? null,
           companyName: occupant?.companyName ?? null
         }
       })
     }
   },
-  ['billboard-slots-v1'],
+  // v3: cache key bumped with the flipper repricing (v2 was the per-slot
+  // rail repricing) so a deploy can't serve the old price for its first
+  // cached minute.
+  ['billboard-slots-v3'],
   { revalidate: REVALIDATE_SECONDS }
 )
 

@@ -3,10 +3,11 @@ import { withAudit } from '@/lib/adminAudit'
 import {
   BILLBOARD_DURATION_DAYS,
   BILLBOARD_MAX_LIVE,
+  BILLBOARD_PAYMENT_X_HANDLE,
   BILLBOARD_PRICE_CENTS,
-  BILLBOARD_RAIL_PRICE_CENTS,
   isLiveAd,
   isRailSlot,
+  RAIL_SLOT_PRICE_CENTS,
   RAIL_SLOTS,
   type BillboardPlacement,
   type RailSlot
@@ -30,8 +31,8 @@ import { createServiceClient } from '@/lib/supabaseServer'
 //              Stamps paid_at (kept if already set — a renewal of an
 //              expired window doesn't rewrite payment history),
 //              starts_at = now, ends_at = now + 7 days. Billing is NOT
-//              touched: payment happens manually via a Polar link
-//              before this click.
+//              touched: payment happens manually over X DM before this
+//              click.
 //   archive  — early takedown of a live/approved ad. Requires a written
 //              reason (audit log only; review_note stays the buyer-facing
 //              review feedback). Click stats survive, per migration 030.
@@ -45,14 +46,15 @@ export const dynamic = 'force-dynamic'
 
 const supabase = createServiceClient()
 
-// The dollar figure tracks the product being activated ($100 flipper,
-// $150 rail — migration 035).
-function paymentReminderFor(placement: BillboardPlacement): string {
+// The dollar figure tracks the product being activated: $200 flipper,
+// or the activated slot's ladder price for rails (the slot is always
+// known here — rail activation validated it before this runs).
+function paymentReminderFor(placement: BillboardPlacement, slot: RailSlot | null): string {
   const cents =
-    placement === 'rail' ? BILLBOARD_RAIL_PRICE_CENTS : BILLBOARD_PRICE_CENTS
+    placement === 'rail' && slot ? RAIL_SLOT_PRICE_CENTS[slot] : BILLBOARD_PRICE_CENTS
   return `Going live does not touch billing — the $${
     cents / 100
-  } is collected manually via a Polar payment link before marking paid.`
+  } is collected manually over X DM (@${BILLBOARD_PAYMENT_X_HANDLE}) before marking paid.`
 }
 
 type ActivateAction = 'activate' | 'archive'
@@ -310,7 +312,7 @@ export async function POST(
           starts_at: startsAt,
           ends_at: endsAt,
           rail_slot: railSlot,
-          paymentReminder: paymentReminderFor(placement)
+          paymentReminder: paymentReminderFor(placement, railSlot)
         })
       }
 

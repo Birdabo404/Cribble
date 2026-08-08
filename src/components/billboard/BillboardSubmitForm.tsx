@@ -6,7 +6,14 @@
 // CHANGES_REQUESTED ad (PATCH /api/billboard/[id]). The placement
 // picker chooses which product the card buys — the rotating flipper
 // strip or an always-on profile rail — and ships as `placement` on both
-// create and edit. The live preview is the real BillboardCard in the
+// create and edit. Picking the rail reveals a slot grid mirroring the
+// real rail geometry, fed by /api/billboard/slots (fetched here, not by
+// a parent, because the form mounts in both contexts): the buyer may
+// request a specific slot, shipped as `requested_rail_slot` on create
+// and edit. Taken slots stay selectable — a request is a preference
+// resolved first-confirmed-payment-first, never a hold — and the rail
+// placement card's price live-tracks the selected slot's ladder tier.
+// The live preview is the real BillboardCard in the
 // chosen placement's shape (lg strip for the flipper, the vertical rail
 // card for a rail), fed the form values as typed, with the caller's
 // avatar standing in while the logo URL is blank — so the composer
@@ -39,9 +46,13 @@ import { toast } from '@/components/Toaster'
 import {
   BILLBOARD_COMPANY_MAX,
   BILLBOARD_PRICE_CENTS,
-  BILLBOARD_RAIL_PRICE_CENTS,
+  BILLBOARD_RAIL_PRICE_MIN_CENTS,
   BILLBOARD_TEXT_MAX,
-  type BillboardPlacement
+  RAIL_SLOT_PRICE_CENTS,
+  RAIL_SLOTS,
+  type BillboardPlacement,
+  type RailSlot,
+  type SlotBoard
 } from '@/lib/billboard'
 
 export interface AdFormValues {
@@ -50,6 +61,9 @@ export interface AdFormValues {
   link_url: string
   logo_url: string
   placement: BillboardPlacement
+  /** Rail-slot preference; null = any slot (and always null for the
+   *  flipper). Edit mode initializes it from the ad being edited. */
+  requested_rail_slot: RailSlot | null
 }
 
 /** Create posts a new submission; edit rewrites one in place. A redo
@@ -157,7 +171,9 @@ function hslToHex(h: number, s: number, l: number): string {
 }
 
 /** The two products a card can buy — prices derive from the shared
- *  constants so a repricing lands here automatically. */
+ *  constants so a repricing lands here automatically. The rail card
+ *  carries the ladder floor ("from $199"); the render overrides it with
+ *  the selected slot's exact price once one is picked. */
 const PLACEMENTS: {
   value: BillboardPlacement
   label: string
@@ -173,12 +189,15 @@ const PLACEMENTS: {
   {
     value: 'rail',
     label: 'Profile rail',
-    price: `$${BILLBOARD_RAIL_PRICE_CENTS / 100}`,
+    price: `from $${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}`,
     blurb: 'Always-on card beside every profile page.'
   }
 ]
 
 const fieldInputCls = 'st-input block w-full rounded-lg px-3 py-1.5 text-[14px] leading-6'
+
+const fmtDate = (iso: string) =>
+  new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 
 /** The 409 amber flips per theme via a scoped var: amber-300 on dark,
  *  amber-700 on light — amber-300 text is illegible on the light
@@ -246,6 +265,13 @@ export function BillboardSubmitForm({
   const [linkUrl, setLinkUrl] = useState(initial?.link_url ?? '')
   const [logoUrl, setLogoUrl] = useState(initial?.logo_url ?? '')
   const [placement, setPlacement] = useState<BillboardPlacement>(initial?.placement ?? 'flipper')
+  const [requestedSlot, setRequestedSlot] = useState<RailSlot | null>(
+    initial?.requested_rail_slot ?? null
+  )
+  /** Availability for the slot picker; null (loading or failed) still
+   *  renders every slot — codes and ladder prices are static — it just
+   *  withholds the open / taken-until state line. */
+  const [board, setBoard] = useState<SlotBoard | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [conflict, setConflict] = useState<string | null>(null)
@@ -257,6 +283,28 @@ export function BillboardSubmitForm({
   const linkId = `${uid}-link`
   const logoId = `${uid}-logo`
   const placementLabelId = `${uid}-placement`
+  const slotLabelId = `${uid}-slot`
+
+  // The picker's availability, fetched by the form itself: it mounts in
+  // two contexts (landing create, tracker edit) and only it knows when
+  // the rail — and therefore the picker — is in play. Best-effort, same
+  // guard as the landing's board fetch.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/billboard/slots')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: SlotBoard | null) => {
+        if (cancelled) return
+        if (data && data.flipper && Array.isArray(data.rails)) setBoard(data)
+      })
+      .catch(() => {
+        // The picker works without availability — every slot stays
+        // selectable either way.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Roving tabindex for the placement radiogroup, mirroring
   // SegmentedControl: Tab lands on the checked card, arrows move and
@@ -344,7 +392,11 @@ export function BillboardSubmitForm({
             text,
             link_url: linkUrl,
             logo_url: logoUrl.trim() ? logoUrl : null,
-            placement
+            placement,
+            // Mirrors the server rule: a slot preference only rides on
+            // rail ads. A pick made before switching to the flipper is
+            // kept in state (switching back restores it) but not sent.
+            requested_rail_slot: placement === 'rail' ? requestedSlot : null
           })
         }
       )
@@ -375,6 +427,7 @@ export function BillboardSubmitForm({
         setLinkUrl('')
         setLogoUrl('')
         setPlacement('flipper')
+        setRequestedSlot(null)
       } else {
         toast({
           kind: 'success',
@@ -445,6 +498,12 @@ export function BillboardSubmitForm({
           >
             {PLACEMENTS.map((opt, i) => {
               const selected = placement === opt.value
+              // The rail card's price tracks the picked slot's tier;
+              // with none picked it keeps the "from $199" floor.
+              const price =
+                opt.value === 'rail' && requestedSlot
+                  ? `$${RAIL_SLOT_PRICE_CENTS[requestedSlot] / 100}`
+                  : opt.price
               return (
                 <button
                   key={opt.value}
@@ -471,7 +530,7 @@ export function BillboardSubmitForm({
                       className="shrink-0 text-[12.5px] font-medium"
                       style={{ color: 'rgb(var(--lb-gold) / 0.9)' }}
                     >
-                      {opt.price}/wk
+                      {price}/wk
                     </span>
                   </span>
                   <span className="mt-1 block text-[12.5px] leading-5 text-[color:var(--st-text-faint)]">
@@ -482,6 +541,72 @@ export function BillboardSubmitForm({
             })}
           </div>
         </div>
+
+        {/* ---- rail slot preference: a 2x4 grid in the real rail
+            geometry (L column, R column, rows top to bottom). Taken
+            slots stay selectable — a request is a queue position, not
+            a hold; the first confirmed payment takes the slot. ---- */}
+        {placement === 'rail' && (
+          <div>
+            <div className="flex items-baseline justify-between gap-3">
+              <span
+                id={slotLabelId}
+                className="text-[13px] font-medium leading-5 text-[color:var(--st-text)]"
+              >
+                Rail slot
+              </span>
+              <span className="text-[12.5px] text-[color:var(--st-text-faint)]">
+                {requestedSlot ? 'Tap again to clear' : 'Optional — any open slot'}
+              </span>
+            </div>
+            <div
+              role="group"
+              aria-labelledby={slotLabelId}
+              className="mt-1.5 grid auto-cols-fr grid-flow-col grid-rows-4 gap-2"
+            >
+              {RAIL_SLOTS.map((slot) => {
+                const selected = requestedSlot === slot
+                const takenUntil =
+                  board?.rails.find((rail) => rail.slot === slot)?.takenUntil ?? null
+                return (
+                  <button
+                    key={slot}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => setRequestedSlot(selected ? null : slot)}
+                    className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                      selected
+                        ? 'border-[color:var(--st-border-strong)] bg-[color:var(--st-panel-hover)]'
+                        : 'border-[color:var(--st-border)] hover:border-[color:var(--st-border-strong)]'
+                    }`}
+                  >
+                    <span className="flex items-baseline justify-between gap-2">
+                      <span className="text-[12px] font-medium text-[color:var(--st-text)]">
+                        {slot}
+                      </span>
+                      <span
+                        className="shrink-0 text-[12px] font-medium"
+                        style={{ color: 'rgb(var(--lb-gold) / 0.9)' }}
+                      >
+                        ${RAIL_SLOT_PRICE_CENTS[slot] / 100}/wk
+                      </span>
+                    </span>
+                    <span className="mt-0.5 block text-[12px] leading-4 text-[color:var(--st-text-faint)]">
+                      {takenUntil
+                        ? `taken until ${fmtDate(takenUntil)}`
+                        : board
+                          ? 'Open'
+                          : '\u00A0'}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+            <p className="mt-1.5 text-[12px] leading-5 text-[color:var(--st-text-faint)]">
+              {`Pitching a slot doesn't reserve it — the first confirmed payment takes it. If yours sells first, you can switch to any open slot.`}
+            </p>
+          </div>
+        )}
 
         <FormField
           id={companyId}

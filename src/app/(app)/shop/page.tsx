@@ -39,7 +39,7 @@ import { ReserveCard } from '@/components/shop/ReserveCard'
 import { Shelf } from '@/components/shop/Shelf'
 import { toast } from '@/components/Toaster'
 import { requestNotificationsRefresh } from '@/hooks/useNotifications'
-import { BILLBOARD_PRICE_CENTS, BILLBOARD_RAIL_PRICE_CENTS } from '@/lib/billboard'
+import { BILLBOARD_PRICE_CENTS, BILLBOARD_RAIL_PRICE_MIN_CENTS } from '@/lib/billboard'
 
 /* ================= cosmetics state ================= */
 
@@ -313,7 +313,7 @@ function BillboardPointerBand() {
       </span>
       <span className="min-w-0 flex-1 basis-40 text-[11px] leading-relaxed text-zinc-400">
         Your logo on the board — flipper ads from ${BILLBOARD_PRICE_CENTS / 100}/wk,
-        profile rails ${BILLBOARD_RAIL_PRICE_CENTS / 100}/wk.
+        profile rails from ${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}/wk.
       </span>
       <span className="inline-flex shrink-0 items-center gap-1.5 text-[9px] tracking-[0.3em] text-zinc-200">
         GET A SLOT{' '}

@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAudit } from '@/lib/adminAudit'
-import { BILLBOARD_DURATION_DAYS } from '@/lib/billboard'
+import {
+  BILLBOARD_PAYMENT_X_HANDLE,
+  BILLBOARD_PRICE_CENTS,
+  BILLBOARD_RAIL_PRICE_MIN_CENTS,
+  isRailSlot,
+  RAIL_SLOT_PRICE_CENTS,
+  type BillboardPlacement,
+  type RailSlot
+} from '@/lib/billboard'
 import { insertMissingNotifications, type NotificationInput } from '@/lib/notifications'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
 import { cleanReason, getStaffUser } from '@/lib/staffAuth'
@@ -10,9 +18,9 @@ import { createServiceClient } from '@/lib/supabaseServer'
 // team-review route (rate limit, staff gate, audit-first, status-guarded
 // update):
 //   approve         — PENDING/CHANGES_REQUESTED -> APPROVED. Clears any
-//                     stale redo note. The Polar payment link goes out
-//                     manually afterwards; the ad only goes live through
-//                     the activate route.
+//                     stale redo note. Payment is then arranged over X
+//                     DM (@birdabo); the ad only goes live through the
+//                     activate route.
 //   reject          — PENDING/CHANGES_REQUESTED -> REJECTED. Requires a
 //                     written reason, stored in review_note so the buyer
 //                     sees it at /billboard.
@@ -28,6 +36,20 @@ import { createServiceClient } from '@/lib/supabaseServer'
 export const dynamic = 'force-dynamic'
 
 const supabase = createServiceClient()
+
+/** Names the exact ask in the approval notification: the flipper's flat
+ *  price, the requested slot's ladder price + code, or the ladder floor
+ *  when the buyer left the slot open. */
+function approvedPriceLine(
+  placement: BillboardPlacement,
+  requestedSlot: RailSlot | null
+): string {
+  if (placement !== 'rail') return `$${BILLBOARD_PRICE_CENTS / 100}/wk`
+  if (requestedSlot) {
+    return `$${RAIL_SLOT_PRICE_CENTS[requestedSlot] / 100}/wk · slot ${requestedSlot}`
+  }
+  return `from $${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}/wk`
+}
 
 type ReviewAction = 'approve' | 'reject' | 'request_changes'
 
@@ -85,9 +107,11 @@ export async function POST(
   }
 
   try {
+    // placement + requested_rail_slot ride along so the approval
+    // notification can name the exact price (and slot) being asked for.
     const { data: ad, error } = await supabase
       .from('billboard_ads')
-      .select('id, owner_user_id, status, review_note, reviewed_at')
+      .select('id, owner_user_id, status, review_note, reviewed_at, placement, requested_rail_slot')
       .eq('id', adId)
       .maybeSingle()
 
@@ -211,13 +235,20 @@ export async function POST(
     // while a double-submit cannot. External-sponsor ads have no account
     // to notify.
     if (ownerUserId !== null) {
+      const placement: BillboardPlacement = ad.placement === 'rail' ? 'rail' : 'flipper'
+      const requestedSlot: RailSlot | null = isRailSlot(ad.requested_rail_slot)
+        ? ad.requested_rail_slot
+        : null
       let notification: NotificationInput & { dedupeKey: string }
       switch (action) {
         case 'approve':
           notification = {
             type: 'premium',
             title: 'BILLBOARD AD APPROVED',
-            body: `Your billboard ad passed review — a Polar payment link is coming your way. Once paid, it goes live for ${BILLBOARD_DURATION_DAYS} days.`,
+            body: `Your billboard ad passed review. To complete payment (${approvedPriceLine(
+              placement,
+              requestedSlot
+            )}), DM @${BILLBOARD_PAYMENT_X_HANDLE} on X — once it's confirmed, your ad is activated and goes live, usually within a few minutes to a few hours.`,
             data: { kind: 'billboard_review', result: 'approved', adId },
             dedupeKey: `billboard_${adId}_approved_${reviewedAt}`
           }
