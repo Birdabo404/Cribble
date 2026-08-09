@@ -17,9 +17,10 @@ export function isSiteLocked(): boolean {
 }
 
 // Static assets served from /public that pages need even while locked
-// (e.g. the /login artwork, logos, badges). Matched by file extension so the
-// Next image optimizer's internal fetch of the source file also succeeds.
-const STATIC_ASSET_RE = /\.(png|jpe?g|gif|webp|avif|svg|ico|mp3|mp4|webm|woff2?)$/i
+// (e.g. the /login artwork, logos, badges, and the landing globe's geometry
+// and models). Matched by file extension so the Next image optimizer's
+// internal fetch of the source file also succeeds.
+const STATIC_ASSET_RE = /\.(png|jpe?g|gif|webp|avif|svg|ico|mp3|mp4|webm|woff2?|geojson|glb)$/i
 
 export function isAllowedDuringLock(pathname: string, hasSession = false): boolean {
   if (pathname === '/') return true

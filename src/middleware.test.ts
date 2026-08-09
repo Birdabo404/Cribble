@@ -131,6 +131,15 @@ describe('middleware site lock', () => {
     expect(middleware(request('/api/billboard/slots')).status).toBe(200)
   })
 
+  it('serves the landing globe assets while locked', () => {
+    vi.stubEnv('SITE_LOCKED', '1')
+    // The stylized globe on / builds from runtime fetches — if these rewrite
+    // to /maintenance, production renders a bare ocean ball.
+    expect(rewriteTarget('/geo/countries-110m.geojson')).toBeNull()
+    expect(rewriteTarget('/models/clouds-puffy.glb')).toBeNull()
+    expect(middleware(request('/geo/countries-110m.geojson')).status).toBe(200)
+  })
+
   it('walls /shop /bag /settings /billboard behind sign-in while locked', () => {
     vi.stubEnv('SITE_LOCKED', '1')
     // Not the maintenance screen: a session would open these sectors, so
