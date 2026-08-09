@@ -40,8 +40,9 @@ export interface EarthRenderer {
 
 // Geometry layout (planet radius = 1)
 const OCEAN_RADIUS = 1
-const OCEAN_DETAIL = 3 // icosphere subdivisions — lower = chunkier facets
-const LAND_BOTTOM_RADIUS = 0.96 // buried under the faceted ocean, no gaps
+const OCEAN_WIDTH_SEGMENTS = 160 // smooth ocean sphere, longitude direction
+const OCEAN_HEIGHT_SEGMENTS = 112 // latitude direction (~18k verts, built once)
+const LAND_BOTTOM_RADIUS = 0.96 // buried under the ocean sphere, no gaps
 const LAND_TOP_RADIUS = 1.03 // slab base of the extruded continents
 const LAND_CURVATURE_RESOLUTION = 3 // degrees per surface subdivision
 
@@ -57,13 +58,45 @@ const AXIAL_TILT = (23.5 * Math.PI) / 180 // leans the pole to the right
 const CAMERA_ELEVATION = 0.35 // radians of overhead tilt (isometric feel)
 const FRUSTUM_HALF_HEIGHT = 1.42 // ortho half-extent; planet disk ≈ 72% of canvas
 
-// Ocean
-const OCEAN_DAY = '#2f9de8' // clear sky-blue (turquoise-planet reference)
-const OCEAN_NIGHT = '#1b3f80' // readable deep blue, never black
-const OCEAN_RIM_DAY = '#7df0dc' // turquoise limb glow
+// Ocean — a smooth-shaded sphere painted per-VERTEX (vertex colors under
+// a white-day / cool-night multiplier material), unlike the land which
+// stays flat-shaded low-poly: light shallows hugging every coast and
+// island, the clear reference blue on the shelf, darker mid-basin blue,
+// and noise-driven teal / lighter patches so open water never reads
+// flat. Coast proximity comes from a coarse land mask dilated into a
+// small distance field (units below = mask cells), box-blurred and
+// bilinearly sampled so the gradients stay continuous on the smooth
+// surface; an fbm jitter waves the coastal bands and a fine fbm grain
+// keeps big basins from reading as blank plastic. Turquoise lives ONLY
+// in a tight shore band (and a thin limb line) — open water is calm
+// plain blue with barely-there patch variation.
+const OCEAN_SHORE = '#7df0dc' // turquoise right at the waterline
+const OCEAN_SHALLOW = '#8fe3f5' // light coastal cyan
+const OCEAN_MID = '#2f9de8' // clear sky-blue (turquoise-planet reference)
+const OCEAN_DEEP = '#1468cd' // darker open-basin blue
+const OCEAN_TEAL = '#35b8c9' // blue-leaning open-water patches, barely there
+const OCEAN_NIGHT = '#1b3f80' // mid ocean after dark — deep blue, never black
+const OCEAN_MASK_STEP = 2 // degrees per land-mask cell
+const OCEAN_COAST_MAX_STEPS = 10 // BFS dilation cap — "far open water"
+const OCEAN_SHORE_END = 0.8 // coast distance (cells) fully turquoise below
+const OCEAN_SHALLOW_END = 1.6 // shore→shallow ramp ends here
+const OCEAN_MID_START = 2.6 // shallow→mid ramp ends here
+const OCEAN_DEEP_START = 5.2 // mid→deep ramp begins
+const OCEAN_DEEP_END = 9.0 // fully deep past this distance
+const OCEAN_TEAL_SCALE = 3.2 // fbm frequency of the teal patches
+const OCEAN_TEAL_THRESHOLD = 0.56 // fbm value where teal starts bleeding in
+const OCEAN_TEAL_MAX = 0.22 // strongest teal mix in open water
+const OCEAN_LIGHT_SCALE = 6.0 // second fbm — subtle lighter-mid patches
+const OCEAN_LIGHT_THRESHOLD = 0.58
+const OCEAN_LIGHT_MAX = 0.18
+const OCEAN_EDGE_JITTER_SCALE = 8.0 // fbm frequency of the coastline waviness
+const OCEAN_EDGE_JITTER_CELLS = 0.6 // ± mask cells the coast bands wander
+const OCEAN_GRAIN_SCALE = 12.0 // fine per-vertex tonal grain frequency
+const OCEAN_GRAIN_STRENGTH = 0.03 // ± lightness swing of the grain
+const OCEAN_RIM_DAY = '#7df0dc' // turquoise limb line
 const OCEAN_RIM_NIGHT = '#3f86d1'
-const OCEAN_RIM_STRENGTH = 0.52
-const OCEAN_RIM_POWER = 3.0
+const OCEAN_RIM_STRENGTH = 0.38
+const OCEAN_RIM_POWER = 5.0
 
 // Continents — vertex-colored caps ramp from beach sand through vibrant
 // garden green to deeper highland green (garden-planet reference), with a
@@ -529,6 +562,258 @@ function featurePolygons(feature: CountryFeature): PolygonCoords[] {
   return []
 }
 
+/* ── Ocean coast-distance field ───────────────────────────────────────
+   Coarse lat/lng land mask (OCEAN_MASK_STEP° cells) rasterized from the
+   non-ice country polygons, then dilated by a multi-source BFS into a
+   small integer distance field: 0 = land, 1 = first ocean cell off the
+   coast, … capped at OCEAN_COAST_MAX_STEPS = far open water. The raw
+   grid would terrace on the smooth-shaded ocean, so a 3×3 box blur
+   softens the BFS's square-metric rings and the returned sampler
+   interpolates bilinearly between cell centers — coast distance comes
+   out as a continuous float. Longitude wraps, latitude clamps. Runs
+   once at init. */
+function buildOceanCoastField(
+  countries: CountryFeature[],
+): (lng: number, lat: number) => number {
+  const width = Math.round(360 / OCEAN_MASK_STEP)
+  const height = Math.round(180 / OCEAN_MASK_STEP)
+  const field = new Uint8Array(width * height).fill(OCEAN_COAST_MAX_STEPS)
+
+  const cellX = (lng: number) => {
+    const gx = Math.floor((lng + 180) / OCEAN_MASK_STEP) % width
+    return gx < 0 ? gx + width : gx
+  }
+  const cellY = (lat: number) =>
+    Math.min(height - 1, Math.max(0, Math.floor((lat + 90) / OCEAN_MASK_STEP)))
+  const markLand = (lng: number, lat: number) => {
+    field[cellY(lat) * width + cellX(lng)] = 0
+  }
+
+  for (const feature of countries) {
+    if (ICE_ISO_CODES.has(feature.properties?.iso ?? '')) continue
+    for (const polygon of featurePolygons(feature)) {
+      const prepared = preparePolygon(polygon)
+
+      // Walk every ring edge (subdivided below one cell) so small islands
+      // and sparse straight coastlines always mark their cells…
+      for (const ring of prepared.rings) {
+        for (let i = 0; i + 1 < ring.length; i++) {
+          const [lngA, latA] = ring[i]
+          const [lngB, latB] = ring[i + 1]
+          const steps = Math.max(
+            1,
+            Math.ceil(
+              Math.max(Math.abs(lngB - lngA), Math.abs(latB - latA)) /
+                (OCEAN_MASK_STEP * 0.5),
+            ),
+          )
+          for (let step = 0; step <= steps; step++) {
+            const t = step / steps
+            markLand(lerp(lngA, lngB, t), lerp(latA, latB, t))
+          }
+        }
+      }
+
+      // …and fill the interior cells of wide landmasses by containment.
+      const gyStart = Math.max(
+        0,
+        Math.floor((prepared.minLat + 90) / OCEAN_MASK_STEP),
+      )
+      const gyEnd = Math.min(
+        height - 1,
+        Math.floor((prepared.maxLat + 90) / OCEAN_MASK_STEP),
+      )
+      const gxStart = Math.floor((prepared.minLng + 180) / OCEAN_MASK_STEP)
+      const gxEnd = Math.floor((prepared.maxLng + 180) / OCEAN_MASK_STEP)
+      for (let gy = gyStart; gy <= gyEnd; gy++) {
+        const lat = -90 + (gy + 0.5) * OCEAN_MASK_STEP
+        for (let gx = gxStart; gx <= gxEnd; gx++) {
+          const wrapped = ((gx % width) + width) % width
+          if (field[gy * width + wrapped] === 0) continue
+          // sample in the polygon's own frame (0..360 when it crosses ±180)
+          let lng = -180 + (gx + 0.5) * OCEAN_MASK_STEP
+          if (lng < prepared.minLng) lng += 360
+          if (lng < prepared.minLng || lng > prepared.maxLng) continue
+          if (pointInPolygon(lng, lat, prepared.rings)) {
+            field[gy * width + wrapped] = 0
+          }
+        }
+      }
+    }
+  }
+
+  // Multi-source BFS dilation (8-neighbourhood, longitude wraps).
+  let frontier: number[] = []
+  for (let index = 0; index < field.length; index++) {
+    if (field[index] === 0) frontier.push(index)
+  }
+  for (let step = 1; step < OCEAN_COAST_MAX_STEPS && frontier.length; step++) {
+    const next: number[] = []
+    for (const index of frontier) {
+      const gx = index % width
+      const gy = (index / width) | 0
+      for (let dy = -1; dy <= 1; dy++) {
+        const ny = gy + dy
+        if (ny < 0 || ny >= height) continue
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue
+          const neighbor = ny * width + ((gx + dx + width) % width)
+          if (field[neighbor] > step) {
+            field[neighbor] = step
+            next.push(neighbor)
+          }
+        }
+      }
+    }
+    frontier = next
+  }
+
+  // 3×3 box blur into a float field. Land (0) bleeds a little into the
+  // first water cells, pulling them below 1 — still far under
+  // OCEAN_SHALLOW_END, so land-adjacent water keeps its full shallow
+  // cyan while the octagonal BFS rings round off.
+  const blurred = new Float32Array(field.length)
+  for (let gy = 0; gy < height; gy++) {
+    for (let gx = 0; gx < width; gx++) {
+      let sum = 0
+      for (let dy = -1; dy <= 1; dy++) {
+        const ny = Math.min(height - 1, Math.max(0, gy + dy))
+        for (let dx = -1; dx <= 1; dx++) {
+          sum += field[ny * width + ((gx + dx + width) % width)]
+        }
+      }
+      blurred[gy * width + gx] = sum / 9
+    }
+  }
+
+  // Bilinear interpolation between the 4 surrounding cell centers —
+  // longitude wraps, latitude clamps at the pole rows.
+  return (lng, lat) => {
+    const u = (lng + 180) / OCEAN_MASK_STEP - 0.5
+    const v = (lat + 90) / OCEAN_MASK_STEP - 0.5
+    const x0 = Math.floor(u)
+    const y0 = Math.floor(v)
+    const fx = u - x0
+    const fy = v - y0
+    const gx0 = ((x0 % width) + width) % width
+    const gx1 = (gx0 + 1) % width
+    const gy0 = Math.min(height - 1, Math.max(0, y0))
+    const gy1 = Math.min(height - 1, Math.max(0, y0 + 1))
+    const low = lerp(blurred[gy0 * width + gx0], blurred[gy0 * width + gx1], fx)
+    const high = lerp(blurred[gy1 * width + gx0], blurred[gy1 * width + gx1], fx)
+    return lerp(low, high, fy)
+  }
+}
+
+/**
+ * Per-vertex ocean paint for the smooth-shaded sphere (the land caps
+ * stay per-face). The continuous coast distance drives a
+ * shore→shallow→mid→deep ramp, with two extra detail layers so
+ * smooth never means sterile: an fbm jitter on the sampled distance
+ * waves the coastal bands organically instead of tracing mask cells,
+ * and a fine fbm grain nudges lightness for subtle open-water texture.
+ * Teal and lighter patches still bleed into open water only. Colors are
+ * derived purely from vertex POSITION, so the sphere's duplicated
+ * UV-seam and pole vertices paint identically — no visible seam.
+ */
+function paintOceanColors(
+  geometry: THREE.BufferGeometry,
+  coastDistance: (lng: number, lat: number) => number,
+): void {
+  const position = geometry.getAttribute('position')
+  const colors = new Float32Array(position.count * 3)
+  const shore = new THREE.Color(OCEAN_SHORE)
+  const shallow = new THREE.Color(OCEAN_SHALLOW)
+  const mid = new THREE.Color(OCEAN_MID)
+  const deep = new THREE.Color(OCEAN_DEEP)
+  const teal = new THREE.Color(OCEAN_TEAL)
+  const paint = new THREE.Color()
+
+  for (let i = 0; i < position.count; i++) {
+    const x = position.getX(i)
+    const y = position.getY(i)
+    const z = position.getZ(i)
+    const radius = Math.sqrt(x * x + y * y + z * z)
+    const nx = x / radius
+    const ny = y / radius
+    const nz = z / radius
+    // inverse of latLngToVector3
+    const lat = 90 - (Math.acos(Math.min(1, Math.max(-1, ny))) * 180) / Math.PI
+    let lng = 90 - (Math.atan2(nz, nx) * 180) / Math.PI
+    if (lng > 180) lng -= 360
+
+    const jitter =
+      (fbm3(nx, ny, nz, OCEAN_EDGE_JITTER_SCALE, 2, 17.9) - 0.5) *
+      2 *
+      OCEAN_EDGE_JITTER_CELLS
+    const distance = Math.max(0, coastDistance(lng, lat) + jitter)
+
+    if (distance <= OCEAN_SHORE_END) {
+      paint.copy(shore)
+    } else if (distance < OCEAN_SHALLOW_END) {
+      paint.lerpColors(
+        shore,
+        shallow,
+        smoothstep(OCEAN_SHORE_END, OCEAN_SHALLOW_END, distance),
+      )
+    } else if (distance < OCEAN_MID_START) {
+      paint.lerpColors(
+        shallow,
+        mid,
+        smoothstep(OCEAN_SHALLOW_END, OCEAN_MID_START, distance),
+      )
+    } else {
+      paint.lerpColors(
+        mid,
+        deep,
+        smoothstep(OCEAN_DEEP_START, OCEAN_DEEP_END, distance),
+      )
+    }
+
+    const openness = smoothstep(OCEAN_MID_START, OCEAN_DEEP_START, distance)
+    if (openness > 0) {
+      const tealPatch = fbm3(nx, ny, nz, OCEAN_TEAL_SCALE, 2, 91.7)
+      paint.lerp(
+        teal,
+        smoothstep(OCEAN_TEAL_THRESHOLD, OCEAN_TEAL_THRESHOLD + 0.25, tealPatch) *
+          OCEAN_TEAL_MAX *
+          openness,
+      )
+      const lightPatch = fbm3(nx, ny, nz, OCEAN_LIGHT_SCALE, 2, 57.3)
+      paint.lerp(
+        shallow,
+        smoothstep(
+          OCEAN_LIGHT_THRESHOLD,
+          OCEAN_LIGHT_THRESHOLD + 0.24,
+          lightPatch,
+        ) *
+          OCEAN_LIGHT_MAX *
+          openness,
+      )
+    }
+
+    // fine tonal grain — keeps big basins from reading as flat plastic
+    const grain = (fbm3(nx, ny, nz, OCEAN_GRAIN_SCALE, 2, 33.1) - 0.5) * 2
+    paint.offsetHSL(0, 0, grain * OCEAN_GRAIN_STRENGTH)
+
+    colors[i * 3] = paint.r
+    colors[i * 3 + 1] = paint.g
+    colors[i * 3 + 2] = paint.b
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+}
+
+/**
+ * Night multiplier over the painted ocean (the day multiplier is pure
+ * white), derived so mid-ocean water lands exactly on OCEAN_NIGHT after
+ * dark — the ocean darkens to a readable deep blue, never black.
+ */
+function oceanNightTint(): THREE.Color {
+  const mid = new THREE.Color(OCEAN_MID)
+  const night = new THREE.Color(OCEAN_NIGHT)
+  return new THREE.Color(night.r / mid.r, night.g / mid.g, night.b / mid.b)
+}
+
 async function loadCountries(): Promise<CountryFeature[]> {
   const response = await fetch(GEOJSON_URL)
   if (!response.ok) {
@@ -637,10 +922,18 @@ export async function createStylizedEarthRenderer(
     }
 
     // ── Ocean ──────────────────────────────────────────────────────────
-    const oceanMaterial = themedMaterial(OCEAN_DAY, new THREE.Color(OCEAN_NIGHT))
-    // Cheap faceted fresnel rim. With an orthographic camera the view
-    // direction is (0,0,1) in view space, so the rim term needs only the
-    // fragment normal — guaranteed to compile against the Lambert shader.
+    // Smooth-shaded (unlike everything else) and painted per-vertex: the
+    // material color is a day/night MULTIPLIER over the vertex colors —
+    // white by day, a derived cool tint at night (see oceanNightTint) so
+    // the painted hues survive but darken to deep blue after dark.
+    const oceanMaterial = themedMaterial('#ffffff', oceanNightTint(), {
+      vertexColors: true,
+      flatShading: false,
+    })
+    // Cheap fresnel rim — a clean gradient limb glow over the smooth
+    // normals. With an orthographic camera the view direction is (0,0,1)
+    // in view space, so the rim term needs only the fragment normal —
+    // guaranteed to compile against the Lambert shader.
     let oceanShader: { uniforms: Record<string, THREE.IUniform> } | null = null
     oceanMaterial.onBeforeCompile = (shader) => {
       shader.uniforms.uRimColor = { value: new THREE.Color(OCEAN_RIM_DAY) }
@@ -660,10 +953,17 @@ export async function createStylizedEarthRenderer(
         )
       oceanShader = shader
     }
-    const ocean = new THREE.Mesh(
-      track(new THREE.IcosahedronGeometry(OCEAN_RADIUS, OCEAN_DETAIL)),
-      oceanMaterial,
+    const oceanGeometry = track(
+      new THREE.SphereGeometry(
+        OCEAN_RADIUS,
+        OCEAN_WIDTH_SEGMENTS,
+        OCEAN_HEIGHT_SEGMENTS,
+      ),
     )
+    // countries resolved before scene construction, so the coast field is
+    // ready here and the color attribute lands before the first frame
+    paintOceanColors(oceanGeometry, buildOceanCoastField(countries))
+    const ocean = new THREE.Mesh(oceanGeometry, oceanMaterial)
     planetSpin.add(ocean)
 
     // ── Continents ─────────────────────────────────────────────────────
