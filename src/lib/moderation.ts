@@ -136,6 +136,7 @@ export async function clearProfileFields(
         oldValues.banner_image = opts.currentMeta.banner_image ?? null
         merged.banner_image = null
         merged.banner_animated = null
+        merged.banner_frame = null
         break
       case 'socials':
         oldValues.socials = opts.currentMeta.socials ?? null

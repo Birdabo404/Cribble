@@ -173,6 +173,7 @@ describe('clearProfileFields', () => {
       website: 'https://spam.example',
       banner_image: 'https://cdn.example/banner.gif',
       banner_animated: true,
+      banner_frame: { x: 20, y: 80, zoom: 2 },
       socials: { x: 'spammer', github: 'fine' },
       equipped_plate: 'deep-space',
       is_private: true,
@@ -192,6 +193,7 @@ describe('clearProfileFields', () => {
     expect(written.metadata.bio).toBe(null)
     expect(written.metadata.banner_image).toBe(null)
     expect(written.metadata.banner_animated).toBe(null)
+    expect(written.metadata.banner_frame).toBe(null)
     expect(written.metadata.socials).toEqual({})
     // untouched keys survive
     expect(written.metadata.location).toBe('somewhere')

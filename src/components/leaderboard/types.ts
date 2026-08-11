@@ -1,4 +1,5 @@
 import type { AchievementIcon, AchievementRarity } from '@/lib/achievements'
+import type { BannerFrame } from '@/lib/bannerFrame'
 import type { TeamRef } from '@/components/premium/TeamMiniLogo'
 import { ROLE_META } from '@/lib/roles'
 import type { Tier } from '@/types/dashboard'
@@ -39,6 +40,8 @@ export interface LeaderRow {
   isPrivate?: boolean
   provider?: 'x' | 'github' | 'other'
   banner_image?: string | null
+  /** Stored reposition/zoom for banner_image; null/absent = default crop. */
+  banner_frame?: BannerFrame | null
   /** Equipped leaderboard plate id — already validated server-side. */
   plate?: string | null
   socials?: Socials
@@ -67,6 +70,8 @@ export interface PlayerProfile {
   display_name: string
   profile_image: string | null
   banner_image: string | null
+  /** Stored reposition/zoom for banner_image; null/absent = default crop. */
+  banner_frame?: BannerFrame | null
   /** Equipped leaderboard plate id — already validated server-side. */
   plate?: string | null
   bio?: string | null

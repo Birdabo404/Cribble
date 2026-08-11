@@ -3,8 +3,12 @@
 // Banner Studio — the profile banner editor, split out of the main
 // profile editor so banner hunting (search, preview, retries) never
 // convolutes the form. Opens from the owner-only EDIT BANNER chip on
-// /u/[username] and saves exactly one field: PATCH /api/user/profile
-// { banner_image } (the handler merges only the keys present).
+// /u/[username] and saves the banner pair: PATCH /api/user/profile
+// { banner_image, banner_frame } (the handler merges only the keys
+// present). The preview strip doubles as the framing editor — drag to
+// reposition plus a ZOOM slider, stored as a BannerFrame
+// (src/lib/bannerFrame.ts) and shipped as null whenever it is the
+// default crop or there is no banner.
 //
 // Two sources, two tabs:
 //   GIF SEARCH — Klipy search/trending through GET /api/gifs (the key
@@ -18,8 +22,21 @@
 // Same layout system as EditProfileModal: `// HEADER` voice, three type
 // sizes, 36px control height, glass-pop shell.
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode
+} from 'react'
 import { createPortal } from 'react-dom'
+import {
+  DEFAULT_BANNER_FRAME,
+  bannerFrameStyle,
+  isDefaultBannerFrame,
+  type BannerFrame
+} from '@/lib/bannerFrame'
 import type { KlipyGif } from '@/lib/klipy'
 
 const BANNER_URL_MAX = 300
@@ -32,18 +49,34 @@ type GifFeedState = 'loading' | 'loading-more' | 'ready' | 'error' | 'offline'
 const inputCls =
   'h-9 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 text-xs text-zinc-100 placeholder:text-zinc-600 transition-colors focus:border-accent/50 focus:bg-white/[0.05] focus:outline-none'
 
+// The zoom range input, skinned to the modal's control language: hairline
+// track, accent thumb. Pseudo-element variants keep the whole look in
+// Tailwind classes — no CSS file.
+const sliderCls =
+  'h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-white/[0.08] outline-none ' +
+  'focus-visible:ring-1 focus-visible:ring-accent/60 ' +
+  '[&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none ' +
+  '[&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent ' +
+  '[&::-webkit-slider-thumb]:shadow-[0_0_10px_rgb(var(--accent-rgb)/0.5)] ' +
+  '[&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full ' +
+  '[&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-accent'
+
 export function BannerStudioModal({
   initialUrl,
+  initialFrame,
   onClose,
   onSaved
 }: {
   initialUrl: string
+  /** Saved framing for initialUrl; omitted or null means the default crop. */
+  initialFrame?: BannerFrame | null
   onClose: () => void
   onSaved: () => void
 }) {
   const [tab, setTab] = useState<Tab>('gif')
   const [pendingUrl, setPendingUrl] = useState(initialUrl.trim())
   const [urlDraft, setUrlDraft] = useState(initialUrl.trim())
+  const [frame, setFrame] = useState<BannerFrame>(initialFrame ?? DEFAULT_BANNER_FRAME)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isPro, setIsPro] = useState<boolean | 'loading'>('loading')
@@ -136,7 +169,10 @@ export function BannerStudioModal({
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ banner_image: pendingUrl })
+        body: JSON.stringify({
+          banner_image: pendingUrl,
+          banner_frame: isDefaultBannerFrame(frame) || !pendingUrl ? null : frame
+        })
       })
       if (!res.ok) {
         const data = await res.json().catch(() => null)
@@ -149,7 +185,11 @@ export function BannerStudioModal({
     }
   }
 
+  // A frame describes one specific image, so moving to any other URL —
+  // GIF pick, pasted link, REMOVE BANNER — starts over from the default
+  // crop before the new value lands.
   const select = (url: string) => {
+    if (url !== pendingUrl) setFrame(DEFAULT_BANNER_FRAME)
     setPendingUrl(url)
     setUrlDraft(url)
   }
@@ -204,7 +244,7 @@ export function BannerStudioModal({
                 </button>
               )}
             </div>
-            <BannerPreview url={pendingUrl} />
+            <BannerPreview url={pendingUrl} frame={frame} onFrameChange={setFrame} />
           </div>
 
           {/* tabs */}
@@ -343,7 +383,11 @@ export function BannerStudioModal({
                     onChange={(e) => {
                       const next = e.target.value.slice(0, BANNER_URL_MAX)
                       setUrlDraft(next)
-                      setPendingUrl(next.trim())
+                      const trimmed = next.trim()
+                      // Typing a different URL is picking a different
+                      // image — same frame reset as select().
+                      if (trimmed !== pendingUrl) setFrame(DEFAULT_BANNER_FRAME)
+                      setPendingUrl(trimmed)
                     }}
                     placeholder="https://…/banner.png"
                     className={inputCls}
@@ -387,43 +431,177 @@ export function BannerStudioModal({
 
 /* ================= helpers ================= */
 
-/** Wide strip at the profile-hero aspect; falls back to the duotone
- * gradient placeholder for empty or dead URLs. */
-function BannerPreview({ url }: { url: string }) {
-  const [dead, setDead] = useState(false)
+const clampPct = (v: number) => Math.min(100, Math.max(0, v))
+// Matches the 2-decimal precision parseBannerFrame stores server-side,
+// so the modal never ships more precision than the server keeps.
+const round2 = (v: number) => Math.round(v * 100) / 100
 
-  useEffect(() => setDead(false), [url])
+/** Wide strip at the profile-hero aspect; falls back to the duotone
+ * gradient placeholder for empty or dead URLs. A live image turns the
+ * strip into the framing editor: dragging pans the crop (pointer
+ * capture + the cover-overflow math in onPointerMove) and the ZOOM row
+ * under the strip scales it. The frame itself lives in the parent —
+ * every change reports up through onFrameChange. */
+function BannerPreview({
+  url,
+  frame,
+  onFrameChange
+}: {
+  url: string
+  frame: BannerFrame
+  onFrameChange: (frame: BannerFrame) => void
+}) {
+  const [dead, setDead] = useState(false)
+  // Natural image size — needed to turn drag pixels into
+  // object-position percentages. Unknown until the <img> loads.
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const dragRef = useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+    startFrame: BannerFrame
+    cw: number
+    ch: number
+    cover: number
+  } | null>(null)
+
+  useEffect(() => {
+    setDead(false)
+    setNatural(null)
+  }, [url])
 
   const showImage = /^https?:\/\/\S+$/i.test(url) && !dead
+  const interactive = showImage && natural !== null
+
+  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!natural || !e.isPrimary || e.button !== 0) return
+    // Kills native image drag / text selection before they hijack the pan.
+    e.preventDefault()
+    const rect = e.currentTarget.getBoundingClientRect()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    dragRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startFrame: frame,
+      cw: rect.width,
+      ch: rect.height,
+      // object-cover scale: the image draws at natural * cover * zoom.
+      cover: Math.max(rect.width / natural.w, rect.height / natural.h)
+    }
+    setDragging(true)
+  }
+
+  const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag || !natural || e.pointerId !== drag.pointerId) return
+    // Only an axis whose drawn size overflows the container can pan, and
+    // dragging across the full overflow sweeps object-position 0–100, so
+    // delta% = -(dragPx / overflow) * 100 — the image follows the
+    // pointer. Exact for the object-position + matching transform-origin
+    // CSS that bannerFrameStyle emits.
+    const overflowX = natural.w * drag.cover * frame.zoom - drag.cw
+    const overflowY = natural.h * drag.cover * frame.zoom - drag.ch
+    const next = { ...frame }
+    if (overflowX > 0) {
+      next.x = round2(clampPct(drag.startFrame.x - ((e.clientX - drag.startX) / overflowX) * 100))
+    }
+    if (overflowY > 0) {
+      next.y = round2(clampPct(drag.startFrame.y - ((e.clientY - drag.startY) / overflowY) * 100))
+    }
+    if (next.x !== frame.x || next.y !== frame.y) onFrameChange(next)
+  }
+
+  const onPointerEnd = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId !== e.pointerId) return
+    dragRef.current = null
+    setDragging(false)
+  }
+
   return (
-    <div className="relative mt-1.5 h-24 overflow-hidden rounded-lg border border-white/[0.08] sm:h-28">
+    <>
       <div
-        aria-hidden
-        className="absolute inset-0"
-        style={{
-          background: [
-            'radial-gradient(120% 140% at 18% -10%, rgb(var(--banner-a) / 0.32), transparent 55%)',
-            'radial-gradient(90% 130% at 92% 6%, rgb(var(--banner-b) / 0.24), transparent 60%)',
-            'repeating-linear-gradient(90deg, rgb(255 255 255 / 0.035) 0 1px, transparent 1px 24px)',
-            'repeating-linear-gradient(0deg, rgb(255 255 255 / 0.035) 0 1px, transparent 1px 24px)'
-          ].join(', ')
-        }}
-      />
-      {showImage ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={url}
-          alt=""
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerEnd}
+        onPointerCancel={onPointerEnd}
+        className={`relative mt-1.5 h-24 overflow-hidden rounded-lg border border-white/[0.08] sm:h-28 ${
+          interactive
+            ? `touch-none ${dragging ? 'cursor-grabbing select-none' : 'cursor-grab'}`
+            : ''
+        }`}
+      >
+        <div
           aria-hidden
-          className="absolute inset-0 h-full w-full object-cover"
-          onError={() => setDead(true)}
+          className="absolute inset-0"
+          style={{
+            background: [
+              'radial-gradient(120% 140% at 18% -10%, rgb(var(--banner-a) / 0.32), transparent 55%)',
+              'radial-gradient(90% 130% at 92% 6%, rgb(var(--banner-b) / 0.24), transparent 60%)',
+              'repeating-linear-gradient(90deg, rgb(255 255 255 / 0.035) 0 1px, transparent 1px 24px)',
+              'repeating-linear-gradient(0deg, rgb(255 255 255 / 0.035) 0 1px, transparent 1px 24px)'
+            ].join(', ')
+          }}
         />
-      ) : (
-        <span className="absolute inset-0 flex items-center justify-center text-[9px] tracking-[0.35em] text-zinc-600">
-          {url && dead ? 'IMAGE FAILED TO LOAD' : 'NO BANNER'}
-        </span>
+        {showImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={url}
+            alt=""
+            aria-hidden
+            draggable={false}
+            className="absolute inset-0 h-full w-full object-cover"
+            style={bannerFrameStyle(frame)}
+            onLoad={(e) =>
+              setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
+            }
+            onError={() => setDead(true)}
+          />
+        ) : (
+          <span className="absolute inset-0 flex items-center justify-center text-[9px] tracking-[0.35em] text-zinc-600">
+            {url && dead ? 'IMAGE FAILED TO LOAD' : 'NO BANNER'}
+          </span>
+        )}
+        {interactive && !dragging && (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute bottom-1.5 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-2.5 py-1 text-[9px] tracking-[0.3em] text-zinc-300"
+          >
+            DRAG TO REPOSITION
+          </span>
+        )}
+      </div>
+
+      {/* framing controls — only when a real image is up */}
+      {showImage && (
+        <div className="mt-2 flex items-center gap-3">
+          <span className="text-[9px] tracking-[0.3em] text-zinc-500">ZOOM</span>
+          <input
+            type="range"
+            min={1}
+            max={3}
+            step={0.01}
+            value={frame.zoom}
+            onChange={(e) => onFrameChange({ ...frame, zoom: Number(e.target.value) })}
+            aria-label="Banner zoom"
+            className={sliderCls}
+          />
+          <span className="w-10 shrink-0 text-right text-[10px] text-zinc-400">
+            {frame.zoom.toFixed(2)}×
+          </span>
+          {!isDefaultBannerFrame(frame) && (
+            <button
+              type="button"
+              onClick={() => onFrameChange(DEFAULT_BANNER_FRAME)}
+              className="text-[9px] tracking-[0.25em] text-zinc-600 transition-colors hover:text-rose-300"
+            >
+              RESET
+            </button>
+          )}
+        </div>
       )}
-    </div>
+    </>
   )
 }
 

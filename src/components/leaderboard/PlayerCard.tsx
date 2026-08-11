@@ -286,6 +286,7 @@ export function PlayerCard({
             {row.banner_image && (
               <SafeBannerImg
                 src={row.banner_image}
+                frame={row.banner_frame}
                 className="absolute inset-0 h-full w-full object-cover"
               />
             )}

@@ -80,7 +80,7 @@ function PilotCard({ plateId }: { plateId: string }) {
   }
 
   const plate = getPlate(plateId)
-  const accent = plate?.render.kind === 'css' ? plate.render.accent : '2 254 1'
+  const accent = plate?.render.kind === 'css' ? plate.render.accent : '204 255 0'
 
   return (
     <div style={{ perspective: '1200px' }}>

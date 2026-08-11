@@ -142,6 +142,7 @@ function PodiumCard({
           <>
             <SafeBannerImg
               src={user.banner_image}
+              frame={user.banner_frame}
               className="absolute inset-0 h-full w-full object-cover"
             />
             <span

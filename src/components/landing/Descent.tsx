@@ -289,7 +289,7 @@ function Finale() {
             href="/login"
             className="group inline-flex items-center gap-2.5 rounded-md bg-white px-6 py-3 text-sm font-medium text-black transition-colors hover:bg-zinc-200"
           >
-            <span>Claim your callsign</span>
+            <span>Claim your spot</span>
             <span className="text-zinc-500 transition-transform group-hover:translate-x-0.5">
               →
             </span>
@@ -383,10 +383,13 @@ export function Descent() {
              keeps the warm dossier-paper palette it was authored
              against, so every flipped token it consumes is re-pinned
              here (same isolation pattern as the hero's scoped reset
-             in globals.css). */
+             in globals.css). Orange stays the paper annotation ink;
+             screen hardware re-pins chartreuse in .lx-hw below. */
           --background: #f6f4ee;
           --foreground: #1c1811;
           --panel: #fcfbf7;
+          --accent: #ff5e00;
+          --accent-rgb: 255 94 0;
           --r-common: 124 116 98;
           --star-rgb: 62 55 40;
           --dot-rgb: 52 45 24;
@@ -451,11 +454,11 @@ export function Descent() {
             linear-gradient(180deg, #f6f4ee 0%, #f1eee5 100%);
         }
 
-        /* hardware scope — dark-theme tokens, verbatim from :root */
+        /* hardware scope — dark-theme tokens (landing accent = chartreuse) */
         html.light .lx-hw {
           --panel: #080808;
-          --accent: #02fe01;
-          --accent-rgb: 2 254 1;
+          --accent: #ccff00;
+          --accent-rgb: 204 255 0;
           --r-common: 161 161 170;
           --r-rare: 56 189 248;
           --r-epic: 255 45 149;

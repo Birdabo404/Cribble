@@ -148,7 +148,7 @@ export default function HomeV2() {
                   href="/login"
                   className="group inline-flex items-center gap-2.5 bg-white text-black text-sm font-medium px-5 py-3 sm:py-2.5 rounded-md hover:bg-zinc-200 transition-colors"
                 >
-                  <span>Claim your callsign</span>
+                  <span>Claim your spot</span>
                   <span className="text-zinc-500 group-hover:translate-x-0.5 transition-transform">
                     →
                   </span>

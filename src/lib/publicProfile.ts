@@ -12,6 +12,7 @@ import {
   type AchievementIcon,
   type AchievementRarity
 } from '@/lib/achievements'
+import { parseBannerFrame, type BannerFrame } from '@/lib/bannerFrame'
 import {
   getOwnedPlateIds,
   isApprovedTeam,
@@ -47,6 +48,9 @@ export interface PublicProfile {
   display_name: string
   profile_image: string | null
   banner_image: string | null
+  /** Stored reposition/zoom for banner_image — null when the crop is
+   *  default or the banner itself is gated/absent. */
+  banner_frame: BannerFrame | null
   /** Equipped leaderboard plate, already ownership/tier-validated server-side. */
   plate: string | null
   bio: string | null
@@ -331,6 +335,7 @@ export async function loadPublicProfile(
       display_name: row.twitter_name || username,
       profile_image: row.twitter_profile_image || null,
       banner_image: bannerImage,
+      banner_frame: bannerImage ? parseBannerFrame(meta.banner_frame) : null,
       plate,
       bio: metaString(meta, 'bio'),
       location: metaString(meta, 'location'),

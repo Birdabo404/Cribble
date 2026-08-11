@@ -104,7 +104,7 @@ function AgentTerminal() {
     label: '#a1a1aa',
     sys: '#8a8a93',
     dim: '#5b5b64',
-    green: '#02fe01',
+    green: '#ccff00',
     up: 'rgb(74 222 128)',
     edge: 'rgb(255 255 255 / 0.09)'
   }
@@ -183,7 +183,7 @@ function AgentTerminal() {
                   </span>
                   <span
                     className="tabular-nums"
-                    style={{ color: INK.green, textShadow: '0 0 12px rgb(2 254 1 / 0.5)' }}
+                    style={{ color: INK.green, textShadow: '0 0 12px rgb(204 255 0 / 0.5)' }}
                   >
                     1,369 pts → global board
                   </span>
@@ -438,7 +438,7 @@ function RoadmapBody() {
         }
         .rm-caret {
           /* lives inside the theme-fixed terminal pane — hue is literal */
-          background: rgb(2 254 1 / 0.85);
+          background: rgb(204 255 0 / 0.85);
           animation: rm-caret-blink 1.05s steps(1) infinite;
         }
         @keyframes rm-caret-blink {

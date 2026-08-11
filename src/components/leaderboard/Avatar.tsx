@@ -7,6 +7,7 @@
 // URL, and finally renders a monogram tile.
 
 import { useEffect, useState } from 'react'
+import { bannerFrameStyle, type BannerFrame } from '@/lib/bannerFrame'
 
 /** twimg avatars are stored at multiple sizes; the OAuth flow persists the
  * 48px `_normal` variant which is blurry on retina. Swap in the 400px one. */
@@ -52,8 +53,17 @@ export function Avatar({
 }
 
 /** Banner <img> that removes itself when the URL is dead, revealing
- * whatever default banner is rendered underneath it. */
-export function SafeBannerImg({ src, className }: { src: string; className: string }) {
+ * whatever default banner is rendered underneath it. An optional frame
+ * applies the owner's saved reposition/zoom crop. */
+export function SafeBannerImg({
+  src,
+  className,
+  frame
+}: {
+  src: string
+  className: string
+  frame?: BannerFrame | null
+}) {
   const [dead, setDead] = useState(false)
 
   useEffect(() => setDead(false), [src])
@@ -61,6 +71,13 @@ export function SafeBannerImg({ src, className }: { src: string; className: stri
   if (dead) return null
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt="" aria-hidden className={className} onError={() => setDead(true)} />
+    <img
+      src={src}
+      alt=""
+      aria-hidden
+      className={className}
+      style={bannerFrameStyle(frame)}
+      onError={() => setDead(true)}
+    />
   )
 }

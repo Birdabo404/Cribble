@@ -344,6 +344,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
           {profile.banner_image && (
             <SafeBannerImg
               src={profile.banner_image}
+              frame={profile.banner_frame}
               className="absolute inset-0 h-full w-full object-cover"
             />
           )}
@@ -894,6 +895,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
       {bannerStudio && (
         <BannerStudioModal
           initialUrl={profile.banner_image || ''}
+          initialFrame={profile.banner_frame ?? null}
           onClose={() => setBannerStudio(false)}
           onSaved={() => {
             setBannerStudio(false)

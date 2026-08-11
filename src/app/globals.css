@@ -764,6 +764,15 @@ html.light .ambient-glow-field {
    starfield — three speck tiles with coprime sizes so the repeat never
    registers; the asteroid fly-bys stay the only moving light. Light
    mode keeps the clean white sheet the dossier below hands off from. */
+/* Landing accent — chartreuse signal (#CCFF00), scoped so the rest of
+   the app keeps the site-wide hacker green. Light mode re-pins orange
+   below (hero cool sheet + descent paper annotations). */
+.lx-hero,
+.lx-descent {
+  --accent: #ccff00;
+  --accent-rgb: 204 255 0;
+}
+
 .lx-hero {
   background-color: var(--space-deep);
   background-image:
@@ -783,6 +792,8 @@ html.light .lx-hero {
    back to the pre-dossier values. (The descent below owns its own paper
    remaps; this scope covers the hero viewport only.) */
 html.light .lx-hero {
+  --accent: #ff5e00;
+  --accent-rgb: 255 94 0;
   --star-rgb: 39 39 42;
   --dot-rgb: 0 0 0;
   --c-black: 255 255 255;

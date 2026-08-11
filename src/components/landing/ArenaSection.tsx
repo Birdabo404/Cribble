@@ -387,7 +387,7 @@ function ArenaBody() {
               marginBottom: `-${TK_ROW_GAP}px`,
               opacity: 0,
               filter: 'blur(10px) brightness(2.4) saturate(1.4)',
-              boxShadow: 'inset 0 0 0 1px rgb(2 254 1 / 0)'
+              boxShadow: 'inset 0 0 0 1px rgb(204 255 0 / 0)'
             },
             {
               height: `${h}px`,
@@ -395,7 +395,7 @@ function ArenaBody() {
               opacity: 1,
               filter: 'blur(0px) brightness(1.4) saturate(1.15)',
               boxShadow:
-                'inset 0 0 0 1px rgb(2 254 1 / 0.65), 0 0 34px -6px rgb(2 254 1 / 0.55)',
+                'inset 0 0 0 1px rgb(204 255 0 / 0.65), 0 0 34px -6px rgb(204 255 0 / 0.55)',
               offset: 0.5
             },
             {
@@ -403,7 +403,7 @@ function ArenaBody() {
               marginBottom: '0px',
               opacity: 1,
               filter: 'blur(0px) brightness(1) saturate(1)',
-              boxShadow: 'inset 0 0 0 1px rgb(2 254 1 / 0)'
+              boxShadow: 'inset 0 0 0 1px rgb(204 255 0 / 0)'
             }
           ],
           { duration: 820, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }

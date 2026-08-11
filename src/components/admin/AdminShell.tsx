@@ -108,10 +108,10 @@ export function AdminShell({
               <Link href="/admin/trends" className={navLink}>
                 TRENDS
               </Link>
-              {/* Invites create accounts, seasons control everyone's
-                  scores and team review hands out gold badges — owner-only,
-                  matching the API gates. Hiding them for moderators is
-                  cosmetic; the routes still 403. */}
+              {/* Invites and waitlist sends create accounts, seasons
+                  control everyone's scores and team review hands out gold
+                  badges — owner-only, matching the API gates. Hiding them
+                  for moderators is cosmetic; the routes still 403. */}
               {me.role === 'owner' && (
                 <>
                   <Link href="/admin/teams" className={navLink}>
@@ -119,6 +119,9 @@ export function AdminShell({
                   </Link>
                   <Link href="/admin/invites" className={navLink}>
                     INVITES
+                  </Link>
+                  <Link href="/admin/waitlist" className={navLink}>
+                    WAITLIST
                   </Link>
                   <Link href="/admin/seasons" className={navLink}>
                     SEASONS

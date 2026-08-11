@@ -1,6 +1,7 @@
 import { unstable_cache } from 'next/cache'
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { parseBannerFrame, type BannerFrame } from '@/lib/bannerFrame'
 import { getOwnedPlateIdsBatch, isProTier, resolveEquippedPlate } from '@/lib/entitlements'
 import { readRankMovements } from '@/lib/leaderboardSnapshot'
 import { isMissingFollowsTable, readAccountIsPrivate } from '@/lib/publicProfile'
@@ -100,6 +101,7 @@ interface BoardRow {
   isPrivate: boolean
   provider: 'x' | 'github' | 'other'
   banner_image: string | null
+  banner_frame: BannerFrame | null
   plate: string | null
   socials: {
     x: string | null
@@ -384,6 +386,7 @@ async function assembleBoard(
       isPrivate,
       provider,
       banner_image: bannerImage,
+      banner_frame: bannerImage ? parseBannerFrame(meta.banner_frame) : null,
       plate,
       socials,
       role: user.user_type || null

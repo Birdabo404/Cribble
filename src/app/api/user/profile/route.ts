@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseBannerFrame } from '@/lib/bannerFrame'
 import { getPlate } from '@/lib/cosmetics/plates'
 import { getOwnedPlateIds, isProTier } from '@/lib/entitlements'
 import { detectAnimatedImage, isPublicHostname } from '@/lib/imageAnimation'
@@ -19,6 +20,11 @@ import { getSessionUserId } from '@/lib/sessionAuth'
 //   banner_image  — animated banners (GIF/animated WebP/APNG) are a Pro
 //     perk; new URLs are byte-sniffed and rejected for non-Pro savers.
 //     Undetectable URLs fail open with banner_animated stored as null.
+//
+// banner_frame (reposition + zoom) rides with banner_image: sanitized
+// through parseBannerFrame on the way in, and force-cleared whenever the
+// banner is removed or replaced without a fresh frame — a stored frame
+// only makes sense for the exact image it was authored against.
 
 export const dynamic = 'force-dynamic'
 
@@ -125,6 +131,7 @@ export async function GET(request: NextRequest) {
         location: str(meta.location),
         website: str(meta.website),
         banner_image: str(meta.banner_image),
+        banner_frame: parseBannerFrame(meta.banner_frame),
         equipped_plate: str(meta.equipped_plate),
         role: isRoleId(user.user_type) ? user.user_type : null,
         is_private: meta.is_private === true,
@@ -148,6 +155,7 @@ interface ProfilePatchPayload {
   location?: unknown
   website?: unknown
   banner_image?: unknown
+  banner_frame?: unknown
   equipped_plate?: unknown
   role?: unknown
   is_private?: unknown
@@ -198,6 +206,11 @@ export async function PATCH(request: NextRequest) {
     if ('location' in body) merged.location = cleanText(body.location, LOCATION_MAX)
     if ('website' in body) merged.website = cleanHttpUrl(body.website, WEBSITE_MAX)
 
+    // Framing parses BEFORE the banner block so the lifecycle rules below
+    // can veto it: an explicit frame sent alongside a new banner sticks,
+    // but no frame ever survives the banner it was authored for.
+    if ('banner_frame' in body) merged.banner_frame = parseBannerFrame(body.banner_frame)
+
     if ('banner_image' in body) {
       const nextBanner = cleanHttpUrl(body.banner_image, BANNER_MAX)
       const currentBanner =
@@ -206,6 +219,8 @@ export async function PATCH(request: NextRequest) {
 
       if (!nextBanner) {
         merged.banner_animated = null
+        // No banner → no frame, whatever the body said.
+        merged.banner_frame = null
       } else if (nextBanner !== currentBanner) {
         // New URL: sniff for animation. true blocks non-Pro savers; null
         // (unreachable/unknown format) fails open and is stored as null so
@@ -218,6 +233,9 @@ export async function PATCH(request: NextRequest) {
           )
         }
         merged.banner_animated = animated
+        // The stored frame was authored against the image being replaced;
+        // it only carries over when the body re-sends one for the new URL.
+        if (!('banner_frame' in body)) merged.banner_frame = null
       }
     }
 
