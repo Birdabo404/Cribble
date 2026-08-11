@@ -55,7 +55,7 @@ export async function refreshLeaderboardSnapshot(
     const liveSeasonBoard = seasonReady && seasonState.phase === 'active'
 
     // Same eligibility + ordering as the board's users query: banned /
-    // suspended accounts and TEAM company accounts never hold a slot.
+    // suspended accounts never hold a slot.
     const scoresSelect = seasonReady
       ? 'total_score, season_score, last_calculated_at'
       : 'total_score, last_calculated_at'
@@ -63,7 +63,6 @@ export async function refreshLeaderboardSnapshot(
       .from('users')
       .select(`id, user_scores(${scoresSelect})`)
       .or('status.is.null,status.eq.active')
-      .or('subscription_tier.is.null,subscription_tier.neq.TEAM')
       .order(liveSeasonBoard ? 'season_score' : 'total_score', {
         ascending: false,
         referencedTable: 'user_scores',

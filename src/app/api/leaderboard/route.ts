@@ -217,20 +217,17 @@ async function assembleBoard(
   // Batch query: all users with scores and devices in one query.
   // Banned and suspended accounts are filtered in the query itself so
   // they never occupy one of the 100 board slots (status is NULL on
-  // rows that predate migration 003 — treated as active), and so are
-  // TEAM-tier company accounts — they buy badges and affiliate seats,
-  // they don't compete personally. Both exclusions happen before the
-  // sort/limit, so ranks are assigned over eligible players only. The
-  // frozen board instead loads exactly the archived users — the
-  // archive is history and keeps rendering whoever earned a place on
-  // it.
+  // rows that predate migration 003 — treated as active). The filter
+  // happens before the sort/limit, so ranks are assigned over
+  // eligible players only. The frozen board instead loads exactly the
+  // archived users — the archive is history and keeps rendering
+  // whoever earned a place on it.
   let usersQuery = supabase.from('users').select(usersSelect)
   if (frozenByUser) {
     usersQuery = usersQuery.in('id', [...frozenByUser.keys()])
   } else {
     usersQuery = usersQuery
       .or('status.is.null,status.eq.active')
-      .or('subscription_tier.is.null,subscription_tier.neq.TEAM')
       .order(liveSeasonBoard ? 'season_score' : 'total_score', {
         ascending: false,
         referencedTable: 'user_scores',

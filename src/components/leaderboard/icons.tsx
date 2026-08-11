@@ -46,6 +46,74 @@ export function IconCrown(p: IconProps) {
   )
 }
 
+/** Filled crown silhouette — the stroked IconCrown turns to mush at 14px.
+ *  Ball-tipped points (the jewels) over deep notched valleys, with a
+ *  bottom edge curved to hug a round avatar when the crown sits tilted. */
+export function IconCrownSolid({ size = 16, className = '' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="currentColor"
+      className={className}
+      aria-hidden
+    >
+      <path d="M3.4 6.2 8.4 10.3 12 3.9 15.6 10.3 20.6 6.2 19.3 17.3 Q12 19.5 4.7 17.3 Z" />
+      <circle cx="3.2" cy="4.8" r="1.7" />
+      <circle cx="12" cy="2.9" r="1.9" />
+      <circle cx="20.8" cy="4.8" r="1.7" />
+    </svg>
+  )
+}
+
+/** Two mirrored laurel sprigs on a wide short viewBox, cradling the
+ *  bottom arc of an avatar. Leaves are filled vesicas fanning outward
+ *  along each stem so the wreath still reads at ~40px wide. */
+export function IconLaurel({ size = 44, className = '' }: IconProps) {
+  const sprigId = useId()
+  const leaf = 'M0 0 C-1.8 -2.2 -1.8 -4.4 0 -6.6 C1.8 -4.4 1.8 -2.2 0 0 Z'
+  return (
+    <svg
+      viewBox="0 0 48 22"
+      width={size}
+      height={size * (22 / 48)}
+      className={className}
+      aria-hidden
+    >
+      <g id={sprigId} fill="currentColor">
+        <path
+          d="M23.2 19.6 C16 19.2 9.8 15.8 5.8 8.8"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+        />
+        <path d={leaf} transform="translate(20.6 19.2) rotate(-95)" />
+        <path d={leaf} transform="translate(15.9 17.9) rotate(-80)" />
+        <path d={leaf} transform="translate(11.7 15.7) rotate(-64)" />
+        <path d={leaf} transform="translate(8.2 12.6) rotate(-49)" />
+        <path d={leaf} transform="translate(5.8 8.8) rotate(-32)" />
+      </g>
+      <use href={`#${sprigId}`} transform="matrix(-1 0 0 1 48 0)" />
+    </svg>
+  )
+}
+
+/** 4-point star — ambient spark for the podium champion and the
+ *  standings rank regalia. */
+export function IconSpark({
+  size = 10,
+  className = '',
+  style
+}: IconProps & { style?: React.CSSProperties }) {
+  return (
+    <svg viewBox="0 0 12 12" width={size} height={size} className={className} style={style} aria-hidden>
+      <path d="M6 0l1.35 4.65L12 6 7.35 7.35 6 12 4.65 7.35 0 6l4.65-1.35z" fill="currentColor" />
+    </svg>
+  )
+}
+
 export function IconTrophy(p: IconProps) {
   return (
     <Stroke {...p}>
