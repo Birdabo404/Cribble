@@ -14,17 +14,8 @@ import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { isProTier } from '@/lib/entitlements'
 import { Avatar, SafeBannerImg } from './Avatar'
-import { IconCrown, MoveGlyph, ToolIcon } from './icons'
+import { IconCrown, IconSpark, MoveGlyph, ToolIcon } from './icons'
 import { medalA, medalFor, medalGlow, PLATE_DOWN, PLATE_UP, type LeaderRow } from './types'
-
-/** 4-point star used for the champion's ambient sparks. */
-function Spark({ size = 10, className = '', style }: { size?: number; className?: string; style?: React.CSSProperties }) {
-  return (
-    <svg viewBox="0 0 12 12" width={size} height={size} className={className} style={style} aria-hidden>
-      <path d="M6 0l1.35 4.65L12 6 7.35 7.35 6 12 4.65 7.35 0 6l4.65-1.35z" fill="currentColor" />
-    </svg>
-  )
-}
 
 function DefaultBanner({ rankRgb, champion }: { rankRgb: string; champion: boolean }) {
   return (
@@ -70,8 +61,7 @@ function PodiumCard({
   const medal = medalFor(user.rank)!
   const champion = user.rank === 1
   const topTool = user.topTools?.[0]
-  // Companies are square, pilots are round. TEAM accounts are excluded
-  // from live boards, but frozen archives keep rendering history.
+  // Companies (tier TEAM) are square, pilots are round.
   const avatarRound = user.tier === 'TEAM' ? 'rounded-xl' : 'rounded-full'
   const avatarImgRound = user.tier === 'TEAM' ? 'rounded-lg' : 'rounded-full'
 
@@ -455,16 +445,16 @@ function ChampionFx() {
     <>
       <span aria-hidden className="pod-aura absolute -inset-x-10 -top-16 bottom-0" />
       <span aria-hidden className="pod-spark absolute -top-3 left-[12%] text-[rgb(var(--lb-gold))]" style={{ animationDelay: '0s' }}>
-        <Spark size={11} />
+        <IconSpark size={11} />
       </span>
       <span aria-hidden className="pod-spark absolute top-6 right-[8%] text-[rgb(var(--lb-gold-hi))]" style={{ animationDelay: '0.9s' }}>
-        <Spark size={8} />
+        <IconSpark size={8} />
       </span>
       <span aria-hidden className="pod-spark pod-spark-extra absolute top-1/3 -left-1 text-[rgb(var(--lb-gold))]" style={{ animationDelay: '1.7s' }}>
-        <Spark size={7} />
+        <IconSpark size={7} />
       </span>
       <span aria-hidden className="pod-spark pod-spark-extra absolute bottom-24 right-1 text-[rgb(var(--lb-gold-hi))]" style={{ animationDelay: '2.4s' }}>
-        <Spark size={9} />
+        <IconSpark size={9} />
       </span>
     </>
   )

@@ -207,12 +207,10 @@ export async function loadPublicProfile(
   // owned plates, and their team affiliation — all in parallel. The
   // rollup reads straight off the already-fetched user_scores columns;
   // only a row that predates migration 036 (stats_updated_at NULL) pays
-  // a one-time events backfill here. TEAM accounts skip the rank count
-  // entirely: company accounts are excluded from the individual boards,
-  // so a profile rank would point at a standing that doesn't exist.
+  // a one-time events backfill here.
   const [rankRes, snapshotRes, badgesRes, rollup, ownedPlateIds, affiliatedTeams] =
     await Promise.all([
-      totalScore > 0 && tier !== 'TEAM'
+      totalScore > 0
         ? supabase
             .from('user_scores')
             .select('user_id', { count: 'exact', head: true })

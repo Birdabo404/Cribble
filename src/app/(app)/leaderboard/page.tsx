@@ -48,9 +48,9 @@ import {
 import { PlateLayer } from '@/components/cosmetics/PlateLayer'
 import { AsteroidShower } from '@/components/dashboard-v3/AsteroidShower'
 import { AiBoard } from '@/components/leaderboard/AiBoard'
-import { Avatar } from '@/components/leaderboard/Avatar'
 import { PlayerCard, type ChaseInfo } from '@/components/leaderboard/PlayerCard'
 import { Podium } from '@/components/leaderboard/Podium'
+import { RankAvatar } from '@/components/leaderboard/RankRegalia'
 import { medalA, medalFor, medalGlow, type LeaderRow } from '@/components/leaderboard/types'
 import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
@@ -1328,19 +1328,10 @@ function Row({
           <MovementChip user={user} />
         </div>
 
-        {/* pilot — companies (tier TEAM) get the square avatar; they are
-            excluded from live boards but frozen archives keep history */}
+        {/* pilot — top three wear rank regalia; companies (tier TEAM) get
+            the square avatar */}
         <div className="relative flex min-w-0 items-center gap-3">
-          <Avatar
-            src={user.profile_image}
-            char={user.username[0]?.toUpperCase() ?? '?'}
-            imgClassName={`h-9 w-9 shrink-0 ${
-              user.tier === 'TEAM' ? 'rounded-md' : 'rounded-full'
-            } border border-zinc-800 object-cover`}
-            fallbackClassName={`flex h-9 w-9 shrink-0 items-center justify-center ${
-              user.tier === 'TEAM' ? 'rounded-md' : 'rounded-full'
-            } border border-zinc-800 bg-zinc-900 font-display text-[11px] text-zinc-400`}
-          />
+          <RankAvatar user={user} />
           <span className="flex min-w-0 items-center gap-2">
             <span
               className="truncate font-display text-[13px] font-medium tracking-tight"
