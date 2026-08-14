@@ -31,6 +31,7 @@ import {
   type ReactNode
 } from 'react'
 import { createPortal } from 'react-dom'
+import Link from 'next/link'
 import {
   DEFAULT_BANNER_FRAME,
   bannerFrameStyle,
@@ -46,8 +47,9 @@ type Tab = 'gif' | 'url'
 
 type GifFeedState = 'loading' | 'loading-more' | 'ready' | 'error' | 'offline'
 
+// text-base below sm: sub-16px inputs make iOS Safari zoom the page on focus.
 const inputCls =
-  'h-9 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 text-xs text-zinc-100 placeholder:text-zinc-600 transition-colors focus:border-accent/50 focus:bg-white/[0.05] focus:outline-none'
+  'h-9 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 text-base text-zinc-100 placeholder:text-zinc-600 transition-colors focus:border-accent/50 focus:bg-white/[0.05] focus:outline-none sm:text-xs'
 
 // The zoom range input, skinned to the modal's control language: hairline
 // track, accent thumb. Pseudo-element variants keep the whole look in
@@ -59,7 +61,10 @@ const sliderCls =
   '[&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent ' +
   '[&::-webkit-slider-thumb]:shadow-[0_0_10px_rgb(var(--accent-rgb)/0.5)] ' +
   '[&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full ' +
-  '[&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-accent'
+  '[&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-accent ' +
+  // Finger-sized thumb on phones; the track stays a hairline.
+  'max-sm:[&::-webkit-slider-thumb]:h-5 max-sm:[&::-webkit-slider-thumb]:w-5 ' +
+  'max-sm:[&::-moz-range-thumb]:h-5 max-sm:[&::-moz-range-thumb]:w-5'
 
 export function BannerStudioModal({
   initialUrl,
@@ -198,14 +203,14 @@ export function BannerStudioModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center p-4 font-mono"
+      className="fixed inset-0 z-[80] flex items-end justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] font-mono sm:items-center sm:pb-4"
       role="dialog"
       aria-modal="true"
       aria-label="Edit banner"
     >
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} aria-hidden />
       <div
-        className="relative flex max-h-[calc(100vh-3rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl glass-pop"
+        className="relative flex max-h-[calc(100svh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl glass-pop sm:max-h-[calc(100vh-3rem)]"
         style={{ animation: 'glass-modal-in 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards' }}
       >
         {/* ---------- header ---------- */}
@@ -216,7 +221,7 @@ export function BannerStudioModal({
           </div>
           <button
             onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-zinc-200"
+            className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-zinc-200 sm:h-7 sm:w-7"
             aria-label="Close"
           >
             <svg viewBox="0 0 20 20" className="h-4 w-4" aria-hidden>
@@ -229,7 +234,7 @@ export function BannerStudioModal({
         </div>
 
         {/* ---------- body ---------- */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
           {/* preview */}
           <div>
             <div className="flex items-baseline justify-between">
@@ -238,7 +243,7 @@ export function BannerStudioModal({
                 <button
                   type="button"
                   onClick={() => select('')}
-                  className="text-[9px] tracking-[0.25em] text-zinc-600 transition-colors hover:text-rose-300"
+                  className="-my-2 py-2 text-[9px] tracking-[0.25em] text-zinc-600 transition-colors hover:text-rose-300 sm:my-0 sm:py-0"
                 >
                   REMOVE BANNER
                 </button>
@@ -261,7 +266,7 @@ export function BannerStudioModal({
                 role="tab"
                 aria-selected={tab === t.id}
                 onClick={() => setTab(t.id)}
-                className={`flex h-9 items-center justify-center gap-1.5 rounded-lg border text-[10px] tracking-[0.3em] transition-colors ${
+                className={`flex h-11 items-center justify-center gap-1.5 rounded-lg border text-[10px] tracking-[0.3em] transition-colors sm:h-9 ${
                   tab === t.id
                     ? 'border-accent/60 bg-accent/10 text-zinc-50'
                     : 'border-white/[0.08] bg-white/[0.02] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'
@@ -342,7 +347,7 @@ export function BannerStudioModal({
                           type="button"
                           onClick={() => loadGifs(search, gifPage + 1, true)}
                           disabled={feed === 'loading-more'}
-                          className="mt-3 flex h-9 w-full items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.02] text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-200 disabled:opacity-60"
+                          className="mt-3 flex h-11 w-full items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.02] text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-200 disabled:opacity-60 sm:h-9"
                         >
                           {feed === 'loading-more' ? 'LOADING…' : 'LOAD MORE'}
                         </button>
@@ -410,7 +415,7 @@ export function BannerStudioModal({
           <button
             type="button"
             onClick={onClose}
-            className="h-9 rounded-lg border border-zinc-800 px-4 text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-100"
+            className="h-11 rounded-lg border border-zinc-800 px-4 text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-100 sm:h-9"
           >
             CANCEL
           </button>
@@ -418,7 +423,7 @@ export function BannerStudioModal({
             type="button"
             onClick={save}
             disabled={saving}
-            className="h-9 rounded-lg bg-accent px-6 text-[10px] font-bold tracking-[0.3em] text-black shadow-[0_0_14px_rgb(var(--accent-rgb)/0.25)] transition-all hover:brightness-110 disabled:opacity-60"
+            className="h-11 rounded-lg bg-accent px-6 text-[10px] font-bold tracking-[0.3em] text-black shadow-[0_0_14px_rgb(var(--accent-rgb)/0.25)] transition-all hover:brightness-110 disabled:opacity-60 sm:h-9"
           >
             {saving ? 'SAVING…' : 'SAVE'}
           </button>
@@ -594,7 +599,7 @@ function BannerPreview({
             <button
               type="button"
               onClick={() => onFrameChange(DEFAULT_BANNER_FRAME)}
-              className="text-[9px] tracking-[0.25em] text-zinc-600 transition-colors hover:text-rose-300"
+              className="-my-2 py-2 text-[9px] tracking-[0.25em] text-zinc-600 transition-colors hover:text-rose-300 sm:my-0 sm:py-0"
             >
               RESET
             </button>
@@ -608,7 +613,7 @@ function BannerPreview({
 /** Free-tier gate over the GIF grid — upsell, never a hard wall. */
 function ProLockPanel() {
   return (
-    <a
+    <Link
       href="/shop"
       className="mt-1 flex flex-col items-center rounded-xl border border-dashed border-white/[0.08] bg-white/[0.015] px-4 py-8 text-center transition-colors hover:border-accent/40"
     >
@@ -622,7 +627,7 @@ function ProLockPanel() {
         Search millions of GIFs and fly one on your profile with Cribble Pro.
       </span>
       <span className="mt-3 text-[10px] tracking-[0.3em] text-accent">GET PRO →</span>
-    </a>
+    </Link>
   )
 }
 

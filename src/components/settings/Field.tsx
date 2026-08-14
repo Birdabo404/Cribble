@@ -104,7 +104,7 @@ export function TextField({
         maxLength={maxLength}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? errorId : undefined}
-        className="st-input mt-1.5 block w-full rounded-lg px-3 py-1.5 text-[14px] leading-6"
+        className="st-input mt-1.5 block w-full rounded-lg px-3 py-2.5 text-[16px] leading-6 md:py-1.5 md:text-[14px]"
         {...rest}
       />
       <FieldFooter errorId={errorId} error={error} length={length} maxLength={maxLength} />
@@ -137,7 +137,7 @@ export function TextArea({
         maxLength={maxLength}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? errorId : undefined}
-        className="st-input mt-1.5 block w-full resize-y rounded-lg px-3 py-2 text-[14px] leading-6"
+        className="st-input mt-1.5 block w-full resize-y rounded-lg px-3 py-2 text-[16px] leading-6 md:text-[14px]"
         {...rest}
       />
       <FieldFooter errorId={errorId} error={error} length={length} maxLength={maxLength} />

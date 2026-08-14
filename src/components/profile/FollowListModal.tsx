@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import Link from 'next/link'
 import { Avatar } from '@/components/leaderboard/Avatar'
 import { FollowButton, FollowsYouChip } from '@/components/profile/FollowButton'
 import type { FollowListUser } from '@/types/profile'
@@ -108,14 +109,14 @@ export function FollowListModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center p-4 font-mono"
+      className="fixed inset-0 z-[80] flex items-end justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] font-mono sm:items-center sm:pb-4"
       role="dialog"
       aria-modal="true"
       aria-label={`@${username} — ${kind}`}
     >
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={close} aria-hidden />
       <div
-        className="relative flex max-h-[min(560px,calc(100vh-3rem))] w-full max-w-md flex-col overflow-hidden rounded-2xl glass-pop"
+        className="relative flex max-h-[min(560px,calc(100svh-2rem))] w-full max-w-md flex-col overflow-hidden rounded-2xl glass-pop sm:max-h-[min(560px,calc(100vh-3rem))]"
         style={{ animation: 'glass-modal-in 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards' }}
       >
         <div className="flex items-center justify-between border-b border-white/[0.08] px-5 py-3">
@@ -130,7 +131,7 @@ export function FollowListModal({
           </div>
           <button
             onClick={close}
-            className="text-zinc-500 transition-colors hover:text-zinc-200"
+            className="-mr-1.5 flex h-10 w-10 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-zinc-200 sm:h-7 sm:w-7"
             aria-label="Close"
           >
             <svg viewBox="0 0 20 20" className="h-4 w-4" aria-hidden>
@@ -142,7 +143,7 @@ export function FollowListModal({
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {loading && (
             <div className="space-y-1 p-3">
               {Array.from({ length: 5 }, (_, i) => (
@@ -179,15 +180,15 @@ export function FollowListModal({
                 key={u.userId}
                 className="flex items-center gap-3 border-b border-white/[0.04] px-4 py-3 transition-colors last:border-b-0 hover:bg-white/[0.03]"
               >
-                <a href={`/u/${encodeURIComponent(u.username)}`} className="shrink-0" aria-label={`@${u.username}`}>
+                <Link href={`/u/${encodeURIComponent(u.username)}`} className="shrink-0" aria-label={`@${u.username}`}>
                   <Avatar
                     src={u.profile_image}
                     char={u.username[0]?.toUpperCase() ?? '?'}
                     imgClassName="h-9 w-9 rounded-full border border-zinc-800 object-cover"
                     fallbackClassName="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900 font-display text-xs text-zinc-400"
                   />
-                </a>
-                <a href={`/u/${encodeURIComponent(u.username)}`} className="min-w-0 flex-1">
+                </Link>
+                <Link href={`/u/${encodeURIComponent(u.username)}`} className="min-w-0 flex-1">
                   <span className="flex items-center gap-2">
                     <span className="truncate font-display text-[13px] font-medium tracking-tight text-zinc-100">
                       {u.display_name}
@@ -195,7 +196,7 @@ export function FollowListModal({
                     {u.followsYou && !u.isYou && <FollowsYouChip />}
                   </span>
                   <span className="mt-0.5 block truncate text-[10px] text-zinc-600">@{u.username}</span>
-                </a>
+                </Link>
                 {u.isYou ? (
                   <span className="shrink-0 rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-[8px] tracking-[0.25em] text-accent">
                     YOU
@@ -218,7 +219,7 @@ export function FollowListModal({
               type="button"
               onClick={loadMore}
               disabled={loadingMore}
-              className="w-full px-4 py-3 text-center text-[10px] tracking-[0.3em] text-zinc-500 transition-colors hover:bg-white/[0.03] hover:text-zinc-200 disabled:opacity-60"
+              className="min-h-11 w-full px-4 py-3 text-center text-[10px] tracking-[0.3em] text-zinc-500 transition-colors hover:bg-white/[0.03] hover:text-zinc-200 disabled:opacity-60 sm:min-h-0"
             >
               {loadingMore ? 'LOADING…' : 'LOAD MORE'}
             </button>

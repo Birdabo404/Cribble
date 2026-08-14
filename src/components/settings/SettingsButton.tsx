@@ -39,7 +39,7 @@ export function SettingsButton({
       type={type}
       disabled={disabled || pending}
       aria-busy={pending || undefined}
-      className={`inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium leading-none transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${variantClasses(variant)}`}
+      className={`inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium leading-none transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 md:h-8 ${variantClasses(variant)}`}
       {...rest}
     >
       {pending && (

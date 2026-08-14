@@ -27,7 +27,7 @@ export function SkeletonRow() {
         <Skeleton className="h-3.5 w-32 max-w-[45%]" />
         <Skeleton className="mt-2 h-3 w-56 max-w-[70%]" />
       </div>
-      <Skeleton className="h-5 w-9 shrink-0 rounded-full" />
+      <Skeleton className="h-7 w-12 shrink-0 rounded-full md:h-5 md:w-9" />
     </div>
   )
 }

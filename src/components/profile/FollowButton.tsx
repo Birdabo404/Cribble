@@ -36,9 +36,10 @@ export function FollowButton({
   const router = useRouter()
   const [pending, setPending] = useState(false)
 
+  // md carries a 44px floor below sm — it's the profile hero CTA.
   const sizeCls =
     size === 'md'
-      ? 'px-5 py-2 text-[10px] tracking-[0.3em]'
+      ? 'min-h-11 px-5 py-2 text-[10px] tracking-[0.3em] sm:min-h-0'
       : 'px-3 py-1.5 text-[9px] tracking-[0.25em]'
 
   const toggle = async () => {

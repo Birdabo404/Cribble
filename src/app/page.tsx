@@ -443,22 +443,36 @@ function Footer() {
         </Link>
       </span>
 
-      <span className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:contents">
+      <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 tracking-[0.22em] sm:tracking-[0.25em]">
+        <span>BUILT BY</span>
+        <a
+          href="https://x.com/birdabo"
+          target="_blank"
+          rel="noreferrer"
+          aria-label="@birdabo on X"
+          className="inline-flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 transition-colors"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/avatars/birdabo.jpg"
+            alt=""
+            width={14}
+            height={14}
+            className="size-3.5 rounded-full object-cover"
+          />
+          <span>@BIRDABO</span>
+        </a>
+        <span>WITH</span>
         <a
           href="https://cursor.com"
           target="_blank"
           rel="noreferrer"
-          aria-label="Powered by Cursor"
-          className="inline-flex items-center gap-2 text-zinc-600 hover:text-zinc-300 transition-colors"
+          aria-label="Cursor"
+          className="inline-flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 transition-colors"
         >
-          <span>POWERED BY</span>
           <CursorMark />
-          <span className="tracking-[0.25em]">CURSOR</span>
+          <span>CURSOR</span>
         </a>
-
-        <span style={{ color: `${accentA(0.6)}` }}>
-          {'// backed by no one'}
-        </span>
       </span>
     </footer>
   )

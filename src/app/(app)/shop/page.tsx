@@ -188,7 +188,7 @@ function NoticeBanner({
           type="button"
           onClick={onRefresh}
           disabled={refreshing}
-          className="lb-inset flex items-center gap-2 rounded-lg px-3 py-1.5 text-[9px] tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100 disabled:cursor-wait"
+          className="lb-inset flex min-h-11 items-center gap-2 rounded-lg px-3 py-1.5 text-[9px] tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100 disabled:cursor-wait md:min-h-0"
         >
           <IconRefresh size={10} className={refreshing ? 'animate-spin' : ''} />
           {refreshing ? 'CHECKING' : 'RE-CHECK'}
@@ -198,7 +198,7 @@ function NoticeBanner({
         type="button"
         onClick={onDismiss}
         aria-label="Dismiss notice"
-        className="p-1 text-zinc-600 transition-colors hover:text-zinc-200"
+        className="flex h-11 w-11 shrink-0 items-center justify-center text-zinc-600 transition-colors hover:text-zinc-200 md:h-auto md:w-auto md:p-1"
       >
         <IconClose size={12} />
       </button>
@@ -246,14 +246,14 @@ function TeamPointerBand({ loading, isTeam }: { loading: boolean; isTeam: boolea
         </span>
         <Link
           href="/team"
-          className="inline-flex shrink-0 items-center gap-1.5 text-[9px] tracking-[0.3em] transition-opacity hover:opacity-80"
+          className="inline-flex min-h-11 shrink-0 items-center gap-1.5 text-[9px] tracking-[0.3em] transition-opacity hover:opacity-80 md:min-h-0"
           style={{ color: 'rgb(var(--lb-gold))' }}
         >
           OPEN TEAM CONSOLE <span aria-hidden>→</span>
         </Link>
         <a
           href="/api/portal"
-          className="inline-flex shrink-0 items-center gap-1.5 text-[9px] tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-200"
+          className="inline-flex min-h-11 shrink-0 items-center gap-1.5 text-[9px] tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-200 md:min-h-0"
         >
           MANAGE SUBSCRIPTION <span aria-hidden>→</span>
         </a>
@@ -650,7 +650,7 @@ function ShopDepot() {
             </p>
             <a
               href="/api/portal"
-              className="shrink-0 text-[9px] tracking-[0.3em] text-zinc-500 transition-colors hover:text-zinc-200"
+              className="inline-flex min-h-11 shrink-0 items-center text-[9px] tracking-[0.3em] text-zinc-500 transition-colors hover:text-zinc-200 md:min-h-0"
             >
               MANAGE SUBSCRIPTION <span aria-hidden>→</span>
             </a>

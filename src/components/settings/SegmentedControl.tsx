@@ -80,7 +80,7 @@ export function SegmentedControl<T extends string>({
             disabled={disabled}
             onClick={() => onChange(opt.value)}
             onKeyDown={(event) => handleKeyDown(event, i)}
-            className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-[13px] font-medium leading-5 transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
+            className={`inline-flex min-h-11 items-center gap-1.5 rounded-md border px-3 py-1 text-[13px] font-medium leading-5 transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-40 md:min-h-0 ${
               selected
                 ? 'border-[color:var(--st-border-strong)] bg-[color:var(--st-panel-hover)] text-[color:var(--st-text)]'
                 : 'border-transparent text-[color:var(--st-text-muted)] hover:text-[color:var(--st-text)]'

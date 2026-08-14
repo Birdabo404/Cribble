@@ -25,9 +25,9 @@ interface CosmeticsState {
 // Anchor twins of SettingsButton's solid/ghost variants — plan actions
 // are navigations (portal redirect, shop), not in-page mutations.
 const solidLinkCls =
-  'inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-transparent bg-[color:var(--st-accent)] px-3 text-[13px] font-medium leading-none text-[color:var(--st-accent-contrast)] transition-colors duration-150 hover:opacity-90'
+  'inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-transparent bg-[color:var(--st-accent)] px-3 text-[13px] font-medium leading-none text-[color:var(--st-accent-contrast)] transition-colors duration-150 hover:opacity-90 md:h-8'
 const ghostLinkCls =
-  'inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-transparent px-3 text-[13px] font-medium leading-none text-[color:var(--st-text-muted)] transition-colors duration-150 hover:bg-[color:var(--st-panel-hover)] hover:text-[color:var(--st-text)]'
+  'inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-transparent px-3 text-[13px] font-medium leading-none text-[color:var(--st-text-muted)] transition-colors duration-150 hover:bg-[color:var(--st-panel-hover)] hover:text-[color:var(--st-text)] md:h-8'
 
 const CHECK_ICON = (
   <svg
@@ -132,6 +132,7 @@ export default function BillingSettingsPage() {
     <div className="space-y-8">
       <SettingsSection title="Plan">
         <SettingsRow
+          stack
           label={planName(state)}
           description={
             paid ? (
@@ -185,7 +186,11 @@ export default function BillingSettingsPage() {
             {equippedPlateName ?? 'None'}
           </span>
         </SettingsRow>
-        <SettingsRow label="Leaderboard plates" description="Plates and the rest of the kit live in the shop.">
+        <SettingsRow
+          label="Leaderboard plates"
+          description="Plates and the rest of the kit live in the shop."
+          stack
+        >
           <Link href="/shop" className={ghostLinkCls}>
             Browse leaderboard plates
             <span aria-hidden>→</span>
