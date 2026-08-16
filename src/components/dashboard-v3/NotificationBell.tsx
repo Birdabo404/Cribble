@@ -17,6 +17,7 @@
 // the badge clears on open, social-media style.
 
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { PixelIcon } from '@/components/achievements/PixelIcon'
 import { Avatar } from '@/components/leaderboard/Avatar'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
@@ -340,13 +341,13 @@ function SingleFeedRow({
     </>
   )
   return href ? (
-    <a
+    <Link
       href={href}
       style={{ animationDelay: delay }}
       className={`${rowCls} transition-colors hover:bg-white/[0.04]`}
     >
       {content}
-    </a>
+    </Link>
   ) : (
     <div style={{ animationDelay: delay }} className={rowCls}>
       {content}
@@ -514,9 +515,9 @@ function FollowStackRow({
             </>
           )
           return username ? (
-            <a key={n.id} href={`/u/${encodeURIComponent(username)}`} className={memberCls}>
+            <Link key={n.id} href={`/u/${encodeURIComponent(username)}`} className={memberCls}>
               {inner}
-            </a>
+            </Link>
           ) : (
             <div key={n.id} className={memberCls}>
               {inner}
@@ -629,7 +630,10 @@ export function NotificationBell({
   let rowIndex = 0
 
   return (
-    <div ref={rootRef} className="relative">
+    /* shrink-0: as a top-bar flex child the bell must never compress when
+       the row runs tight — overflow eats the wordmark instead (see
+       NavTopBar). */
+    <div ref={rootRef} className="relative shrink-0">
       {variant === 'rail' ? (
         <button
           onClick={toggle}
@@ -699,13 +703,13 @@ export function NotificationBell({
               {freshCount > 0 && (
                 <span className="text-[10px] text-zinc-400">{freshCount} new</span>
               )}
-              <a
+              <Link
                 href="/settings/notifications"
                 aria-label="Notification settings"
                 className="rounded text-zinc-500 transition-colors hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
               >
                 <StrokeIcon d={ICON_PATHS.settings} className="h-3.5 w-3.5" />
-              </a>
+              </Link>
             </div>
           </div>
 

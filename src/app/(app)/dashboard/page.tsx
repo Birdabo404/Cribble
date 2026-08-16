@@ -4,7 +4,7 @@
 // Navigation chrome (rail/top bar) lives in the (app) shell layout; this
 // page publishes its sync status to the nav via usePublishNavStatus.
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AsciiBanner } from '@/components/dashboard-v2/AsciiBanner'
 import { ErrorScreen } from '@/components/dashboard-v2/ErrorScreen'
 import { LoadingScreen } from '@/components/dashboard-v2/LoadingScreen'
@@ -57,6 +57,17 @@ export default function DashboardV3() {
       setRefreshing(false)
     }
   }, [refreshDashboard])
+
+  // Footer dossier stamp, set after mount — SSR renders with the server's
+  // locale/timezone, which can differ from the client's and break hydration.
+  const [dateStamp, setDateStamp] = useState('')
+  useEffect(() => {
+    setDateStamp(
+      new Date()
+        .toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+        .toUpperCase()
+    )
+  }, [])
 
   const streak = useMemo(() => calculateStreak(activity), [activity])
 
@@ -146,16 +157,13 @@ export default function DashboardV3() {
         </main>
 
         {/* Dossier footer — build line on a dotted leader, stamped with a
-            barcode strip. */}
-        <footer className="mt-10 flex items-baseline gap-4 font-data text-[9px] tracking-[0.3em] text-zinc-600">
+            barcode strip. The row is ~520px of fixed content, so below sm it
+            wraps into a two-line stamp (leader hidden, barcode right-aligned)
+            instead of overflowing a ~390px phone. */}
+        <footer className="mt-10 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 font-data text-[9px] tracking-[0.3em] text-zinc-600 sm:flex-nowrap sm:justify-normal sm:gap-4">
           <span className="shrink-0">CRIBBLE · PRIVATE BETA</span>
-          <span aria-hidden className="dash-leader-dots" />
-          <span className="shrink-0 text-zinc-500">
-            CONSOLE V3 ·{' '}
-            {new Date()
-              .toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-              .toUpperCase()}
-          </span>
+          <span aria-hidden className="dash-leader-dots hidden sm:block" />
+          <span className="shrink-0 text-zinc-500">CONSOLE V3 · {dateStamp}</span>
           <span aria-hidden className="dash-barcode h-3.5 w-20 shrink-0" />
         </footer>
       </div>

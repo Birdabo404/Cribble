@@ -137,6 +137,13 @@
      runs full neon; light zeroes it below (glows smudge on white), and
      the dark plated slabs re-pin it back to 1. */
   --lb-glow: 1;
+
+  /* dither-kit alias tokens (vendored chart pack in src/components/dither-kit)
+     — zinc-backed popover / border / muted-foreground so the kit's shadcn-idiom
+     surfaces have values to resolve against. Light overrides below. */
+  --popover: #18181b;
+  --border: #27272a;
+  --muted-foreground: #a1a1aa;
 }
 
 html.light {
@@ -249,6 +256,11 @@ html.light {
   /* crisp ink instead of neon: text-shadow glows collapse on white
      (the leaderboard's plated slabs restore them locally) */
   --lb-glow: 0;
+
+  /* dither-kit alias tokens — zinc-backed light values */
+  --popover: #ffffff;
+  --border: #e4e4e7;
+  --muted-foreground: #71717a;
 }
 
 html {
@@ -311,13 +323,11 @@ body {
   }
 
   /* Phones: the pull-back reads as shrunken type and sub-size tap targets
-     on an already small screen, so the landing surfaces and the leaderboard
-     arena render 1:1 below md. (Other app pages keep the 0.9 zoom — their
-     chrome pre-scales against it.) */
+     on an already small screen, so every page renders 1:1 below md. The
+     top bar pairs with this (px-6 below md, pre-scaled px-[1.35rem] at md+
+     where the 0.9 zoom stays on) so nav and page gutters keep aligning. */
   @media (max-width: 767px) {
-    .lx-hero .page-zoom-out,
-    .lx-descent .page-zoom-out,
-    .lb4-root.page-zoom-out {
+    .page-zoom-out {
       zoom: 1;
     }
   }

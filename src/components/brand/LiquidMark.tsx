@@ -8,6 +8,8 @@
 // playground; the hero carries it verbatim.
 //
 // Render ladder:
+//   0. still                           → static mark, no WebGL at all (for
+//      chrome that is mounted but CSS-hidden — see the `still` prop)
 //   1. SSR / pre-mount / preprocessing → empty box (never the flat PNG — a
 //      visible orange→metal swap reads as a glitch, an easing-in metal mark
 //      does not; the box is sized so nothing shifts)
@@ -29,6 +31,14 @@ type LiquidMarkProps = {
   size?: number | string
   /** Shader animation speed; 0 freezes the metal. */
   speed?: number
+  /**
+   * Render the static mark instead of the live shader. For marks that are
+   * mounted but CSS-hidden (the nav chrome the current breakpoint doesn't
+   * show), where an animating WebGL canvas would burn GPU — and one of the
+   * browser's limited WebGL contexts — invisibly. Also safe pre-mount:
+   * server and first client render agree on the static image.
+   */
+  still?: boolean
   className?: string
   style?: CSSProperties
   /** Accessible name. Omit when the mark sits next to visible wordmark text. */
@@ -38,6 +48,7 @@ type LiquidMarkProps = {
 export function LiquidMark({
   size = 24,
   speed = 0.52,
+  still = false,
   className = '',
   style,
   title
@@ -50,7 +61,7 @@ export function LiquidMark({
       style={{ width: size, height: size, ...style }}
       {...(title ? { role: 'img', 'aria-label': title } : { 'aria-hidden': true })}
     >
-      {webgl2 === false ? (
+      {still || webgl2 === false ? (
         <StaticMark />
       ) : webgl2 === true ? (
         <Suspense fallback={null}>

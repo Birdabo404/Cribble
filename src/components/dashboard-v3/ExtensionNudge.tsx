@@ -1,7 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { EXTENSION_INSTALL_URL, isExtensionUnlinked } from '@/lib/extensionInstall'
+import {
+  EXTENSION_INSTALL_URL,
+  isExtensionCapableBrowser,
+  isExtensionUnlinked
+} from '@/lib/extensionInstall'
 import { animDelay } from './anim'
 import type { ExtensionLinkPhase } from '@/hooks/useExtensionSync'
 import type { ActiveDevice, MeUser } from '@/types/dashboard'
@@ -31,8 +35,11 @@ function phaseShowsNudge(phase: ExtensionLinkPhase): boolean {
 /**
  * Slim dismissible banner shown above the hero for users who have never
  * linked the extension, pointing them at the store listing. Hidden until
- * the listing is live (EXTENSION_INSTALL_URL set) and forever once
- * dismissed (persisted in localStorage per user).
+ * the listing is live (EXTENSION_INSTALL_URL set), forever once dismissed
+ * (persisted in localStorage per user), and on browsers that can't
+ * install the extension — the INSTALL link points at a desktop-Chromium
+ * store listing that's dead everywhere else; phone users get the
+ * one-time MobileExtensionModal instead.
  */
 export function ExtensionNudge({
   user,
@@ -49,6 +56,15 @@ export function ExtensionNudge({
   // user never dismissed it. The effect never runs during SSR, so no
   // window guard is needed on the initial state.
   const [dismissed, setDismissed] = useState(true)
+
+  // Same start-hidden shape for capability: isExtensionCapableBrowser
+  // reads navigator, so it must resolve in an effect — deciding during
+  // render would make the first client render disagree with the server's.
+  const [capableBrowser, setCapableBrowser] = useState(false)
+
+  useEffect(() => {
+    setCapableBrowser(isExtensionCapableBrowser())
+  }, [])
 
   useEffect(() => {
     if (userId === null) return
@@ -72,6 +88,7 @@ export function ExtensionNudge({
 
   if (
     !EXTENSION_INSTALL_URL ||
+    !capableBrowser ||
     !isExtensionUnlinked(user, activeDevice) ||
     !phaseShowsNudge(phase) ||
     dismissed
@@ -95,7 +112,7 @@ export function ExtensionNudge({
         </div>
 
         <p className="anim-fade min-w-0 flex-1 text-xs text-zinc-400" style={animDelay(140)}>
-          No extension linked — install it once and your grind starts counting.
+          No extension linked. Install cribble-engine once and your grind starts counting.
         </p>
 
         <div className="anim-rise flex items-center gap-2" style={animDelay(220)}>

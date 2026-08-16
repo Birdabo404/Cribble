@@ -20,6 +20,7 @@ import {
 import { SettingsButton } from '@/components/settings'
 import {
   BILLBOARD_DURATION_DAYS,
+  BILLBOARD_PAYMENT_EMAIL,
   BILLBOARD_PAYMENT_X_HANDLE,
   BILLBOARD_PAYMENT_X_URL,
   BILLBOARD_PRICE_CENTS,
@@ -50,6 +51,9 @@ export interface MineAd {
    *  hold (first confirmed payment wins). Null = any slot; always null
    *  on flipper ads. */
   requested_rail_slot: RailSlot | null
+  /** Where the payment instructions are emailed on approval (migration
+   *  040); null on rows predating the field. */
+  billing_email: string | null
   review_note: string | null
   starts_at: string | null
   ends_at: string | null
@@ -379,7 +383,31 @@ function AdRow({
 
           {ad.status === 'APPROVED' && !ad.isLive && !ad.ends_at && (
             <p className="text-[13px] leading-relaxed text-[color:var(--st-text-muted)]">
-              Approved — payment ({adPriceLabel(ad)}) is handled personally: DM{' '}
+              {/* Email-first: name the buyer's own billing inbox when one
+                  is on file; pre-040 ads (no address) get the public
+                  billing address instead. X DM stays the backup. */}
+              Approved — payment ({adPriceLabel(ad)}) is handled personally over email:{' '}
+              {ad.billing_email ? (
+                <>
+                  the payment instructions go to{' '}
+                  <span className="font-medium text-[color:var(--st-text)]">
+                    {ad.billing_email}
+                  </span>{' '}
+                  — reply there to complete it
+                </>
+              ) : (
+                <>
+                  email{' '}
+                  <a
+                    href={`mailto:${BILLBOARD_PAYMENT_EMAIL}`}
+                    className="font-medium text-[color:var(--st-text)] transition-colors hover:text-[color:var(--st-text-muted)]"
+                  >
+                    {BILLBOARD_PAYMENT_EMAIL}
+                  </a>{' '}
+                  to arrange it
+                </>
+              )}
+              , or DM{' '}
               <a
                 href={BILLBOARD_PAYMENT_X_URL}
                 target="_blank"
@@ -388,10 +416,10 @@ function AdRow({
               >
                 @{BILLBOARD_PAYMENT_X_HANDLE}
               </a>{' '}
-              on X to complete it. Once confirmed, your ad is activated by hand — usually
+              on X as backup. Once confirmed, your ad is activated by hand — usually
               within minutes, at most a few hours — and your {BILLBOARD_DURATION_DAYS}-day run
               starts the moment {`it's`} live. Slots go to the first confirmed payment; if
-              yours fills first, pick another open slot over DM.
+              yours fills first, pick another open slot over email or DM.
             </p>
           )}
 
@@ -434,7 +462,8 @@ function AdRow({
                   link_url: ad.link_url,
                   logo_url: ad.logo_url ?? '',
                   placement: ad.placement,
-                  requested_rail_slot: ad.requested_rail_slot
+                  requested_rail_slot: ad.requested_rail_slot,
+                  billing_email: ad.billing_email ?? ''
                 }}
                 fallbackLogoUrl={fallbackLogoUrl}
                 signedIn={true}
@@ -486,7 +515,7 @@ export function BillboardStatusTracker({
         </p>
         <Link
           href="/login"
-          className="mt-3 inline-flex items-center gap-1.5 text-[13px] font-medium text-[color:var(--st-text)] transition-colors hover:text-[color:var(--st-text-muted)]"
+          className="mt-3 inline-flex min-h-11 items-center gap-1.5 text-[13px] font-medium text-[color:var(--st-text)] transition-colors hover:text-[color:var(--st-text-muted)] md:min-h-0"
         >
           Sign in to track your slots <span aria-hidden>→</span>
         </Link>
@@ -551,7 +580,7 @@ export function BillboardStatusTracker({
             type="button"
             aria-pressed={filter === f.id}
             onClick={() => setFilter(f.id)}
-            className={`rounded-full border px-2.5 py-1 text-[12px] leading-4 transition-colors ${
+            className={`inline-flex min-h-11 items-center rounded-full border px-2.5 py-1 text-[12px] leading-4 transition-colors md:min-h-0 ${
               filter === f.id
                 ? 'border-[color:var(--st-border-strong)] bg-[color:var(--st-panel-hover)] text-[color:var(--st-text)]'
                 : 'border-[color:var(--st-border)] text-[color:var(--st-text-muted)] hover:bg-[color:var(--st-panel-hover)] hover:text-[color:var(--st-text)]'

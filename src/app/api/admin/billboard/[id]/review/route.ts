@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAudit } from '@/lib/adminAudit'
 import {
+  BILLBOARD_PAYMENT_EMAIL,
   BILLBOARD_PAYMENT_X_HANDLE,
   BILLBOARD_PRICE_CENTS,
   BILLBOARD_RAIL_PRICE_MIN_CENTS,
@@ -11,6 +12,7 @@ import {
 } from '@/lib/billboard'
 import { insertMissingNotifications, type NotificationInput } from '@/lib/notifications'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
+import { isSponsorshipEmailConfigured, sendSponsorshipPaymentEmail } from '@/lib/sponsorshipEmail'
 import { cleanReason, getStaffUser } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
@@ -18,9 +20,12 @@ import { createServiceClient } from '@/lib/supabaseServer'
 // team-review route (rate limit, staff gate, audit-first, status-guarded
 // update):
 //   approve         — PENDING/CHANGES_REQUESTED -> APPROVED. Clears any
-//                     stale redo note. Payment is then arranged over X
-//                     DM (@birdabo); the ad only goes live through the
-//                     activate route.
+//                     stale redo note and best-effort emails the payment
+//                     instructions to the ad's billing_email (migration
+//                     040 — email-first, X DM as backup); the ad only
+//                     goes live through the activate route. The response
+//                     carries emailStatus ('sent' | 'failed' | 'skipped')
+//                     so the admin queue knows whether to chase on X.
 //   reject          — PENDING/CHANGES_REQUESTED -> REJECTED. Requires a
 //                     written reason, stored in review_note so the buyer
 //                     sees it at /billboard.
@@ -31,7 +36,9 @@ import { createServiceClient } from '@/lib/supabaseServer'
 // review there is no assertCanTarget guard: the target is an ad, not a
 // user account, and owner-seeded / external-sponsor ads (owner_user_id
 // null or the operator's own) must stay reviewable. Ads without an
-// owner_user_id skip buyer notifications entirely.
+// owner_user_id skip buyer notifications entirely — the payment email is
+// keyed on billing_email though, so an external-sponsor ad with one on
+// file still gets it.
 
 export const dynamic = 'force-dynamic'
 
@@ -108,10 +115,13 @@ export async function POST(
 
   try {
     // placement + requested_rail_slot ride along so the approval
-    // notification can name the exact price (and slot) being asked for.
+    // notification and payment email can name the exact price (and
+    // slot) being asked for; billing_email is where that email goes.
     const { data: ad, error } = await supabase
       .from('billboard_ads')
-      .select('id, owner_user_id, status, review_note, reviewed_at, placement, requested_rail_slot')
+      .select(
+        'id, owner_user_id, status, review_note, reviewed_at, placement, requested_rail_slot, billing_email'
+      )
       .eq('id', adId)
       .maybeSingle()
 
@@ -230,29 +240,64 @@ export async function POST(
       }
     )
 
+    // The exact ask, shared by the payment email and the approval
+    // notification below.
+    const placement: BillboardPlacement = ad.placement === 'rail' ? 'rail' : 'flipper'
+    const requestedSlot: RailSlot | null = isRailSlot(ad.requested_rail_slot)
+      ? ad.requested_rail_slot
+      : null
+    const priceLine = approvedPriceLine(placement, requestedSlot)
+    const billingEmail =
+      typeof ad.billing_email === 'string' && ad.billing_email ? ad.billing_email : null
+
+    // Best-effort payment email — the primary channel since migration
+    // 040. 'skipped' means there was nothing to send (no billing_email
+    // on file, or the email env is unset) and ops chases over X DM
+    // instead. The sender keys on ad id + reviewed_at, so a retried
+    // approve can't double-deliver. A failure never fails the approve —
+    // the admin queue reads emailStatus off the response and falls back
+    // to X.
+    let emailStatus: 'sent' | 'failed' | 'skipped' = 'skipped'
+    if (action === 'approve' && billingEmail && isSponsorshipEmailConfigured()) {
+      const emailResult = await sendSponsorshipPaymentEmail({
+        to: billingEmail,
+        adId,
+        reviewedAt,
+        placement,
+        priceLine
+      })
+      emailStatus = emailResult.ok ? 'sent' : 'failed'
+      if (!emailResult.ok) {
+        console.error('[AdminBillboardReview] Payment email failed:', emailResult.error)
+      }
+    }
+
     // Best-effort: tell the buyer the outcome. Keyed on the decision
     // timestamp so a later re-review (after a resubmit) notifies again
     // while a double-submit cannot. External-sponsor ads have no account
     // to notify.
     if (ownerUserId !== null) {
-      const placement: BillboardPlacement = ad.placement === 'rail' ? 'rail' : 'flipper'
-      const requestedSlot: RailSlot | null = isRailSlot(ad.requested_rail_slot)
-        ? ad.requested_rail_slot
-        : null
       let notification: NotificationInput & { dedupeKey: string }
       switch (action) {
-        case 'approve':
+        case 'approve': {
+          // Email-first: point at the thread that actually closes the
+          // deal when a send went out; otherwise (no billing_email, env
+          // unset, provider failure) name the public billing address
+          // instead of claiming an email that never landed. X DM stays
+          // the backup channel either way.
+          const paymentLine =
+            emailStatus === 'sent'
+              ? `Payment instructions (${priceLine}) were emailed to ${billingEmail} — reply there to complete payment, or DM @${BILLBOARD_PAYMENT_X_HANDLE} on X as backup.`
+              : `To complete payment (${priceLine}), email ${BILLBOARD_PAYMENT_EMAIL} — or DM @${BILLBOARD_PAYMENT_X_HANDLE} on X as backup.`
           notification = {
             type: 'premium',
             title: 'BILLBOARD AD APPROVED',
-            body: `Your billboard ad passed review. To complete payment (${approvedPriceLine(
-              placement,
-              requestedSlot
-            )}), DM @${BILLBOARD_PAYMENT_X_HANDLE} on X — once it's confirmed, your ad is activated and goes live, usually within a few minutes to a few hours.`,
+            body: `Your billboard ad passed review. ${paymentLine} Once it's confirmed, your ad is activated and goes live, usually within a few minutes to a few hours.`,
             data: { kind: 'billboard_review', result: 'approved', adId },
             dedupeKey: `billboard_${adId}_approved_${reviewedAt}`
           }
           break
+        }
         case 'reject':
           notification = {
             type: 'premium',
@@ -279,7 +324,9 @@ export async function POST(
       await insertMissingNotifications(supabase, ownerUserId, [notification])
     }
 
-    return NextResponse.json({ success: true, status: nextStatus })
+    // emailStatus rides on every decision for a uniform shape; only an
+    // approve can move it off 'skipped'.
+    return NextResponse.json({ success: true, status: nextStatus, emailStatus })
   } catch (err) {
     console.error('[AdminBillboardReview] Action failed:', err)
     return NextResponse.json({ error: 'Failed to apply review decision' }, { status: 500 })

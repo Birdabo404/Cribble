@@ -1,3 +1,6 @@
+'use client'
+
+import { useEffect, useState } from 'react'
 import { animDelay } from '@/components/dashboard-v3/anim'
 import { ACCENT, accentA } from './format'
 
@@ -10,10 +13,17 @@ const ASCII_DASHBOARD = String.raw`██████╗  █████╗ █
 ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ `
 
 export function AsciiBanner({ username }: { username: string }) {
-  // Instrument readout under the wordmark — dossier stamp format.
-  const stamp = new Date()
-    .toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-    .toUpperCase()
+  // Instrument readout under the wordmark — dossier stamp format. Set after
+  // mount: SSR renders with the server's locale/timezone, which can differ
+  // from the client's and break hydration.
+  const [stamp, setStamp] = useState('')
+  useEffect(() => {
+    setStamp(
+      new Date()
+        .toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+        .toUpperCase()
+    )
+  }, [])
 
   return (
     <section className="mt-10 flex flex-col items-center gap-2">

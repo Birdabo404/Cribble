@@ -31,6 +31,7 @@ interface MineRow {
   placement: BillboardPlacement
   rail_slot: RailSlot | null
   requested_rail_slot: RailSlot | null
+  billing_email: string | null
   review_note: string | null
   paid_at: string | null
   starts_at: string | null
@@ -59,7 +60,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await supabase
       .from('billboard_ads')
       .select(
-        'id, status, text, company_name, link_url, logo_url, accent_color, placement, rail_slot, requested_rail_slot, review_note, paid_at, starts_at, ends_at, clicks, created_at'
+        'id, status, text, company_name, link_url, logo_url, accent_color, placement, rail_slot, requested_rail_slot, billing_email, review_note, paid_at, starts_at, ends_at, clicks, created_at'
       )
       .eq('owner_user_id', session.userId)
       .order('created_at', { ascending: false })
@@ -81,6 +82,10 @@ export async function GET(request: NextRequest) {
       placement: row.placement,
       rail_slot: row.rail_slot,
       requested_rail_slot: row.requested_rail_slot,
+      // The owner's own billing contact — shown on the tracker so the
+      // buyer knows where the payment instructions landed, and prefilled
+      // into the edit form.
+      billing_email: row.billing_email,
       review_note: row.review_note,
       starts_at: row.starts_at,
       ends_at: row.ends_at,

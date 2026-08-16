@@ -15,7 +15,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: session.error }, { status: session.status })
     }
 
-    const referral = await ensureReferralCode(supabase, session.userId)
+    // Single parallel phase after auth: both calls only need userId.
+    // `joined` comes from invite_codes.use_count (atomically maintained
+    // by redeem_invite_code, migration 008), so no separate count query.
+    const [referral, rewardsResult] = await Promise.all([
+      ensureReferralCode(supabase, session.userId),
+      supabase
+        .from('referral_rewards')
+        .select('points')
+        .eq('referrer_user_id', session.userId)
+    ])
+
     if (!referral) {
       return NextResponse.json(
         { error: 'Failed to prepare referral code' },
@@ -23,20 +33,6 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const [joinedResult, rewardsResult] = await Promise.all([
-      supabase
-        .from('invite_redemptions')
-        .select('id', { count: 'exact', head: true })
-        .eq('invite_code_id', referral.id),
-      supabase
-        .from('referral_rewards')
-        .select('points')
-        .eq('referrer_user_id', session.userId)
-    ])
-
-    if (joinedResult.error) {
-      console.error('[Referrals] Joined count failed:', joinedResult.error)
-    }
     if (rewardsResult.error) {
       console.error('[Referrals] Rewards read failed:', rewardsResult.error)
     }
@@ -53,7 +49,7 @@ export async function GET(request: NextRequest) {
       // publicly, so it must be the canonical domain even from a dev box.
       link: `${resolveShareOrigin()}/join/${referral.code}`,
       stats: {
-        joined: joinedResult.count ?? 0,
+        joined: referral.useCount,
         rewarded,
         pointsEarned,
         capRemaining: Math.max(0, REFERRAL_CAP - rewarded)

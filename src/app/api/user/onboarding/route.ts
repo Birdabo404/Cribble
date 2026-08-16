@@ -57,7 +57,9 @@ export async function GET(req: NextRequest) {
 
   const { data: user, error } = await supabase
     .from('users')
-    .select('id, twitter_username, user_type, onboarded_at, metadata, created_at')
+    .select(
+      'id, twitter_username, user_type, onboarded_at, metadata, created_at, last_extension_sync, active_device_uuid'
+    )
     .eq('id', auth.userId)
     .single()
 
@@ -70,7 +72,11 @@ export async function GET(req: NextRequest) {
     username: user.twitter_username || null,
     role: user.user_type || null,
     metadata: user.metadata || {},
-    createdAt: user.created_at || null
+    createdAt: user.created_at || null,
+    // Ever-linked (a past sync or a bound device). The extension gate
+    // accepts this in place of a live handshake on browsers that can't
+    // install the extension.
+    extensionLinked: !!(user.last_extension_sync || user.active_device_uuid)
   })
 }
 

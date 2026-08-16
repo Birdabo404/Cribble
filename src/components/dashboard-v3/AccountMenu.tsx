@@ -116,7 +116,10 @@ export function AccountMenu({
       : 'glass-pop-in 180ms cubic-bezier(0.22, 1, 0.36, 1) backwards'
 
   return (
-    <div ref={rootRef} className="relative">
+    /* shrink-0: as a top-bar flex child the identity pill must never
+       compress when the row runs tight — overflow eats the wordmark
+       instead (see NavTopBar). */
+    <div ref={rootRef} className="relative shrink-0">
       {variant === 'rail' ? (
         <button
           onClick={() => setOpen((v) => !v)}

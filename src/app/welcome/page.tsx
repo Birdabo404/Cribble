@@ -7,7 +7,11 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 import { LiquidMark } from '@/components/brand/LiquidMark'
 import { ROLE_ICONS } from '@/components/roleIcons'
 import { ROLE_OPTIONS } from '@/lib/roles'
-import { EXTENSION_INSTALL_URL } from '@/lib/extensionInstall'
+import {
+  EXTENSION_INSTALL_URL,
+  evaluateExtensionGate,
+  isExtensionCapableBrowser
+} from '@/lib/extensionInstall'
 import { TEAM_TERMS, type BillingTerm } from '@/lib/planTerms'
 import { useExtensionDetection } from '@/hooks/useExtensionDetection'
 import {
@@ -52,6 +56,15 @@ type Stage =
 // can be fixed once at module level: no store listing → no extension step,
 // and the wizard behaves exactly as it did before that step existed.
 const EXTENSION_STEP_ENABLED = EXTENSION_INSTALL_URL !== null
+
+// ?next= comes from the ExtensionGate bounce and restores where the user
+// was headed once the gate passes. Only same-origin paths may ride it:
+// reject anything that doesn't start with a single "/" so it can never
+// become an open redirect.
+function sanitizeNextPath(raw: string | null): string | null {
+  if (!raw || !raw.startsWith('/') || raw.startsWith('//')) return null
+  return raw
+}
 
 // The step list is a function of the chosen mode. Solo runs the personal
 // questionnaire; team is a two-step lane — the remaining questions are
@@ -113,7 +126,17 @@ const TOOLS: { id: string; label: string; icon: IconComponent }[] = [
 
 const AMBIENCE_AUDIO_PATH = '/audio/deeper-into-it.mp3'
 
+// The intro stage can't advance until the onboarding status fetch
+// settles; if it hangs (stalled proxy, dead connection), abort here so
+// the catch marks the status known and the page fails open into the
+// wizard — same fallback as a fetch error.
+const ONBOARDING_STATUS_TIMEOUT_MS = 10_000
+
 const STEP_SWAP_MS = 240
+
+// Dwell on the "EXTENSION DETECTED" confirmation before auto-forwarding,
+// long enough to read as a state change instead of a flicker.
+const EXTENSION_DETECTED_PAUSE_MS = 900
 
 export default function WelcomePage() {
   const router = useRouter()
@@ -129,10 +152,19 @@ export default function WelcomePage() {
   const [saving, setSaving] = useState(false)
   const [alreadyOnboarded, setAlreadyOnboarded] = useState(false)
   const [statusKnown, setStatusKnown] = useState(false)
+  const [extensionLinked, setExtensionLinked] = useState(false)
+  // UA sniffing must wait for the client — SSR only ever renders the
+  // intro, which doesn't read this.
+  const [capableBrowser, setCapableBrowser] = useState(false)
   const [devMode, setDevMode] = useState(false)
   const devRequestedRef = useRef(false)
+  const nextPathRef = useRef<string | null>(null)
   const ambienceAudioRef = useRef<HTMLAudioElement | null>(null)
   const swapTimerRef = useRef<number | null>(null)
+  // One detection loop for the whole page: the intro verdict and the
+  // extension stage both read it, and it keeps polling until detected —
+  // which is what lets a mid-stage install unlock the CTA by itself.
+  const { detected, checked } = useExtensionDetection(EXTENSION_STEP_ENABLED)
 
   // Crossfade between steps: animate the current step out, then swap.
   const goTo = useCallback((next: Stage) => {
@@ -151,10 +183,13 @@ export default function WelcomePage() {
   }, [])
 
   useEffect(() => {
-    const ambience = new Audio(AMBIENCE_AUDIO_PATH)
+    // No src yet: constructing with the URL (plus preload) would start
+    // the 1.2MB download on mount, even for users who bounce straight to
+    // the dashboard. The src is attached on the first play attempt below.
+    const ambience = new Audio()
     ambience.loop = true
     ambience.volume = 0.32
-    ambience.preload = 'auto'
+    ambience.preload = 'none'
     ambienceAudioRef.current = ambience
     return () => {
       ambience.pause()
@@ -167,6 +202,9 @@ export default function WelcomePage() {
     const ambience = ambienceAudioRef.current
     if (!ambience) return
     if (stage !== 'intro') {
+      // First play attempt attaches the src — this, not mount, is what
+      // starts the download. Later stage changes leave it in place.
+      if (!ambience.src) ambience.src = AMBIENCE_AUDIO_PATH
       ambience.play().catch(() => {
         // Browser autoplay policies may block until user gesture.
       })
@@ -174,12 +212,26 @@ export default function WelcomePage() {
   }, [stage])
 
   useEffect(() => {
-    devRequestedRef.current = new URLSearchParams(window.location.search).has('dev')
+    const params = new URLSearchParams(window.location.search)
+    devRequestedRef.current = params.has('dev')
+    nextPathRef.current = sanitizeNextPath(params.get('next'))
+    setCapableBrowser(isExtensionCapableBrowser())
   }, [])
 
   useEffect(() => {
     let cancelled = false
-    fetch('/api/user/onboarding', { credentials: 'include' })
+    // Abort a hung request after 10s: the rejection lands in the catch
+    // below, which fail-opens exactly like a network error, so the intro
+    // always advances.
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(
+      () => controller.abort(),
+      ONBOARDING_STATUS_TIMEOUT_MS
+    )
+    fetch('/api/user/onboarding', {
+      credentials: 'include',
+      signal: controller.signal
+    })
       .then(async (r) => {
         if (r.status === 401 || r.status === 403) {
           return { unauthenticated: true }
@@ -197,46 +249,90 @@ export default function WelcomePage() {
         const dev = devRequestedRef.current && process.env.NODE_ENV === 'development'
         setDevMode(dev)
         if (data?.onboarded && !dev) setAlreadyOnboarded(true)
+        setExtensionLinked(data?.extensionLinked === true)
         setStatusKnown(true)
       })
       .catch(() => {
         if (!cancelled) setStatusKnown(true)
       })
+      .finally(() => {
+        window.clearTimeout(timeoutId)
+      })
     return () => {
       cancelled = true
+      window.clearTimeout(timeoutId)
     }
   }, [router])
 
-  // After the intro moment, branch on whether the user is already onboarded.
+  // The intro can branch as soon as the API status lands — except for
+  // onboarded users behind a live extension step, who also need the first
+  // handshake attempt settled before the gate verdict means anything.
+  const gateReady =
+    statusKnown && (!alreadyOnboarded || !EXTENSION_STEP_ENABLED || checked)
+
+  // signedIn is a given here: the status fetch above bounces unauthenticated
+  // visitors to /login before the verdict is ever consulted.
+  const verdict = evaluateExtensionGate({
+    enabled: EXTENSION_STEP_ENABLED,
+    signedIn: true,
+    capableBrowser,
+    detected,
+    linked: extensionLinked
+  })
+
+  const finish = useCallback(() => {
+    router.replace(nextPathRef.current ?? '/dashboard')
+  }, [router])
+
+  // Where an onboarded user goes once the intro settles: through to the app
+  // when the gate allows, or straight to the install stage (no wizard
+  // replay) when the extension is required but missing.
+  const leaveIntro = useCallback(() => {
+    if (!alreadyOnboarded) {
+      goTo('mode')
+      return
+    }
+    switch (verdict) {
+      case 'allow':
+        finish()
+        return
+      case 'install':
+        goTo('extension')
+        return
+      default: {
+        const exhaustive: never = verdict
+        return exhaustive
+      }
+    }
+  }, [alreadyOnboarded, verdict, finish, goTo])
+
+  // After the intro moment, branch on onboarding status + gate verdict.
   useEffect(() => {
     if (stage !== 'intro') return
     const minIntro = 1800
     const id = setTimeout(() => {
-      if (!statusKnown) return // status hasn't returned yet — retry tick below
-      if (alreadyOnboarded) router.replace('/dashboard')
-      else goTo('mode')
+      if (!gateReady) return // signals haven't settled yet — retry tick below
+      leaveIntro()
     }, minIntro)
     return () => clearTimeout(id)
-  }, [stage, alreadyOnboarded, statusKnown, router, goTo])
+  }, [stage, gateReady, leaveIntro])
 
-  // Safety: if status arrives later than the intro minimum, still advance.
+  // Safety: if the signals arrive later than the intro minimum, still advance.
   useEffect(() => {
-    if (stage !== 'intro' || !statusKnown) return
-    const t = setTimeout(() => {
-      if (alreadyOnboarded) router.replace('/dashboard')
-      else goTo('mode')
-    }, 200)
+    if (stage !== 'intro' || !gateReady) return
+    const t = setTimeout(leaveIntro, 200)
     return () => clearTimeout(t)
-  }, [statusKnown, alreadyOnboarded, stage, router, goTo])
+  }, [stage, gateReady, leaveIntro])
 
   // Active path. The `stage === 'team'` clause keeps the team list in
   // force during the leave animation after "Continue solo instead" flips
   // the mode — the counter must never dereference a stage that just left
-  // the path.
-  const steps = useMemo<Stage[]>(
-    () => (stage === 'team' || mode === 'team' ? TEAM_STEPS : SOLO_STEPS),
-    [stage, mode]
-  )
+  // the path. The extension stage only exists on the solo list, so pin it
+  // there even when a team-lane user gets routed to the wall.
+  const steps = useMemo<Stage[]>(() => {
+    if (stage === 'extension') return SOLO_STEPS
+    return stage === 'team' || mode === 'team' ? TEAM_STEPS : SOLO_STEPS
+  }, [stage, mode])
 
   const advance = useCallback(() => {
     const idx = steps.indexOf(stage)
@@ -277,9 +373,9 @@ export default function WelcomePage() {
       setSaving(false)
       goTo('extension')
     } else {
-      router.replace('/dashboard')
+      finish()
     }
-  }, [role, goal, topTools, mode, saving, devMode, router, goTo])
+  }, [role, goal, topTools, mode, saving, devMode, finish, goTo])
 
   // The team lane's CTA: save-first (accountType lands even if the buyer
   // bails at Polar), then a plain browser navigation to the checkout
@@ -317,9 +413,36 @@ export default function WelcomePage() {
     goTo('privacy')
   }, [goTo])
 
+  // SKIP bails on the questionnaire but can't bypass the extension wall —
+  // the (app) gate would just bounce back here, so land on the install
+  // stage directly instead of looping through the dashboard. Skipping
+  // still counts as onboarding: fire the same save the completion path
+  // makes (with whatever was answered so far) so onboarded_at is set and
+  // the wizard doesn't replay on every future login. Fire-and-forget —
+  // moving the user along matters more than the write.
   const skip = useCallback(() => {
-    router.replace('/dashboard')
-  }, [router])
+    if (!devMode) {
+      void fetch('/api/user/onboarding', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role,
+          goal,
+          topTools,
+          accountType: mode,
+          newsletter: false
+        })
+      }).catch(() => {
+        // intentionally swallow — we'd rather land the user than block them
+      })
+    }
+    if (EXTENSION_STEP_ENABLED) {
+      goTo('extension')
+      return
+    }
+    finish()
+  }, [role, goal, topTools, mode, devMode, goTo, finish])
 
   const stepNumber = useMemo(() => {
     if (stage === 'intro') return null
@@ -337,7 +460,7 @@ export default function WelcomePage() {
           <TopBar
             stepNumber={stepNumber}
             totalSteps={steps.length}
-            onSkip={skip}
+            onSkip={stage === 'extension' ? null : skip}
           />
         )}
 
@@ -392,7 +515,14 @@ export default function WelcomePage() {
                   saving={saving}
                 />
               )}
-              {stage === 'extension' && <ExtensionStage onDone={skip} />}
+              {stage === 'extension' && (
+                <ExtensionStage
+                  detected={detected}
+                  capableBrowser={capableBrowser}
+                  canEnter={verdict === 'allow'}
+                  onDone={finish}
+                />
+              )}
             </div>
           )}
         </main>
@@ -561,7 +691,9 @@ function TopBar({
 }: {
   stepNumber: number | null
   totalSteps: number
-  onSkip: () => void
+  /** null hides the button — the extension stage is mandatory, so there
+   *  is nothing left to skip to. */
+  onSkip: (() => void) | null
 }) {
   return (
     <header className="relative z-10 px-6 pt-6">
@@ -577,12 +709,14 @@ function TopBar({
             {String(stepNumber ?? 0).padStart(2, '0')} / {String(totalSteps).padStart(2, '0')}
           </div>
           <ThemeToggle />
-          <button
-            onClick={onSkip}
-            className="font-mono text-[10px] tracking-[0.3em] px-3 py-1.5 rounded border border-zinc-800 hover:border-zinc-600 text-zinc-500 hover:text-zinc-200 transition-colors"
-          >
-            SKIP
-          </button>
+          {onSkip && (
+            <button
+              onClick={onSkip}
+              className="font-mono text-[10px] tracking-[0.3em] px-3 py-1.5 rounded border border-zinc-800 hover:border-zinc-600 text-zinc-500 hover:text-zinc-200 transition-colors"
+            >
+              SKIP
+            </button>
+          )}
         </div>
       </div>
       <div className="mt-5 max-w-3xl mx-auto flex gap-1.5">
@@ -1096,8 +1230,27 @@ function ToolsStage({
    STEP 6 — Install the extension (only when the store listing is live)
    ============================================================ */
 
-function ExtensionStage({ onDone }: { onDone: () => void }) {
-  const { detected } = useExtensionDetection(true)
+function ExtensionStage({
+  detected,
+  capableBrowser,
+  canEnter,
+  onDone
+}: {
+  detected: boolean
+  capableBrowser: boolean
+  /** Gate verdict for the current inputs — the CTA stays locked until it
+   *  passes. Detection landing mid-stage unlocks it by itself, since the
+   *  page-level hook keeps polling. */
+  canEnter: boolean
+  onDone: () => void
+}) {
+  // Detection landing forwards on its own after a short confirmation beat;
+  // the button below stays as the manual fallback.
+  useEffect(() => {
+    if (!detected || !canEnter) return
+    const id = window.setTimeout(onDone, EXTENSION_DETECTED_PAUSE_MS)
+    return () => window.clearTimeout(id)
+  }, [detected, canEnter, onDone])
 
   return (
     <StageShell
@@ -1105,11 +1258,11 @@ function ExtensionStage({ onDone }: { onDone: () => void }) {
       stage="extension"
       title={
         <>
-          one last thing — the <em className="text-zinc-50">tracker</em>{' '}
+          one last thing: the <em className="text-zinc-50">tracker</em>{' '}
           itself.
         </>
       }
-      subtitle="Install the Chrome extension once. It links itself the moment your dashboard loads — no setup, no keys, nothing to configure."
+      subtitle="Install the extension once. It links to your account on its own when your dashboard loads."
     >
       <div
         className="card-enter glass-lite mt-9 rounded-2xl p-6"
@@ -1123,10 +1276,10 @@ function ExtensionStage({ onDone }: { onDone: () => void }) {
             <CardIcon icon={IconPuzzle} selected={detected} />
             <div>
               <div className="text-sm font-semibold text-zinc-100">
-                Cribble for Chrome
+                cribble-engine
               </div>
               <div className="mt-0.5 text-xs text-zinc-500">
-                counts your minutes on AI tools — never reads a word
+                counts your minutes on AI tools, never reads a word
               </div>
             </div>
           </div>
@@ -1136,7 +1289,7 @@ function ExtensionStage({ onDone }: { onDone: () => void }) {
             rel="noopener noreferrer"
             className="inline-flex items-center justify-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-full border border-zinc-700 text-zinc-100 hover:border-zinc-500 hover:-translate-y-px transition-all duration-300"
           >
-            Add to Chrome
+            Install cribble-engine
             <IconArrowRight size={14} />
           </a>
         </div>
@@ -1151,24 +1304,31 @@ function ExtensionStage({ onDone }: { onDone: () => void }) {
                 EXTENSION DETECTED
               </span>
             </div>
-          ) : (
-            <div className="flex items-center gap-3">
-              <span className="inline-flex h-5 w-5 items-center justify-center">
-                <span className="h-1.5 w-1.5 rounded-full bg-zinc-600 animate-pulse" />
-              </span>
-              <span className="font-mono text-[10px] tracking-[0.3em] text-zinc-500">
-                WAITING FOR INSTALL…
-              </span>
+          ) : capableBrowser ? (
+            <div>
+              <div className="flex items-center gap-3">
+                <span className="inline-flex h-5 w-5 items-center justify-center">
+                  <span className="h-1.5 w-1.5 rounded-full bg-zinc-600 animate-pulse" />
+                </span>
+                <span className="font-mono text-[10px] tracking-[0.3em] text-zinc-500">
+                  WAITING FOR INSTALL…
+                </span>
+              </div>
+              <p className="mt-2 pl-8 text-xs leading-relaxed text-zinc-600">
+                After installing, reload this page so the extension can answer.
+              </p>
             </div>
+          ) : (
+            <p className="text-xs leading-relaxed text-zinc-500">
+              This browser can&apos;t run the extension. Open Cribble on
+              desktop Chrome to install.
+            </p>
           )}
         </div>
       </div>
 
       <StageActions>
-        <GhostButton onClick={onDone} noIcon>
-          Skip for now
-        </GhostButton>
-        <PrimaryButton onClick={onDone} emphasized={detected}>
+        <PrimaryButton onClick={onDone} disabled={!canEnter} emphasized={canEnter}>
           Enter dashboard
         </PrimaryButton>
       </StageActions>

@@ -11,6 +11,7 @@ import { cleanBillboardUrl, extractAccentColor } from '@/lib/billboardServer'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
 import { getSessionUserId } from '@/lib/sessionAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
+import { validateEmail } from '@/lib/validation'
 
 // Owner-side edit of a Billboard submission (migration 030). Two legal
 // moments, per the lifecycle:
@@ -34,6 +35,7 @@ type AdFields = {
   logoUrl: string | null
   placement: BillboardPlacement
   requestedRailSlot: RailSlot | null
+  billingEmail: string
 }
 
 /**
@@ -63,6 +65,12 @@ type AdFields = {
  *                  slot", forced NULL on flipper ads. A preference,
  *                  never a hold — slots go to the first confirmed
  *                  payment.
+ *   billing_email — required since migration 040: where the payment
+ *                  instructions are emailed on approval (the email-first
+ *                  flow, X DM as backup). Validated + lowercased by
+ *                  validateEmail; the stored value is its sanitized form.
+ *                  Pre-040 rows hold NULL until their next edit, which
+ *                  must supply one.
  */
 function parseAdFields(body: Record<string, unknown>): AdFields | { error: string } {
   const rawText = typeof body.text === 'string' ? body.text : ''
@@ -119,7 +127,18 @@ function parseAdFields(body: Record<string, unknown>): AdFields | { error: strin
   // A slot preference only makes sense on the product that has slots.
   if (placement !== 'rail') requestedRailSlot = null
 
-  return { text, companyName, linkUrl, logoUrl, placement, requestedRailSlot }
+  const rawBillingEmail =
+    typeof body.billing_email === 'string' ? body.billing_email.trim() : ''
+  if (!rawBillingEmail) {
+    return { error: 'A billing email is required — payment instructions are sent there' }
+  }
+  const billingCheck = validateEmail(rawBillingEmail)
+  if (!billingCheck.isValid || !billingCheck.sanitized) {
+    return { error: billingCheck.error ?? 'Billing email is not a valid email address' }
+  }
+  const billingEmail = billingCheck.sanitized
+
+  return { text, companyName, linkUrl, logoUrl, placement, requestedRailSlot, billingEmail }
 }
 
 export async function PATCH(
@@ -191,6 +210,7 @@ export async function PATCH(
       logo_url: fields.logoUrl,
       placement: fields.placement,
       requested_rail_slot: fields.requestedRailSlot,
+      billing_email: fields.billingEmail,
       updated_at: new Date().toISOString()
     }
     // A redo answer goes back into the review queue; the note it
@@ -233,7 +253,7 @@ export async function PATCH(
       .eq('owner_user_id', session.userId)
       .eq('status', currentStatus)
       .select(
-        'id, status, text, company_name, link_url, logo_url, placement, requested_rail_slot, review_note, updated_at'
+        'id, status, text, company_name, link_url, logo_url, placement, requested_rail_slot, billing_email, review_note, updated_at'
       )
 
     if (updateError) {

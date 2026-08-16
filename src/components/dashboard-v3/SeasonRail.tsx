@@ -7,6 +7,14 @@ import { Panel } from './Panel'
 import { TickGauge } from './TickGauge'
 import type { ActivityDay } from '@/types/dashboard'
 
+// Day keys come from LOCAL date parts: last7Days anchors its window to local
+// midnight, so keying via toISOString() (UTC) would shift keys across the date
+// line and highlight the wrong day for non-UTC users.
+function localDayKey(d: Date) {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 function last7Days(activity: ActivityDay[]) {
   const byDate = new Map(activity.map((d) => [d.date, d.score]))
   const today = new Date()
@@ -16,7 +24,7 @@ function last7Days(activity: ActivityDay[]) {
   for (let i = 6; i >= 0; i--) {
     const d = new Date(today)
     d.setDate(today.getDate() - i)
-    const key = d.toISOString().split('T')[0]
+    const key = localDayKey(d)
     out.push({
       key,
       label: dayLetters[d.getDay()],
