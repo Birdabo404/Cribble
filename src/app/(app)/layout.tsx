@@ -4,17 +4,13 @@
 // /welcome) intentionally keep their own chrome outside this group.
 
 import { AppShell } from '@/components/nav/AppShell'
-import { ExtensionGate } from '@/components/ExtensionGate'
 import { FeedbackLauncher } from '@/components/feedback/FeedbackLauncher'
 import { Toaster } from '@/components/Toaster'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <AppShell>
-      {/* Hard extension wall: signed-in users whose extension is required
-          but missing get bounced to the /welcome install stage. Checks once
-          per app entry since this layout persists across (app) routes. */}
-      <ExtensionGate>{children}</ExtensionGate>
+      {children}
       {/* Mounted once for every (app) route so toasts fired from any page
           (sync results, achievements, notifications) always render. */}
       <Toaster />
