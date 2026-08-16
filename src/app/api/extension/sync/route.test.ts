@@ -210,6 +210,19 @@ vi.mock('@/lib/aiDomains', () => ({
   resolveTrackedAiDomain: (domain: string) => domain
 }))
 
+// The route defers post-ingest side work via after(), which requires a Next
+// request scope vitest doesn't provide (the real one throws without it).
+// Run the task immediately instead; NextRequest/NextResponse stay real.
+vi.mock('next/server', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('next/server')>()
+  return {
+    ...actual,
+    after: (task: Promise<unknown> | (() => unknown)) => {
+      if (typeof task === 'function') void task()
+    }
+  }
+})
+
 import { POST } from './route'
 
 const DEVICE_UUID = '5b0d4a52-7f6e-4c2a-9a1c-3f9e8d7c6b5a'

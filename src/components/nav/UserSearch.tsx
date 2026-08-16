@@ -1,10 +1,12 @@
 'use client'
 
 // User search for the nav shell — the X-style "find people" box.
-// One component, two skins matching the chrome it lives in:
-//   chip → icon button in the top bar, panel with the input inside
-//   rail → command-rail row, panel flies out to the right
-// Both variants share the debounced lookup, keyboard navigation
+// One component, three skins matching the chrome it lives in:
+//   chip   → icon button in the top bar, panel with the input inside
+//   rail   → command-rail row, panel flies out to the right
+//   drawer → mobile-drawer row, input + results expand in normal flow
+//            (the 280px drawer can't host a floating ~320px panel)
+// All variants share the debounced lookup, keyboard navigation
 // (↑/↓/Enter), and the "/" shortcut. Results are plain links so
 // cmd-click and middle-click keep working.
 
@@ -165,10 +167,16 @@ function ResultRows({
 
 export function UserSearch({
   variant,
-  className = ''
+  className = '',
+  enabled = true
 }: {
-  variant: 'chip' | 'rail'
+  variant: 'chip' | 'rail' | 'drawer'
   className?: string
+  /** Lets host chrome that stays mounted while hidden (the mobile drawer
+   * slides offscreen but never unmounts) park this instance: the panel
+   * closes and the "/" shortcut ignores it. The getClientRects guard
+   * can't catch that case — a translated-away element still has boxes. */
+  enabled?: boolean
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -184,6 +192,12 @@ export function UserSearch({
   useEffect(() => {
     setOpen(false)
   }, [pathname])
+
+  // Host chrome slid shut — close too, so a stale panel isn't sitting
+  // open (with old results) when the chrome comes back.
+  useEffect(() => {
+    if (!enabled) setOpen(false)
+  }, [enabled])
 
   useEffect(() => {
     if (!open) return
@@ -205,8 +219,10 @@ export function UserSearch({
   }, [open])
 
   // "/" jumps to search, X-style. Several variants can be mounted at
-  // once (top bar + rail); only the one actually rendered reacts.
+  // once (top bar + rail + drawer); only the one actually rendered —
+  // and not parked by its host — reacts.
   useEffect(() => {
+    if (!enabled) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return
       const t = e.target as HTMLElement | null
@@ -219,7 +235,7 @@ export function UserSearch({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [enabled])
 
   const closeAfterNavigate = useCallback(() => {
     setOpen(false)
@@ -328,10 +344,59 @@ export function UserSearch({
     )
   }
 
+  /* ---------------- drawer row + inline panel ---------------- */
+
+  // The drawer variant expands in normal flow (disclosure, not a floating
+  // dialog): the input and result rows push the nav list down and scroll
+  // with it, since a 280px slide-over has no room to anchor a flyout.
+  if (variant === 'drawer') {
+    return (
+      <div ref={rootRef} className={className}>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen((v) => {
+              const next = !v
+              if (next) requestAnimationFrame(() => inputRef.current?.focus())
+              return next
+            })
+          }}
+          aria-label="Search users"
+          aria-expanded={open}
+          className={`relative mx-2 mb-1 flex h-11 w-[calc(100%-16px)] items-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 ${
+            open
+              ? 'bg-white/[0.06] text-zinc-100'
+              : 'text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-100 active:bg-white/[0.08]'
+          }`}
+        >
+          <span className="flex w-12 shrink-0 items-center justify-center">
+            <IconSearch className="h-[17px] w-[17px]" />
+          </span>
+          <span className="text-[10px] tracking-[0.3em]">SEARCH</span>
+        </button>
+
+        {open && (
+          <div className="mx-2 mb-1 overflow-hidden rounded-lg glass-inset-lite">
+            <div className="flex items-center gap-2 border-b border-white/[0.08] px-3.5 py-2.5">
+              <span className="text-zinc-600">
+                <IconSearch size={13} />
+              </span>
+              <input
+                {...inputProps}
+                className="min-w-0 flex-1 bg-transparent py-0.5 text-[12px] text-zinc-100 placeholder:text-[9px] placeholder:tracking-[0.3em] placeholder:text-zinc-600 focus:outline-none"
+              />
+            </div>
+            {rows}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   /* ---------------- top-bar chip ---------------- */
 
   return (
-    <div ref={rootRef} className={`relative ${className}`}>
+    <div ref={rootRef} className={`relative shrink-0 ${className}`}>
       <button
         type="button"
         onClick={() => {

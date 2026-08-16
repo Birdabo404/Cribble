@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { formatCompact, tierAccent } from '@/components/dashboard-v2/format'
 import { animDelay } from './anim'
 import { IconCrosshair } from './DashIcons'
@@ -46,12 +47,15 @@ function RefreshButton({
   refreshing: boolean
 }) {
   return (
+    // The ::after overlay pads the 28px chip out to a 44px tap target below
+    // md without growing the visible button; pointer layouts drop it so the
+    // hover ring still hugs the chip.
     <button
       onClick={onRefresh}
       disabled={refreshing}
       title="Refresh score"
       aria-label="Refresh score"
-      className="group inline-flex h-7 w-7 items-center justify-center rounded border border-zinc-800 text-zinc-500 transition-colors hover:border-zinc-600 hover:text-ember disabled:opacity-60"
+      className="group relative inline-flex h-7 w-7 items-center justify-center rounded border border-zinc-800 text-zinc-500 transition-colors after:absolute after:-inset-2 hover:border-zinc-600 hover:text-ember disabled:opacity-60 md:after:hidden"
     >
       <svg
         viewBox="0 0 16 16"
@@ -124,7 +128,7 @@ export function HeroCard({
             >
               {(tier || 'FREE').toUpperCase()}
             </span>
-            <a
+            <Link
               href="/leaderboard"
               className="group anim-rise mt-1 text-right"
               style={animDelay(260)}
@@ -143,7 +147,7 @@ export function HeroCard({
               <div className="font-data text-[9px] tracking-[0.25em] text-zinc-600 group-hover:text-ember/70 transition-colors">
                 LEADERBOARD →
               </div>
-            </a>
+            </Link>
           </div>
         </div>
 

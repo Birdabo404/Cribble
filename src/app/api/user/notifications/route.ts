@@ -110,18 +110,6 @@ export async function GET(request: NextRequest) {
 
     if (mutedList) feedQuery = feedQuery.not('type', 'in', mutedList)
 
-    const { data: notifications, error } = await feedQuery
-      .order('created_at', { ascending: false })
-      .limit(FEED_LIMIT)
-
-    if (error) {
-      console.error('[Notifications] Feed query failed:', error)
-      return NextResponse.json(
-        { success: false, error: 'Failed to load notifications' },
-        { status: 500 }
-      )
-    }
-
     let countQuery = supabase
       .from('notifications')
       .select('id', { count: 'exact', head: true })
@@ -130,7 +118,23 @@ export async function GET(request: NextRequest) {
 
     if (mutedList) countQuery = countQuery.not('type', 'in', mutedList)
 
-    const { count: unreadCount, error: countError } = await countQuery
+    // Both reads need the muted-type filter above, but are independent of
+    // each other — run them concurrently.
+    const [
+      { data: notifications, error },
+      { count: unreadCount, error: countError }
+    ] = await Promise.all([
+      feedQuery.order('created_at', { ascending: false }).limit(FEED_LIMIT),
+      countQuery
+    ])
+
+    if (error) {
+      console.error('[Notifications] Feed query failed:', error)
+      return NextResponse.json(
+        { success: false, error: 'Failed to load notifications' },
+        { status: 500 }
+      )
+    }
 
     if (countError) {
       console.error('[Notifications] Unread count failed:', countError)

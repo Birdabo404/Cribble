@@ -19,8 +19,10 @@ import {
 } from '@/lib/billboard'
 
 // Billboard queue: review paid ad submissions with an exact-render
-// preview (the same BillboardCard the public surfaces ship), collect
-// payment over X DM after approving, then mark paid + go live. Two
+// preview (the same BillboardCard the public surfaces ship). Approving
+// emails the payment instructions to the ad's billing_email (X DM is
+// the backup channel — the approve notice says which one to work);
+// once payment closes, mark paid + go live. Two
 // products share the queue: flipper ads (capped at 8 concurrent) and
 // profile-rail ads (one live ad per slot; activation picks a free slot
 // from a picker whose occupancy derives client-side from the live
@@ -60,6 +62,9 @@ interface AdRow {
   /** The slot the buyer asked for at submission — a preference, never a
    *  hold. Null = any slot; always null on flipper ads. */
   requested_rail_slot: RailSlot | null
+  /** Where the approval payment email goes; null (external sponsors,
+   *  pre-040 rows) means no send — the deal closes on X instead. */
+  billing_email: string | null
   status: BillboardStatus
   review_note: string | null
   reviewed_at: string | null
@@ -119,7 +124,7 @@ function PlacementChip({ ad }: { ad: AdRow }) {
 }
 
 /** The buyer's slot wish with its exact price — worn by queue/awaiting
- *  (and expired-renewal) rows so the DM conversation about money can
+ *  (and expired-renewal) rows so the payment conversation about money can
  *  start from the list. Nothing to show on flipper ads or open-slot
  *  pitches. */
 function RequestedSlotChip({ ad }: { ad: AdRow }) {
@@ -130,6 +135,16 @@ function RequestedSlotChip({ ad }: { ad: AdRow }) {
       {RAIL_SLOT_PRICE_CENTS[ad.requested_rail_slot] / 100}/WK
     </span>
   )
+}
+
+/** Whether a payment email can go out for this ad: the billing address
+ *  on file, or a loud amber NO BILLING EMAIL — the tell that this deal
+ *  closes over X DM instead (external sponsors, pre-040 rows). */
+function BillingEmailLine({ ad }: { ad: AdRow }) {
+  if (!ad.billing_email) {
+    return <span className={`${chipCls} border-amber-400/30 text-amber-300`}>NO BILLING EMAIL</span>
+  }
+  return <span className="break-all text-zinc-500">{ad.billing_email}</span>
 }
 
 /** Title fallback for rows predating company_name: the link's host,
@@ -219,6 +234,16 @@ const actionBtn = (tone: 'green' | 'red' | 'sky' | 'zinc') => {
 }
 
 const railFullMsg = `All ${RAIL_SLOTS.length} rail slots are occupied — archive one or wait for a window to end.`
+
+/** Narrows the review response's emailStatus. Anything unexpected reads
+ *  as 'skipped' — the "no email went out, work it by hand" answer. */
+function emailStatusOf(payload: unknown): 'sent' | 'failed' | 'skipped' {
+  const value =
+    payload && typeof payload === 'object' && 'emailStatus' in payload
+      ? (payload as { emailStatus?: unknown }).emailStatus
+      : undefined
+  return value === 'sent' || value === 'failed' ? value : 'skipped'
+}
 
 /** The controls that put a paid ad on the board: rail ads get a slot
  *  picker (occupied slots disabled, defaulting to the ad's requested
@@ -377,8 +402,26 @@ function BillboardQueue({ me }: { me: StaffMe }) {
       ad,
       `/api/admin/billboard/${ad.id}/review`,
       { action: 'approve' },
-      () =>
-        `Ad #${ad.id} approved — collect payment over X DM (@${BILLBOARD_PAYMENT_X_HANDLE}), then mark paid + go live.`
+      (payload) => {
+        // The notice names the channel the deal now lives on: the email
+        // thread when the send went out, X DM when it didn't (failed
+        // provider, unset env, or no address on file).
+        const emailStatus = emailStatusOf(payload)
+        switch (emailStatus) {
+          case 'sent':
+            return `Ad #${ad.id} approved — payment email sent to ${ad.billing_email}. Close it in that thread, then mark paid + go live.`
+          case 'failed':
+            return `Ad #${ad.id} approved — payment email to ${ad.billing_email} FAILED. Chase over X DM (@${BILLBOARD_PAYMENT_X_HANDLE}), then mark paid + go live.`
+          case 'skipped':
+            return `Ad #${ad.id} approved — no payment email went out (${
+              ad.billing_email ? 'email delivery is not configured' : 'no billing email on file'
+            }). Arrange payment over X DM (@${BILLBOARD_PAYMENT_X_HANDLE}), then mark paid + go live.`
+          default: {
+            const exhaustive: never = emailStatus
+            return exhaustive
+          }
+        }
+      }
     )
 
   /** Flipper ads activate bare; rail ads must name the slot they take. */
@@ -458,8 +501,9 @@ function BillboardQueue({ me }: { me: StaffMe }) {
           {BILLBOARD_PRICE_CENTS / 100}/wk, max {BILLBOARD_MAX_LIVE} live) and the always-on
           profile rails (${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}–$
           {RAIL_SLOT_PRICE_CENTS.L1 / 100}/wk by row, {RAIL_SLOTS.length} fixed slots).
-          Approve the copy here, collect payment over X DM (@{BILLBOARD_PAYMENT_X_HANDLE}),
-          then mark paid + go live — rail ads take their slot at activation.
+          Approving emails the payment instructions to the {`ad's`} billing address (X DM @
+          {BILLBOARD_PAYMENT_X_HANDLE} as backup); close payment there, then mark paid + go
+          live — rail ads take their slot at activation.
         </p>
       </div>
 
@@ -491,6 +535,7 @@ function BillboardQueue({ me }: { me: StaffMe }) {
                         <RequestedSlotChip ad={ad} />
                         <span className="text-zinc-600">#{ad.id}</span>
                         <OwnerLine ad={ad} />
+                        <BillingEmailLine ad={ad} />
                         <span className="text-zinc-600">
                           submitted {formatDate(ad.created_at)}
                         </span>
@@ -542,8 +587,8 @@ function BillboardQueue({ me }: { me: StaffMe }) {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className={headingCls}>AWAITING_PAYMENT ({data.awaiting.length})</h2>
               <p className="text-[10px] text-zinc-600">
-                Payment is collected over X DM (@{BILLBOARD_PAYMENT_X_HANDLE}) — nothing here
-                bills the buyer.
+                Payment closes in the email thread (X DM @{BILLBOARD_PAYMENT_X_HANDLE} as
+                backup) — nothing here bills the buyer.
               </p>
             </div>
             {flipperFull &&
@@ -570,6 +615,7 @@ function BillboardQueue({ me }: { me: StaffMe }) {
                         <RequestedSlotChip ad={ad} />
                         <span className="text-zinc-600">#{ad.id}</span>
                         <OwnerLine ad={ad} />
+                        <BillingEmailLine ad={ad} />
                         <span className="text-zinc-600">
                           approved {formatDate(ad.reviewed_at)}
                         </span>

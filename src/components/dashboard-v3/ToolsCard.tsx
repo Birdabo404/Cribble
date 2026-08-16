@@ -73,11 +73,13 @@ export function ToolsCard({ tools }: { tools: ToolRow[] }) {
                     style={{ width: `${Math.max(2, t.percent)}%`, ...animDelay(340 + i * 110) }}
                   />
                 </div>
-                <div className="mt-1 flex items-center gap-3 pl-6 font-data text-[10px] text-zinc-500 tabular-nums">
+                {/* Wraps on narrow phones (the panel clips overflow); the dot
+                    separators only join stats once the line is guaranteed. */}
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 pl-6 font-data text-[10px] text-zinc-500 tabular-nums">
                   <span>{formatCompact(t.visits)} visits</span>
-                  <span className="text-zinc-800">·</span>
+                  <span className="hidden text-zinc-800 sm:inline">·</span>
                   <span>{formatDuration(t.active_ms)} active</span>
-                  <span className="text-zinc-800">·</span>
+                  <span className="hidden text-zinc-800 sm:inline">·</span>
                   <span>{formatCompact(Math.round(t.score))} pts</span>
                 </div>
               </li>

@@ -240,7 +240,8 @@ function SummaryPanel({ rows }: { rows: AchievementRow[] }) {
 
   return (
     <section className="relative overflow-hidden rounded-2xl glass-lite p-5">
-      <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+      {/* Stacks on phones; from sm up it's the original wrapping row. */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-8 sm:gap-y-4">
         <div>
           <div className="text-[9px] tracking-[0.35em] text-zinc-500">DECORATIONS</div>
           <div className="mt-1 font-mono text-2xl text-zinc-100 cribble-score-glow">
@@ -251,7 +252,7 @@ function SummaryPanel({ rows }: { rows: AchievementRow[] }) {
         </div>
 
         {/* cartridge strip — one cell per achievement, lit in its rarity hue */}
-        <div className="min-w-[190px] flex-1">
+        <div className="sm:min-w-[190px] sm:flex-1">
           <div className="text-[9px] tracking-[0.35em] text-zinc-600">SERVICE STRIP</div>
           <div className="mt-2 flex flex-wrap gap-[3px]">
             {rows.map((r) => (
@@ -272,7 +273,8 @@ function SummaryPanel({ rows }: { rows: AchievementRow[] }) {
           </div>
         </div>
 
-        <div className="flex gap-4">
+        {/* rarity tallies — 2x2 plate on phones, single row from sm up */}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:flex sm:gap-4">
           {RARITY_ORDER.map((rarity) => {
             const total = rows.filter((r) => r.rarity === rarity).length
             const got = unlocked.filter((r) => r.rarity === rarity).length
@@ -303,6 +305,13 @@ export default function AchievementsPage() {
   const router = useRouter()
   const [rows, setRows] = useState<AchievementRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // Footer date stamp, set after mount — SSR renders with the server's
+  // locale/timezone, which can differ from the client's and break hydration.
+  const [dateStamp, setDateStamp] = useState('')
+  useEffect(() => {
+    setDateStamp(new Date().toLocaleDateString('en-US'))
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -415,9 +424,9 @@ export default function AchievementsPage() {
           })}
         </main>
 
-        <footer className="mt-10 flex items-center justify-between text-[10px] tracking-[0.3em] text-zinc-600">
+        <footer className="mt-10 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 text-[10px] tracking-[0.3em] text-zinc-600">
           <span>CRIBBLE · PRIVATE BETA</span>
-          <span className="text-accent/60">SERVICE RECORD · {new Date().toLocaleDateString('en-US')}</span>
+          <span className="text-accent/60">SERVICE RECORD · {dateStamp}</span>
         </footer>
 
       <style jsx global>{`

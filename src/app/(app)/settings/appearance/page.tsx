@@ -9,10 +9,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { useTheme } from 'next-themes'
+import { useBackgroundMusic } from '@/components/music/BackgroundMusicProvider'
 import { MOTION_KEY } from '@/components/nav/navBoot'
 import { useNavPrefs, type NavPosition } from '@/components/nav/NavPrefsContext'
 import {
   SegmentedControl,
+  SettingsButton,
   SettingsRow,
   SettingsSection,
   Skeleton,
@@ -254,6 +256,7 @@ const NAV_OPTIONS: readonly SegmentedOption<NavPosition>[] = [
 export default function AppearanceSettingsPage() {
   const { theme, setTheme } = useTheme()
   const navPrefs = useNavPrefs()
+  const music = useBackgroundMusic()
 
   // Theme, nav position and the motion flag all resolve client-side
   // (next-themes / localStorage), so controls render in a neutral state
@@ -307,7 +310,7 @@ export default function AppearanceSettingsPage() {
                 aria-label="Navigation bar position"
               />
             ) : (
-              <Skeleton className="h-9 w-[172px] rounded-lg" />
+              <Skeleton className="h-[50px] w-[172px] rounded-lg md:h-9" />
             )}
           </SettingsRow>
         </SettingsSection>
@@ -321,6 +324,76 @@ export default function AppearanceSettingsPage() {
           <Switch checked={reduceMotion} onChange={handleReduceMotion} aria-label="Reduce motion" />
         </SettingsRow>
       </SettingsSection>
+
+      {music && (
+        <SettingsSection title="Sound">
+          <SettingsRow
+            label="Now playing"
+            description="Background music on Dashboard, Bag, Shop, and Profile."
+            stack
+          >
+            {mounted ? (
+              /* Stacked full-width below sm: the title truncates and Skip
+                 keeps its full tap target instead of getting crushed by a
+                 long track name. Inline again from sm up, as before. */
+              <span className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-start">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span
+                    aria-hidden
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                      music.playing
+                        ? 'bg-[color:var(--st-accent)]'
+                        : 'bg-[color:var(--st-text-faint)]'
+                    }`}
+                  />
+                  <span className="min-w-0 truncate text-[13px] leading-5 text-[color:var(--st-text-muted)]">
+                    {/* Settings is never a play route, so name the track even
+                        while paused — a bare “Paused” would hide the title. */}
+                    {music.playing ? music.currentTitle : `Paused — ${music.currentTitle}`}
+                  </span>
+                </span>
+                <SettingsButton variant="ghost" onClick={music.skipNext}>
+                  Skip
+                </SettingsButton>
+              </span>
+            ) : (
+              <Skeleton className="h-5 w-44" />
+            )}
+          </SettingsRow>
+          <SettingsRow label="Mute" description="Silence background music entirely.">
+            {mounted ? (
+              <Switch
+                checked={music.muted}
+                onChange={music.setMuted}
+                aria-label="Mute background music"
+              />
+            ) : (
+              <Skeleton className="h-7 w-12 rounded-full md:h-5 md:w-9" />
+            )}
+          </SettingsRow>
+          <SettingsRow
+            label="Volume"
+            description="Adjusting it while muted turns the music back on."
+            stack
+          >
+            {mounted ? (
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={Math.round(music.volume * 100)}
+                onChange={(event) => music.setVolume(Number(event.currentTarget.value) / 100)}
+                aria-label="Background music volume"
+                className="block h-11 w-full cursor-pointer sm:w-48 md:h-5"
+                style={{ accentColor: 'var(--st-accent)' }}
+              />
+            ) : (
+              <Skeleton className="h-11 w-full rounded-full sm:w-48 md:h-5" />
+            )}
+          </SettingsRow>
+        </SettingsSection>
+      )}
     </div>
   )
 }

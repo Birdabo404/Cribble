@@ -12,7 +12,8 @@ import { LiquidMark } from '@/components/brand/LiquidMark'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { NavIcon } from './NavIcon'
 import { connectionMeta, useNavStatus } from './NavStatusContext'
-import { isNavItemActive, visibleNavItems } from './navItems'
+import { isNavItemActive, visibleNavItems, type NavItemDef } from './navItems'
+import { UserSearch } from './UserSearch'
 import type { NavUserState } from './useNavUser'
 
 export function NavDrawer({
@@ -50,6 +51,38 @@ export function NavDrawer({
     }
   }
 
+  const items = visibleNavItems(navUser.user)
+  // The search row rides the cascade in slot 1, between the first nav
+  // item and the rest.
+  const searchState = itemState(1)
+
+  const renderItem = (item: NavItemDef, slot: number) => {
+    const active = isNavItemActive(item, pathname)
+    const state = itemState(slot)
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        onClick={onClose}
+        aria-current={active ? 'page' : undefined}
+        style={{ transitionDelay: state.delay }}
+        className={`relative mx-2 mb-1 flex h-11 items-center rounded-lg transition-[opacity,transform,background-color,color] duration-[300ms,300ms,150ms,150ms] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 ${state.className} ${
+          active
+            ? 'bg-white/[0.06] text-zinc-50'
+            : 'text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-100 active:bg-white/[0.08]'
+        }`}
+      >
+        {active && (
+          <span className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-full bg-accent" />
+        )}
+        <span className="flex w-12 shrink-0 items-center justify-center">
+          <NavIcon name={item.icon} className="h-[17px] w-[17px]" />
+        </span>
+        <span className="text-[10px] tracking-[0.3em]">{item.label}</span>
+      </Link>
+    )
+  }
+
   return (
     <div
       className={`fixed inset-0 z-50 md:hidden ${open ? '' : 'pointer-events-none'}`}
@@ -73,7 +106,10 @@ export function NavDrawer({
       >
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/[0.08] px-4">
           <span className="flex items-center gap-2.5 text-sm font-semibold tracking-[0.4em] text-zinc-100">
-            <LiquidMark size={20} />
+            {/* still while closed: the drawer stays mounted for its CSS
+                transitions, and an offscreen shader would idle a WebGL
+                context; the metal eases in as the panel slides open */}
+            <LiquidMark size={20} still={!open} />
             <span>
               CRIBBLE<span className="text-accent">.</span>
             </span>
@@ -89,32 +125,18 @@ export function NavDrawer({
         </div>
 
         <nav className="flex-1 overflow-y-auto py-3">
-          {visibleNavItems(navUser.user).map((item, i) => {
-            const active = isNavItemActive(item, pathname)
-            const state = itemState(i)
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={onClose}
-                aria-current={active ? 'page' : undefined}
-                style={{ transitionDelay: state.delay }}
-                className={`relative mx-2 mb-1 flex h-11 items-center rounded-lg transition-[opacity,transform,background-color,color] duration-[300ms,300ms,150ms,150ms] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 ${state.className} ${
-                  active
-                    ? 'bg-white/[0.06] text-zinc-50'
-                    : 'text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-100 active:bg-white/[0.08]'
-                }`}
-              >
-                {active && (
-                  <span className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-full bg-accent" />
-                )}
-                <span className="flex w-12 shrink-0 items-center justify-center">
-                  <NavIcon name={item.icon} className="h-[17px] w-[17px]" />
-                </span>
-                <span className="text-[10px] tracking-[0.3em]">{item.label}</span>
-              </Link>
-            )
-          })}
+          {items.slice(0, 1).map((item) => renderItem(item, 0))}
+          {/* SEARCH — mirrors the rail's order (dashboard, then search).
+              The drawer variant expands inline below the row; `enabled`
+              tracks the drawer so the closed-but-mounted panel can't sit
+              open offscreen or catch the "/" shortcut. */}
+          <div
+            style={{ transitionDelay: searchState.delay }}
+            className={`transition-[opacity,transform] duration-300 ${searchState.className}`}
+          >
+            <UserSearch variant="drawer" enabled={open} />
+          </div>
+          {items.slice(1).map((item, i) => renderItem(item, i + 2))}
         </nav>
 
         <div className="shrink-0 space-y-3 border-t border-white/[0.08] p-4">
