@@ -8,6 +8,10 @@
 //   public/apple-icon.png               180 black tile (iOS wants opaque)
 //   src/app/favicon.ico                 16/32/48 PNG-compressed ICO
 //
+//   Do not also write public/favicon.ico. Next.js maps app/favicon.ico to
+//   the /favicon.ico route, and a public file at the same path 500s with
+//   conflicting-public-file-page.
+//
 //   node scripts/make-brand-assets.mjs <source-image>
 //
 // The black background is keyed out by treating the source as premultiplied-
@@ -161,6 +165,10 @@ async function main() {
     }))
   )
   write('src/app/favicon.ico', buildIco(icoPngs))
+
+  // A leftover public copy collides with the app-route ICO above.
+  const stalePublicIco = path.join(ROOT, 'public/favicon.ico')
+  if (fs.existsSync(stalePublicIco)) fs.unlinkSync(stalePublicIco)
 }
 
 main().catch((e) => {
