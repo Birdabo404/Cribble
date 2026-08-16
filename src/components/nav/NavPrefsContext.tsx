@@ -15,9 +15,14 @@ import {
   useState,
   type ReactNode
 } from 'react'
-import { NAV_EXPANDED_KEY, NAV_POSITION_KEY } from './navBoot'
+import {
+  NAV_EXPANDED_KEY,
+  NAV_POSITION_KEY,
+  resolveNavPosition,
+  type NavPosition
+} from './navBoot'
 
-export type NavPosition = 'left' | 'top'
+export type { NavPosition }
 
 export interface NavPrefs {
   position: NavPosition
@@ -27,14 +32,13 @@ export interface NavPrefs {
   toggleExpanded: () => void
 }
 
-// Defaults: top bar, and if the user switches to the left rail it starts
-// collapsed — expanding is an explicit user action.
+// Defaults: left rail (collapsed — expanding is an explicit user action).
 function readPosition(): NavPosition {
-  if (typeof window === 'undefined') return 'top'
+  if (typeof window === 'undefined') return resolveNavPosition(null)
   try {
-    return window.localStorage.getItem(NAV_POSITION_KEY) === 'left' ? 'left' : 'top'
+    return resolveNavPosition(window.localStorage.getItem(NAV_POSITION_KEY))
   } catch {
-    return 'top'
+    return resolveNavPosition(null)
   }
 }
 

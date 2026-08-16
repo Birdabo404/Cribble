@@ -1426,8 +1426,9 @@ html[data-nav-exp='1'] {
   --nav-rail-w: var(--nav-rail-expanded);
 }
 
-/* Content inset: top bar height by default (also the sub-md fallback when
-   the rail is active), left rail width on md+ when position = left. */
+/* Content inset: top-bar height is the no-attribute / sub-md fallback
+   (the rail is hidden below md). On md+ with data-nav-pos=left — the
+   product default, seeded pre-paint — inset from the left instead. */
 .app-nav-inset {
   padding-top: var(--nav-topbar-h);
   transition: padding 560ms var(--nav-ease);
