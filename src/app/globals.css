@@ -1207,7 +1207,7 @@ html.light .lb-panel {
    Slot-machine marquee in an electric-lime duotone (#FCFF00 over near-black
    glass) that is deliberately NOT the site accent: --ref-lime is scoped to
    .referral-scope so the global green/orange stays untouched. The marquee
-   pulse lives in the letters themselves (headline and +500 breathe on
+   pulse lives in the letters themselves (headline and +1,500 breathe on
    offset phases); the shell keeps only a faint static glow. All loops run
    under prefers-reduced-motion: no-preference; without it the plate
    settles into static type + a static lime hairline.

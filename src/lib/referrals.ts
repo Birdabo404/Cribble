@@ -8,7 +8,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { generateInviteCode } from './inviteCodes'
 import { insertMissingNotifications } from './notifications'
 
-export const REFERRAL_POINTS = 500
+export const REFERRAL_POINTS = 1_500
 export const REFERRAL_CAP = 10
 
 /** Effectively unlimited — one code serves every recruit a user lands. */

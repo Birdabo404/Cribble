@@ -36,7 +36,7 @@ const BROWSER = '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'
 const MOCK_BODY = JSON.stringify({
   code: 'CRIB-K4M2-X9P3',
   link: `${BASE}/join/CRIB-K4M2-X9P3`,
-  stats: { joined: 7, rewarded: 4, pointsEarned: 2000, capRemaining: 6 }
+  stats: { joined: 7, rewarded: 4, pointsEarned: 6000, capRemaining: 6 }
 })
 
 fs.mkdirSync(OUT, { recursive: true })

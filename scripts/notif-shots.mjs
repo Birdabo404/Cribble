@@ -66,7 +66,7 @@ const FEED = [
   {
     id: 1,
     type: 'social',
-    title: '+500 PTS — RECRUIT ACTIVATED',
+    title: '+1500 PTS — RECRUIT ACTIVATED',
     body: '@karpathy joined through your invite and synced their first activity.',
     data: { kind: 'referral' },
     read_at: null,

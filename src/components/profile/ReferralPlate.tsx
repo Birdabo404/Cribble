@@ -4,7 +4,7 @@
 //
 // The plate is deliberately the loudest element on the page: a
 // slot-machine marquee where the two stars ("INVITE A FRIEND" and the
-// +500 numeral) breathe on offset phases, ringed by a slow conic
+// +1,500 numeral) breathe on offset phases, ringed by a slow conic
 // highlight and a periodic sheen glint (keyframes live in globals.css,
 // all gated on prefers-reduced-motion). The palette is an electric-lime
 // duotone scoped to .referral-scope (--ref-lime) — deliberately not the
@@ -13,14 +13,14 @@
 //
 // The modal fetches /api/user/referral lazily on first open; the
 // plate never blocks on the network. Reward mechanics for the copy:
-// +500 PTS per activated friend, first 10 count, and the grant fires
+// +1,500 PTS per activated friend, first 10 count, and the grant fires
 // when the friend's extension syncs its first real activity.
 
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { SocialIcon } from '@/components/leaderboard/icons'
 
-const REFERRAL_POINTS = 500
+const REFERRAL_POINTS = 1_500
 const REFERRAL_CAP = 10
 
 interface ReferralData {
@@ -92,7 +92,7 @@ export function ReferralPlate() {
             <span className="shrink-0 text-right">
               {/* marquee star B — breathes a half-cycle after star A */}
               <span className="ref-star ref-star-b block whitespace-nowrap text-[21px] leading-none [font-family:var(--font-pixel)] sm:text-[30px]">
-                +{REFERRAL_POINTS}
+                +{REFERRAL_POINTS.toLocaleString('en-US')}
               </span>
               <span className="mt-2 block whitespace-nowrap text-[9px] tracking-[0.2em] text-zinc-500 sm:tracking-[0.3em]">
                 PTS PER RECRUIT
@@ -196,7 +196,10 @@ function ReferralModal({
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           <p className="text-[11px] leading-relaxed text-zinc-400">
             Hand a friend your personal link. They skip the gate — you bank{' '}
-            <span className="text-[rgb(var(--ref-lime))]">+{REFERRAL_POINTS} PTS</span> once
+            <span className="text-[rgb(var(--ref-lime))]">
+              +{REFERRAL_POINTS.toLocaleString('en-US')} PTS
+            </span>{' '}
+            once
             they&apos;re flying.
           </p>
 
@@ -284,7 +287,8 @@ function ReferralModal({
 
           <p className="mt-4 border-t border-white/[0.06] pt-3 text-[10px] leading-relaxed text-zinc-600">
             The reward lands when your friend&apos;s extension syncs its first real activity —{' '}
-            +{REFERRAL_POINTS} PTS each, first {REFERRAL_CAP} recruits count.
+            +{REFERRAL_POINTS.toLocaleString('en-US')} PTS each, first {REFERRAL_CAP}{' '}
+            recruits count.
           </p>
         </div>
       </div>
