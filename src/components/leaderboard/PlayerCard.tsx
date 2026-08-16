@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import Link from 'next/link'
 import AnimatedCounter from '@/components/AnimatedCounter'
 import { PixelIcon } from '@/components/achievements/PixelIcon'
 import { FollowButton, FollowsYouChip, type FollowChange } from '@/components/profile/FollowButton'
@@ -239,7 +240,7 @@ export function PlayerCard({
 
   return createPortal(
     <div
-      className="pc-root fixed inset-0 z-[70] flex items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-6 sm:pb-[max(1.5rem,env(safe-area-inset-bottom))] font-mono"
+      className="pc-root fixed inset-0 z-[70] flex items-end justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center sm:p-6 sm:pb-[max(1.5rem,env(safe-area-inset-bottom))] font-mono"
       role="dialog"
       aria-modal="true"
       aria-label={`Player profile — @${row.username}`}
@@ -340,7 +341,7 @@ export function PlayerCard({
             </div>
 
             <div className="absolute right-3 top-3 flex items-center gap-2">
-              <a
+              <Link
                 href={`/u/${encodeURIComponent(row.username)}`}
                 aria-label="Open full profile"
                 title="Open full profile"
@@ -351,7 +352,7 @@ export function PlayerCard({
                 }}
               >
                 <IconExpand size={14} />
-              </a>
+              </Link>
               <button
                 type="button"
                 onClick={requestClose}
@@ -628,7 +629,7 @@ export function PlayerCard({
             </div>
             <div className="mt-2.5">
               {badges === null && !profileFailed && (
-                <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-8">
+                <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-8">
                   {Array.from({ length: 8 }, (_, i) => (
                     <div key={i} className="aspect-square animate-pulse rounded-lg bg-[rgb(var(--lb-panel-edge)/0.05)]" />
                   ))}
@@ -652,7 +653,7 @@ export function PlayerCard({
                   </div>
                 ))}
               {badges !== null && badges.length > 0 && (
-                <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-8">
+                <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-8">
                   {badges.slice(0, 15).map((badge) => (
                     <div
                       key={badge.id}

@@ -344,13 +344,13 @@ function SearchField({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         aria-label={label}
-        className="min-w-0 flex-1 bg-transparent px-2 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+        className="min-w-0 flex-1 bg-transparent px-2 py-3 text-[16px] text-zinc-100 placeholder:text-zinc-600 focus:outline-none md:py-2 md:text-xs"
       />
       {value && (
         <button
           type="button"
           onClick={() => onChange('')}
-          className="border-l border-[rgb(var(--lb-panel-edge)/0.08)] px-3 py-2 text-[10px] tracking-[0.2em] text-zinc-500 hover:text-zinc-200"
+          className="flex items-center self-stretch border-l border-[rgb(var(--lb-panel-edge)/0.08)] px-3 text-[10px] tracking-[0.2em] text-zinc-500 hover:text-zinc-200"
         >
           CLEAR
         </button>
@@ -378,7 +378,7 @@ function Segmented<T extends string>({
           type="button"
           aria-pressed={value === option.value}
           onClick={() => onChange(option.value)}
-          className={`rounded-md px-2.5 py-1.5 text-[9px] tracking-[0.25em] transition-colors ${
+          className={`inline-flex min-h-11 items-center justify-center rounded-md px-2.5 py-1.5 text-[9px] tracking-[0.25em] transition-colors md:min-h-0 ${
             value === option.value
               ? 'bg-accent/10 text-accent'
               : 'text-zinc-500 hover:text-zinc-200'
@@ -579,13 +579,13 @@ function PlateDetails({
 
       <div className="mt-4">
         {loading ? (
-          <span className="inline-block h-9 w-32 animate-pulse rounded-lg bg-white/[0.05]" />
+          <span className="inline-block h-11 w-32 animate-pulse rounded-lg bg-white/[0.05] md:h-9" />
         ) : status === 'equipped' ? (
           <button
             type="button"
             onClick={() => onEquip(null)}
             disabled={equipping}
-            className="h-9 rounded-lg border border-zinc-800 px-5 text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-100 disabled:cursor-wait disabled:opacity-60"
+            className="h-11 rounded-lg border border-zinc-800 px-5 text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-100 disabled:cursor-wait disabled:opacity-60 md:h-9"
           >
             {equipping ? 'WORKING…' : 'UNEQUIP'}
           </button>
@@ -594,21 +594,21 @@ function PlateDetails({
             type="button"
             onClick={() => onEquip(plate.id)}
             disabled={equipping}
-            className="h-9 rounded-lg bg-accent px-6 text-[10px] font-bold tracking-[0.3em] text-black shadow-[0_0_14px_rgb(var(--accent-rgb)/0.25)] transition-all hover:brightness-110 disabled:cursor-wait disabled:opacity-60"
+            className="h-11 rounded-lg bg-accent px-6 text-[10px] font-bold tracking-[0.3em] text-black shadow-[0_0_14px_rgb(var(--accent-rgb)/0.25)] transition-all hover:brightness-110 disabled:cursor-wait disabled:opacity-60 md:h-9"
           >
             {equipping ? 'EQUIPPING…' : 'EQUIP'}
           </button>
         ) : plate.priceUsd !== null ? (
           <Link
             href="/shop"
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-accent/40 bg-accent/5 px-4 text-[10px] tracking-[0.3em] text-accent transition-colors hover:border-accent/70 hover:bg-accent/10"
+            className="inline-flex h-11 items-center gap-2 rounded-lg border border-accent/40 bg-accent/5 px-4 text-[10px] tracking-[0.3em] text-accent transition-colors hover:border-accent/70 hover:bg-accent/10 md:h-9"
           >
             GET IT — {usd(plate.priceUsd)} <span aria-hidden>→</span>
           </Link>
         ) : plate.proExclusive ? (
           <Link
             href="/shop"
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-amber-300/40 bg-amber-300/5 px-4 text-[10px] tracking-[0.3em] text-amber-300 transition-colors hover:border-amber-300/70 hover:bg-amber-300/10"
+            className="inline-flex h-11 items-center gap-2 rounded-lg border border-amber-300/40 bg-amber-300/5 px-4 text-[10px] tracking-[0.3em] text-amber-300 transition-colors hover:border-amber-300/70 hover:bg-amber-300/10 md:h-9"
           >
             REQUIRES PRO <span aria-hidden>→</span>
           </Link>
@@ -1020,7 +1020,7 @@ export default function BagPage() {
               type="button"
               aria-pressed={tab === entry.value}
               onClick={() => setTab(entry.value)}
-              className={`rounded-lg px-5 py-2 text-[10px] tracking-[0.3em] transition-colors ${
+              className={`inline-flex min-h-11 items-center justify-center rounded-lg px-5 py-2 text-[10px] tracking-[0.3em] transition-colors md:min-h-0 ${
                 tab === entry.value
                   ? 'border border-accent/50 bg-accent/10 text-accent'
                   : 'lb-inset text-zinc-500 hover:text-zinc-100'
@@ -1072,7 +1072,7 @@ export default function BagPage() {
                   type="button"
                   aria-pressed={rarityFilter === 'all'}
                   onClick={() => setRarityFilter('all')}
-                  className={`rounded border px-2 py-1 text-[8px] tracking-[0.25em] transition-colors ${
+                  className={`inline-flex min-h-11 items-center rounded border px-2.5 py-1 text-[8px] tracking-[0.25em] transition-colors md:min-h-0 md:px-2 ${
                     rarityFilter === 'all'
                       ? 'border-accent/50 bg-accent/10 text-accent'
                       : 'border-[rgb(var(--lb-panel-edge)/0.12)] text-zinc-500 hover:text-zinc-300'
@@ -1088,7 +1088,7 @@ export default function BagPage() {
                       type="button"
                       aria-pressed={active}
                       onClick={() => setRarityFilter(active ? 'all' : rarity)}
-                      className={`rounded border px-2 py-1 text-[8px] tracking-[0.25em] transition-colors ${
+                      className={`inline-flex min-h-11 items-center rounded border px-2.5 py-1 text-[8px] tracking-[0.25em] transition-colors md:min-h-0 md:px-2 ${
                         active
                           ? ''
                           : 'border-[rgb(var(--lb-panel-edge)/0.12)] text-zinc-500 hover:text-zinc-300'
@@ -1187,7 +1187,7 @@ export default function BagPage() {
             <div className="mt-6 flex justify-end">
               <Link
                 href="/dashboard/achievements"
-                className="inline-flex items-center gap-1.5 text-[9px] tracking-[0.3em] text-zinc-500 transition-colors hover:text-zinc-200"
+                className="inline-flex min-h-11 items-center gap-1.5 text-[9px] tracking-[0.3em] text-zinc-500 transition-colors hover:text-zinc-200 md:min-h-0"
               >
                 FULL SERVICE RECORD <span aria-hidden>→</span>
               </Link>

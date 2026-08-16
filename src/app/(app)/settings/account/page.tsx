@@ -56,7 +56,7 @@ function tierLabel(tier: Tier): string {
 
 /** Anchor styled like the solid SettingsButton (external store link). */
 const installLinkCls =
-  'inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-transparent bg-[color:var(--st-accent)] px-3 text-[13px] font-medium leading-none text-[color:var(--st-accent-contrast)] transition-colors duration-150 hover:opacity-90'
+  'inline-flex h-11 shrink-0 items-center justify-center rounded-lg border border-transparent bg-[color:var(--st-accent)] px-3 text-[13px] font-medium leading-none text-[color:var(--st-accent-contrast)] transition-colors duration-150 hover:opacity-90 md:h-8'
 
 /**
  * Link-state row. Three states, matching isExtensionUnlinked semantics:
@@ -116,6 +116,7 @@ function DeviceRow({
     <SettingsRow
       label="No device linked"
       description="Install the browser extension to link this device and start counting your AI activity."
+      stack
     >
       {EXTENSION_INSTALL_URL ? (
         <a
@@ -124,7 +125,7 @@ function DeviceRow({
           rel="noopener noreferrer"
           className={installLinkCls}
         >
-          Install extension
+          Install cribble-engine
         </a>
       ) : undefined}
     </SettingsRow>
@@ -240,7 +241,11 @@ export default function AccountSettingsPage() {
       {me.phase === 'ready' && (
         <>
           <SettingsSection title="Identity" description={IDENTITY_DESCRIPTION}>
-            <div className="flex items-center gap-4 px-4 py-4 sm:px-5">
+            {/* flex-wrap + the name block's 10rem basis: when avatar +
+                name + tier pill can't share ~390px, the pill wraps to
+                its own line instead of crushing the name. One line
+                everywhere >= sm (basis-0 restores flex-1 behavior). */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 sm:px-5">
               {me.user.twitter_profile_image ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -258,7 +263,7 @@ export default function AccountSettingsPage() {
                     .toUpperCase()}
                 </span>
               )}
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 grow basis-40 sm:basis-0">
                 <div className="truncate text-[15px] font-medium leading-6 text-[color:var(--st-text)]">
                   {me.user.twitter_name || me.user.twitter_username || 'User'}
                 </div>
@@ -296,6 +301,7 @@ export default function AccountSettingsPage() {
         <SettingsRow
           label="Delete account"
           description="Erases your profile, scores, devices, and activity history — immediately and permanently."
+          stack
         >
           {confirmOpen ? undefined : (
             <SettingsButton variant="danger-outline" onClick={() => setConfirmOpen(true)}>
@@ -346,7 +352,10 @@ export default function AccountSettingsPage() {
               </p>
             )}
 
-            <div className="flex items-center justify-end gap-1.5">
+            {/* Two full-width halves below sm (grid cells stretch the
+                intrinsic-width buttons); the compact right-aligned pair
+                from sm up. */}
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-end sm:gap-1.5">
               <SettingsButton variant="ghost" onClick={closeConfirm} disabled={deleting}>
                 Cancel
               </SettingsButton>

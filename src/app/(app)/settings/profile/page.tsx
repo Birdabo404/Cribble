@@ -124,7 +124,7 @@ async function fetchProfile(): Promise<{
 
 /** Internal link-out styled as a quiet bordered button. */
 const linkOutCls =
-  'inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-[color:var(--st-border-strong)] px-3 text-[13px] font-medium leading-none text-[color:var(--st-text)] transition-colors duration-150 hover:bg-[color:var(--st-panel-hover)]'
+  'inline-flex h-11 shrink-0 items-center justify-center rounded-lg border border-[color:var(--st-border-strong)] px-3 text-[13px] font-medium leading-none text-[color:var(--st-text)] transition-colors duration-150 hover:bg-[color:var(--st-panel-hover)] md:h-8'
 
 export default function ProfileSettingsPage() {
   const [phase, setPhase] = useState<'loading' | 'error' | 'ready'>('loading')
@@ -273,13 +273,17 @@ export default function ProfileSettingsPage() {
               />
             </div>
 
-            <SettingsRow label="Status" description="Shown as a badge on your public profile.">
-              <span className="relative inline-block">
+            <SettingsRow
+              label="Status"
+              description="Shown as a badge on your public profile."
+              stack
+            >
+              <span className="relative block sm:inline-block">
                 <select
                   value={form.role ?? ''}
                   onChange={(e) => setField('role', e.target.value || null)}
                   aria-label="Status"
-                  className="st-input h-8 w-44 appearance-none rounded-lg pl-3 pr-8 text-[13px]"
+                  className="st-input h-11 w-full appearance-none rounded-lg pl-3 pr-8 text-[16px] sm:w-44 md:h-8 md:text-[13px]"
                 >
                   <option value="">None</option>
                   {ROLE_OPTIONS.map((r) => (

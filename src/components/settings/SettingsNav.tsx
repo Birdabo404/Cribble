@@ -171,7 +171,7 @@ export function SettingsMobileTabs() {
             key={item.href}
             href={item.href}
             aria-current={active ? 'page' : undefined}
-            className={`snap-start whitespace-nowrap rounded-full border px-3.5 py-1.5 text-[13px] font-medium leading-5 transition-colors duration-150 ${
+            className={`inline-flex min-h-11 snap-start items-center whitespace-nowrap rounded-full border px-3.5 py-1.5 text-[13px] font-medium leading-5 transition-colors duration-150 ${
               active
                 ? 'border-transparent bg-[color:var(--st-accent)] text-[color:var(--st-accent-contrast)]'
                 : 'border-[color:var(--st-border)] text-[color:var(--st-text-muted)] hover:text-[color:var(--st-text)]'

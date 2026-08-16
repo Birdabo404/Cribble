@@ -19,6 +19,7 @@
 // distorts fixed-position descendants.
 
 import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
 import AnimatedCounter from '@/components/AnimatedCounter'
 import { PixelIcon } from '@/components/achievements/PixelIcon'
 import {
@@ -360,7 +361,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
             <button
               type="button"
               onClick={() => setBannerStudio(true)}
-              className="absolute right-3 top-3 flex items-center gap-1.5 rounded-lg border border-white/[0.14] bg-black/45 px-2.5 py-1.5 text-[9px] tracking-[0.3em] text-zinc-300 backdrop-blur-sm transition-colors hover:border-accent/50 hover:text-accent"
+              className="absolute right-3 top-3 flex items-center gap-1.5 rounded-lg border border-white/[0.14] bg-black/45 px-2.5 py-1.5 text-[9px] tracking-[0.3em] text-zinc-300 backdrop-blur-sm transition-colors after:absolute after:-inset-2.5 after:content-[''] hover:border-accent/50 hover:text-accent sm:after:content-none"
             >
               <Stroke d={PATH_EDIT} size={10} />
               EDIT BANNER
@@ -417,7 +418,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
                   <button
                     type="button"
                     onClick={copyLink}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-800 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-accent"
+                    className="flex h-11 w-11 items-center justify-center rounded-lg border border-zinc-800 text-zinc-400 transition-colors hover:border-zinc-600 hover:text-accent sm:h-8 sm:w-8"
                     aria-label="Copy profile link"
                     title={copied ? 'Copied' : 'Copy profile link'}
                   >
@@ -430,7 +431,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
                   <button
                     type="button"
                     onClick={openEditor}
-                    className="flex items-center gap-2 rounded-lg border border-zinc-700 px-4 py-2 text-[10px] font-semibold tracking-[0.3em] text-zinc-200 transition-colors hover:border-accent/50 hover:text-accent"
+                    className="flex min-h-11 items-center gap-2 rounded-lg border border-zinc-700 px-4 py-2 text-[10px] font-semibold tracking-[0.3em] text-zinc-200 transition-colors hover:border-accent/50 hover:text-accent sm:min-h-0"
                   >
                     <Stroke d={PATH_EDIT} size={11} />
                     EDIT PROFILE
@@ -470,7 +471,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
           {/* name + handle */}
           <div className="relative mt-3.5">
             <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="font-display text-2xl font-semibold tracking-tight text-zinc-50">
+              <h1 className="min-w-0 max-w-full break-words font-display text-2xl font-semibold tracking-tight text-zinc-50">
                 {profile.display_name}
               </h1>
               {isProTier(profile.tier) && <VerifiedBadge size={18} />}
@@ -497,14 +498,14 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
 
           {/* bio — plain body copy, reads like any other profile */}
           {profile.bio ? (
-            <p className="relative mt-4 max-w-xl text-[13px] leading-relaxed text-zinc-200">
+            <p className="relative mt-4 max-w-xl break-words text-[13px] leading-relaxed text-zinc-200">
               {profile.bio}
             </p>
           ) : isYou ? (
             <button
               type="button"
               onClick={openEditor}
-              className="relative mt-4 block text-left text-[13px] text-zinc-600 transition-colors hover:text-zinc-400"
+              className="relative -my-2 mt-2 block py-2 text-left text-[13px] text-zinc-600 transition-colors hover:text-zinc-400 sm:my-0 sm:mt-4 sm:py-0"
             >
               No bio yet — tell people what you do.
             </button>
@@ -523,10 +524,10 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
                 href={profile.website}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-accent/90 transition-colors hover:text-accent"
+                className="flex min-w-0 max-w-full items-center gap-1.5 text-accent/90 transition-colors hover:text-accent"
               >
-                <Stroke d={PATH_LINK} className="text-accent/60" />
-                {prettyUrl(profile.website)}
+                <Stroke d={PATH_LINK} className="shrink-0 text-accent/60" />
+                <span className="truncate">{prettyUrl(profile.website)}</span>
               </a>
             )}
             <span className="flex items-center gap-1.5">
@@ -545,7 +546,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
             <button
               type="button"
               onClick={() => setRoster('following')}
-              className="group flex items-baseline gap-2"
+              className="group -my-3 flex items-baseline gap-2 py-3 sm:my-0 sm:py-0"
             >
               <span className="text-[13px] tabular-nums text-zinc-50 [font-family:var(--font-pixel)]">
                 {formatNumber(profile.following)}
@@ -557,7 +558,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
             <button
               type="button"
               onClick={() => setRoster('followers')}
-              className="group flex items-baseline gap-2"
+              className="group -my-3 flex items-baseline gap-2 py-3 sm:my-0 sm:py-0"
             >
               <span className="text-[13px] tabular-nums text-zinc-50 [font-family:var(--font-pixel)]">
                 {formatNumber(profile.followers)}
@@ -568,7 +569,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
             </button>
 
             {socialEntries.length > 0 && (
-              <span className="ml-auto flex items-center gap-1.5">
+              <span className="ml-auto flex items-center gap-2 sm:gap-1.5">
                 {socialEntries.map(({ kind, value }) => (
                   <a
                     key={kind}
@@ -577,7 +578,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
                     rel="noopener noreferrer"
                     aria-label={`@${profile.username} on ${SOCIAL_LABEL[kind]}`}
                     title={SOCIAL_LABEL[kind]}
-                    className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.02] text-zinc-500 transition-all hover:-translate-y-0.5 hover:text-zinc-100"
+                    className="flex h-11 w-11 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.02] text-zinc-500 transition-all hover:-translate-y-0.5 hover:text-zinc-100 sm:h-7 sm:w-7"
                   >
                     <SocialIcon kind={kind} size={13} />
                   </a>
@@ -592,9 +593,9 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
               {profile.followedBy.usernames.map((name, i) => (
                 <span key={name}>
                   {i > 0 && <span className="text-zinc-700"> · </span>}
-                  <a href={`/u/${encodeURIComponent(name)}`} className="text-zinc-400 transition-colors hover:text-accent">
+                  <Link href={`/u/${encodeURIComponent(name)}`} className="text-zinc-400 transition-colors hover:text-accent">
                     @{name}
-                  </a>
+                  </Link>
                 </span>
               ))}
               {profile.followedBy.total > profile.followedBy.usernames.length && (
@@ -773,7 +774,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
                 NO DECORATIONS YET
               </div>
             ) : (
-              <div className="grid grid-cols-6 gap-2">
+              <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
                 {profile.badges.map((badge) => (
                   <div
                     key={badge.id}
@@ -795,12 +796,12 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
               </div>
             )}
             {isYou && (
-              <a
+              <Link
                 href="/dashboard/achievements"
-                className="mt-4 block text-center text-[9px] tracking-[0.3em] text-zinc-600 transition-colors hover:text-accent"
+                className="-my-3 mt-1 block py-3 text-center text-[9px] tracking-[0.3em] text-zinc-600 transition-colors hover:text-accent sm:my-0 sm:mt-4 sm:py-0"
               >
                 VIEW FULL SERVICE RECORD →
-              </a>
+              </Link>
             )}
           </div>
         </section>
@@ -831,7 +832,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
           ) : (
             <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
               {profile.affiliates.members.map((member) => (
-                <a
+                <Link
                   key={member.userId}
                   href={`/u/${encodeURIComponent(member.username)}`}
                   className="group flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.015] px-3 py-2.5 transition-colors hover:border-accent/40 hover:bg-white/[0.03]"
@@ -853,7 +854,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
                       @{member.username}
                     </span>
                   </span>
-                </a>
+                </Link>
               ))}
             </div>
           )}
@@ -998,7 +999,7 @@ function TeamInviteButton({ callsign, onRoster }: { callsign: string; onRoster: 
       type="button"
       onClick={() => void invite()}
       disabled={onRoster || phase !== 'idle'}
-      className="rounded-lg border px-4 py-2 text-[10px] font-semibold tracking-[0.3em] transition-[filter] enabled:hover:brightness-125 disabled:opacity-60"
+      className="min-h-11 rounded-lg border px-4 py-2 text-[10px] font-semibold tracking-[0.3em] transition-[filter] enabled:hover:brightness-125 disabled:opacity-60 sm:min-h-0"
       style={{
         color: 'rgb(var(--lb-gold))',
         borderColor: 'rgb(var(--lb-gold) / 0.45)',
@@ -1089,12 +1090,12 @@ function MissingPilot({ username }: { username: string }) {
         No profile on file for <span className="text-zinc-300">@{username}</span>. The callsign may
         have changed, or this pilot never enlisted.
       </p>
-      <a
+      <Link
         href="/leaderboard"
-        className="mt-8 rounded-lg border border-zinc-800 px-4 py-2 text-[10px] tracking-[0.3em] text-zinc-300 transition-colors hover:border-zinc-600 hover:text-zinc-100"
+        className="mt-8 inline-flex min-h-11 items-center rounded-lg border border-zinc-800 px-4 py-2 text-[10px] tracking-[0.3em] text-zinc-300 transition-colors hover:border-zinc-600 hover:text-zinc-100 sm:min-h-0"
       >
         SCAN THE LEADERBOARD
-      </a>
+      </Link>
     </div>
   )
 }
@@ -1109,7 +1110,7 @@ function ProfileError() {
       <button
         type="button"
         onClick={() => window.location.reload()}
-        className="mt-8 rounded-lg border border-zinc-800 px-4 py-2 text-[10px] tracking-[0.3em] text-zinc-300 transition-colors hover:border-zinc-600 hover:text-zinc-100"
+        className="mt-8 min-h-11 rounded-lg border border-zinc-800 px-4 py-2 text-[10px] tracking-[0.3em] text-zinc-300 transition-colors hover:border-zinc-600 hover:text-zinc-100 sm:min-h-0"
       >
         RETRY
       </button>

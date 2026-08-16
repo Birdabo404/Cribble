@@ -19,6 +19,7 @@
 
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import Link from 'next/link'
 import { PlatePreview } from '@/components/cosmetics/PlateLayer'
 import { SocialIcon, type SocialKind } from '@/components/leaderboard/icons'
 import { ROLE_ICONS } from '@/components/roleIcons'
@@ -53,8 +54,9 @@ const SOCIAL_FIELDS: { kind: SocialKind; label: string; placeholder: string }[] 
 const labelCls = 'text-[13px] font-medium leading-5 text-zinc-200'
 const hintCls = 'text-xs leading-5 text-zinc-500'
 
+// text-base below sm: sub-16px inputs make iOS Safari zoom the page on focus.
 const inputCls =
-  'h-9 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 text-sm text-zinc-100 placeholder:text-zinc-600 transition-colors focus:border-zinc-400 focus:bg-white/[0.05] focus:outline-none'
+  'h-9 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 text-base text-zinc-100 placeholder:text-zinc-600 transition-colors focus:border-zinc-400 focus:bg-white/[0.05] focus:outline-none sm:text-sm'
 
 export function EditProfileModal({
   initial,
@@ -156,14 +158,14 @@ export function EditProfileModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center p-4 font-sans"
+      className="fixed inset-0 z-[80] flex items-end justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] font-sans sm:items-center sm:pb-4"
       role="dialog"
       aria-modal="true"
       aria-label="Edit profile"
     >
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} aria-hidden />
       <div
-        className="relative flex max-h-[calc(100vh-3rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl glass-pop"
+        className="relative flex max-h-[calc(100svh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl glass-pop sm:max-h-[calc(100vh-3rem)]"
         style={{ animation: 'glass-modal-in 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards' }}
       >
         {/* ---------- header ---------- */}
@@ -171,7 +173,7 @@ export function EditProfileModal({
           <h2 className="text-sm font-semibold tracking-tight text-zinc-100">Edit profile</h2>
           <button
             onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-zinc-200"
+            className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-zinc-200 sm:h-7 sm:w-7"
             aria-label="Close"
           >
             <svg viewBox="0 0 20 20" className="h-4 w-4" aria-hidden>
@@ -184,7 +186,7 @@ export function EditProfileModal({
         </div>
 
         {/* ---------- body ---------- */}
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-4">
           {/* bio */}
           <label className="block">
             <span className="flex items-baseline justify-between">
@@ -220,7 +222,7 @@ export function EditProfileModal({
                     onClick={() => set({ role: selected ? null : r.id })}
                     aria-pressed={selected}
                     title={r.hint}
-                    className={`flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] transition-colors ${
+                    className={`flex h-10 items-center gap-1.5 rounded-full border px-3 text-[13px] transition-colors sm:h-8 ${
                       selected
                         ? 'border-zinc-200 bg-zinc-100/10 text-zinc-50'
                         : 'border-white/10 bg-white/[0.02] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'
@@ -296,7 +298,7 @@ export function EditProfileModal({
               aria-checked={form.is_private}
               aria-label="Private account"
               onClick={() => set({ is_private: !form.is_private })}
-              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors duration-150 ease-out ${
+              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors duration-150 ease-out after:absolute after:-inset-3 after:content-[''] sm:after:content-none ${
                 form.is_private
                   ? 'border-zinc-100 bg-zinc-100'
                   : 'border-zinc-700 bg-white/[0.04]'
@@ -328,13 +330,13 @@ export function EditProfileModal({
                 <div className="aspect-[4/1] animate-pulse rounded-xl bg-white/[0.04]" />
               </div>
             ) : usablePlates.length === 0 ? (
-              <a
+              <Link
                 href="/shop"
                 className="mt-1.5 flex items-center justify-between gap-3 rounded-lg border border-dashed border-white/[0.08] bg-white/[0.02] px-3 py-2.5 text-xs text-zinc-500 transition-colors hover:border-zinc-500 hover:text-zinc-300"
               >
                 {cosmetics === 'error' ? 'Plates are unavailable right now.' : 'No plates yet.'}
                 <span className="shrink-0 text-zinc-400">Get plates in the shop →</span>
-              </a>
+              </Link>
             ) : (
               <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <button
@@ -381,7 +383,7 @@ export function EditProfileModal({
           <button
             type="button"
             onClick={onClose}
-            className="h-9 rounded-lg border border-white/10 px-4 text-[13px] font-medium text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-100"
+            className="h-11 rounded-lg border border-white/10 px-4 text-[13px] font-medium text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-100 sm:h-9"
           >
             Cancel
           </button>
@@ -389,7 +391,7 @@ export function EditProfileModal({
             type="button"
             onClick={save}
             disabled={saving}
-            className="h-9 rounded-lg bg-zinc-100 px-5 text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50 disabled:opacity-60"
+            className="h-11 rounded-lg bg-zinc-100 px-5 text-[13px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50 disabled:opacity-60 sm:h-9"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
