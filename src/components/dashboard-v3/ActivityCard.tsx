@@ -1,19 +1,61 @@
 'use client'
 
-import { useMemo } from 'react'
-import type { ActivityDay } from '@/lib/activity'
+import { Fragment, useMemo, type CSSProperties } from 'react'
+import { useTheme } from 'next-themes'
 import { formatNumber } from '@/components/dashboard-v2/format'
+import { BAYER, CELL } from '@/components/dither-kit/dither-paint'
+import type { ActivityDay } from '@/lib/activity'
+import {
+  PUNCH_CARD_DAYS,
+  buildActivityPunchCard,
+  type PunchCardCell
+} from '@/lib/activityHeatmap'
+import { EMBER_HEX, emberA } from '@/lib/theme'
 import { animDelay } from './anim'
 import { IconGrid } from './DashIcons'
 import { Panel, PanelHeader } from './Panel'
 
-type HeatCell = {
-  col: number
-  row: number
-  date: Date
-  score: number
-  isFuture: boolean
-  isToday: boolean
+// Intensity tiers: the fraction of the 4×4 Bayer grid that lights up —
+// 4, 8, 12, then all 16 pixels (the solid top tier keeps the ember glow).
+const TIER_DENSITY = [0.25, 0.5, 0.75, 1] as const
+
+const TOP_TIER_GLOW = 'shadow-[0_0_6px_rgb(var(--ember-rgb)/0.45)]'
+
+// Day-of-month markers in the ruler row above the punch card.
+const RULER_DAYS = [1, 15, 31] as const
+
+/**
+ * One 4×4 ordered-dither pass as a data-URI SVG tile: a pixel is lit where
+ * the tier's density clears the Bayer threshold, in the theme's ember hex
+ * (SVG data URIs can't resolve CSS variables). Tiled at CELL css px per
+ * dither pixel and rendered `pixelated`, it reproduces the dither-kit
+ * scatter as a static cell background.
+ */
+function bayerTile(hex: string, density: number): string {
+  const pixels: string[] = []
+  for (let y = 0; y < 4; y++) {
+    for (let x = 0; x < 4; x++) {
+      if (density > BAYER[y][x]) {
+        pixels.push(`<rect x="${x}" y="${y}" width="1" height="1" fill="${hex}"/>`)
+      }
+    }
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4" shape-rendering="crispEdges">${pixels.join('')}</svg>`
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
+}
+
+function buildTierStyles(hex: string): CSSProperties[] {
+  return TIER_DENSITY.map(
+    (density): CSSProperties => ({
+      // Faint ember tint under the pattern (the kit's "off tier" idea), so
+      // gaps between lit pixels read as dim ember instead of letting the
+      // background show through as holes — matters on the light theme.
+      backgroundColor: emberA(0.18),
+      backgroundImage: bayerTile(hex, density),
+      backgroundSize: `${4 * CELL}px ${4 * CELL}px`,
+      imageRendering: 'pixelated'
+    })
+  )
 }
 
 function MiniStat({
@@ -38,183 +80,154 @@ function MiniStat({
   )
 }
 
+/**
+ * Full-year activity punch card: the last 12 calendar months as rows by 31
+ * day columns, with fluid aspect-square cells, ragged month ends, a
+ * per-month active-days readout, and Bayer-dithered ember fills per
+ * intensity tier. Grid math and window stats live in lib/activityHeatmap.
+ */
 export function ActivityCard({ activity }: { activity: ActivityDay[] }) {
-  const WEEKS = 12
-  const CELL_PX = 14
-  const CELL_GAP = 4
-  const MONTH_GAP = 12
+  const { resolvedTheme } = useTheme()
+  // Client-only mount (dashboard is behind auth) — resolvedTheme is only
+  // undefined for the first frames; default dark, the app's base theme.
+  const theme = resolvedTheme === 'light' ? 'light' : 'dark'
+  const tierStyles = useMemo(() => buildTierStyles(EMBER_HEX[theme]), [theme])
 
-  const { monthChunks, activeDays, maxScore, longestStreak, bestDay, avgPerDay } = useMemo(() => {
-    const scoreByDate = new Map<string, number>()
-    for (const d of activity) scoreByDate.set(d.date, d.score)
+  const { months, activeDays, maxScore, longestStreak, bestDay, avgPerDay } =
+    useMemo(() => buildActivityPunchCard(activity), [activity])
 
-    // Day cells are UTC days: the activity API buckets scores by UTC date
-    // key, so the grid must be built from UTC midnights too. Local-midnight
-    // math shifted every key back a day for users east of UTC — the "today"
-    // cell showed yesterday and today's activity hid in a "future" cell.
-    const now = new Date()
-    const today = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-    )
-    const todayKey = today.toISOString().split('T')[0]
-
-    const dow = today.getUTCDay()
-    const currentSunday = new Date(today)
-    currentSunday.setUTCDate(today.getUTCDate() - dow)
-
-    const allColumns: HeatCell[][] = []
-    for (let col = 0; col < WEEKS; col++) {
-      const weekStart = new Date(currentSunday)
-      weekStart.setUTCDate(currentSunday.getUTCDate() - (WEEKS - 1 - col) * 7)
-      const colCells: HeatCell[] = []
-      for (let row = 0; row < 7; row++) {
-        const day = new Date(weekStart)
-        day.setUTCDate(weekStart.getUTCDate() + row)
-        const key = day.toISOString().split('T')[0]
-        const isFuture = day > today
-        colCells.push({
-          col,
-          row,
-          date: day,
-          score: isFuture ? -1 : scoreByDate.get(key) || 0,
-          isFuture,
-          isToday: key === todayKey
-        })
-      }
-      allColumns.push(colCells)
-    }
-
-    const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
-    type Chunk = { month: number; label: string; columns: HeatCell[][] }
-    const chunks: Chunk[] = []
-    for (const col of allColumns) {
-      const m = col[0].date.getUTCMonth()
-      const last = chunks[chunks.length - 1]
-      if (last && last.month === m) {
-        last.columns.push(col)
-      } else {
-        chunks.push({ month: m, label: monthNames[m], columns: [col] })
-      }
-    }
-
-    const flatByDate = allColumns
-      .flat()
-      .filter((c) => !c.isFuture)
-      .sort((a, b) => a.date.getTime() - b.date.getTime())
-
-    const active = flatByDate.filter((c) => c.score > 0).length
-    const positives = flatByDate.filter((c) => c.score > 0).map((c) => c.score)
-    const max = positives.length ? Math.max(...positives) : 1
-    const best = positives.length ? Math.max(...positives) : 0
-    const avg = active > 0 ? Math.round(positives.reduce((a, b) => a + b, 0) / active) : 0
-
-    let longest = 0
-    let run = 0
-    for (const c of flatByDate) {
-      if (c.score > 0) {
-        run += 1
-        if (run > longest) longest = run
-      } else {
-        run = 0
-      }
-    }
-
-    return {
-      monthChunks: chunks,
-      activeDays: active,
-      maxScore: max,
-      longestStreak: longest,
-      bestDay: best,
-      avgPerDay: avg
-    }
-  }, [activity])
-
-  const cellClass = (cell: HeatCell) => {
-    if (cell.isFuture) return 'border border-zinc-800 bg-transparent'
-    if (cell.score <= 0) return 'bg-zinc-900'
-    const r = cell.score / maxScore
-    if (r < 0.25) return 'bg-ember/25'
-    if (r < 0.5) return 'bg-ember/50'
-    if (r < 0.75) return 'bg-ember/75'
-    return 'bg-ember shadow-[0_0_6px_rgb(var(--ember-rgb)/0.45)]'
+  const tierOf = (cell: PunchCardCell): number | null => {
+    if (cell.isFuture || cell.score <= 0) return null
+    const ratio = cell.score / maxScore
+    if (ratio < 0.25) return 0
+    if (ratio < 0.5) return 1
+    if (ratio < 0.75) return 2
+    return 3
   }
 
+  // Grid row per month (row 1 is the ruler). Wherever consecutive months
+  // change year, one extra short spacer row separates the year blocks —
+  // at most one boundary in a 12-month window.
+  let nextGridRow = 2
+  const monthGridRows = months.map((month, i) => {
+    if (i > 0 && month.year !== months[i - 1].year) nextGridRow += 1
+    return nextGridRow++
+  })
+
   return (
-    <Panel className="dash-frame col-span-12 lg:col-span-8 p-6">
+    <Panel className="dash-frame col-span-12 lg:col-span-8 p-6 flex flex-col">
       <PanelHeader
         title="ACTIVITY"
         icon={<IconGrid size={12} />}
-        subtitle={`Last 12 weeks · ${activeDays} active ${activeDays === 1 ? 'day' : 'days'}`}
+        subtitle={`Last 12 months · ${activeDays} active ${activeDays === 1 ? 'day' : 'days'}`}
         action={
           <div className="hidden sm:flex items-center gap-1.5 font-data text-[9px] tracking-[0.3em] text-zinc-500">
             <span>LESS</span>
-            <span className="h-[11px] w-[11px] rounded-[3px] bg-zinc-900" />
-            <span className="h-[11px] w-[11px] rounded-[3px] bg-ember/25" />
-            <span className="h-[11px] w-[11px] rounded-[3px] bg-ember/50" />
-            <span className="h-[11px] w-[11px] rounded-[3px] bg-ember/75" />
-            <span className="h-[11px] w-[11px] rounded-[3px] bg-ember" />
+            <span className="h-[11px] w-[11px] rounded-[2px] bg-zinc-900" />
+            {tierStyles.map((style, tier) => (
+              <span
+                key={tier}
+                className={`h-[11px] w-[11px] rounded-[2px] ${
+                  tier === TIER_DENSITY.length - 1 ? TOP_TIER_GLOW : ''
+                }`}
+                style={style}
+              />
+            ))}
             <span>MORE</span>
           </div>
         }
       />
 
-      <div className="mt-5 overflow-x-auto pb-1">
-        <div className="flex items-start gap-3 w-max mx-auto">
+      {/* flex-1 + centering absorbs the vertical slack the panel gains from
+          matching the taller ToolsCard, instead of pooling it below the
+          stats (which pin to the bottom of the flex column). */}
+      <div className="mt-5 flex flex-1 flex-col justify-center">
+        <div className="overflow-x-auto pb-1">
+          {/* One grid holds the month gutter (max-content), the ruler row,
+              the 31 fluid day columns, and the active-days readout column,
+              so everything stays aligned at any width. The min-w keeps a
+              cell-size floor on phones; the wrapper above scrolls. */}
           <div
-            className="grid text-[10px] leading-none text-zinc-500 pt-[22px]"
+            className="grid min-w-[480px] gap-[3px]"
             style={{
-              gridTemplateRows: `repeat(7, ${CELL_PX}px)`,
-              rowGap: `${CELL_GAP}px`
+              gridTemplateColumns: `max-content repeat(${PUNCH_CARD_DAYS}, minmax(0, 1fr)) max-content`
             }}
           >
-            <div />
-            <div className="flex items-center">Mon</div>
-            <div />
-            <div className="flex items-center">Wed</div>
-            <div />
-            <div className="flex items-center">Fri</div>
-            <div />
-          </div>
+            {RULER_DAYS.map((rulerDay) => (
+              <div
+                key={rulerDay}
+                className="pb-1 font-data text-[9px] leading-none tracking-[0.2em] text-zinc-600 whitespace-nowrap"
+                style={{ gridColumn: rulerDay + 1, gridRow: 1 }}
+              >
+                {String(rulerDay).padStart(2, '0')}
+              </div>
+            ))}
 
-          <div className="flex items-start" style={{ gap: `${MONTH_GAP}px` }}>
-            {monthChunks.map((chunk, idx) => (
-              <div key={idx} className="flex flex-col">
-                <div className="text-[10px] tracking-[0.2em] text-zinc-400 leading-none mb-[10px] uppercase">
-                  {chunk.label}
-                </div>
-                <div
-                  className="grid"
-                  style={{
-                    gridTemplateColumns: `repeat(${chunk.columns.length}, ${CELL_PX}px)`,
-                    gridTemplateRows: `repeat(7, ${CELL_PX}px)`,
-                    columnGap: `${CELL_GAP}px`,
-                    rowGap: `${CELL_GAP}px`
-                  }}
-                >
-                  {chunk.columns.flatMap((col, ci) =>
-                    col.map((cell, ri) => (
+            {months.map((month, rowIndex) => {
+              const gridRow = monthGridRows[rowIndex]
+              const isYearBreak =
+                rowIndex > 0 && month.year !== months[rowIndex - 1].year
+              // Year marker on the first row and each January row.
+              const yearMark =
+                rowIndex === 0 || month.monthIndex === 0
+                  ? `'${String(month.year % 100).padStart(2, '0')}`
+                  : null
+              return (
+                <Fragment key={`${month.year}-${month.monthIndex}`}>
+                  {isYearBreak && (
+                    // Empty spacer row between year blocks: 6px + the two
+                    // 3px gaps around it = 12px of clean air vs the usual 3.
+                    <div aria-hidden className="h-1.5" style={{ gridColumn: 1, gridRow: gridRow - 1 }} />
+                  )}
+                  {/* The label is absolutely positioned so its 10px line
+                      height can't inflate the fluid aspect-square rows. */}
+                  <div className="relative w-12" style={{ gridColumn: 1, gridRow }}>
+                    <span className="absolute inset-0 flex items-center font-data text-[10px] leading-none text-zinc-500 whitespace-nowrap">
+                      {month.label}
+                      {yearMark && <span className="ml-1 text-zinc-600">{yearMark}</span>}
+                    </span>
+                  </div>
+
+                  {month.cells.map((cell) => {
+                    const tier = tierOf(cell)
+                    return (
                       <div
-                        key={`${ci}-${ri}`}
-                        style={{
-                          gridColumn: ci + 1,
-                          gridRow: ri + 1,
-                          // Diagonal wave sweeping left → right across the weeks
-                          ...animDelay(160 + cell.col * 26 + cell.row * 12)
-                        }}
-                        className={`anim-cell relative rounded-[3px] transition-transform duration-150 hover:scale-[1.5] hover:z-10 hover:ring-1 hover:ring-ember/70 ${cellClass(cell)} ${
+                        key={cell.dateKey}
+                        className={`anim-cell relative aspect-square rounded-[2px] transition-transform duration-150 hover:z-10 hover:scale-[1.5] hover:ring-1 hover:ring-ember/70 ${
+                          cell.isFuture
+                            ? 'border border-zinc-800 bg-transparent'
+                            : tier === null
+                              ? 'bg-zinc-900'
+                              : ''
+                        } ${tier === 3 ? TOP_TIER_GLOW : ''} ${
                           cell.isToday ? 'ring-1 ring-ice/80' : ''
                         }`}
+                        style={{
+                          gridColumn: cell.day + 1,
+                          gridRow,
+                          // Diagonal wave sweeping left → right down the
+                          // month rows.
+                          ...animDelay(160 + (cell.day - 1) * 6 + rowIndex * 14),
+                          ...(tier !== null ? tierStyles[tier] : undefined)
+                        }}
                         title={
                           cell.isFuture
                             ? ''
-                            : `${cell.date.toISOString().split('T')[0]} · ${formatNumber(Math.round(cell.score))} pts`
+                            : `${cell.dateKey} · ${formatNumber(Math.round(cell.score))} pts`
                         }
                       />
-                    ))
-                  )}
-                </div>
-              </div>
-            ))}
+                    )
+                  })}
+
+                  <div
+                    className="flex items-center justify-end pl-1 font-data text-[9px] leading-none tabular-nums text-zinc-500"
+                    style={{ gridColumn: PUNCH_CARD_DAYS + 2, gridRow }}
+                  >
+                    {month.activeDays > 0 ? `${month.activeDays}d` : '—'}
+                  </div>
+                </Fragment>
+              )
+            })}
           </div>
         </div>
       </div>

@@ -64,6 +64,9 @@ export interface AdFormValues {
   /** Rail-slot preference; null = any slot (and always null for the
    *  flipper). Edit mode initializes it from the ad being edited. */
   requested_rail_slot: RailSlot | null
+  /** Where the payment instructions are emailed on approval (migration
+   *  040) — required by the server; never shown publicly. */
+  billing_email: string
 }
 
 /** Create posts a new submission; edit rewrites one in place. A redo
@@ -194,7 +197,8 @@ const PLACEMENTS: {
   }
 ]
 
-const fieldInputCls = 'st-input block w-full rounded-lg px-3 py-1.5 text-[14px] leading-6'
+const fieldInputCls =
+  'st-input block w-full rounded-lg px-3 py-2.5 text-[16px] leading-6 md:py-1.5 md:text-[14px]'
 
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
@@ -264,6 +268,7 @@ export function BillboardSubmitForm({
   const [text, setText] = useState(initial?.text ?? '')
   const [linkUrl, setLinkUrl] = useState(initial?.link_url ?? '')
   const [logoUrl, setLogoUrl] = useState(initial?.logo_url ?? '')
+  const [billingEmail, setBillingEmail] = useState(initial?.billing_email ?? '')
   const [placement, setPlacement] = useState<BillboardPlacement>(initial?.placement ?? 'flipper')
   const [requestedSlot, setRequestedSlot] = useState<RailSlot | null>(
     initial?.requested_rail_slot ?? null
@@ -282,6 +287,7 @@ export function BillboardSubmitForm({
   const textId = `${uid}-text`
   const linkId = `${uid}-link`
   const logoId = `${uid}-logo`
+  const billingId = `${uid}-billing`
   const placementLabelId = `${uid}-placement`
   const slotLabelId = `${uid}-slot`
 
@@ -396,7 +402,8 @@ export function BillboardSubmitForm({
             // Mirrors the server rule: a slot preference only rides on
             // rail ads. A pick made before switching to the flipper is
             // kept in state (switching back restores it) but not sent.
-            requested_rail_slot: placement === 'rail' ? requestedSlot : null
+            requested_rail_slot: placement === 'rail' ? requestedSlot : null,
+            billing_email: billingEmail
           })
         }
       )
@@ -426,6 +433,7 @@ export function BillboardSubmitForm({
         setText('')
         setLinkUrl('')
         setLogoUrl('')
+        setBillingEmail('')
         setPlacement('flipper')
         setRequestedSlot(null)
       } else {
@@ -698,6 +706,27 @@ export function BillboardSubmitForm({
           </FormField>
         </div>
 
+        <FormField
+          id={billingId}
+          label="Billing email"
+          aside={
+            <span className="text-[12.5px] text-[color:var(--st-text-faint)]">
+              Private — payment instructions land here
+            </span>
+          }
+        >
+          <input
+            id={billingId}
+            type="email"
+            value={billingEmail}
+            onChange={(e) => setBillingEmail(e.target.value)}
+            placeholder="you@yoursite.dev"
+            required
+            autoComplete="email"
+            className={fieldInputCls}
+          />
+        </FormField>
+
         {conflict && (
           <div
             className={`rounded-lg px-3 py-2.5 text-[13px] leading-5 ${AMBER_FLIP_CLS}`}
@@ -733,7 +762,7 @@ export function BillboardSubmitForm({
           {signedIn === false ? (
             <Link
               href="/login"
-              className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-transparent bg-[color:var(--st-accent)] px-3 text-[13px] font-medium leading-none text-[color:var(--st-accent-contrast)] transition-colors duration-150 hover:opacity-90"
+              className="inline-flex h-11 shrink-0 items-center justify-center rounded-lg border border-transparent bg-[color:var(--st-accent)] px-3 text-[13px] font-medium leading-none text-[color:var(--st-accent-contrast)] transition-colors duration-150 hover:opacity-90 md:h-8"
             >
               Sign in to submit
             </Link>

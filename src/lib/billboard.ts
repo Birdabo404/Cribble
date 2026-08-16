@@ -66,8 +66,15 @@ export const RAIL_SLOT_PRICE_CENTS: Record<RailSlot, number> = {
 /** The ladder's floor — every "from $199/wk" surface derives from this. */
 export const BILLBOARD_RAIL_PRICE_MIN_CENTS = 19900
 export const BILLBOARD_DURATION_DAYS = 7
-/** Payment is manual in v1: arranged over X DM after approval — these
- *  feed every "DM @birdabo" surface (notifications, tracker, admin). */
+/** Payment is manual in v1, arranged over email since migration 040:
+ *  approval emails the instructions to the ad's billing_email. This is
+ *  the client-safe address shown in UI copy — the server's reply-to
+ *  inbox comes from SPONSORSHIP_EMAIL_REPLY_TO instead, never from a
+ *  bundled constant. */
+export const BILLBOARD_PAYMENT_EMAIL = 'sponsors@cribble.dev'
+/** The backup channel — for ads with no billing_email on file (external
+ *  sponsors, pre-040 rows) or when the email goes unanswered. These feed
+ *  every "or DM @birdabo" surface (notifications, tracker, admin). */
 export const BILLBOARD_PAYMENT_X_HANDLE = 'birdabo'
 export const BILLBOARD_PAYMENT_X_URL = 'https://x.com/birdabo'
 
@@ -103,6 +110,12 @@ export type BillboardAd = {
    *  Buyer-settable, unlike rail_slot. NULL = any slot; always NULL on
    *  flipper ads. */
   requested_rail_slot: RailSlot | null
+  /** Billing contact for the email-first payment flow (migration 040):
+   *  approval emails the payment instructions here. Required on buyer
+   *  submissions/edits since 040; NULL on pre-040 rows and on admin-
+   *  created external-sponsor ads — the approve flow then skips the
+   *  send and ops falls back to X DM. */
+  billing_email: string | null
   status: BillboardStatus
   /** Admin feedback shown to the buyer on redo / reject. */
   review_note: string | null

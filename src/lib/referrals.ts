@@ -17,6 +17,8 @@ const REFERRAL_MAX_USES = 1_000_000
 export interface ReferralCode {
   id: number
   code: string
+  /** Lifetime redemptions — atomically bumped by redeem_invite_code (migration 008). */
+  useCount: number
 }
 
 /**
@@ -31,7 +33,7 @@ export async function ensureReferralCode(
 ): Promise<ReferralCode | null> {
   const { data: existing, error: lookupError } = await supabase
     .from('invite_codes')
-    .select('id, code')
+    .select('id, code, use_count')
     .eq('created_by', userId)
     .eq('kind', 'referral')
     .maybeSingle()
@@ -40,7 +42,13 @@ export async function ensureReferralCode(
     console.error('[Referrals] Referral code lookup failed:', lookupError)
     return null
   }
-  if (existing) return { id: Number(existing.id), code: String(existing.code) }
+  if (existing) {
+    return {
+      id: Number(existing.id),
+      code: String(existing.code),
+      useCount: Number(existing.use_count)
+    }
+  }
 
   for (let attempt = 0; attempt < 3; attempt++) {
     const code = generateInviteCode()
@@ -53,11 +61,15 @@ export async function ensureReferralCode(
         note: 'personal referral code',
         max_uses: REFERRAL_MAX_USES
       })
-      .select('id, code')
+      .select('id, code, use_count')
       .maybeSingle()
 
     if (!insertError && minted) {
-      return { id: Number(minted.id), code: String(minted.code) }
+      return {
+        id: Number(minted.id),
+        code: String(minted.code),
+        useCount: Number(minted.use_count)
+      }
     }
     if (insertError && insertError.code !== '23505') {
       console.error('[Referrals] Referral code mint failed:', insertError)
@@ -66,11 +78,17 @@ export async function ensureReferralCode(
 
     const { data: raced } = await supabase
       .from('invite_codes')
-      .select('id, code')
+      .select('id, code, use_count')
       .eq('created_by', userId)
       .eq('kind', 'referral')
       .maybeSingle()
-    if (raced) return { id: Number(raced.id), code: String(raced.code) }
+    if (raced) {
+      return {
+        id: Number(raced.id),
+        code: String(raced.code),
+        useCount: Number(raced.use_count)
+      }
+    }
   }
 
   console.error(`[Referrals] Could not mint a referral code for user ${userId}`)

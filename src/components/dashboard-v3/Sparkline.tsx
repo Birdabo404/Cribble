@@ -1,16 +1,42 @@
 'use client'
 
-import { useId, useMemo } from 'react'
+import { useMemo, useState } from 'react'
+import { useTheme } from 'next-themes'
 import { formatCompact } from '@/components/dashboard-v2/format'
+import { Area } from '@/components/dither-kit/area'
+import { AreaChart } from '@/components/dither-kit/area-chart'
+import type { ChartConfig, Margins } from '@/components/dither-kit/chart-context'
+import { setDitherTheme } from '@/components/dither-kit/palette'
+import { Tooltip } from '@/components/dither-kit/tooltip'
+import {
+  TREND_RANGES,
+  buildTrendRange,
+  formatUtcDayLabel,
+  type TrendRangeDays
+} from '@/lib/dashboardTrend'
 import { animDelay } from './anim'
 import type { ActivityDay } from '@/types/dashboard'
 
+const isTrendRange = (value: number): value is TrendRangeDays =>
+  (TREND_RANGES as readonly number[]).includes(value)
+
+// Module-level so the tooltip prop keeps a stable identity across renders.
+const formatScore = (value: number) => formatCompact(Math.round(value))
+
+// Single ember series — the palette entry is theme-switched via setDitherTheme.
+const CHART_CONFIG: ChartConfig = { score: { label: 'SCORE', color: 'ember' } }
+
+// Full-bleed plot; the top margin reproduces the old canvas' 16% headroom so
+// the curve peak clears the PEAK / Δ corner readouts.
+const CHART_MARGINS: Partial<Margins> = { top: 18, right: 0, bottom: 0, left: 0 }
+
 /**
- * Area chart of the last `days` of scores, dressed as a flight instrument:
- * blueprint grid, fading level lines, a bottom ruler (day ticks, taller
- * week ticks), the daily series in ember with an ice 7-day-average
- * overlay, a peak readout, a delta vs the prior window, and a glowing
- * ember dot on today's point. Caller handles the empty state.
+ * Score trend instrument: a compact 7/14/28/84-day range rail above
+ * dither-kit's ember AreaChart (gradient dither fill, aura bloom) on Cribble's
+ * blueprint grid, with PEAK / Δ readouts recomputed per range and the window's
+ * real start/end dates in the bottom corners. Scrubbing and the date/score
+ * tooltip come from the kit's crosshair + restyled <Tooltip>. Caller handles
+ * the empty state.
  */
 export function Sparkline({
   activity,
@@ -18,236 +44,143 @@ export function Sparkline({
   height = 112
 }: {
   activity: ActivityDay[]
+  /** Initial range — one of TREND_RANGES, anything else falls back to 28. */
   days?: number
+  /** Plot height in px; the range rail sits above it. */
   height?: number
 }) {
-  const uid = useId()
+  const { resolvedTheme } = useTheme()
+  // Client-only mount (dashboard is behind auth) — resolvedTheme is only
+  // undefined for the first frames; default dark, the app's base theme.
+  const theme = resolvedTheme === 'light' ? 'light' : 'dark'
+  // Swap the kit's ember/ice palette seeds before the chart subtree renders
+  // (idempotent module switch — canvas paint can't resolve CSS variables);
+  // key={theme} below remounts the chart so its paint loop re-reads them.
+  setDitherTheme(theme)
 
-  const { points, avg7, max, deltaPct } = useMemo(() => {
-    const byDate = new Map(activity.map((d) => [d.date, d.score]))
-    // Pull twice the window so the delta can compare against the prior
-    // `days` and the moving average has run-in for its first points.
-    const wide: number[] = []
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    for (let i = days * 2 - 1; i >= 0; i--) {
-      const d = new Date(today)
-      d.setDate(today.getDate() - i)
-      wide.push(byDate.get(d.toISOString().split('T')[0]) || 0)
-    }
-    const out = wide.slice(days)
+  const [range, setRange] = useState<TrendRangeDays>(() =>
+    isTrendRange(days) ? days : 28
+  )
 
-    // 7-day trailing mean per visible point (windows reach into the
-    // prior slice, so day one already has a real average).
-    const ma: number[] = []
-    for (let i = 0; i < days; i++) {
-      const end = days + i
-      const start = Math.max(0, end - 6)
-      const win = wide.slice(start, end + 1)
-      ma.push(win.reduce((a, b) => a + b, 0) / win.length)
-    }
+  const trend = useMemo(() => buildTrendRange(activity, range), [activity, range])
 
-    const cur = out.reduce((a, b) => a + b, 0)
-    const prev = wide.slice(0, days).reduce((a, b) => a + b, 0)
-    const delta = prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null
-
-    return {
-      points: out,
-      avg7: ma,
-      max: Math.max(...out, 1),
-      deltaPct: delta
-    }
-  }, [activity, days])
-
-  const W = 100
-  const H = 36
-  const TOP_PAD = 4 // room so the peak never clips
-  const step = W / (points.length - 1 || 1)
-  const yFor = (v: number) => H - (v / max) * (H - TOP_PAD) - 0.5
-
-  const toPath = (vals: number[]) =>
-    vals
-      .map((v, i) => `${i === 0 ? 'M' : 'L'}${(i * step).toFixed(2)},${yFor(v).toFixed(2)}`)
-      .join(' ')
-
-  const line = toPath(points)
-  const area = `${line} L${W},${H} L0,${H} Z`
-  const avgLine = toPath(avg7)
-
-  const lastYPct = (yFor(points[points.length - 1]) / H) * 100
-
-  // Weekly verticals (skip the outer edges — the panel border does that job).
-  const weekXs: number[] = []
-  for (let d = 7; d < days; d += 7) weekXs.push(((days - 1 - d) * step / W) * 100)
+  // Rows for the kit chart — memoized so the entrance revision only bumps
+  // when the trend actually changes, not on unrelated re-renders.
+  const chartData = useMemo(
+    () =>
+      trend.points.map((point) => ({
+        label: formatUtcDayLabel(point.date),
+        score: point.score
+      })),
+    [trend]
+  )
 
   return (
-    <div className="relative w-full" style={{ height }}>
-      {/* Blueprint grid behind the graph — faded toward the top and sides */}
+    <div className="w-full">
+      {/* Range rail — same instrument chrome idiom as the hero's
+          RefreshButton chip; px-7 lines it up with the card padding that
+          the caller strips via -mx-7. */}
       <div
-        aria-hidden
-        className="anim-fade absolute inset-0"
-        style={{
-          ...animDelay(120),
-          backgroundImage:
-            'linear-gradient(rgb(var(--star-rgb) / 0.09) 1px, transparent 1px), linear-gradient(90deg, rgb(var(--star-rgb) / 0.09) 1px, transparent 1px)',
-          backgroundSize: '26px 26px',
-          backgroundPosition: 'center bottom',
-          WebkitMaskImage:
-            'radial-gradient(130% 105% at 50% 100%, black 30%, transparent 98%)',
-          maskImage:
-            'radial-gradient(130% 105% at 50% 100%, black 30%, transparent 98%)'
-        }}
-      />
-
-      {/* Level lines + weekly verticals + bottom ruler ticks */}
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        preserveAspectRatio="none"
-        className="anim-fade absolute inset-0 h-full w-full"
-        style={animDelay(200)}
-        aria-hidden
+        role="group"
+        aria-label="Trend range"
+        className="anim-fade mb-2 flex items-center justify-end gap-1 px-7"
+        style={animDelay(700)}
       >
-        <defs>
-          {/* level lines fade out toward both sides */}
-          <linearGradient id={`${uid}-grid-h`} x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="rgb(var(--star-rgb) / 0)" />
-            <stop offset="18%" stopColor="rgb(var(--star-rgb) / 0.13)" />
-            <stop offset="82%" stopColor="rgb(var(--star-rgb) / 0.13)" />
-            <stop offset="100%" stopColor="rgb(var(--star-rgb) / 0)" />
-          </linearGradient>
-          {/* weekly verticals fade out toward the top */}
-          <linearGradient id={`${uid}-grid-v`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgb(var(--star-rgb) / 0)" />
-            <stop offset="55%" stopColor="rgb(var(--star-rgb) / 0.09)" />
-            <stop offset="100%" stopColor="rgb(var(--star-rgb) / 0.16)" />
-          </linearGradient>
-        </defs>
-
-        {[0.28, 0.52, 0.76].map((f) => (
-          <line
-            key={f}
-            x1="0"
-            y1={H * f}
-            x2={W}
-            y2={H * f}
-            stroke={`url(#${uid}-grid-h)`}
-            strokeWidth="1"
-            vectorEffect="non-scaling-stroke"
-          />
+        {TREND_RANGES.map((option) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => setRange(option)}
+            aria-pressed={range === option}
+            className={`rounded border px-2 py-0.5 font-data text-[9px] tracking-wide transition-colors ${
+              range === option
+                ? 'border-ember/40 bg-ember/5 text-ember'
+                : 'border-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+            }`}
+          >
+            {option}D
+          </button>
         ))}
-        {weekXs.map((xPct) => (
-          <line
-            key={xPct}
-            x1={(xPct / 100) * W}
-            y1="0"
-            x2={(xPct / 100) * W}
-            y2={H}
-            stroke={`url(#${uid}-grid-v)`}
-            strokeWidth="1"
-            vectorEffect="non-scaling-stroke"
-          />
-        ))}
+      </div>
 
-        {/* ruler: a fine ice tick per day, taller at week boundaries */}
-        {points.map((_, i) => {
-          const week = (days - 1 - i) % 7 === 0
-          return (
-            <line
-              key={i}
-              x1={i * step}
-              y1={H - (week ? 2.2 : 1.1)}
-              x2={i * step}
-              y2={H}
-              stroke={`rgb(var(--ice-rgb) / ${week ? 0.55 : 0.28})`}
-              strokeWidth="1"
-              vectorEffect="non-scaling-stroke"
-            />
-          )
-        })}
-      </svg>
-
-      {/* Series — revealed left → right by a clip-path sweep. Ember daily
-          area/line over the ice 7-day-average structure line. */}
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        preserveAspectRatio="none"
-        className="anim-sweep absolute inset-0 h-full w-full"
-        style={animDelay(300)}
-        aria-hidden
-      >
-        <defs>
-          <linearGradient id={`${uid}-area`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgb(var(--ember-rgb) / 0.28)" />
-            <stop offset="100%" stopColor="rgb(var(--ember-rgb) / 0)" />
-          </linearGradient>
-        </defs>
-
-        <path d={area} fill={`url(#${uid}-area)`} />
-        <path
-          d={avgLine}
-          fill="none"
-          stroke="rgb(var(--ice-rgb) / 0.75)"
-          strokeWidth="1"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-          vectorEffect="non-scaling-stroke"
+      <div className="relative w-full" style={{ height }}>
+        {/* Blueprint grid behind the graph — faded toward the top and sides */}
+        <div
+          aria-hidden
+          className="anim-fade pointer-events-none absolute inset-0"
+          style={{
+            ...animDelay(120),
+            backgroundImage:
+              'linear-gradient(rgb(var(--star-rgb) / 0.09) 1px, transparent 1px), linear-gradient(90deg, rgb(var(--star-rgb) / 0.09) 1px, transparent 1px)',
+            backgroundSize: '26px 26px',
+            backgroundPosition: 'center bottom',
+            WebkitMaskImage:
+              'radial-gradient(130% 105% at 50% 100%, black 30%, transparent 98%)',
+            maskImage:
+              'radial-gradient(130% 105% at 50% 100%, black 30%, transparent 98%)'
+          }}
         />
-        <path
-          d={line}
-          fill="none"
-          stroke="rgb(var(--ember-rgb) / 0.9)"
-          strokeWidth="1.2"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-          vectorEffect="non-scaling-stroke"
-        />
-      </svg>
 
-      {/* live dot on today's point — lands as the sweep reaches the right edge */}
-      <span
-        className="anim-cell absolute right-0 -mr-1"
-        style={{ top: `calc(${lastYPct}% - 4px)`, ...animDelay(1450) }}
-      >
-        <span className="absolute h-2 w-2 rounded-full bg-ember/40 motion-safe:animate-ping" />
-        <span className="absolute h-2 w-2 rounded-full bg-ember shadow-[0_0_8px_rgb(var(--ember-rgb)/0.8)]" />
-      </span>
+        {/* Interactive dither area — must NOT be pointer-events-none; the
+            kit's scrub crosshair and tooltip live inside it. key={theme}
+            remounts the chart when the palette seeds swap; replayToken
+            replays the entrance sweep on range change. */}
+        <div
+          role="img"
+          aria-label={`Score trend, last ${range} days, peak ${formatScore(trend.peak)}`}
+          className="absolute inset-0"
+        >
+          <AreaChart
+            key={theme}
+            data={chartData}
+            config={CHART_CONFIG}
+            replayToken={range}
+            bloom="aura"
+            margins={CHART_MARGINS}
+            className="cursor-crosshair touch-pan-y"
+          >
+            <Area dataKey="score" variant="gradient" />
+            <Tooltip labelKey="label" valueFormatter={formatScore} />
+          </AreaChart>
+        </div>
 
-      {/* corner readouts */}
-      <span
-        className="anim-fade absolute left-4 top-1.5 font-data text-[9px] tracking-[0.3em] text-zinc-500"
-        style={animDelay(800)}
-      >
-        PEAK <span className="text-zinc-300 tabular-nums">{formatCompact(Math.round(max))}</span>
-      </span>
-      <span
-        className="anim-fade absolute right-4 top-1.5 text-right font-data text-[9px] tracking-[0.3em] text-zinc-500"
-        style={animDelay(850)}
-      >
-        Δ {days}D{' '}
-        {deltaPct === null ? (
-          <span className="text-ember tabular-nums">NEW</span>
-        ) : deltaPct >= 0 ? (
-          <span className="text-ember tabular-nums">+{deltaPct}%</span>
-        ) : (
-          <span className="text-zinc-400 tabular-nums">{deltaPct}%</span>
-        )}
-        <span className="mt-0.5 block text-[8px] tracking-[0.25em] text-zinc-600">
-          <span className="text-ice/80">—</span> 7D AVG
+        {/* corner readouts — pointer-events-none so scrubbing never snags */}
+        <span
+          className="anim-fade pointer-events-none absolute left-4 top-1.5 font-data text-[9px] tracking-[0.3em] text-zinc-500"
+          style={animDelay(800)}
+        >
+          PEAK{' '}
+          <span className="text-zinc-300 tabular-nums">
+            {formatCompact(Math.round(trend.peak))}
+          </span>
         </span>
-      </span>
-      {/* bottom labels sit inboard of the panel's corner brackets */}
-      <span
-        className="anim-fade absolute left-7 bottom-2 font-data text-[9px] tracking-[0.3em] text-zinc-600"
-        style={animDelay(900)}
-      >
-        −{days}D
-      </span>
-      <span
-        className="anim-fade absolute right-7 bottom-2 font-data text-[9px] tracking-[0.3em] text-zinc-600"
-        style={animDelay(900)}
-      >
-        TODAY
-      </span>
+        <span
+          className="anim-fade pointer-events-none absolute right-4 top-1.5 text-right font-data text-[9px] tracking-[0.3em] text-zinc-500"
+          style={animDelay(850)}
+        >
+          Δ {range}D{' '}
+          {trend.deltaPct === null ? (
+            <span className="text-ember tabular-nums">NEW</span>
+          ) : trend.deltaPct >= 0 ? (
+            <span className="text-ember tabular-nums">+{trend.deltaPct}%</span>
+          ) : (
+            <span className="text-zinc-400 tabular-nums">{trend.deltaPct}%</span>
+          )}
+        </span>
+        {/* bottom labels sit inboard of the panel's corner brackets */}
+        <span
+          className="anim-fade pointer-events-none absolute left-7 bottom-2 font-data text-[9px] tracking-[0.3em] text-zinc-600"
+          style={animDelay(900)}
+        >
+          {trend.startLabel}
+        </span>
+        <span
+          className="anim-fade pointer-events-none absolute right-7 bottom-2 font-data text-[9px] tracking-[0.3em] text-zinc-600"
+          style={animDelay(900)}
+        >
+          {trend.endLabel}
+        </span>
+      </div>
     </div>
   )
 }

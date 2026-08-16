@@ -11,12 +11,14 @@
 // site accent, so the plate reads as its own machine; the light theme
 // swaps in a darkened chartreuse ink that holds on cream.
 //
-// The modal fetches /api/user/referral lazily on first open; the
-// plate never blocks on the network. Reward mechanics for the copy:
-// +500 PTS per activated friend, first 10 count, and the grant fires
-// when the friend's extension syncs its first real activity.
+// The plate prefetches /api/user/referral on mount (it only renders
+// for the profile owner), so the modal usually opens with the link
+// already in hand; the result is kept in state so reopening is
+// instant. Reward mechanics for the copy: +500 PTS per activated
+// friend, first 10 count, and the grant fires when the friend's
+// extension syncs its first real activity.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { SocialIcon } from '@/components/leaderboard/icons'
 
@@ -41,23 +43,40 @@ export function ReferralPlate() {
   const [open, setOpen] = useState(false)
   const [data, setData] = useState<ReferralData | null>(null)
   const [failed, setFailed] = useState(false)
+  // In-flight guard: RETRY calls load() directly AND flips `failed`,
+  // which re-runs the effect below — without the guard that races two
+  // parallel fetches.
+  const inFlightRef = useRef(false)
 
   const load = useCallback(() => {
+    if (inFlightRef.current) return
+    inFlightRef.current = true
     setFailed(false)
-    fetch('/api/user/referral', { credentials: 'include', cache: 'no-store' })
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 10_000)
+    fetch('/api/user/referral', {
+      credentials: 'include',
+      cache: 'no-store',
+      signal: controller.signal
+    })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error('referral fetch failed'))))
       .then((d) => {
         if (typeof d?.link !== 'string' || !d?.stats) throw new Error('referral fetch failed')
         setData(d as ReferralData)
       })
       .catch(() => setFailed(true))
+      .finally(() => {
+        clearTimeout(timer)
+        inFlightRef.current = false
+      })
   }, [])
 
-  // Lazy fetch: the link is only needed once the modal opens, and the
-  // result is kept so reopening is instant.
+  // Prefetch on mount so the modal opens with the link ready; the
+  // result is kept so (re)opening is instant. A failed prefetch parks
+  // on the modal's RETRY state instead of refetching automatically.
   useEffect(() => {
-    if (open && !data && !failed) load()
-  }, [open, data, failed, load])
+    if (!data && !failed) load()
+  }, [data, failed, load])
 
   return (
     <>
@@ -73,8 +92,11 @@ export function ReferralPlate() {
 
         {/* opaque glass surface so the ring reads as a 1px border */}
         <span className="referral-surface relative block overflow-hidden rounded-[calc(1rem-1px)]">
-          <span className="relative flex items-center justify-between gap-3 px-5 py-4 sm:gap-4 sm:px-6">
-            <span className="min-w-0">
+          {/* Below sm the row is allowed to wrap: when the +500 column
+              can't fit beside the marquee star (~390px), it drops to its
+              own right-aligned line instead of truncating the star. */}
+          <span className="relative flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:flex-nowrap sm:gap-4 sm:px-6">
+            <span className="min-w-0 grow basis-52 sm:grow-0 sm:basis-auto">
               <span className="flex items-center gap-2.5">
                 <span className="ref-dot h-1.5 w-1.5 rounded-full" />
                 <span className="text-[10px] tracking-[0.4em] text-zinc-400">
@@ -89,7 +111,7 @@ export function ReferralPlate() {
                 TAP FOR YOUR INVITE LINK →
               </span>
             </span>
-            <span className="shrink-0 text-right">
+            <span className="ml-auto shrink-0 text-right sm:ml-0">
               {/* marquee star B — breathes a half-cycle after star A */}
               <span className="ref-star ref-star-b block whitespace-nowrap text-[21px] leading-none [font-family:var(--font-pixel)] sm:text-[30px]">
                 +{REFERRAL_POINTS}
@@ -142,10 +164,15 @@ function ReferralModal({
 
   const copy = useCallback(() => {
     if (!data) return
-    void navigator.clipboard?.writeText(data.link).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1600)
-    })
+    void navigator.clipboard
+      ?.writeText(data.link)
+      .then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1600)
+      })
+      // Denied/unavailable clipboard: swallow the rejection and skip
+      // the COPIED flash — the link text stays selectable by hand.
+      .catch(() => {})
   }, [data])
 
   const postOnX = useCallback(() => {
@@ -162,14 +189,14 @@ function ReferralModal({
 
   return createPortal(
     <div
-      className="referral-scope fixed inset-0 z-[80] flex items-center justify-center p-4 font-mono"
+      className="referral-scope fixed inset-0 z-[80] flex items-end justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] font-mono sm:items-center sm:pb-4"
       role="dialog"
       aria-modal="true"
       aria-label="Recruit a pilot"
     >
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} aria-hidden />
       <div
-        className="relative flex max-h-[calc(100vh-3rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl glass-pop"
+        className="relative flex max-h-[calc(100svh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl glass-pop sm:max-h-[calc(100vh-3rem)]"
         style={{ animation: 'glass-modal-in 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards' }}
       >
         {/* ---------- header ---------- */}
@@ -180,7 +207,7 @@ function ReferralModal({
           </div>
           <button
             onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-zinc-200"
+            className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-zinc-200 sm:h-7 sm:w-7"
             aria-label="Close"
           >
             <svg viewBox="0 0 20 20" className="h-4 w-4" aria-hidden>
@@ -193,7 +220,7 @@ function ReferralModal({
         </div>
 
         {/* ---------- body ---------- */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
           <p className="text-[11px] leading-relaxed text-zinc-400">
             Hand a friend your personal link. They skip the gate — you bank{' '}
             <span className="text-[rgb(var(--ref-lime))]">+{REFERRAL_POINTS} PTS</span> once
@@ -209,7 +236,7 @@ function ReferralModal({
                 <button
                   type="button"
                   onClick={onRetry}
-                  className="text-[9px] tracking-[0.25em] text-zinc-400 transition-colors hover:text-[rgb(var(--ref-lime))]"
+                  className="-mr-2 self-stretch px-2 text-[9px] tracking-[0.25em] text-zinc-400 transition-colors hover:text-[rgb(var(--ref-lime))]"
                 >
                   RETRY
                 </button>
@@ -307,13 +334,13 @@ function ModalStat({
   return (
     <div className="flex flex-col items-center gap-1.5 px-2 py-3">
       {value !== null ? (
-        <span className="text-[14px] leading-none tabular-nums text-[rgb(var(--ref-lime))] [font-family:var(--font-pixel)]">
+        <span className="text-[12px] leading-none tabular-nums text-[rgb(var(--ref-lime))] [font-family:var(--font-pixel)] sm:text-[14px]">
           {value.toLocaleString('en-US')}
         </span>
       ) : failed ? (
-        <span className="text-[14px] leading-none text-zinc-600 [font-family:var(--font-pixel)]">-</span>
+        <span className="text-[12px] leading-none text-zinc-600 [font-family:var(--font-pixel)] sm:text-[14px]">-</span>
       ) : (
-        <span className="h-[14px] w-8 animate-pulse rounded bg-white/[0.05]" />
+        <span className="h-[12px] w-8 animate-pulse rounded bg-white/[0.05] sm:h-[14px]" />
       )}
       <span className="text-[8px] tracking-[0.25em] text-zinc-500">{label}</span>
     </div>

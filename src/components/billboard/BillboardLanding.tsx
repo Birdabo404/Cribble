@@ -57,15 +57,15 @@ const VIEW_OPTIONS: readonly SegmentedOption<BillboardView>[] = [
 const STEPS: { label: string; body: string }[] = [
   {
     label: 'Submit',
-    body: `Your logo, one line (up to ${BILLBOARD_TEXT_MAX} characters), and one link — pick the flipper or a rail slot. The live preview shows exactly what ships.`
+    body: `Your logo, one line (up to ${BILLBOARD_TEXT_MAX} characters), one link, and a billing email — pick the flipper or a rail slot. The live preview shows exactly what ships.`
   },
   {
     label: 'Human review',
     body: 'An admin approves it, asks for a redo with written feedback, or rejects it with the reason. It all shows up in Your ads.'
   },
   {
-    label: 'Pay over DM',
-    body: `Once approved, DM @${BILLBOARD_PAYMENT_X_HANDLE} on X to arrange payment. After it's confirmed, allow a few minutes to a few hours for your ad to be activated and go live.`
+    label: 'Pay over email',
+    body: `Once approved, the payment instructions land in your billing email — reply there to arrange it, or DM @${BILLBOARD_PAYMENT_X_HANDLE} on X as backup. After it's confirmed, allow a few minutes to a few hours for your ad to be activated and go live.`
   },
   {
     label: `Live for ${BILLBOARD_DURATION_DAYS} days`,
@@ -212,7 +212,8 @@ export function BillboardLanding() {
     link_url: '',
     logo_url: '',
     placement: placementIntent,
-    requested_rail_slot: slotIntent
+    requested_rail_slot: slotIntent,
+    billing_email: ''
   }
 
   return (
@@ -230,7 +231,7 @@ export function BillboardLanding() {
 
         {view === null ? (
           <div aria-hidden className="mt-6 space-y-6">
-            <Skeleton className="h-[30px] w-60 rounded-lg" />
+            <Skeleton className="h-[50px] w-60 rounded-lg md:h-[30px]" />
             <div className="rounded-xl border border-[color:var(--st-border)] bg-[color:var(--st-panel)] p-4 [box-shadow:var(--st-panel-shadow)] sm:p-5">
               <Skeleton className="h-3.5 w-44" />
               <Skeleton className="mt-3 h-3 w-full max-w-md" />
@@ -316,7 +317,9 @@ export function BillboardLanding() {
                         </div>
                       </div>
 
-                      <div className="mt-3 grid grid-cols-4 gap-2">
+                      {/* 2-up below sm — four columns at ~390px leave ~80px
+                          cells that crush the dates and "until …" lines. */}
+                      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                         {board.rails.map((rail) =>
                           rail.takenUntil ? (
                             <div
@@ -408,8 +411,8 @@ export function BillboardLanding() {
                     ))}
                   </SettingsSection>
                   <p className="mt-2 text-[12px] leading-5 text-[color:var(--st-text-faint)]">
-                    No self-serve checkout — payment is arranged over DM after approval. Nothing
-                    charges automatically.
+                    No self-serve checkout — payment is arranged over email after approval (X
+                    DM as backup). Nothing charges automatically.
                   </p>
                 </div>
               </div>

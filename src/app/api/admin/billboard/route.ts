@@ -32,7 +32,7 @@ const RECENT_LIMIT = 25
 
 // billboard_ads has two FKs into users (owner_user_id, reviewed_by), so
 // the embed names the owner constraint explicitly, like the feedback route.
-const AD_COLUMNS = `id, owner_user_id, text, company_name, link_url, logo_url, accent_color, placement, rail_slot, requested_rail_slot, status, review_note,
+const AD_COLUMNS = `id, owner_user_id, text, company_name, link_url, logo_url, accent_color, placement, rail_slot, requested_rail_slot, billing_email, status, review_note,
    reviewed_at, paid_at, starts_at, ends_at, clicks, created_at, updated_at,
    owner:users!billboard_ads_owner_user_id_fkey(id, twitter_username, twitter_name, twitter_profile_image)`
 
@@ -47,6 +47,9 @@ interface AdminBillboardAd {
   placement: BillboardPlacement
   rail_slot: RailSlot | null
   requested_rail_slot: RailSlot | null
+  /** Where the approval payment email goes; NULL (external sponsors,
+   *  pre-040 rows) means the send is skipped and ops chases on X. */
+  billing_email: string | null
   status: BillboardStatus
   review_note: string | null
   reviewed_at: string | null
@@ -86,6 +89,7 @@ function shapeAd(row: Record<string, unknown>): AdminBillboardAd {
     placement: row.placement as BillboardPlacement,
     rail_slot: (row.rail_slot as RailSlot | null) ?? null,
     requested_rail_slot: (row.requested_rail_slot as RailSlot | null) ?? null,
+    billing_email: (row.billing_email as string | null) ?? null,
     status: row.status as BillboardStatus,
     review_note: (row.review_note as string | null) ?? null,
     reviewed_at: (row.reviewed_at as string | null) ?? null,

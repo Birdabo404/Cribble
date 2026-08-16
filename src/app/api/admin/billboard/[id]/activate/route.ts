@@ -31,8 +31,8 @@ import { createServiceClient } from '@/lib/supabaseServer'
 //              Stamps paid_at (kept if already set — a renewal of an
 //              expired window doesn't rewrite payment history),
 //              starts_at = now, ends_at = now + 7 days. Billing is NOT
-//              touched: payment happens manually over X DM before this
-//              click.
+//              touched: payment happens manually over the approval
+//              email thread (or X DM as backup) before this click.
 //   archive  — early takedown of a live/approved ad. Requires a written
 //              reason (audit log only; review_note stays the buyer-facing
 //              review feedback). Click stats survive, per migration 030.
@@ -54,7 +54,7 @@ function paymentReminderFor(placement: BillboardPlacement, slot: RailSlot | null
     placement === 'rail' && slot ? RAIL_SLOT_PRICE_CENTS[slot] : BILLBOARD_PRICE_CENTS
   return `Going live does not touch billing — the $${
     cents / 100
-  } is collected manually over X DM (@${BILLBOARD_PAYMENT_X_HANDLE}) before marking paid.`
+  } is collected manually over the payment email thread (X DM @${BILLBOARD_PAYMENT_X_HANDLE} as backup) before marking paid.`
 }
 
 type ActivateAction = 'activate' | 'archive'

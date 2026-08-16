@@ -28,9 +28,14 @@ const CHIP_ACTIVE = 'border-zinc-500 bg-white/[0.06] text-zinc-50'
 
 export function NavTopBar({
   navUser,
+  markStill = false,
   className = ''
 }: {
   navUser: NavUserState
+  /** True while the bar is CSS-hidden (md:hidden under the left-rail
+      position) — the wordmark renders its static image instead of holding
+      a live WebGL shader offscreen. */
+  markStill?: boolean
   className?: string
 }) {
   const pathname = usePathname()
@@ -58,13 +63,15 @@ export function NavTopBar({
         data-scrolled={scrolled || undefined}
         className={`app-nav-topbar app-nav-enter-top fixed inset-x-0 top-0 z-40 ${className}`}
       >
-        {/* max-width/padding pre-scaled by 0.9 to align with the page-zoom-out content */}
-        <div className="mx-auto flex h-14 w-full max-w-[64.8rem] items-center gap-2 px-[1.35rem]">
+        {/* gutters: plain 1.5rem below md (pages render at zoom 1 there);
+            max-width/padding pre-scaled by 0.9 at md+ to align with the
+            page-zoom-out content */}
+        <div className="mx-auto flex h-14 w-full max-w-[64.8rem] items-center gap-2 px-6 md:px-[1.35rem]">
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
             aria-label="Open navigation"
-            className="md:hidden -ml-1 flex h-8 w-8 items-center justify-center rounded border border-zinc-800 text-zinc-300 transition-[color,background-color,border-color,transform] duration-150 hover:border-zinc-600 hover:bg-white/[0.04] hover:text-zinc-100 active:scale-[0.98] active:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
+            className="md:hidden -ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded border border-zinc-800 text-zinc-300 transition-[color,background-color,border-color,transform] duration-150 hover:border-zinc-600 hover:bg-white/[0.04] hover:text-zinc-100 active:scale-[0.98] active:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
           >
             <NavIcon name="menu" className="h-4 w-4" />
           </button>
@@ -73,8 +80,11 @@ export function NavTopBar({
             href="/dashboard"
             className="flex items-center gap-2.5 text-sm font-semibold tracking-[0.4em] text-zinc-100 transition-opacity hover:opacity-80"
           >
-            <LiquidMark size={20} />
-            <span>
+            <LiquidMark size={20} still={markStill} />
+            {/* the wordmark text is the one child allowed to give way: on
+                the narrowest phones the mark alone carries the brand and
+                the identity cluster on the right never moves */}
+            <span className="hidden sm:inline">
               CRIBBLE<span className="text-accent">.</span>
             </span>
           </Link>
@@ -106,7 +116,7 @@ export function NavTopBar({
                 onClick={status.onSync}
                 disabled={status.syncing}
                 title={`${meta.label} · last sync ${formatRelative(status.lastSync)}`}
-                className={`${CHIP_BASE} ${CHIP_IDLE} hidden items-center gap-2 sm:flex disabled:opacity-50`}
+                className={`${CHIP_BASE} ${CHIP_IDLE} hidden items-center gap-2 md:flex disabled:opacity-50`}
               >
                 <span className={`h-1.5 w-1.5 rounded-full ${meta.dotClass}`} />
                 {status.syncing ? 'SYNCING…' : 'SYNC'}
@@ -115,14 +125,18 @@ export function NavTopBar({
 
             {/* user search — an icon chip, and only where finding people is
                 the page's job (profiles + leaderboard); everywhere else the
-                bar stays clean */}
-            {isUserSearchRoute(pathname) && <UserSearch variant="chip" />}
+                bar stays clean. md+ only: below that the chip's presence
+                varied by route and shifted the identity cluster — mobile
+                searches from the drawer instead. */}
+            {isUserSearchRoute(pathname) && (
+              <UserSearch variant="chip" className="hidden md:block" />
+            )}
 
             <NotificationBell />
 
             {!navUser.loaded ? (
               /* mirrors the account pill footprint (avatar + chevron halves) */
-              <span className="h-[42px] w-[77px] animate-pulse rounded-full border border-zinc-800 bg-zinc-900" />
+              <span className="h-[42px] w-[77px] shrink-0 animate-pulse rounded-full border border-zinc-800 bg-zinc-900" />
             ) : navUser.user ? (
               <AccountMenu
                 user={navUser.user}
@@ -130,7 +144,7 @@ export function NavTopBar({
                 onLogout={navUser.logout}
               />
             ) : (
-              <Link href="/login" className={`${CHIP_BASE} ${CHIP_IDLE} text-accent`}>
+              <Link href="/login" className={`${CHIP_BASE} ${CHIP_IDLE} shrink-0 text-accent`}>
                 SIGN IN
               </Link>
             )}

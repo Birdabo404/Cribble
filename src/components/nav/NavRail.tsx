@@ -77,7 +77,15 @@ function SyncRow({ status }: { status: NavStatus }) {
   )
 }
 
-export function NavRail({ navUser }: { navUser: NavUserState }) {
+export function NavRail({
+  navUser,
+  markStill = false
+}: {
+  navUser: NavUserState
+  /** True while the rail is CSS-hidden (below md) — the wordmark renders
+      its static image instead of holding a live WebGL shader offscreen. */
+  markStill?: boolean
+}) {
   const prefs = useNavPrefs()
   const pathname = usePathname()
   const status = useNavStatus()
@@ -151,7 +159,7 @@ export function NavRail({ navUser }: { navUser: NavUserState }) {
           className="absolute inset-0 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-zinc-500"
         >
           <span className="absolute left-0 top-0 flex h-full w-16 items-center justify-center">
-            <LiquidMark size={24} title="Cribble" />
+            <LiquidMark size={24} title="Cribble" still={markStill} />
           </span>
           <span className="nav-wordmark-full absolute left-14 top-0 flex h-full items-center whitespace-nowrap text-sm font-semibold tracking-[0.4em] text-zinc-100">
             CRIBBLE<span className="text-accent">.</span>

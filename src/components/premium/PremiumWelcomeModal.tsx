@@ -9,6 +9,7 @@
 
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import Link from 'next/link'
 import { AMBER, PREMIUM_PERKS, formatPremiumSince } from '@/components/premium/premium'
 import { VERIFIED_BLUE, VerifiedBadge } from '@/components/premium/VerifiedBadge'
 
@@ -150,7 +151,7 @@ export function PremiumWelcomeModal({
 
           {/* ---- CTAs ---- */}
           <div className="mt-5 space-y-2.5">
-            <a
+            <Link
               href="/leaderboard"
               className="block w-full rounded-lg px-4 py-3 text-center text-[10px] tracking-[0.3em] transition-colors"
               style={{
@@ -161,7 +162,7 @@ export function PremiumWelcomeModal({
               }}
             >
               SEE IT ON THE BOARD <span aria-hidden>→</span>
-            </a>
+            </Link>
             <a
               href="/api/portal"
               className="block w-full rounded-lg border border-white/[0.08] px-4 py-2.5 text-center text-[9px] tracking-[0.3em] text-zinc-500 transition-colors hover:border-zinc-600 hover:text-zinc-200"

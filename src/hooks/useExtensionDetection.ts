@@ -8,8 +8,15 @@ import { requestExtensionIdentity } from '@/lib/extensionBridge'
 // are sequential by construction — never overlapping.
 const POLL_GAP_MS = 2500
 
-export function useExtensionDetection(enabled: boolean): { detected: boolean } {
+export function useExtensionDetection(enabled: boolean): {
+  detected: boolean
+  checked: boolean
+} {
   const [detected, setDetected] = useState(false)
+  // Flips true once the first attempt settles, whatever it found — lets
+  // callers tell "still checking" apart from "checked and absent" while
+  // polling keeps running underneath.
+  const [checked, setChecked] = useState(false)
 
   useEffect(() => {
     if (!enabled || detected) return
@@ -20,6 +27,7 @@ export function useExtensionDetection(enabled: boolean): { detected: boolean } {
     const poll = async () => {
       const identity = await requestExtensionIdentity()
       if (cancelled) return
+      setChecked(true)
       if (identity) {
         setDetected(true)
         return
@@ -37,5 +45,5 @@ export function useExtensionDetection(enabled: boolean): { detected: boolean } {
     }
   }, [enabled, detected])
 
-  return { detected }
+  return { detected, checked }
 }

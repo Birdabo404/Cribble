@@ -95,7 +95,11 @@ export function useDashboardData(): DashboardData {
 
   const fetchActivity = useCallback(async () => {
     try {
-      const res = await fetch('/api/user/activity?days=84', { credentials: 'include' })
+      // 365 days = the ActivityCard's full-year heatmap window (the API
+      // caps days at 365). Supersets every other consumer: the hero trend's
+      // widest 84-day view plus its 84-day Δ comparison window, the streak,
+      // and the season rail all slice recent days.
+      const res = await fetch('/api/user/activity?days=365', { credentials: 'include' })
       if (!res.ok) return
       const data = await res.json()
       if (data.success && Array.isArray(data.activity)) setActivity(data.activity)
@@ -104,7 +108,7 @@ export function useDashboardData(): DashboardData {
 
   const refreshDashboard = useCallback(async (): Promise<MeFetchResult> => {
     // Refreshes announce "something changed server-side" (extension sync,
-    // manual refresh, poll tick) — skip the short /me TTL cache so the
+    // manual refresh, push message) — skip the short /me TTL cache so the
     // new state is actually fetched.
     invalidateMe()
     const [me] = await Promise.all([fetchMe(), fetchTools(), fetchActivity()])
@@ -128,18 +132,42 @@ export function useDashboardData(): DashboardData {
     }
   }, [fetchMe, fetchTools, fetchActivity])
 
-  // Keeps the poll/listener effects from tearing down on every refresh.
+  // Keeps the push-refresh listener effect from tearing down on every refresh.
   const refreshRef = useRef(refreshDashboard)
   useEffect(() => {
     refreshRef.current = refreshDashboard
   }, [refreshDashboard])
 
-  // Latest total score, readable from the push-refresh listener below
-  // without re-subscribing it on every scores update.
+  // Latest total score, readable from the interval poll and push-refresh
+  // listener below without re-subscribing them on every scores update.
   const totalScoreRef = useRef(0)
   useEffect(() => {
     totalScoreRef.current = scores.total_score
   }, [scores.total_score])
+
+  // The interval poll fetches ONLY /api/user/me. /tools and the 365-day
+  // /activity feed (full-year heatmap window) are the expensive reads, and
+  // they only change when new events land — which /me's total score
+  // already reveals. When the polled
+  // total differs from the one on screen, the heavy pair is refetched to
+  // catch up. Full refreshes (extension sync completion, push messages)
+  // still go through refreshDashboard.
+  const pollMe = useCallback(async () => {
+    const previousTotal = totalScoreRef.current
+    // Same reasoning as refreshDashboard: a poll asks "did the server
+    // change" — skip the short /me TTL cache so it actually finds out.
+    invalidateMe()
+    const result = await fetchMe()
+    if (!result.ok || !result.data.scores) return
+    if (result.data.scores.total_score !== previousTotal) {
+      await Promise.all([fetchTools(), fetchActivity()])
+    }
+  }, [fetchMe, fetchTools, fetchActivity])
+
+  const pollMeRef = useRef(pollMe)
+  useEffect(() => {
+    pollMeRef.current = pollMe
+  }, [pollMe])
 
   // Keyed on the id, not the object: `user` is replaced by every poll, and
   // an object dependency would tear down and recreate the interval each tick.
@@ -148,22 +176,22 @@ export function useDashboardData(): DashboardData {
     if (userId === null) return
     // Data is fresh when this effect mounts (init/login just fetched), so
     // the staleness clock starts now.
-    let lastRefreshAt = Date.now()
-    const runRefresh = () => {
-      lastRefreshAt = Date.now()
-      void refreshRef.current()
+    let lastPollAt = Date.now()
+    const runPoll = () => {
+      lastPollAt = Date.now()
+      void pollMeRef.current()
     }
     const id = setInterval(() => {
       // Hidden tabs skip the poll entirely; the visibility handler below
       // catches up the moment the player returns.
       if (document.hidden) return
-      runRefresh()
+      runPoll()
     }, POLL_INTERVAL_MS)
     const onVisibilityChange = () => {
       if (document.hidden) return
-      // Only refresh when the tab was hidden long enough to have missed a
+      // Only poll when the tab was hidden long enough to have missed a
       // tick — quick tab flips shouldn't burst requests.
-      if (Date.now() - lastRefreshAt >= POLL_INTERVAL_MS) runRefresh()
+      if (Date.now() - lastPollAt >= POLL_INTERVAL_MS) runPoll()
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => {
