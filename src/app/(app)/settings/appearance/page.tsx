@@ -296,7 +296,7 @@ export default function AppearanceSettingsPage() {
         <SettingsSection title="Navigation">
           <SettingsRow
             label="Navigation bar"
-            description="Where the app navigation lives on desktop."
+            description="Where the app navigation lives on desktop. Defaults to the left rail."
             stack
           >
             {mounted ? (
