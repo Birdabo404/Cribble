@@ -1,7 +1,7 @@
-// Supply Depot catalog slices — pure data + helpers, no React. These are
-// the storefront's views over the plate catalog (src/lib/cosmetics/plates.ts),
+// Shop catalog slices — pure data + helpers, no React. These are the
+// storefront's views over the plate catalog (src/lib/cosmetics/plates.ts),
 // shared by shop/page.tsx and the shop section components (marquee fan,
-// shelves, Pro cards, gold row).
+// grids, Pro cards, gold row).
 
 import { PLATES, type PlateDef, type PlateRarity } from '@/lib/cosmetics/plates'
 
@@ -38,9 +38,8 @@ export const RESERVE_PLATES: ShopPlate[] = PLATES.filter(
   (plate): plate is ShopPlate => plate.rarity === 'mythic' && plate.priceUsd !== null
 ).sort((a, b) => a.priceUsd - b.priceUsd)
 
-/** Reserve shelf copy: a lane kicker + "what's alive in it" for each plate.
- * Keyed by catalog id — a mythic plate without notes still renders, just
- * without the bullet list. */
+/** Mythic specimen copy: a short kicker on the card, plus parked "what's
+ * alive" lines for a future detail surface. */
 export const RESERVE_NOTES: Record<string, { kicker: string; alive: string[] }> = {
   'koi-pond': {
     kicker: 'WATER, CHOREOGRAPHED',
@@ -77,8 +76,6 @@ export const FOUNDER_PLATE: ShopPlate | null =
 
 export const CHAMPION_PLATE: PlateDef | null =
   PLATES.find((plate) => plate.championExclusive) ?? null
-
-export const HERO_BACKDROP_ID: string | null = PRO_PLATES[0]?.id ?? null
 
 /** Pro shop discount: 25% off in cents-math so $X.99 stays a tidy .49/.99. */
 export const proPrice = (priceUsd: number) => Math.round(priceUsd * 100 * 0.75) / 100

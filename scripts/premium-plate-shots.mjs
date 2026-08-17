@@ -186,7 +186,7 @@ async function main() {
       `location.search.includes('__shot=${id}') && document.readyState === 'complete'`,
       `shop navigation ${id}`
     )
-    await waitFor(`!!document.querySelector('.shp-reserve')`, '.shp-reserve')
+    await waitFor(`!!document.querySelector('.shp-mythic')`, '.shp-mythic')
     await waitFor(
       `document.documentElement.classList.contains(${JSON.stringify(theme)})`,
       `${theme} theme`
@@ -308,7 +308,7 @@ async function main() {
     if (!condition) throw new Error(`assertion failed: ${message}`)
   }
 
-  const rowSelector = (index) => `.shp-reserve .shp-reserve-row:nth-of-type(${index + 1})`
+  const rowSelector = (index) => `.shp-mythic article.shpv-card:nth-of-type(${index + 1})`
 
   // --strips-only: skip the full suite and only run the hover filmstrips
   const STRIPS_ONLY = process.argv.includes('--strips-only')
@@ -320,13 +320,13 @@ async function main() {
 
   // Structure assertions: shelf order, checkout hrefs, grid exclusion.
   const structure = await evalJs(`(() => {
-    const rows = [...document.querySelectorAll('.shp-reserve .shp-reserve-row')];
-    const gridHrefs = [...document.querySelectorAll('article.shp-tile a.shp-tile-link')]
+    const rows = [...document.querySelectorAll('.shp-mythic article.shpv-card')];
+    const gridHrefs = [...document.querySelectorAll('article.shpk-card a.shpk-link')]
       .map((a) => a.getAttribute('href'));
     return {
       reserveHrefs: rows.map((row) =>
-        row.querySelector('a.shp-tile-link')?.getAttribute('href') ?? null),
-      chipText: rows[0]?.querySelector('.shp-mythic-chip')?.textContent.trim(),
+        row.querySelector('a.shpv-link')?.getAttribute('href') ?? null),
+      chipText: rows[0]?.textContent.includes('Mythic') ? 'Mythic' : '',
       gridHrefs
     };
   })()`)
@@ -336,7 +336,7 @@ async function main() {
       `reserve row ${i} href: ${structure.reserveHrefs[i]}`
     )
   }
-  assert(structure.chipText === 'MYTHIC', `mythic chip text: ${structure.chipText}`)
+  assert(structure.chipText === 'Mythic', `mythic label: ${structure.chipText}`)
   for (const id of RESERVE_IDS) {
     assert(
       !structure.gridHrefs.some((href) => href?.includes(`plateId=${id}`)),
@@ -345,8 +345,8 @@ async function main() {
   }
   console.log('Structure assertions:', JSON.stringify(structure.reserveHrefs))
 
-  await scrollTo('.shp-reserve')
-  await clipShot('01-reserve-dark', '.shp-reserve', 10)
+  await scrollTo('.shp-mythic')
+  await clipShot('01-reserve-dark', '.shp-mythic', 10)
 
   await scrollTo(rowSelector(0))
   await clipShot('02-koi-row-dark', rowSelector(0), 10)
@@ -392,7 +392,7 @@ async function main() {
   // ---- 68px row-height renders (leaderboard row geometry) ----
   await evalJs(
     `(() => {
-      document.querySelectorAll('.shp-reserve .shp-reserve-row .aspect-\\\\[4\\\\/1\\\\]').forEach((el) => {
+      document.querySelectorAll('.shp-mythic article.shpv-card .aspect-\\\\[4\\\\/1\\\\]').forEach((el) => {
         el.style.aspectRatio = 'auto';
         el.style.height = '68px';
       });
@@ -409,23 +409,23 @@ async function main() {
 
   // ================= desktop light =================
   await gotoShop({ theme: 'light' })
-  await scrollTo('.shp-reserve')
+  await scrollTo('.shp-mythic')
   const lightBand = await evalJs(`(() => {
-    const band = document.querySelector('.shp-reserve');
+    const band = document.querySelector('.shp-mythic');
     return {
       htmlClass: document.documentElement.className,
       background: getComputedStyle(band).backgroundColor
     };
   })()`)
   console.log('Light band assertion:', JSON.stringify(lightBand))
-  await clipShot('12-reserve-light', '.shp-reserve', 10)
+  await clipShot('12-reserve-light', '.shp-mythic', 10)
 
   // ================= mobile 390 =================
   await setViewport(390, 844, true)
   await gotoShop({ theme: 'dark' })
-  await scrollTo('.shp-reserve', 'start')
+  await scrollTo('.shp-mythic', 'start')
   const mobile = await evalJs(`(() => {
-    const band = document.querySelector('.shp-reserve').getBoundingClientRect();
+    const band = document.querySelector('.shp-mythic').getBoundingClientRect();
     return {
       viewportWidth: innerWidth,
       scrollWidth: document.documentElement.scrollWidth,
@@ -444,9 +444,9 @@ async function main() {
     features: [{ name: 'prefers-reduced-motion', value: 'reduce' }]
   })
   await gotoShop({ theme: 'dark', settle: 400 })
-  await scrollTo('.shp-reserve')
+  await scrollTo('.shp-mythic')
   const reducedState = await evalJs(`(() => {
-    const rows = [...document.querySelectorAll('.shp-reserve .shp-reserve-row')];
+    const rows = [...document.querySelectorAll('.shp-mythic article.shpv-card')];
     return {
       liveAnimations: rows.reduce(
         (n, row) => n + row.getAnimations({ subtree: true })
@@ -460,7 +460,7 @@ async function main() {
     `reduced-motion still animating: ${reducedState.liveAnimations}`
   )
   console.log('Reduced motion assertion:', JSON.stringify(reducedState))
-  const reducedClip = await elementRect('.shp-reserve', 10)
+  const reducedClip = await elementRect('.shp-mythic', 10)
   const reducedFirst = await capture(reducedClip)
   const f0 = `${OUT}${LABEL}-15-reduced-motion-f0.png`
   fs.writeFileSync(f0, reducedFirst)

@@ -177,7 +177,7 @@ async function main() {
   const tagKoi = async () => {
     const found = await evalJs(
       `(() => {
-        const link = document.querySelector('a.shp-tile-link[href*="plateId=koi-pond"]');
+        const link = document.querySelector('a.shpv-link[href*="plateId=koi-pond"]');
         if (!link) return false;
         const article = link.closest('article');
         article.setAttribute('data-koi', '1');
@@ -208,7 +208,7 @@ async function main() {
       `location.search.includes('__shot=${id}') && document.readyState === 'complete'`,
       `shop navigation ${id}`
     )
-    await waitFor(`!!document.querySelector('a.shp-tile-link[href*="plateId=koi-pond"]')`, 'koi tile')
+    await waitFor(`!!document.querySelector('a.shpv-link[href*="plateId=koi-pond"]')`, 'koi tile')
     await waitFor(
       `document.documentElement.classList.contains(${JSON.stringify(theme)})`,
       `${theme} theme`

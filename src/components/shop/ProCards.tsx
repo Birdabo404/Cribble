@@ -1,46 +1,56 @@
 'use client'
 
-// Cribble Pro — the subscription section, as two standalone pricing cards
-// (monthly / yearly) inside the same obsidian + amber showcase panel the
-// old ProHero used. Replaces the hero's term dial + scoreboard: each term
-// carries its own price, the four perks and its own checkout CTA, so
-// there is no dial state and no live region. `isPro` collapses the cards
-// into the PREMIUM ACTIVE panel + portal link.
+// Cribble Pro — the arcade panel. Kit on the left (pixel wordmark, gold
+// `+` perks, the three exclusive plates), scoreboard tickets on the
+// right. Yearly is the featured default: gold chrome, BEST VALUE tag,
+// GO PRO button. `isPro` keeps the kit and swaps the tickets for an
+// active readout.
 //
-// Self-contained: every class lives in this file's styled-jsx block under
-// a fresh `shpp-` prefix — zero reliance on the `shp-` classes still
-// defined by shop/page.tsx.
+// The gold treatment is the storefront's one loud moment: a keyline with
+// a slow idle sheen, LED price digits that roll in per glyph, and a
+// hatched panel surface so the fill reads as material instead of flat.
+// Every animation is transform/opacity only and gates off under
+// data-perf="low", prefers-reduced-motion and data-motion="reduced".
+//
+// Self-contained styled-jsx under `shpp-`.
 
 import { useRef } from 'react'
-import { PlateLayer, PlatePreview } from '@/components/cosmetics/PlateLayer'
-import { tierAccent } from '@/components/dashboard-v2/format'
-import { AMBER } from '@/components/premium/premium'
+import { PlatePreview } from '@/components/cosmetics/PlateLayer'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import type { PlateDef } from '@/lib/cosmetics/plates'
 import { PRO_TERMS, type BillingTerm } from '@/lib/planTerms'
-import { HERO_BACKDROP_ID, PRO_PLATES } from './catalog'
+import { PRO_PLATES } from './catalog'
 import { useOnStage } from './stage'
 
-const PRO_PLATE_NAMES = PRO_PLATES.map((plate) => plate.name).join(' · ')
-
-/** The blue-check line gets the inline VerifiedBadge in the renderer. */
-const BLUE_CHECK_PERK = 'Pixel blue check next to your name'
-
-/** The four perk lines — the exact copy the old ProHero pitched. */
-const PERKS: readonly string[] = [
-  'Animated GIF banner on your profile',
-  BLUE_CHECK_PERK,
-  `Three exclusive plates — ${PRO_PLATE_NAMES}`,
-  '25% off every plate in the depot'
+const PERKS: readonly { title: string; body: string; badge?: boolean }[] = [
+  { title: 'GIF banner', body: 'Animated on your profile' },
+  { title: 'Blue check', body: 'Next to your name', badge: true },
+  { title: 'Three plates', body: 'Exclusive while Pro is live' },
+  { title: '25% off', body: 'Every plate at checkout' }
 ]
 
-const TERM_LABEL: Record<BillingTerm, string> = {
-  monthly: '1 MONTH',
-  yearly: '12 MONTHS'
+/** Per-glyph LED readout — each character rolls up in turn. */
+function ScorePrice({ price, unit }: { price: string; unit: string }) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <span aria-hidden className="shpp-price text-[24px] leading-none [font-family:var(--font-pixel)]">
+        {price.split('').map((ch, i) => (
+          <span key={i} className="shpp-price-ch" style={{ ['--d' as string]: `${i * 30}ms` }}>
+            {ch}
+          </span>
+        ))}
+      </span>
+      <span
+        aria-hidden
+        className="shpp-price-ch text-[10px] tracking-[0.18em] text-zinc-500"
+        style={{ ['--d' as string]: `${price.length * 30}ms` }}
+      >
+        {unit}
+      </span>
+    </div>
+  )
 }
 
-/** One plate in the Pro collection strip, on the stage budget: its scene
- * pauses whenever the strip is offstage. */
 function ProStripPlate({ plate }: { plate: PlateDef }) {
   const rootRef = useRef<HTMLDivElement>(null)
   useOnStage(rootRef)
@@ -48,322 +58,303 @@ function ProStripPlate({ plate }: { plate: PlateDef }) {
   return (
     <div ref={rootRef} data-offstage="" className="relative">
       <PlatePreview plateId={plate.id} />
-      <span
-        className="absolute right-2 top-2 z-10 rounded border px-1.5 py-0.5 text-[8px] tracking-[0.25em]"
-        style={{
-          color: `rgb(${AMBER})`,
-          borderColor: `rgb(${AMBER} / 0.45)`,
-          background: 'rgb(0 0 0 / 0.55)'
-        }}
-      >
+      <span className="shpp-plate-tag absolute right-2 top-2 z-10 rounded px-1.5 py-0.5 text-[8px] leading-none [font-family:var(--font-pixel)]">
         PRO
       </span>
     </div>
   )
 }
 
-/** One pricing card. Yearly is the featured default: amber chrome, its
- * own keyline, the value tag and the plate-art backdrop; monthly gets the
- * quiet chrome + ghost CTA so yearly reads as the choice. */
-function TermCard({ term }: { term: BillingTerm }) {
+function TermTicket({ term }: { term: BillingTerm }) {
   const meta = PRO_TERMS[term]
   const featured = term === 'yearly'
-  // stage budget: pauses the featured card's PlateLayer backdrop while
-  // the Pro section is offstage (monthly has no scene — attr is inert)
-  const rootRef = useRef<HTMLDivElement>(null)
-  useOnStage(rootRef)
 
   return (
-    <div
-      ref={rootRef}
-      data-offstage=""
-      className={`relative flex flex-col overflow-hidden rounded-xl p-5 ${
-        featured ? 'shpp-card shpp-card-featured' : 'shpp-card'
-      }`}
-    >
-      {featured && (
-        <>
-          {/* thin amber keyline — the featured card's own signature */}
-          <span
-            aria-hidden
-            className="absolute inset-x-0 top-0 z-10 h-px"
-            style={{
-              background: `linear-gradient(90deg, transparent 4%, rgb(${AMBER} / 0.9) 50%, transparent 96%)`,
-              boxShadow: `0 0 10px rgb(${AMBER} / 0.5)`
-            }}
-          />
-          {HERO_BACKDROP_ID && (
-            <>
-              <PlateLayer plateId={HERO_BACKDROP_ID} fade="left" className="opacity-[0.35]" />
-              {/* dark veil over the art so price + perks stay legible */}
-              <div
-                aria-hidden
-                className="absolute inset-0"
-                style={{
-                  background:
-                    'linear-gradient(180deg, rgb(var(--lb-panel-bg) / 0.92), rgb(var(--lb-panel-bg) / 0.7) 45%, rgb(var(--lb-panel-bg) / 0.4))'
-                }}
-              />
-            </>
-          )}
-        </>
-      )}
-
-      <div className="relative flex flex-1 flex-col">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[9px] tracking-[0.3em] text-zinc-500">{TERM_LABEL[term]}</span>
-          {featured && (
-            <span className="shpp-tag rounded px-1.5 py-px text-[7px] tracking-[0.2em]">
-              BEST VALUE -40%
-            </span>
-          )}
-        </div>
-
-        <div className="mt-3 flex items-baseline gap-2">
-          <span className="shpp-price text-[28px] leading-none [font-family:var(--font-pixel)] md:text-[32px]">
-            {meta.price}
+    <div className={`shpp-card ${featured ? 'shpp-card-featured' : ''} relative rounded-2xl p-4`}>
+      {featured && <span aria-hidden className="shpp-card-keyline" />}
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] tracking-[0.18em] text-zinc-500">
+          {featured ? 'YEARLY' : 'MONTHLY'}
+        </span>
+        {featured && (
+          <span className="shpp-tag rounded px-1.5 py-1 text-[7px] leading-none [font-family:var(--font-pixel)]">
+            BEST VALUE
           </span>
-          <span className="text-[10px] tracking-[0.2em] text-zinc-500">{meta.unit}</span>
-        </div>
-        <p className="mt-2 text-[9px] tracking-[0.2em] text-zinc-500">{meta.context}</p>
+        )}
+      </div>
 
-        <ul className="mt-4 space-y-2">
-          {PERKS.map((perk) => (
-            <li key={perk} className="flex items-start gap-2.5 text-xs text-zinc-300">
-              <span
-                className="mt-px shrink-0 text-[10px] leading-4 [font-family:var(--font-pixel)]"
-                style={{ color: `rgb(${AMBER} / 0.9)` }}
-              >
-                +
-              </span>
-              <span className="leading-relaxed">
-                {perk}
-                {perk === BLUE_CHECK_PERK && (
-                  <VerifiedBadge size={12} className="ml-1.5 inline-block align-[-2px]" />
+      <div className="mt-3">
+        <ScorePrice price={meta.price} unit={meta.unit} />
+      </div>
+      <p className="mt-2 text-[11px] leading-snug text-zinc-600">
+        {featured ? 'About $4.17 / mo · save $33.89' : 'Cancel anytime'}
+      </p>
+
+      <a
+        href={`/api/checkout?type=pro_${term}`}
+        aria-label={`Go Pro — ${meta.announce}`}
+        className={`${
+          featured ? 'shpp-go' : 'shpp-go shpp-go-ghost'
+        } mt-4 flex w-full items-center justify-center gap-2 rounded-[10px] px-4 py-2.5 text-[11px] leading-none tracking-[0.14em] [font-family:var(--font-pixel)]`}
+      >
+        <span aria-hidden className="shpp-go-clip" />
+        GO PRO
+        <span aria-hidden className="shpp-go-arrow">
+          →
+        </span>
+      </a>
+    </div>
+  )
+}
+
+function ProKit() {
+  return (
+    <>
+      <h2 className="shpp-wordmark text-[15px] leading-none [font-family:var(--font-pixel)]">
+        CRIBBLE PRO
+      </h2>
+      <p className="mt-3 text-[13px] leading-relaxed text-zinc-400">
+        The full kit. Flex on the whole board. Cancel anytime.
+      </p>
+
+      <ul className="mt-5 grid gap-2 sm:grid-cols-2">
+        {PERKS.map((perk) => (
+          <li key={perk.title} className="shpp-perk flex items-start gap-2.5 rounded-xl px-3 py-2.5">
+            <span aria-hidden className="shpp-plus text-[10px] leading-4 [font-family:var(--font-pixel)]">
+              +
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[12px] font-medium text-zinc-200">
+                {perk.title}
+                {perk.badge && (
+                  <VerifiedBadge size={11} className="ml-1.5 inline-block align-[-2px]" />
                 )}
               </span>
-            </li>
-          ))}
-        </ul>
-
-        <div className="mt-auto pt-5">
-          <a
-            href={`/api/checkout?type=pro_${term}`}
-            aria-label={`Go Pro — ${meta.announce}`}
-            className={`${
-              featured ? 'shpp-go' : 'shpp-go shpp-go-ghost'
-            } flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-[13px] leading-none tracking-[0.18em] [font-family:var(--font-pixel)]`}
-          >
-            {/* clips the hover sheen — the button root itself must stay
-                overflow-visible so the ::before glow can paint outside */}
-            <span aria-hidden className="shpp-go-clip" />
-            GO PRO
-            <span aria-hidden className="shpp-go-arrow">
-              →
+              <span className="mt-0.5 block text-[11px] leading-snug text-zinc-500">
+                {perk.body}
+              </span>
             </span>
-          </a>
+          </li>
+        ))}
+      </ul>
+
+      {PRO_PLATES.length > 0 && (
+        <div className="mt-5 grid gap-2 sm:grid-cols-3">
+          {PRO_PLATES.map((plate) => (
+            <ProStripPlate key={plate.id} plate={plate} />
+          ))}
         </div>
-      </div>
-    </div>
+      )}
+    </>
   )
 }
 
 export function ProCards({ loading, isPro }: { loading: boolean; isPro: boolean }) {
   return (
-    <div
-      className="shpp-root relative overflow-hidden rounded-2xl"
-      style={{
-        border: `1px solid rgb(${AMBER} / 0.28)`,
-        background: 'rgb(var(--lb-panel-bg))',
-        boxShadow: `0 24px 70px -30px rgb(${AMBER} / 0.3), 0 18px 50px -24px rgb(0 0 0 / 0.85)`
-      }}
-    >
-      {/* amber keyline across the top — the PRO signature */}
-      <span
-        aria-hidden
-        className="absolute inset-x-0 top-0 z-10 h-[2px]"
-        style={{
-          background: `linear-gradient(90deg, transparent 4%, rgb(${AMBER} / 0.9) 50%, transparent 96%)`,
-          boxShadow: `0 0 12px rgb(${AMBER} / 0.5)`
-        }}
-      />
+    <div className="shpp-root relative overflow-hidden rounded-2xl">
+      {/* gold keyline — the PRO signature, with a slow idle sheen */}
+      <span aria-hidden className="shpp-keyline absolute inset-x-0 top-0 z-10 h-[2px]" />
 
-      <div className="p-6 md:p-8">
-        <span className="block text-[9px] tracking-[0.4em] text-amber-200/70">
-          THE SUBSCRIPTION
-        </span>
-        <h2
-          className="mt-3 text-xl leading-none md:text-2xl [font-family:var(--font-pixel)]"
-          style={{
-            color: `rgb(${AMBER})`,
-            textShadow: `0 0 18px rgb(${AMBER} / 0.45), 0 0 46px rgb(${AMBER} / 0.2)`
-          }}
-        >
-          CRIBBLE PRO
-        </h2>
-        <p className="mt-3 text-xs leading-relaxed text-zinc-400">
-          The full pilot kit — flex on the whole board. Cancel anytime.
-        </p>
-
-        {loading ? (
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            {(['monthly', 'yearly'] as const).map((term) => (
-              <div
-                key={term}
-                className="grid gap-3 rounded-xl border border-[rgb(var(--lb-panel-edge)/0.1)] p-5"
-              >
-                <span className="h-3 w-24 animate-pulse rounded bg-white/[0.05]" />
-                <span className="h-10 w-2/5 animate-pulse rounded-lg bg-white/[0.05]" />
-                <span className="h-20 animate-pulse rounded-lg bg-white/[0.05]" />
-                <span className="h-12 animate-pulse rounded-lg bg-white/[0.05]" />
+      <div className="relative grid md:grid-cols-[minmax(0,1fr)_17.5rem]">
+        <div className="border-b border-[rgb(var(--lb-panel-edge)/0.08)] p-6 md:border-b-0 md:border-r md:p-8">
+          {loading ? (
+            <div className="space-y-4">
+              <span className="block h-4 w-32 animate-pulse rounded bg-zinc-500/10" />
+              <span className="block h-4 w-2/3 animate-pulse rounded bg-zinc-500/10" />
+              <div className="grid gap-2 sm:grid-cols-2">
+                {Array.from({ length: 4 }, (_, i) => (
+                  <span key={i} className="h-14 animate-pulse rounded-xl bg-zinc-500/10" />
+                ))}
               </div>
-            ))}
-          </div>
-        ) : isPro ? (
-          <div
-            className="mt-6 rounded-xl p-5"
-            style={{
-              border: `1px solid rgb(${AMBER} / 0.3)`,
-              background: `linear-gradient(180deg, rgb(${AMBER} / 0.05), transparent 60%), rgb(var(--lb-panel-bg) / 0.85)`
-            }}
-          >
-            <span
-              className={`inline-block rounded border px-2 py-1 text-[9px] tracking-[0.3em] ${tierAccent('PRO')}`}
-            >
-              PREMIUM ACTIVE
-            </span>
-            <p className="mt-3 text-xs leading-relaxed text-zinc-400">
-              You already have Cribble Premium — full kit unlocked. Every plate on the rack below
-              is 25% off for you, applied automatically at checkout.
-            </p>
-            <a
-              href="/api/portal"
-              className="mt-4 inline-flex items-center gap-1.5 text-[9px] tracking-[0.3em] text-zinc-400 transition-colors hover:text-amber-200"
-            >
-              MANAGE SUBSCRIPTION <span aria-hidden>→</span>
-            </a>
-          </div>
-        ) : (
-          <>
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
-              <TermCard term="monthly" />
-              <TermCard term="yearly" />
+              <div className="grid gap-2 sm:grid-cols-3">
+                {Array.from({ length: 3 }, (_, i) => (
+                  <span key={i} className="aspect-[4/1] animate-pulse rounded-xl bg-zinc-500/10" />
+                ))}
+              </div>
             </div>
-            <p className="mt-4 text-center text-[8px] tracking-[0.25em] text-zinc-600">
-              SECURE CHECKOUT BY POLAR · CANCEL ANYTIME
-            </p>
-          </>
-        )}
+          ) : (
+            <ProKit />
+          )}
+        </div>
+
+        <div className="flex flex-col justify-center gap-3 p-6">
+          {loading ? (
+            <>
+              <span className="h-40 animate-pulse rounded-2xl bg-zinc-500/10" />
+              <span className="h-32 animate-pulse rounded-2xl bg-zinc-500/10" />
+            </>
+          ) : isPro ? (
+            <div className="shpp-card shpp-card-featured relative rounded-2xl p-4">
+              <span aria-hidden className="shpp-card-keyline" />
+              <span className="shpp-tag inline-block rounded px-1.5 py-1 text-[7px] leading-none [font-family:var(--font-pixel)]">
+                PRO ACTIVE
+              </span>
+              <p className="mt-3 text-[12px] leading-relaxed text-zinc-400">
+                25% off plates at checkout. The three plates stay equipped while the sub is live.
+              </p>
+              <a
+                href="/api/portal"
+                className="mt-4 inline-flex text-[12px] text-zinc-400 transition-colors hover:text-amber-200"
+              >
+                Manage
+              </a>
+            </div>
+          ) : (
+            <>
+              <TermTicket term="yearly" />
+              <TermTicket term="monthly" />
+            </>
+          )}
+        </div>
       </div>
 
-      {/* ---- the Pro collection — usable while the sub is active ---- */}
-      {PRO_PLATES.length > 0 && (
-        <div className="relative border-t border-[rgb(var(--lb-panel-edge)/0.08)] px-6 pb-5 pt-4 md:px-8">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <span className="text-[9px] tracking-[0.35em] text-zinc-500">THE PRO COLLECTION</span>
-            <span className="text-[9px] tracking-[0.2em] text-zinc-600">
-              equipped while your sub is active
-            </span>
-          </div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-3">
-            {PRO_PLATES.map((plate) => (
-              <ProStripPlate key={plate.id} plate={plate} />
-            ))}
-          </div>
-        </div>
-      )}
-
       <style jsx global>{`
-        /* This section is a product showcase: plate art is authored
-           against black, and the theme-flipped panel washed it out in
-           light mode. Re-pin the surface + type tokens to their dark
-           values inside the panel, so the backdrop veils stay black and
-           the copy stays light-on-dark in both themes. */
-        html.light .shpp-root {
-          --lb-panel-bg: 9 10 13;
-          --lb-panel-edge: 255 255 255;
-          --lb-gold: 255 214 68;
-          --lb-gold-hi: 255 240 160;
-          --c-black: 0 0 0;
-          --c-white: 255 255 255;
-          --z50: 250 250 250;
-          --z100: 244 244 245;
-          --z200: 228 228 231;
-          --z300: 212 212 216;
-          --z400: 161 161 170;
-          --z500: 113 113 122;
-          --z600: 82 82 91;
-          --z700: 63 63 70;
-          --z800: 39 39 42;
-          --z900: 24 24 27;
-          --z950: 9 9 11;
+        /* Panel surface: hatched so the gold chrome sits on material, not
+           a flat fill. Same idiom as --rail-vacant-hatch in globals. */
+        .shpp-root {
+          border: 1px solid rgb(var(--lb-gold) / 0.22);
+          background:
+            repeating-linear-gradient(
+              45deg,
+              rgb(var(--lb-gold) / 0.016) 0 1px,
+              transparent 1px 7px
+            ),
+            linear-gradient(180deg, rgb(var(--lb-gold) / 0.045), transparent 30%),
+            rgb(var(--lb-panel-bg));
         }
 
-        /* term cards — inner card on the obsidian panel. Amber is written
-           out (252 211 77) to match the AMBER const, same as the chrome. */
+        .shpp-keyline {
+          background: linear-gradient(
+            90deg,
+            transparent 4%,
+            rgb(var(--lb-gold) / 0.9) 50%,
+            transparent 96%
+          );
+          box-shadow: 0 0 12px rgb(var(--lb-gold) / 0.45);
+          overflow: hidden;
+        }
+        /* slow idle traveller — transform-only, one small element */
+        .shpp-keyline::after {
+          content: '';
+          position: absolute;
+          inset-block: 0;
+          left: 0;
+          width: 22%;
+          background: linear-gradient(90deg, transparent, rgb(var(--lb-gold-hi)), transparent);
+          animation: shpp-keyline-travel 9s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+        }
+        @keyframes shpp-keyline-travel {
+          0% {
+            transform: translateX(-120%);
+          }
+          55%,
+          100% {
+            transform: translateX(560%);
+          }
+        }
+
+        .shpp-wordmark {
+          color: rgb(var(--lb-gold));
+          text-shadow:
+            0 0 18px rgb(var(--lb-gold) / 0.4),
+            0 0 44px rgb(var(--lb-gold) / 0.16);
+        }
+
+        .shpp-perk {
+          border: 1px solid rgb(var(--lb-panel-edge) / 0.08);
+          background: rgb(var(--lb-panel-edge) / 0.03);
+        }
+        .shpp-plus {
+          color: rgb(var(--lb-gold) / 0.9);
+        }
+
+        .shpp-plate-tag {
+          color: rgb(var(--lb-gold));
+          background: rgb(0 0 0 / 0.6);
+        }
+
         .shpp-card {
+          position: relative;
+          overflow: hidden;
           border: 1px solid rgb(var(--lb-panel-edge) / 0.12);
-          background: linear-gradient(180deg, rgb(255 255 255 / 0.02), transparent 45%),
-            rgb(0 0 0 / 0.35);
+          background: rgb(var(--lb-panel-edge) / 0.03);
         }
         .shpp-card-featured {
-          border-color: rgb(252 211 77 / 0.4);
-          box-shadow:
-            0 24px 70px -30px rgb(252 211 77 / 0.3),
-            0 18px 50px -24px rgb(0 0 0 / 0.6);
+          border-color: rgb(var(--lb-gold) / 0.42);
+          background: linear-gradient(180deg, rgb(var(--lb-gold) / 0.08), transparent 55%),
+            rgb(var(--lb-panel-edge) / 0.03);
+        }
+        .shpp-card-keyline {
+          position: absolute;
+          inset-inline: 0;
+          top: 0;
+          height: 1px;
+          background: linear-gradient(
+            90deg,
+            transparent 6%,
+            rgb(var(--lb-gold) / 0.8) 50%,
+            transparent 94%
+          );
         }
 
-        /* value tag on the yearly card */
         .shpp-tag {
-          color: rgb(252 211 77 / 0.9);
-          border: 1px solid rgb(252 211 77 / 0.35);
-          background: rgb(252 211 77 / 0.07);
+          color: rgb(var(--lb-gold) / 0.95);
+          border: 1px solid rgb(var(--lb-gold) / 0.35);
+          background: rgb(var(--lb-gold) / 0.08);
+          letter-spacing: 0.1em;
         }
 
-        /* scoreboard price — amber LED digits */
+        /* LED scoreboard digits — gold, not the old acid yellow */
         .shpp-price {
-          color: #fcff00;
+          color: rgb(var(--lb-gold-hi));
           text-shadow:
-            0 0 22px rgb(252 255 0 / 0.42),
-            0 0 48px rgb(252 255 0 / 0.16);
+            0 0 18px rgb(var(--lb-gold) / 0.45),
+            0 0 42px rgb(var(--lb-gold) / 0.18);
+        }
+        .shpp-price-ch {
+          display: inline-block;
+          animation: shpp-digit-roll 340ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+          animation-delay: var(--d, 0ms);
+        }
+        @keyframes shpp-digit-roll {
+          from {
+            opacity: 0;
+            transform: translateY(0.5em);
+          }
         }
 
-        /* launch button — one per card now. The rest chrome (outer glow +
-           inset top light) is a STATIC box-shadow: it paints once, only
-           the hover delta animates — as opacity on the ::before glow.
-           isolation scopes that pseudo's z-index: -1 to the button. */
+        /* GO PRO — rest chrome is a static box-shadow (paints once); only
+           the hover delta animates, as opacity on the ::before glow. */
         .shpp-go {
           position: relative;
           isolation: isolate;
-          color: rgb(252 211 77);
-          border: 2px solid rgb(252 211 77 / 0.55);
-          background: linear-gradient(180deg, rgb(252 211 77 / 0.16), rgb(252 211 77 / 0.05)),
+          color: rgb(var(--lb-gold));
+          border: 2px solid rgb(var(--lb-gold) / 0.55);
+          background: linear-gradient(
+              180deg,
+              rgb(var(--lb-gold) / 0.16),
+              rgb(var(--lb-gold) / 0.05)
+            ),
             rgb(var(--lb-panel-bg) / 0.6);
-          text-shadow: 0 0 14px rgb(252 211 77 / 0.5);
+          text-shadow: 0 0 14px rgb(var(--lb-gold) / 0.5);
           box-shadow:
-            0 0 34px -8px rgb(252 211 77 / 0.45),
+            0 0 30px -10px rgb(var(--lb-gold) / 0.45),
             inset 0 1px 0 rgb(255 255 255 / 0.12);
           transition:
             border-color 220ms ease,
             transform 120ms ease;
         }
-        /* hover glow — pre-painted pseudo layered over the static rest
-           glow, opacity-only (was a per-frame box-shadow repaint). The
-           sheen already owns ::after, so the glow lives on ::before. */
         .shpp-go::before {
           content: '';
           position: absolute;
           inset: 0;
           border-radius: inherit;
-          box-shadow: 0 0 44px -6px rgb(252 211 77 / 0.35);
+          box-shadow: 0 0 44px -6px rgb(var(--lb-gold) / 0.35);
           opacity: 0;
           transition: opacity 220ms ease;
           pointer-events: none;
           z-index: -1;
         }
-        /* sheen clip — the bar used to rely on the button's own
-           overflow: hidden; the root must stay overflow-visible for the
-           glow, so the clip moved to this inner span */
         .shpp-go-clip {
           position: absolute;
           inset: 0;
@@ -378,7 +369,7 @@ export function ProCards({ loading, isPro }: { loading: boolean; isPro: boolean 
           bottom: -40%;
           left: 0;
           width: 38%;
-          background: linear-gradient(100deg, transparent, rgb(255 245 200 / 0.25), transparent);
+          background: linear-gradient(100deg, transparent, rgb(255 245 200 / 0.28), transparent);
           transform: translateX(-160%) skewX(-16deg);
         }
         .shpp-go-arrow {
@@ -386,7 +377,7 @@ export function ProCards({ loading, isPro }: { loading: boolean; isPro: boolean 
         }
         @media (hover: hover) and (pointer: fine) {
           .shpp-go:hover {
-            border-color: rgb(252 211 77 / 0.85);
+            border-color: rgb(var(--lb-gold) / 0.85);
           }
           .shpp-go:hover::before {
             opacity: 1;
@@ -405,40 +396,46 @@ export function ProCards({ loading, isPro }: { loading: boolean; isPro: boolean 
         }
         .shpp-go:active {
           transform: translateY(1px);
-          box-shadow:
-            0 0 18px -10px rgb(252 211 77 / 0.4),
-            inset 0 3px 10px rgb(0 0 0 / 0.45);
-        }
-        .shpp-go:active::before {
-          opacity: 0;
         }
         .shpp-go:focus-visible {
           outline: 2px solid rgb(var(--accent-rgb) / 0.7);
           outline-offset: 2px;
         }
 
-        /* monthly's quieter outline variant — same geometry, no fill, so
-           the yearly card reads as the default choice. Declared after the
-           base .shpp-go rules so its overrides win at equal specificity. */
+        /* monthly's quieter twin — same geometry, no fill, so yearly reads
+           as the default choice. Declared after the base rules so its
+           overrides win at equal specificity. */
         .shpp-go-ghost {
-          color: rgb(252 211 77 / 0.9);
-          border-color: rgb(252 211 77 / 0.45);
+          color: rgb(var(--lb-gold) / 0.85);
+          border-width: 1px;
+          border-color: rgb(var(--lb-gold) / 0.35);
           background: transparent;
           text-shadow: none;
           box-shadow: none;
         }
-        /* ghost's quieter hover glow rides the same ::before opacity flip */
         .shpp-go-ghost::before {
-          box-shadow: 0 0 30px -12px rgb(252 211 77 / 0.4);
+          box-shadow: 0 0 30px -12px rgb(var(--lb-gold) / 0.35);
         }
         @media (hover: hover) and (pointer: fine) {
           .shpp-go-ghost:hover {
-            border-color: rgb(252 211 77 / 0.75);
-            background: rgb(252 211 77 / 0.07);
+            border-color: rgb(var(--lb-gold) / 0.6);
+            background: rgb(var(--lb-gold) / 0.06);
           }
         }
 
+        /* light mode: neon glows collapse on white — keep the gold as ink */
+        html.light .shpp-wordmark,
+        html.light .shpp-price {
+          text-shadow: none;
+        }
+        html.light .shpp-go {
+          text-shadow: none;
+          box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3);
+        }
+
         @media (prefers-reduced-motion: reduce) {
+          .shpp-keyline::after,
+          .shpp-price-ch,
           .shpp-go:hover .shpp-go-clip::after {
             animation: none;
           }
@@ -450,6 +447,16 @@ export function ProCards({ loading, isPro }: { loading: boolean; isPro: boolean 
           .shpp-go:hover .shpp-go-arrow {
             transform: none;
           }
+        }
+        html[data-motion='reduced'] .shpp-keyline::after,
+        html[data-motion='reduced'] .shpp-price-ch,
+        html[data-motion='reduced'] .shpp-go:hover .shpp-go-clip::after {
+          animation: none;
+        }
+        html[data-motion='reduced'] .shpp-go,
+        html[data-motion='reduced'] .shpp-go::before,
+        html[data-motion='reduced'] .shpp-go-arrow {
+          transition: none;
         }
       `}</style>
     </div>

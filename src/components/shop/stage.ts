@@ -1,8 +1,8 @@
 'use client'
 
-// Animation stage budget for the Supply Depot. The shop mounts ~20
-// PlateLayer scenes at once and, left alone, every one of them animates
-// forever — far below the fold and clipped inside shelf scrollers alike.
+// Animation stage budget for the shop. The page mounts many PlateLayer
+// scenes at once and, left alone, every one of them animates forever —
+// including cards far below the fold.
 // One shared IntersectionObserver flips `data-offstage` on card roots as
 // they enter/leave the stage; the page's CSS pauses every scene animation
 // under `[data-offstage]` (see shop/page.tsx). Paused — not removed — so
