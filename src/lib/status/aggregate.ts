@@ -3,6 +3,7 @@ import {
   CLAUDE_SOURCE,
   CURSOR_SOURCE,
   GITHUB_SOURCE,
+  ORIGIN_SOURCE,
   fetchStatuspageStatus
 } from './statuspage'
 import { OPENAI_SOURCE_URL, fetchChatgptStatus } from './openai'
@@ -23,8 +24,13 @@ type ProviderSpec = {
   load: () => Promise<ServiceStatus>
 }
 
-/** Contract order — the payload renders as listed here. */
+/** Contract order — the payload renders as listed here. Origin has no
+ *  page of its own (it reports as a component on status.cursor.com), so
+ *  its row is that page carved down to the Origin component and the
+ *  Cursor row is the same page minus it — two small fetch pairs a
+ *  minute behind the cache, kept separate for simplicity. */
 export const STATUS_PROVIDERS: readonly ProviderSpec[] = [
+  { id: 'origin', name: 'Origin', sourceUrl: ORIGIN_SOURCE.origin, load: () => fetchStatuspageStatus(ORIGIN_SOURCE) },
   { id: 'github', name: 'GitHub', sourceUrl: GITHUB_SOURCE.origin, load: () => fetchStatuspageStatus(GITHUB_SOURCE) },
   { id: 'chatgpt', name: 'ChatGPT', sourceUrl: OPENAI_SOURCE_URL, load: fetchChatgptStatus },
   { id: 'claude', name: 'Claude', sourceUrl: CLAUDE_SOURCE.origin, load: () => fetchStatuspageStatus(CLAUDE_SOURCE) },

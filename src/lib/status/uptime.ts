@@ -19,6 +19,9 @@ export type IncidentInterval = {
   startedAt: string
   /** null while the incident is still open — it then extends to `now`. */
   resolvedAt: string | null
+  /** Affected component names when the feed publishes them — lets one
+   *  vendor page be split into per-product rows (Origin on Cursor's). */
+  componentNames?: readonly string[]
 }
 
 /** Worst-of ordering. `unknown` sits between operational and degraded:

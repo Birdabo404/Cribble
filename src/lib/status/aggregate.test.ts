@@ -7,7 +7,7 @@ import { STATUS_PROVIDERS, assembleStatusPayload, unknownStatusPayload } from '.
 // unknown handling, the incomplete flag, and the all-feeds-down floor.
 
 const NOW = new Date('2026-08-17T15:30:00.000Z')
-const ORDER: ServiceId[] = ['github', 'chatgpt', 'claude', 'cursor', 'grok', 'cribble']
+const ORDER: ServiceId[] = ['origin', 'github', 'chatgpt', 'claude', 'cursor', 'grok', 'cribble']
 
 const row = (id: ServiceId, severity: Severity): ServiceStatus => ({
   id,
@@ -59,10 +59,10 @@ describe('assembleStatusPayload', () => {
 
   it('turns a rejected feed into an honest unknown row and flags incomplete', () => {
     const settled = allOk({ github: 'degraded' })
-    settled[4] = down() // grok
+    settled[5] = down() // grok
     const payload = assembleStatusPayload(settled, NOW)
 
-    const grok = payload.services[4]
+    const grok = payload.services[5]
     expect(grok.id).toBe('grok')
     expect(grok.severity).toBe('unknown')
     expect(grok.description).toBe('Could not reach the Grok status feed this pass')
@@ -83,7 +83,7 @@ describe('assembleStatusPayload', () => {
 
   it('floors at overall operational + incomplete when every feed is down', () => {
     const payload = assembleStatusPayload(ORDER.map(() => down()), NOW)
-    expect(payload.services).toHaveLength(6)
+    expect(payload.services).toHaveLength(7)
     expect(payload.services.every((service) => service.severity === 'unknown')).toBe(true)
     expect(payload.overall).toBe('operational')
     expect(payload.incomplete).toBe(true)

@@ -2,7 +2,7 @@
 
 // The /status client island — everything visible: header chrome (liquid
 // mark, wordmark, live UTC clock, theme toggle), the serif hero rollup,
-// the six-row watchlist card, and the sources footer. Fetches GET
+// the watchlist card, and the sources footer. Fetches GET
 // /api/status on mount and every 60s (ticks skipped while the tab is
 // hidden), and holds the last good pass through a failed refresh so the
 // page degrades to stale-but-honest instead of blank.
@@ -163,13 +163,15 @@ function sourcesFor(
 ): { host: string; url: string }[] {
   if (payload === null) return FALLBACK_SOURCES
   const list: { host: string; url: string }[] = []
+  const seen = new Set<string>()
   for (const service of payload.services) {
     if (service.id === 'cribble') continue
     try {
-      list.push({
-        host: new URL(service.sourceUrl).hostname.replace(/^www\./, ''),
-        url: service.sourceUrl
-      })
+      const host = new URL(service.sourceUrl).hostname.replace(/^www\./, '')
+      // Origin and Cursor share status.cursor.com — list the page once.
+      if (seen.has(host)) continue
+      seen.add(host)
+      list.push({ host, url: service.sourceUrl })
     } catch {
       // malformed sourceUrl — skip the link rather than render a dud
     }
