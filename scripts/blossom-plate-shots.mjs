@@ -181,14 +181,14 @@ async function main() {
   const tagBlossom = async () => {
     const found = await evalJs(
       `(() => {
-        const link = document.querySelector('a.shp-tile-link[href*="plateId=cherry-blossom"]');
+        const link = document.querySelector('a.shpk-link[href*="plateId=cherry-blossom"]');
         if (!link) return 'missing';
         const article = link.closest('article');
         article.setAttribute('data-blossom', '1');
         article.classList.add('group');
         const preview = article.querySelector('[class*="aspect-"]');
         preview.setAttribute('data-blossom-preview', '1');
-        return article.closest('.shp-reserve') ? 'reserve' : 'grid';
+        return article.closest('.shp-mythic') ? 'reserve' : 'grid';
       })()`
     )
     if (found === 'missing') throw new Error('cherry-blossom tile not found in the shop grid')
@@ -213,7 +213,7 @@ async function main() {
       `location.search.includes('__shot=${id}') && document.readyState === 'complete'`,
       `shop navigation ${id}`
     )
-    await waitFor(`!!document.querySelector('a.shp-tile-link[href*="plateId=cherry-blossom"]')`, 'blossom tile')
+    await waitFor(`!!document.querySelector('a.shpk-link[href*="plateId=cherry-blossom"]')`, 'blossom tile')
     await waitFor(
       `document.documentElement.classList.contains(${JSON.stringify(theme)})`,
       `${theme} theme`

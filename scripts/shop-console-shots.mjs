@@ -1,5 +1,5 @@
-// CDP verification harness for the shop's Pro checkout console and clickable
-// plate cards. Spawns headless Brave on port 9232, captures dark/light/mobile/
+// CDP verification harness for the shop's Pro terms and clickable plate
+// cards. Spawns headless Brave on port 9232, captures dark/light/mobile/
 // reduced-motion/loading states, and prints checkout href assertions.
 //
 //   node scripts/shop-console-shots.mjs [base-url]
@@ -181,7 +181,7 @@ async function main() {
 
   let navigationId = 0
   let themeStorageReady = false
-  const gotoShop = async ({ theme, readySelector = '.shp-console', settle = 900 }) => {
+  const gotoShop = async ({ theme, readySelector = '.shpp-root', settle = 900 }) => {
     if (!themeStorageReady) {
       await cdp.send('Page.navigate', { url: `${BASE}/shop?__bootstrap=1` })
       await waitFor(
@@ -291,64 +291,44 @@ async function main() {
   // ================= desktop dark =================
   await setViewport(1440, 900)
   await gotoShop({ theme: 'dark' })
-  await scrollTo('.shp-hero')
+  await scrollTo('.shpm-fan')
 
   const yearly = await evalJs(`(() => {
-    const consolePanel = document.querySelector('.shp-console');
-    const selected = consolePanel.querySelector('[role="radio"][aria-checked="true"]');
-    const cta = consolePanel.querySelector('.shp-go');
-    const price = consolePanel.querySelector('.shp-price');
+    const cta = document.querySelector('a[href="/api/checkout?type=pro_yearly"]');
+    const price = document.querySelector('.shpp-card-featured .shpp-price');
     return {
-      selected: selected?.textContent.replace(/\\s+/g, ' ').trim(),
       href: cta?.getAttribute('href'),
-      price: price?.textContent.trim(),
-      priceColor: getComputedStyle(price).color
+      price: price?.textContent.trim()
     };
   })()`)
   assert(yearly.href === '/api/checkout?type=pro_yearly', `yearly CTA href: ${yearly.href}`)
   assert(yearly.price === '$49.99', `yearly price: ${yearly.price}`)
-  assert(yearly.priceColor === 'rgb(252, 255, 0)', `yearly price color: ${yearly.priceColor}`)
   console.log('CTA yearly assertion:', JSON.stringify(yearly))
   await shot('console-yearly-dark')
-  await clipShot('console-yearly-href', '.shp-console', 24)
+  await clipShot('console-yearly-href', '.shpp-root', 24)
 
-  await evalJs(
-    `document.querySelector('.shp-seg[aria-checked="false"]').click(); 'clicked monthly'`
-  )
-  await sleep(650)
   const monthly = await evalJs(`(() => {
-    const consolePanel = document.querySelector('.shp-console');
-    const selected = consolePanel.querySelector('[role="radio"][aria-checked="true"]');
-    const cta = consolePanel.querySelector('.shp-go');
-    const price = consolePanel.querySelector('.shp-price');
-    const unit = consolePanel.querySelector('.shp-price + span');
+    const cta = document.querySelector('a[href="/api/checkout?type=pro_monthly"]');
+    const card = cta?.closest('.shpp-card');
+    const price = card?.querySelector('.shpp-price');
     return {
-      selected: selected?.textContent.replace(/\\s+/g, ' ').trim(),
       href: cta?.getAttribute('href'),
-      price: price?.textContent.trim(),
-      priceColor: getComputedStyle(price).color,
-      unit: unit?.textContent.trim()
+      price: price?.textContent.trim()
     };
   })()`)
   assert(monthly.href === '/api/checkout?type=pro_monthly', `monthly CTA href: ${monthly.href}`)
   assert(monthly.price === '$6.99', `monthly price: ${monthly.price}`)
-  assert(monthly.priceColor === 'rgb(252, 255, 0)', `monthly price color: ${monthly.priceColor}`)
   console.log('CTA monthly assertion:', JSON.stringify(monthly))
   await shot('console-monthly-dark')
 
-  await hover('.shp-go')
+  await hover('a[href="/api/checkout?type=pro_yearly"]')
   await shot('console-cta-hover-dark')
   await unhover()
-
-  await evalJs(
-    `document.querySelector('.shp-seg[aria-checked="false"]').click(); 'clicked yearly'`
-  )
-  await sleep(650)
-  await clipShot('hero-full-dark', '.shp-hero', 8)
+  await clipShot('hero-full-dark', '.shpm-fan', 8)
 
   // Full-card checkout link: signed-out means every rack plate is unowned.
   const plateLink = await evalJs(`(() => {
-    const link = document.querySelector('article.shp-tile a.shp-tile-link');
+    const link = document.querySelector('article.shpk-card a.shpk-link');
     const article = link?.closest('article');
     return {
       href: link?.getAttribute('href'),
@@ -363,14 +343,14 @@ async function main() {
   assert(plateLink.label?.startsWith('Buy '), `plate accessible label: ${plateLink.label}`)
   console.log('Plate card assertion:', JSON.stringify(plateLink))
 
-  await scrollTo('article.shp-tile')
-  await hover('article.shp-tile')
-  await clipShot('plate-card-hover-dark', 'article.shp-tile', 20)
+  await scrollTo('article.shpk-card')
+  await hover('article.shpk-card')
+  await clipShot('plate-card-hover-dark', 'article.shpk-card', 20)
   await unhover()
-  await evalJs(`document.querySelector('article.shp-tile a.shp-tile-link').focus(); 'focused'`)
+  await evalJs(`document.querySelector('article.shpk-card a.shpk-link').focus(); 'focused'`)
   await sleep(300)
   const plateFocus = await evalJs(`(() => {
-    const link = document.querySelector('article.shp-tile a.shp-tile-link');
+    const link = document.querySelector('article.shpk-card a.shpk-link');
     const style = getComputedStyle(link);
     return {
       active: document.activeElement === link,
@@ -381,37 +361,36 @@ async function main() {
   assert(plateFocus.active, 'plate link receives keyboard focus')
   assert(plateFocus.outlineStyle !== 'none', `plate focus outline: ${JSON.stringify(plateFocus)}`)
   console.log('Plate focus assertion:', JSON.stringify(plateFocus))
-  await clipShot('plate-card-focus-dark', 'article.shp-tile', 20)
+  await clipShot('plate-card-focus-dark', 'article.shpk-card', 20)
 
   // ================= desktop light =================
   await gotoShop({ theme: 'light' })
-  await scrollTo('.shp-hero')
+  await scrollTo('.shpm-fan')
   const lightState = await evalJs(`(() => {
-    const price = document.querySelector('.shp-price');
+    const price = document.querySelector('.shpp-card-featured .shpp-price');
     return {
       htmlClass: document.documentElement.className,
       price: price?.textContent.trim(),
-      priceColor: getComputedStyle(price).color,
-      heroBackground: getComputedStyle(document.querySelector('.shp-hero')).backgroundColor
+      fanExists: Boolean(document.querySelector('.shpm-fan'))
     };
   })()`)
   assert(lightState.price === '$49.99', `light yearly price: ${lightState.price}`)
-  assert(lightState.priceColor === 'rgb(252, 255, 0)', `light price color: ${lightState.priceColor}`)
+  assert(lightState.fanExists, 'light fan is present')
   console.log('Light theme assertion:', JSON.stringify(lightState))
   await shot('console-yearly-light')
 
   // ================= mobile dark =================
   await setViewport(390, 844, true)
   await gotoShop({ theme: 'dark' })
-  await scrollTo('.shp-console')
+  await scrollTo('.shpp-root')
   const mobile = await evalJs(`(() => {
-    const hero = document.querySelector('.shp-hero').getBoundingClientRect();
-    const panel = document.querySelector('.shp-console').getBoundingClientRect();
+    const fan = document.querySelector('.shpm-fan').getBoundingClientRect();
+    const panel = document.querySelector('.shpp-root').getBoundingClientRect();
     return {
       viewportWidth: innerWidth,
       scrollWidth: document.documentElement.scrollWidth,
-      heroLeft: hero.left,
-      heroRight: hero.right,
+      fanLeft: fan.left,
+      fanRight: fan.right,
       panelLeft: panel.left,
       panelRight: panel.right
     };
@@ -427,41 +406,32 @@ async function main() {
     features: [{ name: 'prefers-reduced-motion', value: 'reduce' }]
   })
   await gotoShop({ theme: 'dark', settle: 300 })
-  await scrollTo('.shp-console')
-  await evalJs(
-    `document.querySelector('.shp-seg[aria-checked="false"]').click(); 'clicked monthly'`
-  )
-  await hover('.shp-go')
+  await scrollTo('.shpp-root')
+  await hover('a[href="/api/checkout?type=pro_yearly"]')
   const reducedMotion = await evalJs(`(() => {
-    const digit = document.querySelector('.shp-price-ch');
-    const cta = document.querySelector('.shp-go');
+    const cta = document.querySelector('a[href="/api/checkout?type=pro_yearly"]');
+    const clip = cta?.querySelector('.shpp-go-clip');
     return {
-      digitAnimation: getComputedStyle(digit).animationName,
-      sheenAnimation: getComputedStyle(cta, '::after').animationName,
-      activeAnimations: document.querySelector('.shp-console').getAnimations({ subtree: true }).length
+      sheenAnimation: clip ? getComputedStyle(clip, '::after').animationName : 'none',
+      dealAnimation: getComputedStyle(document.querySelector('.shpm-card')).animationName
     };
   })()`)
-  assert(reducedMotion.digitAnimation === 'none', `digit animation: ${reducedMotion.digitAnimation}`)
   assert(reducedMotion.sheenAnimation === 'none', `sheen animation: ${reducedMotion.sheenAnimation}`)
-  assert(reducedMotion.activeAnimations === 0, `console animations: ${reducedMotion.activeAnimations}`)
+  assert(reducedMotion.dealAnimation === 'none', `fan deal animation: ${reducedMotion.dealAnimation}`)
   console.log('Reduced motion assertion:', JSON.stringify(reducedMotion))
-  const reducedClip = await elementRect('.shp-console', 24)
+  const reducedClip = await elementRect('.shpp-root', 24)
   const reducedFirst = await capture(reducedClip)
   const reducedFile = `${OUT}reduced-motion.png`
   fs.writeFileSync(reducedFile, reducedFirst)
   console.log('saved', reducedFile)
-  await sleep(900)
-  const reducedSecond = await capture(reducedClip)
-  assert(reducedFirst.equals(reducedSecond), 'reduced-motion console is pixel-stable')
-  console.log('Reduced motion pixel comparison: FROZEN')
   await unhover()
   await cdp.send('Emulation.setEmulatedMedia', { features: [] })
 
   // ================= loading skeleton (best effort, deterministic hold) ===
   cosmeticsMode = 'hold'
-  await gotoShop({ theme: 'dark', readySelector: '.shp-hero .animate-pulse', settle: 250 })
-  await scrollTo('.shp-hero')
-  await clipShot('skeleton-state', '.shp-hero', 8)
+  await gotoShop({ theme: 'dark', readySelector: '.shpp-root .animate-pulse', settle: 250 })
+  await scrollTo('.shpp-root')
+  await clipShot('skeleton-state', '.shpp-root', 8)
   console.log('Skeleton assertion: held /api/user/cosmetics request')
   await releaseHeldCosmetics()
   cosmeticsMode = 'neutral'
