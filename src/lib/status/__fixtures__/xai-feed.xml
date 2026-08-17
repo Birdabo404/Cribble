@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>xAI System Status</title>
+    <link>https://status.x.ai</link>
+    <description>Current status and incident history of xAI's services and systems</description>
+    <language>en-us</language>
+    <atom:link href="https://status.x.ai/feed.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Tue, 07 Jul 2026 16:40:29 GMT</lastBuildDate>
+    <ttl>30</ttl>
+    
+    <item>
+      <title>[API (us-west-2.api.x.ai)] Imagine Video 1.5 is experiencing lower success rate and higher latency</title>
+      <link>https://status.x.ai/api-us-west-2/INC548339c6</link>
+      <guid isPermaLink="false">INC548339c6</guid>
+      <description><![CDATA[
+           <h3>Status: RESOLVED</h3>
+           <p>Severity: available</p>
+           <p>Resolved: Tue, 07 Jul 2026 16:37:02 GMT</p>
+           <hr />
+           <h4>Updates:</h4>
+           
+             <div>
+               <p><strong>Tue, 07 Jul 2026 16:37:02 GMT</strong></p>
+               <h3>Resolved</h3>
+               <p>The incident has been resolved and the success rate is returning to normal.</p>
+             </div>
+           
+             <div>
+               <p><strong>Tue, 07 Jul 2026 15:40:26 GMT</strong></p>
+               <h3>Investigating</h3>
+               <p>We are currently investigating the issue.</p>
+             </div>
+           
+      ]]></description>
+      <pubDate>Tue, 07 Jul 2026 15:40:26 GMT</pubDate>
+      <category>available</category>
+      <category>resolved</category>
+    </item>
+
+    <item>
+      <title>[API (eu-west-1.api.x.ai)] Imagine Video 1.5 is experiencing lower success rate and higher latency</title>
+      <link>https://status.x.ai/api-eu-west-1/INC5068f51b</link>
+      <guid isPermaLink="false">INC5068f51b</guid>
+      <description><![CDATA[
+           <h3>Status: RESOLVED</h3>
+           <p>Severity: available</p>
+           <p>Resolved: Tue, 07 Jul 2026 16:38:07 GMT</p>
+           <hr />
+           <h4>Updates:</h4>
+           
+             <div>
+               <p><strong>Tue, 07 Jul 2026 16:38:07 GMT</strong></p>
+               <h3>Resolved</h3>
+               <p>The incident has been resolved and the success rate is returning to normal.</p>
+             </div>
+           
+             <div>
+               <p><strong>Tue, 07 Jul 2026 15:36:32 GMT</strong></p>
+               <h3>Investigating</h3>
+               <p>We are investigating the issue.</p>
+             </div>
+           
+      ]]></description>
+      <pubDate>Tue, 07 Jul 2026 15:36:32 GMT</pubDate>
+      <category>available</category>
+      <category>resolved</category>
+    </item>
+  </channel>
+</rss>

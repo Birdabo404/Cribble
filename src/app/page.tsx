@@ -441,6 +441,12 @@ function Footer() {
         >
           PRIVACY
         </Link>
+        <Link
+          href="/status"
+          className="text-zinc-600 hover:text-zinc-300 transition-colors"
+        >
+          STATUS
+        </Link>
       </span>
 
       <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 tracking-[0.22em] sm:tracking-[0.25em]">

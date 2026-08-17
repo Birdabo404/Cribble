@@ -1,0 +1,30 @@
+{
+  "status": {
+    "description": "All Systems Operational",
+    "indicator": "none"
+  },
+  "page": {
+    "id": "01JMDK9XYNY6RXSED6SDWW50WY",
+    "name": "OpenAI",
+    "url": "https://status.openai.com/",
+    "updated_at": "2026-07-09T19:25:56Z"
+  },
+  "components": [
+    {
+      "id": "01JP8CD9JR3HR6Y7G4Q75N4DVW",
+      "name": "Responses",
+      "status": "operational"
+    },
+    {
+      "id": "01JMXBRMFE4MAP2BHSJNZ787WX",
+      "name": "Images",
+      "status": "operational"
+    },
+    {
+      "id": "01KX45G1SHQQ9DTAX9S4W7FV8G",
+      "name": "Sites",
+      "status": "operational"
+    }
+  ],
+  "incidents": []
+}
