@@ -4,6 +4,7 @@ import {
   buildDays,
   quietRatioOf,
   sanitizeIncidentTitle,
+  severityRank,
   type IncidentInterval
 } from './uptime'
 
@@ -12,12 +13,24 @@ import {
 // the page indicator + live component states, incidents.json for the
 // last ~50 published incidents the 90-day bar is reconstructed from
 // (their real SLA calculator is not public — published incidents are).
+// A source may also carve one page into product rows (Origin lives on
+// Cursor's page): 'only' keeps just the named component, 'except' keeps
+// the rest, and incidents follow their affected-component lists.
+
+/** Carve one vendor page into product rows. Incidents pinned solely to
+ *  the carved component leave with it; unattributed incidents stay with
+ *  the 'except' side, which is the page-wide product row. */
+export type ComponentFilter = {
+  mode: 'only' | 'except'
+  component: string
+}
 
 export type StatuspageSource = {
   id: ServiceId
   name: string
   /** Origin serving /api/v2/*.json; doubles as the row's source link. */
   origin: string
+  filter?: ComponentFilter
 }
 
 export const GITHUB_SOURCE: StatuspageSource = {
@@ -35,7 +48,18 @@ export const CLAUDE_SOURCE: StatuspageSource = {
 export const CURSOR_SOURCE: StatuspageSource = {
   id: 'cursor',
   name: 'Cursor',
-  origin: 'https://status.cursor.com'
+  origin: 'https://status.cursor.com',
+  // Origin rides this same page as a component but gets its own row at
+  // the top of the watchlist — carved out here so one vendor incident
+  // never lights both rows.
+  filter: { mode: 'except', component: 'Origin' }
+}
+
+export const ORIGIN_SOURCE: StatuspageSource = {
+  id: 'origin',
+  name: 'Origin',
+  origin: 'https://status.cursor.com',
+  filter: { mode: 'only', component: 'Origin' }
 }
 
 // Tolerant readers for feed payloads we do not control — a shape drift
@@ -116,14 +140,59 @@ export function parseStatuspageIncidents(incidentsPayload: unknown): IncidentInt
           ? raw.created_at
           : null
     if (!startedAt) continue
+    const componentNames: string[] = []
+    for (const entry of asArray(raw.components)) {
+      const component = asRecord(entry)
+      if (component && typeof component.name === 'string') componentNames.push(component.name)
+    }
     intervals.push({
       title: raw.name,
       impact: typeof raw.impact === 'string' ? raw.impact : 'none',
       startedAt,
-      resolvedAt: typeof raw.resolved_at === 'string' ? raw.resolved_at : null
+      resolvedAt: typeof raw.resolved_at === 'string' ? raw.resolved_at : null,
+      componentNames
     })
   }
   return intervals
+}
+
+function filterIntervals(intervals: IncidentInterval[], filter: ComponentFilter): IncidentInterval[] {
+  switch (filter.mode) {
+    case 'only':
+      return intervals.filter((interval) => (interval.componentNames ?? []).includes(filter.component))
+    case 'except':
+      // Unattributed incidents read page-wide and stay here; only ones
+      // pinned exclusively to the carved component leave with it.
+      return intervals.filter((interval) => {
+        const names = interval.componentNames ?? []
+        return names.length === 0 || names.some((name) => name !== filter.component)
+      })
+    default: {
+      const exhaustive: never = filter.mode
+      return exhaustive
+    }
+  }
+}
+
+/** Quiet-state line for a carved row, in the hero subline's voice — the
+ *  vendor's page-wide description would leak the other rows' weather. */
+function filteredDescription(source: StatuspageSource, severity: Severity): string {
+  switch (severity) {
+    case 'operational':
+      return source.filter?.mode === 'only'
+        ? `${source.name} operational`
+        : `All ${source.name} components operational`
+    case 'degraded':
+      return `${source.name} running degraded`
+    case 'outage':
+      return `${source.name} down`
+    case 'unknown':
+      return `${source.name} state unreadable this pass`
+    default: {
+      const exhaustive: never = severity
+      return exhaustive
+    }
+  }
 }
 
 /** Assemble a row from already-fetched payloads. `incidentsPayload` is
@@ -135,22 +204,57 @@ export function buildStatuspageStatus(
   incidentsPayload: unknown | null,
   now: Date
 ): ServiceStatus {
-  const status = asRecord(asRecord(summaryPayload)?.status)
-  const description =
-    typeof status?.description === 'string' && status.description.trim()
-      ? sanitizeIncidentTitle(status.description)
-      : 'Status feed answered without a summary line'
+  const filter = source.filter
+  const allComponents = parseStatuspageComponents(summaryPayload)
+  const components = !filter
+    ? allComponents
+    : allComponents.filter((component) =>
+        filter.mode === 'only'
+          ? component.name === filter.component
+          : component.name !== filter.component
+      )
 
-  const days = incidentsPayload === null ? null : buildDays(parseStatuspageIncidents(incidentsPayload), now)
+  // A carved row whose component vanished from the vendor page must not
+  // claim anything — throw so the aggregate marks it honestly unknown.
+  if (filter?.mode === 'only' && components.length === 0) {
+    throw new Error(`No "${filter.component}" component on ${source.origin}`)
+  }
+
+  const allIntervals = incidentsPayload === null ? null : parseStatuspageIncidents(incidentsPayload)
+  const intervals =
+    allIntervals === null ? null : filter ? filterIntervals(allIntervals, filter) : allIntervals
+  const days = intervals === null ? null : buildDays(intervals, now)
+
+  const status = asRecord(asRecord(summaryPayload)?.status)
+  let severity: Severity
+  let description: string
+  if (!filter) {
+    severity = severityFromIndicator(status?.indicator)
+    description =
+      typeof status?.description === 'string' && status.description.trim()
+        ? sanitizeIncidentTitle(status.description)
+        : 'Status feed answered without a summary line'
+  } else {
+    // The page indicator blends every component, so a carved row scores
+    // itself: worst of its own components, floored at degraded while an
+    // incident naming them stays open (the monitoring phase).
+    severity = 'operational'
+    for (const component of components) {
+      if (severityRank(component.severity) > severityRank(severity)) severity = component.severity
+    }
+    const ongoing = intervals?.find((interval) => interval.resolvedAt === null) ?? null
+    if (ongoing && severity === 'operational') severity = 'degraded'
+    description = ongoing ? sanitizeIncidentTitle(ongoing.title) : filteredDescription(source, severity)
+  }
 
   return {
     id: source.id,
     name: source.name,
-    severity: severityFromIndicator(status?.indicator),
+    severity,
     description,
     sourceUrl: source.origin,
     fetchedAt: now.toISOString(),
-    components: parseStatuspageComponents(summaryPayload),
+    components,
     ...(days ? { days, quietRatio: quietRatioOf(days) } : {})
   }
 }

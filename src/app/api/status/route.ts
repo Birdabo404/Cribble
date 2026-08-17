@@ -15,7 +15,9 @@ const REVALIDATE_SECONDS = 60
 
 const loadStatusPayload = unstable_cache(
   async () => fetchStatusPayload(),
-  ['status-payload-v1'],
+  // v2: Origin joined the watchlist — new key so a fresh deploy never
+  // serves the six-service payload out of the old data-cache entry.
+  ['status-payload-v2'],
   { revalidate: REVALIDATE_SECONDS }
 )
 
