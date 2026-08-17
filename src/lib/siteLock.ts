@@ -33,6 +33,12 @@ export function isAllowedDuringLock(pathname: string, hasSession = false): boole
   // Privacy policy is the Chrome Web Store listing's privacy URL and must
   // stay reachable while the site is locked.
   if (pathname === '/privacy') return true
+  // The status observatory is public on purpose — it must answer exactly
+  // when things look broken. Exact match on the API lane so nothing else
+  // under /api/status… rides along (/api/device/status keeps its own
+  // /api/device/ rule below).
+  if (pathname === '/status') return true
+  if (pathname === '/api/status') return true
   // Referral share links redirect into /login and must work while locked.
   if (pathname.startsWith('/join/')) return true
   if (pathname.startsWith('/audio/')) return true

@@ -1,0 +1,71 @@
+{
+  "status": {
+    "indicator": "major",
+    "description": "Partial System Outage"
+  },
+  "components": [
+    {
+      "id": "8l4ygp009s5s",
+      "name": "Git Operations",
+      "status": "operational",
+      "position": 1,
+      "group_id": null,
+      "group": false,
+      "only_show_if_degraded": false
+    },
+    {
+      "id": "4230lsnqdsld",
+      "name": "Webhooks",
+      "status": "partial_outage",
+      "position": 2,
+      "group_id": null,
+      "group": false,
+      "only_show_if_degraded": false
+    },
+    {
+      "id": "brv1bkgrwx7q",
+      "name": "API Requests",
+      "status": "major_outage",
+      "position": 4,
+      "group_id": null,
+      "group": false,
+      "only_show_if_degraded": false
+    },
+    {
+      "id": "0l2p9nhqnxpd",
+      "name": "Visit www.githubstatus.com for more information",
+      "status": "operational",
+      "position": 3,
+      "group_id": null,
+      "group": false,
+      "only_show_if_degraded": false
+    },
+    {
+      "id": "grp-fixture-core",
+      "name": "Core Services",
+      "status": "operational",
+      "position": 90,
+      "group_id": null,
+      "group": true,
+      "only_show_if_degraded": false
+    },
+    {
+      "id": "osid-fixture-cdn",
+      "name": "Downstream CDN",
+      "status": "operational",
+      "position": 91,
+      "group_id": null,
+      "group": false,
+      "only_show_if_degraded": true
+    },
+    {
+      "id": "osid-fixture-dns",
+      "name": "Downstream DNS",
+      "status": "degraded_performance",
+      "position": 92,
+      "group_id": null,
+      "group": false,
+      "only_show_if_degraded": true
+    }
+  ]
+}

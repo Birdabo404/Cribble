@@ -1,0 +1,28 @@
+{
+  "incidents": [
+    {
+      "name": "Incident with GitHub.com",
+      "status": "investigating",
+      "impact": "critical",
+      "created_at": "2026-08-17T13:40:03.629Z",
+      "started_at": "2026-08-17T13:40:03.620Z",
+      "resolved_at": null
+    },
+    {
+      "name": "Disruption with Login and Release Asset downloads",
+      "status": "resolved",
+      "impact": "major",
+      "created_at": "2026-08-12T21:39:05.231Z",
+      "started_at": "2026-08-12T21:39:05.221Z",
+      "resolved_at": "2026-08-12T22:56:39.025Z"
+    },
+    {
+      "name": "Disruption with GHEC Team Sync",
+      "status": "resolved",
+      "impact": "minor",
+      "created_at": "2026-08-13T16:21:33.104Z",
+      "started_at": "2026-08-13T16:21:33.096Z",
+      "resolved_at": "2026-08-13T18:27:54.660Z"
+    }
+  ]
+}

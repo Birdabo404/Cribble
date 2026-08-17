@@ -1,0 +1,140 @@
+{
+  "summary": {
+    "name": "OpenAI",
+    "public_url": "https://status.openai.com/",
+    "ongoing_incidents": [
+      {
+        "id": "01KZXVAJQ5XFH7PTM43XVPQWGJ",
+        "name": "Elevated errors in ChatGPT conversations for Free users",
+        "status": "investigating",
+        "published_at": "2026-08-13T15:19:50.245Z",
+        "component_impacts": [
+          {
+            "component_id": "01JMXBNJXGV1T5GT2M9XA83XNG",
+            "status": "degraded_performance",
+            "start_at": "2026-08-13T15:19:50.245Z",
+            "end_at": null
+          }
+        ],
+        "affected_components": [
+          {
+            "component_id": "01JMXBNJXGV1T5GT2M9XA83XNG",
+            "status": "degraded_performance",
+            "current_status": "degraded_performance"
+          }
+        ]
+      }
+    ],
+    "affected_components": [
+      {
+        "component_id": "01JMXBNJXGV1T5GT2M9XA83XNG",
+        "status": "degraded_performance",
+        "current_status": "degraded_performance"
+      }
+    ],
+    "structure": {
+      "items": [
+        {
+          "group": {
+            "id": "01K5H8S53SY1KMS4GQMNMQM1K5",
+            "name": "APIs",
+            "hidden": false,
+            "components": [
+              {
+                "component_id": "01JMXBRMFE6N2NNT7DG6XZQ6PW",
+                "name": "Chat Completions",
+                "hidden": false
+              },
+              {
+                "component_id": "01JP8CD9JR3HR6Y7G4Q75N4DVW",
+                "name": "Responses",
+                "hidden": false
+              }
+            ]
+          }
+        },
+        {
+          "group": {
+            "id": "01K5H8S53SY1KMS4GQMNMZXTR1",
+            "name": "ChatGPT",
+            "hidden": false,
+            "components": [
+              {
+                "component_id": "01JMXBNJXGV1T5GT2M9XA83XNG",
+                "name": "Conversations",
+                "hidden": false
+              },
+              {
+                "component_id": "01JMXBNJXG1S2D9V65P1ZZTD94",
+                "name": "Login",
+                "hidden": false
+              },
+              {
+                "component_id": "01JMXBNJXGGT5SR5DB9J7GYY48",
+                "name": "Voice mode",
+                "hidden": false
+              },
+              {
+                "component_id": "01JQ7EKW990MSPSWVXC7VPV2ZJ",
+                "name": "Image Generation",
+                "hidden": false
+              }
+            ]
+          }
+        },
+        {
+          "group": {
+            "id": "01KMKF9EBTCD8BN9PG8DJZXRSQ",
+            "name": "Codex",
+            "hidden": false,
+            "components": [
+              {
+                "component_id": "01JVCV8YSWZFRSM1G5CVP253SK",
+                "name": "Codex Web",
+                "hidden": false
+              },
+              {
+                "component_id": "01KMP3KP5MGE23B80K1EK4S8PV",
+                "name": "Codex API",
+                "hidden": false
+              }
+            ]
+          }
+        },
+        {
+          "group": {
+            "id": "01KKACDSZF5G5JTBJY83GF176Z",
+            "name": "FedRAMP",
+            "hidden": false,
+            "components": [
+              {
+                "component_id": "01KKAD7C71MCCH3FTREMJH4AAS",
+                "name": "FedRAMP",
+                "hidden": false
+              }
+            ]
+          }
+        },
+        {
+          "group": {
+            "id": "01KTQBYDGR2AKA7D6HW6RVAGZC",
+            "name": "Ads Platform",
+            "hidden": false,
+            "components": [
+              {
+                "component_id": "01KTQBYVARFJ5KMCSECM06VKCF",
+                "name": "Ads Manager",
+                "hidden": false
+              },
+              {
+                "component_id": "01KVR95C58GGWHV7RYBT32NP11",
+                "name": "Ads API",
+                "hidden": false
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

@@ -131,6 +131,17 @@ describe('middleware site lock', () => {
     expect(middleware(request('/api/billboard/slots')).status).toBe(200)
   })
 
+  it('keeps the status observatory public while locked', () => {
+    vi.stubEnv('SITE_LOCKED', '1')
+    // The status page must answer precisely when things look broken —
+    // rewriting it to /maintenance would defeat it. Its data lane is an
+    // exact-match allowlist entry; /api/device/status keeps riding the
+    // /api/device/ rule instead.
+    expect(rewriteTarget('/status')).toBeNull()
+    expect(middleware(request('/status')).status).toBe(200)
+    expect(middleware(request('/api/status')).status).toBe(200)
+  })
+
   it('serves the landing globe assets while locked', () => {
     vi.stubEnv('SITE_LOCKED', '1')
     // The stylized globe on / builds from runtime fetches — if these rewrite
