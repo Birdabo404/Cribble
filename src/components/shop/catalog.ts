@@ -38,9 +38,8 @@ export const RESERVE_PLATES: ShopPlate[] = PLATES.filter(
   (plate): plate is ShopPlate => plate.rarity === 'mythic' && plate.priceUsd !== null
 ).sort((a, b) => a.priceUsd - b.priceUsd)
 
-/** Parked mythic craft notes — not printed on the storefront. Kept so a
- * future detail surface can recover kickers and "what's alive" lines
- * without rewriting them. */
+/** Mythic specimen copy: a short kicker on the card, plus parked "what's
+ * alive" lines for a future detail surface. */
 export const RESERVE_NOTES: Record<string, { kicker: string; alive: string[] }> = {
   'koi-pond': {
     kicker: 'WATER, CHOREOGRAPHED',

@@ -35,6 +35,14 @@ import { ReserveCard } from '@/components/shop/ReserveCard'
 import { toast } from '@/components/Toaster'
 import { requestNotificationsRefresh } from '@/hooks/useNotifications'
 
+// "SHOP" in ANSI Shadow, same family as Bag / Dashboard / Achievements.
+const ASCII_SHOP = String.raw`███████╗██╗  ██╗ ██████╗ ██████╗ 
+██╔════╝██║  ██║██╔═══██╗██╔══██╗
+███████╗███████║██║   ██║██████╔╝
+╚════██║██╔══██║██║   ██║██╔═══╝ 
+███████║██║  ██║╚██████╔╝██║     
+╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝     `
+
 /* ================= cosmetics state ================= */
 
 interface CosmeticsData {
@@ -200,14 +208,86 @@ function NoticeBanner({
   )
 }
 
-function SectionHead({ title, count }: { title: string; count: number }) {
+function SectionHead({
+  title,
+  count,
+  kicker
+}: {
+  title: string
+  count?: number
+  kicker?: string
+}) {
   return (
-    <div className="flex items-baseline gap-3">
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
       <h2 className="font-display text-[13px] font-semibold tracking-[0.12em] text-zinc-400">
         {title}
       </h2>
-      <span className="text-[11px] tabular-nums text-zinc-600">{count}</span>
+      {kicker && <span className="text-[12px] text-zinc-600">{kicker}</span>}
+      {count !== undefined && (
+        <span className="text-[11px] tabular-nums text-zinc-600">{count}</span>
+      )}
     </div>
+  )
+}
+
+function ShopDoors({ isTeam }: { isTeam: boolean }) {
+  const doors: {
+    href: string
+    title: string
+    blurb: string
+    gold?: boolean
+    native?: boolean
+  }[] = [
+    {
+      href: isTeam ? '/team' : '/teams',
+      title: isTeam ? 'Team console' : 'Team',
+      blurb: isTeam ? 'Company colors, live.' : 'Gold badge. Ten seats.',
+      gold: true
+    },
+    {
+      href: '/billboard#pitch',
+      title: 'Billboard',
+      blurb: 'Your logo on the board.'
+    },
+    {
+      href: '/api/portal',
+      title: 'Manage',
+      blurb: 'Subs, receipts, Polar.',
+      native: true
+    }
+  ]
+
+  return (
+    <nav aria-label="Shop doors" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+      {doors.map((door) => {
+        const className = `shp-door group flex flex-col rounded-2xl px-4 py-3 ${
+          door.gold ? 'shp-door-gold' : ''
+        }`
+        const inner = (
+          <>
+            <span
+              className="font-display text-[13px] font-semibold"
+              style={door.gold ? { color: 'rgb(var(--lb-gold))' } : undefined}
+            >
+              {door.title}
+            </span>
+            <span className="mt-1 text-[12px] leading-snug text-zinc-500">{door.blurb}</span>
+          </>
+        )
+        if (door.native) {
+          return (
+            <a key={door.href} href={door.href} className={className}>
+              {inner}
+            </a>
+          )
+        }
+        return (
+          <Link key={door.href} href={door.href} className={className}>
+            {inner}
+          </Link>
+        )
+      })}
+    </nav>
   )
 }
 
@@ -383,11 +463,25 @@ function ShopDepot() {
         className="shp-reveal relative mt-3 flex flex-col items-center"
         style={{ ['--rv' as string]: '0ms' }}
       >
-        <h1 className="font-display text-center text-[32px] font-semibold leading-none tracking-tight text-zinc-50 md:text-[40px]">
-          Shop
-        </h1>
-        <p className="mt-3 text-center text-[13px] text-zinc-500">
-          Plates for the board. Rank stays earned.
+        <div className="w-full overflow-x-auto py-1">
+          <pre
+            aria-label="SHOP"
+            className="mx-auto whitespace-pre text-center font-mono leading-[0.9] text-accent"
+            style={{
+              fontSize: 'clamp(7px, 1.45vw, 13px)',
+              textShadow:
+                '0 0 8px rgb(var(--accent-rgb)/0.33), 0 0 22px rgb(var(--accent-rgb)/0.15)',
+              letterSpacing: '-0.02em'
+            }}
+          >
+            {ASCII_SHOP}
+          </pre>
+        </div>
+        <p className="mt-2 text-center text-[10px] tracking-[0.3em] text-zinc-600">
+          <span className="text-accent/80">{'// '}</span>
+          PLATES FOR THE BOARD
+          <span className="mx-2 text-zinc-800">·</span>
+          RANK STAYS EARNED
         </p>
       </header>
 
@@ -401,6 +495,10 @@ function ShopDepot() {
           />
         )}
 
+        <section className="shp-reveal" style={{ ['--rv' as string]: '40ms' }}>
+          <ShopDoors isTeam={isTeam} />
+        </section>
+
         <section className="shp-reveal" style={{ ['--rv' as string]: '60ms' }}>
           <MarqueeFan />
         </section>
@@ -411,12 +509,14 @@ function ShopDepot() {
 
         {RESERVE_PLATES.length > 0 && (
           <section className="shp-mythic shp-reveal" style={{ ['--rv' as string]: '200ms' }}>
-            <SectionHead title="Mythic" count={RESERVE_PLATES.length} />
-            <div className="mt-4 grid gap-4 md:grid-cols-3">
-              {RESERVE_PLATES.map((plate) => (
+            <SectionHead title="Mythic" kicker="Living scenes" />
+            <div className="shp-mythic-grid mt-4">
+              {RESERVE_PLATES.map((plate, i) => (
                 <ReserveCard
                   key={plate.id}
                   plate={plate}
+                  index={i}
+                  featured={plate.id === 'prime-anomaly'}
                   loading={loading}
                   isPro={isPro}
                   owned={owned.has(plate.id)}
@@ -447,22 +547,8 @@ function ShopDepot() {
         </section>
       </main>
 
-      <footer className="mt-16 flex flex-col gap-3 text-[11px] tracking-[0.08em] text-zinc-600 sm:flex-row sm:items-center sm:justify-between">
-        <p>Cosmetic · USD · Polar</p>
-        <nav className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <Link
-            href={isTeam ? '/team' : '/teams'}
-            className="transition-colors hover:text-zinc-300"
-          >
-            {isTeam ? 'Team console' : 'Team'}
-          </Link>
-          <Link href="/billboard#pitch" className="transition-colors hover:text-zinc-300">
-            Billboard
-          </Link>
-          <a href="/api/portal" className="transition-colors hover:text-zinc-300">
-            Manage
-          </a>
-        </nav>
+      <footer className="mt-16 text-[11px] tracking-[0.08em] text-zinc-600">
+        Cosmetic · USD · Polar
       </footer>
 
       <style jsx global>{`
@@ -474,6 +560,57 @@ function ShopDepot() {
           from {
             opacity: 0;
             transform: translateY(14px);
+          }
+        }
+
+        .shp-door {
+          border: 1px solid rgb(var(--lb-panel-edge) / 0.1);
+          background: rgb(var(--lb-panel-bg));
+          transition:
+            transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+            border-color 220ms ease;
+        }
+        .shp-door-gold {
+          border-color: rgb(var(--lb-gold) / 0.22);
+        }
+        @media (hover: hover) and (pointer: fine) {
+          .shp-door:hover {
+            transform: translateY(-2px);
+            border-color: rgb(var(--lb-panel-edge) / 0.22);
+          }
+          .shp-door-gold:hover {
+            border-color: rgb(var(--lb-gold) / 0.45);
+          }
+        }
+        .shp-door:focus-visible {
+          outline: 2px solid rgb(var(--accent-rgb) / 0.7);
+          outline-offset: 2px;
+        }
+
+        /* Flagship (last in catalog order) takes the tall left cell on
+           md+; koi / horizon stack on the right. DOM order stays cheapest
+           first so shot harnesses keep reading cards 1–3 as koi → horizon
+           → anomaly. */
+        .shp-mythic-grid {
+          display: grid;
+          gap: 1rem;
+        }
+        @media (min-width: 768px) {
+          .shp-mythic-grid {
+            grid-template-columns: 1.35fr 1fr;
+            grid-template-rows: auto auto;
+          }
+          .shp-mythic-grid > :nth-child(1) {
+            grid-column: 2;
+            grid-row: 1;
+          }
+          .shp-mythic-grid > :nth-child(2) {
+            grid-column: 2;
+            grid-row: 2;
+          }
+          .shp-mythic-grid > :nth-child(3) {
+            grid-column: 1;
+            grid-row: 1 / span 2;
           }
         }
 
@@ -517,6 +654,9 @@ function ShopDepot() {
           .shp-reveal,
           .shp-notice {
             animation: none;
+          }
+          .shp-door {
+            transition: none;
           }
         }
       `}</style>
