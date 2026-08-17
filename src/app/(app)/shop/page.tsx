@@ -218,60 +218,50 @@ function SectionHead({
   kicker?: string
 }) {
   return (
-    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-      <h2 className="font-display text-[13px] font-semibold tracking-[0.12em] text-zinc-400">
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+      <span aria-hidden className="font-mono text-[12px] text-accent/70">
+        {'//'}
+      </span>
+      <h2 className="font-display text-[13px] font-semibold tracking-[0.12em] text-zinc-300">
         {title}
       </h2>
-      {kicker && <span className="text-[12px] text-zinc-600">{kicker}</span>}
       {count !== undefined && (
         <span className="text-[11px] tabular-nums text-zinc-600">{count}</span>
+      )}
+      {kicker && (
+        <>
+          <span aria-hidden className="text-[12px] text-zinc-700">
+            ·
+          </span>
+          <span className="text-[12px] text-zinc-600">{kicker}</span>
+        </>
       )}
     </div>
   )
 }
 
+/** Utility rail — Team / Billboard / Manage as small right-aligned chips.
+ * Deliberately quiet: these are doors out of the store, not products. */
 function ShopDoors({ isTeam }: { isTeam: boolean }) {
-  const doors: {
-    href: string
-    title: string
-    blurb: string
-    gold?: boolean
-    native?: boolean
-  }[] = [
-    {
-      href: isTeam ? '/team' : '/teams',
-      title: isTeam ? 'Team console' : 'Team',
-      blurb: isTeam ? 'Company colors, live.' : 'Gold badge. Ten seats.',
-      gold: true
-    },
-    {
-      href: '/billboard#pitch',
-      title: 'Billboard',
-      blurb: 'Your logo on the board.'
-    },
-    {
-      href: '/api/portal',
-      title: 'Manage',
-      blurb: 'Subs, receipts, Polar.',
-      native: true
-    }
+  const doors: { href: string; label: string; gold?: boolean; native?: boolean }[] = [
+    { href: isTeam ? '/team' : '/teams', label: isTeam ? 'TEAM CONSOLE' : 'TEAM', gold: true },
+    { href: '/billboard#pitch', label: 'BILLBOARD' },
+    { href: '/api/portal', label: 'MANAGE', native: true }
   ]
 
   return (
-    <nav aria-label="Shop doors" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+    <nav
+      aria-label="Shop links"
+      className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1.5"
+    >
       {doors.map((door) => {
-        const className = `shp-door group flex flex-col rounded-2xl px-4 py-3 ${
+        const className = `shp-door inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] tracking-[0.18em] ${
           door.gold ? 'shp-door-gold' : ''
         }`
         const inner = (
           <>
-            <span
-              className="font-display text-[13px] font-semibold"
-              style={door.gold ? { color: 'rgb(var(--lb-gold))' } : undefined}
-            >
-              {door.title}
-            </span>
-            <span className="mt-1 text-[12px] leading-snug text-zinc-500">{door.blurb}</span>
+            {door.gold && <span aria-hidden className="shp-door-dot" />}
+            {door.label}
           </>
         )
         if (door.native) {
@@ -485,7 +475,11 @@ function ShopDepot() {
         </p>
       </header>
 
-      <main className="mt-8 space-y-14 md:space-y-16">
+      <div className="shp-reveal mt-4" style={{ ['--rv' as string]: '40ms' }}>
+        <ShopDoors isTeam={isTeam} />
+      </div>
+
+      <main className="mt-4 space-y-14 md:space-y-16">
         {notice && (
           <NoticeBanner
             notice={notice}
@@ -494,10 +488,6 @@ function ShopDepot() {
             onDismiss={() => setNotice(null)}
           />
         )}
-
-        <section className="shp-reveal" style={{ ['--rv' as string]: '40ms' }}>
-          <ShopDoors isTeam={isTeam} />
-        </section>
 
         <section className="shp-reveal" style={{ ['--rv' as string]: '60ms' }}>
           <MarqueeFan />
@@ -563,23 +553,32 @@ function ShopDepot() {
           }
         }
 
+        /* utility rail chips — no lift, no glow; these are doors out */
         .shp-door {
-          border: 1px solid rgb(var(--lb-panel-edge) / 0.1);
-          background: rgb(var(--lb-panel-bg));
+          border: 1px solid rgb(var(--lb-panel-edge) / 0.12);
+          color: rgb(var(--z500));
           transition:
-            transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
-            border-color 220ms ease;
+            border-color 220ms ease,
+            color 220ms ease;
+        }
+        .shp-door-dot {
+          height: 4px;
+          width: 4px;
+          border-radius: 9999px;
+          background: rgb(var(--lb-gold));
         }
         .shp-door-gold {
-          border-color: rgb(var(--lb-gold) / 0.22);
+          border-color: rgb(var(--lb-gold) / 0.24);
+          color: rgb(var(--lb-gold) / 0.85);
         }
         @media (hover: hover) and (pointer: fine) {
           .shp-door:hover {
-            transform: translateY(-2px);
-            border-color: rgb(var(--lb-panel-edge) / 0.22);
+            border-color: rgb(var(--lb-panel-edge) / 0.28);
+            color: rgb(var(--z200));
           }
           .shp-door-gold:hover {
-            border-color: rgb(var(--lb-gold) / 0.45);
+            border-color: rgb(var(--lb-gold) / 0.5);
+            color: rgb(var(--lb-gold));
           }
         }
         .shp-door:focus-visible {
@@ -643,7 +642,8 @@ function ShopDepot() {
         [data-perf='low'] .shpm-card:focus-visible [data-plate-fx] * {
           animation-play-state: running !important;
         }
-        [data-perf='low'] .shpp-go-clip::after {
+        [data-perf='low'] .shpp-go-clip::after,
+        [data-perf='low'] .shpp-keyline::after {
           display: none;
         }
         [data-perf='low'] .shpm-card {

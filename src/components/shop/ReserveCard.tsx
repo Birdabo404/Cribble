@@ -2,14 +2,21 @@
 
 // Mythic specimen card. Same checkout / owned / stage contract as
 // PlateCard. `group` is load-bearing: PlateLayer mythic hover flourishes
-// key off it. Featured flagship fills the tall left cell on md+ with a
-// stage well around the plate. Styled-jsx under `shpv-`.
+// key off it.
+//
+// The flagship (featured) fills the tall left cell of the mythic grid, so
+// it earns the long form: a framed art stage, the scene's "what's alive"
+// notes, and a spec row. The other two stay compact — the notes are what
+// justify a $30 plate, not decoration for every card.
+//
+// Styled-jsx under `shpv-`.
 
 import { useRef } from 'react'
 import Link from 'next/link'
 import { PlatePreview } from '@/components/cosmetics/PlateLayer'
+import { PLATE_RARITY_META } from '@/lib/cosmetics/plates'
 import { RESERVE_NOTES, plateAnchorId, proPrice, usd, type ShopPlate } from './catalog'
-import { BuyChip, OwnedChip, PriceTag } from './chips'
+import { BuyChip, OwnedChip, PriceTag, RarityChip, rarityLabel } from './chips'
 import { useOnStage } from './stage'
 
 function prettyKicker(kicker: string) {
@@ -40,6 +47,7 @@ export function ReserveCard({
   const notes = RESERVE_NOTES[plate.id]
   const kicker = notes ? prettyKicker(notes.kicker) : null
   const indexLabel = String(index + 1).padStart(2, '0')
+  const alive = featured ? (notes?.alive ?? []).slice(0, 3) : []
 
   return (
     <>
@@ -61,10 +69,29 @@ export function ReserveCard({
           )}
         </div>
 
-        <div className="mt-3 flex items-end justify-between gap-3 px-1">
+        {/* flagship long form: the scene notes are the product copy */}
+        {featured && alive.length > 0 && (
+          <ul className="mt-4 space-y-2 px-1">
+            {alive.map((line) => (
+              <li key={line} className="flex items-start gap-2.5">
+                <span
+                  aria-hidden
+                  className="shpv-plus mt-px shrink-0 text-[9px] leading-4 [font-family:var(--font-pixel)]"
+                >
+                  +
+                </span>
+                <span className="text-[12px] leading-relaxed text-zinc-400">{line}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div
+          className={`flex items-end justify-between gap-3 px-1 ${featured ? 'mt-auto pt-4' : 'mt-3'}`}
+        >
           <div className="min-w-0">
             <p className="flex items-center gap-2 text-[11px] text-zinc-500">
-              <span className="tabular-nums [font-family:var(--font-pixel)] text-[10px] text-zinc-400">
+              <span className="shpv-index text-[10px] tabular-nums [font-family:var(--font-pixel)]">
                 {indexLabel}
               </span>
               {kicker && <span>{kicker}</span>}
@@ -91,6 +118,22 @@ export function ReserveCard({
             </BuyChip>
           )}
         </div>
+
+        {featured ? (
+          <p className="shpv-spec mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 px-1 pt-3 text-[11px] text-zinc-600">
+            <span style={{ color: PLATE_RARITY_META[plate.rarity].color }}>
+              {rarityLabel(plate.rarity)}
+            </span>
+            <span aria-hidden>·</span>
+            <span>One-time</span>
+            <span aria-hidden>·</span>
+            <span>Yours forever</span>
+          </p>
+        ) : (
+          <div className="mt-3 px-1">
+            <RarityChip rarity={plate.rarity} />
+          </div>
+        )}
 
         {canBuy && (
           <a
@@ -124,16 +167,25 @@ export function ReserveCard({
         .shpv-well {
           position: relative;
         }
+        /* flagship art stage — the plate reads as mounted, not floating */
         .shpv-well-stage {
           display: flex;
-          flex: 1 1 auto;
           align-items: center;
-          min-height: 0;
-          padding: 1.25rem 0.75rem;
+          padding: 1.5rem 1rem;
           border-radius: 14px;
+          border: 1px solid rgb(var(--tile-accent) / 0.18);
           background:
-            radial-gradient(80% 70% at 50% 45%, rgb(var(--tile-accent) / 0.14), transparent 70%),
-            rgb(0 0 0 / 0.35);
+            radial-gradient(80% 70% at 50% 45%, rgb(var(--tile-accent) / 0.16), transparent 70%),
+            rgb(0 0 0 / 0.4);
+        }
+        .shpv-index {
+          color: rgb(var(--tile-accent) / 0.9);
+        }
+        .shpv-plus {
+          color: rgb(var(--tile-accent) / 0.9);
+        }
+        .shpv-spec {
+          border-top: 1px solid rgb(var(--lb-panel-edge) / 0.08);
         }
         .shpv-owned .plx-preview {
           opacity: 0.72;

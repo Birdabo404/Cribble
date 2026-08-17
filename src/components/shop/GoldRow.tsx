@@ -54,7 +54,7 @@ export function GoldRow({
             </div>
             <div className="mt-3 flex items-start justify-between gap-3 px-1">
               <div className="min-w-0">
-                <h3 className="font-display text-[13px] font-semibold text-zinc-200">Founder</h3>
+                <h3 className="shpg-name font-display text-[13px] font-semibold">Founder</h3>
                 <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">One run.</p>
               </div>
               {loading ? (
@@ -102,7 +102,7 @@ export function GoldRow({
             </div>
             <div className="mt-3 flex items-start justify-between gap-3 px-1">
               <div className="min-w-0">
-                <h3 className="font-display text-[13px] font-semibold text-zinc-200">Champion</h3>
+                <h3 className="shpg-name font-display text-[13px] font-semibold">Champion</h3>
                 <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">Awarded at #1.</p>
               </div>
               {championOwned ? (
@@ -126,9 +126,13 @@ export function GoldRow({
       </div>
 
       <style jsx global>{`
+        /* gold is the premium ink: Pro, Team, and these two */
+        .shpg-name {
+          color: rgb(var(--lb-gold));
+        }
         .shpg-card {
           background: rgb(var(--lb-panel-bg));
-          border: 1px solid rgb(var(--lb-panel-edge) / 0.1);
+          border: 1px solid rgb(var(--lb-gold) / 0.2);
           contain: layout style;
           transition:
             transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -161,24 +165,18 @@ export function GoldRow({
         @media (hover: hover) and (pointer: fine) {
           .shpg-card:hover {
             transform: translateY(-2px);
-            border-color: rgb(var(--lb-panel-edge) / 0.22);
+            border-color: rgb(var(--lb-gold) / 0.45);
           }
           .shpg-card:hover::after {
             opacity: 1;
           }
-          .shpg-buyable:hover {
-            border-color: rgb(var(--tile-accent) / 0.35);
-          }
         }
         .shpg-card:focus-within {
           transform: translateY(-2px);
-          border-color: rgb(var(--lb-panel-edge) / 0.22);
+          border-color: rgb(var(--lb-gold) / 0.45);
         }
         .shpg-card:focus-within::after {
           opacity: 1;
-        }
-        .shpg-buyable:focus-within {
-          border-color: rgb(var(--tile-accent) / 0.35);
         }
 
         @media (prefers-reduced-motion: reduce) {

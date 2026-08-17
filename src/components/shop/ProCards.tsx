@@ -1,16 +1,21 @@
 'use client'
 
-// Cribble Pro — kit on the left (perks + exclusive plates), compact
-// yearly/monthly tickets on the right. Yearly is the featured default:
-// 1px amber border + glare-shine CTA. `isPro` keeps the kit and swaps
-// the tickets for an active readout.
+// Cribble Pro — the arcade panel. Kit on the left (pixel wordmark, gold
+// `+` perks, the three exclusive plates), scoreboard tickets on the
+// right. Yearly is the featured default: gold chrome, BEST VALUE tag,
+// GO PRO button. `isPro` keeps the kit and swaps the tickets for an
+// active readout.
 //
-// Self-contained styled-jsx under `shpp-`. Plate previews are already
-// dark art wells; the panel chrome follows the theme.
+// The gold treatment is the storefront's one loud moment: a keyline with
+// a slow idle sheen, LED price digits that roll in per glyph, and a
+// hatched panel surface so the fill reads as material instead of flat.
+// Every animation is transform/opacity only and gates off under
+// data-perf="low", prefers-reduced-motion and data-motion="reduced".
+//
+// Self-contained styled-jsx under `shpp-`.
 
 import { useRef } from 'react'
 import { PlatePreview } from '@/components/cosmetics/PlateLayer'
-import { AMBER } from '@/components/premium/premium'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import type { PlateDef } from '@/lib/cosmetics/plates'
 import { PRO_TERMS, type BillingTerm } from '@/lib/planTerms'
@@ -24,6 +29,28 @@ const PERKS: readonly { title: string; body: string; badge?: boolean }[] = [
   { title: '25% off', body: 'Every plate at checkout' }
 ]
 
+/** Per-glyph LED readout — each character rolls up in turn. */
+function ScorePrice({ price, unit }: { price: string; unit: string }) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <span aria-hidden className="shpp-price text-[24px] leading-none [font-family:var(--font-pixel)]">
+        {price.split('').map((ch, i) => (
+          <span key={i} className="shpp-price-ch" style={{ ['--d' as string]: `${i * 30}ms` }}>
+            {ch}
+          </span>
+        ))}
+      </span>
+      <span
+        aria-hidden
+        className="shpp-price-ch text-[10px] tracking-[0.18em] text-zinc-500"
+        style={{ ['--d' as string]: `${price.length * 30}ms` }}
+      >
+        {unit}
+      </span>
+    </div>
+  )
+}
+
 function ProStripPlate({ plate }: { plate: PlateDef }) {
   const rootRef = useRef<HTMLDivElement>(null)
   useOnStage(rootRef)
@@ -31,10 +58,7 @@ function ProStripPlate({ plate }: { plate: PlateDef }) {
   return (
     <div ref={rootRef} data-offstage="" className="relative">
       <PlatePreview plateId={plate.id} />
-      <span
-        className="absolute right-2 top-2 z-10 rounded px-1.5 py-0.5 text-[9px] tracking-[0.08em] text-amber-200"
-        style={{ background: 'rgb(0 0 0 / 0.55)' }}
-      >
+      <span className="shpp-plate-tag absolute right-2 top-2 z-10 rounded px-1.5 py-0.5 text-[8px] leading-none [font-family:var(--font-pixel)]">
         PRO
       </span>
     </div>
@@ -46,31 +70,38 @@ function TermTicket({ term }: { term: BillingTerm }) {
   const featured = term === 'yearly'
 
   return (
-    <div className={`shpp-card ${featured ? 'shpp-card-featured' : ''} rounded-2xl p-4`}>
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[11px] tracking-[0.08em] text-zinc-500">
-          {term === 'yearly' ? 'Yearly' : 'Monthly'}
+    <div className={`shpp-card ${featured ? 'shpp-card-featured' : ''} relative rounded-2xl p-4`}>
+      {featured && <span aria-hidden className="shpp-card-keyline" />}
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] tracking-[0.18em] text-zinc-500">
+          {featured ? 'YEARLY' : 'MONTHLY'}
         </span>
-        {featured && <span className="text-[11px] text-amber-200/80">−40%</span>}
+        {featured && (
+          <span className="shpp-tag rounded px-1.5 py-1 text-[7px] leading-none [font-family:var(--font-pixel)]">
+            BEST VALUE
+          </span>
+        )}
       </div>
-      <div className="mt-2 flex items-baseline gap-2">
-        <span className="shpp-price text-[22px] leading-none [font-family:var(--font-pixel)]">
-          {meta.price}
-        </span>
-        <span className="text-[11px] text-zinc-500">{meta.unit.toLowerCase()}</span>
+
+      <div className="mt-3">
+        <ScorePrice price={meta.price} unit={meta.unit} />
       </div>
-      <p className="mt-1.5 text-[11px] leading-snug text-zinc-600">
-        {term === 'yearly' ? 'About $4.17 / mo' : 'Cancel anytime'}
+      <p className="mt-2 text-[11px] leading-snug text-zinc-600">
+        {featured ? 'About $4.17 / mo · save $33.89' : 'Cancel anytime'}
       </p>
+
       <a
         href={`/api/checkout?type=pro_${term}`}
-        aria-label={`Get Pro — ${meta.announce}`}
+        aria-label={`Go Pro — ${meta.announce}`}
         className={`${
           featured ? 'shpp-go' : 'shpp-go shpp-go-ghost'
-        } mt-3 flex w-full items-center justify-center rounded-[10px] px-4 py-2.5 text-[13px] font-medium leading-none`}
+        } mt-4 flex w-full items-center justify-center gap-2 rounded-[10px] px-4 py-2.5 text-[11px] leading-none tracking-[0.14em] [font-family:var(--font-pixel)]`}
       >
-        {featured && <span aria-hidden className="shpp-go-clip" />}
-        Get Pro
+        <span aria-hidden className="shpp-go-clip" />
+        GO PRO
+        <span aria-hidden className="shpp-go-arrow">
+          →
+        </span>
       </a>
     </div>
   )
@@ -79,28 +110,34 @@ function TermTicket({ term }: { term: BillingTerm }) {
 function ProKit() {
   return (
     <>
-      <h2
-        className="font-display text-[13px] font-semibold tracking-[0.12em]"
-        style={{ color: `rgb(${AMBER})` }}
-      >
-        Pro
+      <h2 className="shpp-wordmark text-[15px] leading-none [font-family:var(--font-pixel)]">
+        CRIBBLE PRO
       </h2>
-      <p className="mt-2 text-[13px] leading-relaxed text-zinc-400">
-        The full kit. Flex on the board. Cancel anytime.
+      <p className="mt-3 text-[13px] leading-relaxed text-zinc-400">
+        The full kit. Flex on the whole board. Cancel anytime.
       </p>
-      <ul className="mt-5 grid grid-cols-2 gap-2">
+
+      <ul className="mt-5 grid gap-2 sm:grid-cols-2">
         {PERKS.map((perk) => (
-          <li key={perk.title} className="shpp-perk rounded-xl px-3 py-2.5">
-            <p className="text-[12px] font-medium text-zinc-200">
-              {perk.title}
-              {perk.badge && (
-                <VerifiedBadge size={11} className="ml-1.5 inline-block align-[-2px]" />
-              )}
-            </p>
-            <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">{perk.body}</p>
+          <li key={perk.title} className="shpp-perk flex items-start gap-2.5 rounded-xl px-3 py-2.5">
+            <span aria-hidden className="shpp-plus text-[10px] leading-4 [font-family:var(--font-pixel)]">
+              +
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[12px] font-medium text-zinc-200">
+                {perk.title}
+                {perk.badge && (
+                  <VerifiedBadge size={11} className="ml-1.5 inline-block align-[-2px]" />
+                )}
+              </span>
+              <span className="mt-0.5 block text-[11px] leading-snug text-zinc-500">
+                {perk.body}
+              </span>
+            </span>
           </li>
         ))}
       </ul>
+
       {PRO_PLATES.length > 0 && (
         <div className="mt-5 grid gap-2 sm:grid-cols-3">
           {PRO_PLATES.map((plate) => (
@@ -115,13 +152,16 @@ function ProKit() {
 export function ProCards({ loading, isPro }: { loading: boolean; isPro: boolean }) {
   return (
     <div className="shpp-root relative overflow-hidden rounded-2xl">
-      <div className="grid md:grid-cols-[minmax(0,1fr)_17.5rem]">
+      {/* gold keyline — the PRO signature, with a slow idle sheen */}
+      <span aria-hidden className="shpp-keyline absolute inset-x-0 top-0 z-10 h-[2px]" />
+
+      <div className="relative grid md:grid-cols-[minmax(0,1fr)_17.5rem]">
         <div className="border-b border-[rgb(var(--lb-panel-edge)/0.08)] p-6 md:border-b-0 md:border-r md:p-8">
           {loading ? (
             <div className="space-y-4">
-              <span className="block h-3 w-16 animate-pulse rounded bg-zinc-500/10" />
+              <span className="block h-4 w-32 animate-pulse rounded bg-zinc-500/10" />
               <span className="block h-4 w-2/3 animate-pulse rounded bg-zinc-500/10" />
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid gap-2 sm:grid-cols-2">
                 {Array.from({ length: 4 }, (_, i) => (
                   <span key={i} className="h-14 animate-pulse rounded-xl bg-zinc-500/10" />
                 ))}
@@ -137,21 +177,24 @@ export function ProCards({ loading, isPro }: { loading: boolean; isPro: boolean 
           )}
         </div>
 
-        <div className="flex flex-col justify-center gap-3 p-6 md:p-6">
+        <div className="flex flex-col justify-center gap-3 p-6">
           {loading ? (
             <>
-              <span className="h-32 animate-pulse rounded-2xl bg-zinc-500/10" />
+              <span className="h-40 animate-pulse rounded-2xl bg-zinc-500/10" />
               <span className="h-32 animate-pulse rounded-2xl bg-zinc-500/10" />
             </>
           ) : isPro ? (
-            <div className="shpp-card rounded-2xl p-4">
-              <p className="text-[13px] leading-relaxed text-zinc-300">Pro is active.</p>
-              <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
+            <div className="shpp-card shpp-card-featured relative rounded-2xl p-4">
+              <span aria-hidden className="shpp-card-keyline" />
+              <span className="shpp-tag inline-block rounded px-1.5 py-1 text-[7px] leading-none [font-family:var(--font-pixel)]">
+                PRO ACTIVE
+              </span>
+              <p className="mt-3 text-[12px] leading-relaxed text-zinc-400">
                 25% off plates at checkout. The three plates stay equipped while the sub is live.
               </p>
               <a
                 href="/api/portal"
-                className="mt-4 inline-flex text-[12px] text-zinc-400 transition-colors hover:text-zinc-200"
+                className="mt-4 inline-flex text-[12px] text-zinc-400 transition-colors hover:text-amber-200"
               >
                 Manage
               </a>
@@ -166,38 +209,151 @@ export function ProCards({ loading, isPro }: { loading: boolean; isPro: boolean 
       </div>
 
       <style jsx global>{`
+        /* Panel surface: hatched so the gold chrome sits on material, not
+           a flat fill. Same idiom as --rail-vacant-hatch in globals. */
         .shpp-root {
-          border: 1px solid rgb(var(--lb-panel-edge) / 0.1);
-          background: rgb(var(--lb-panel-bg));
+          border: 1px solid rgb(var(--lb-gold) / 0.22);
+          background:
+            repeating-linear-gradient(
+              45deg,
+              rgb(var(--lb-gold) / 0.016) 0 1px,
+              transparent 1px 7px
+            ),
+            linear-gradient(180deg, rgb(var(--lb-gold) / 0.045), transparent 30%),
+            rgb(var(--lb-panel-bg));
         }
 
-        .shpp-card {
-          border: 1px solid rgb(var(--lb-panel-edge) / 0.1);
-          background: rgb(var(--lb-panel-bg));
+        .shpp-keyline {
+          background: linear-gradient(
+            90deg,
+            transparent 4%,
+            rgb(var(--lb-gold) / 0.9) 50%,
+            transparent 96%
+          );
+          box-shadow: 0 0 12px rgb(var(--lb-gold) / 0.45);
+          overflow: hidden;
         }
-        .shpp-card-featured {
-          border-color: rgb(252 211 77 / 0.4);
+        /* slow idle traveller — transform-only, one small element */
+        .shpp-keyline::after {
+          content: '';
+          position: absolute;
+          inset-block: 0;
+          left: 0;
+          width: 22%;
+          background: linear-gradient(90deg, transparent, rgb(var(--lb-gold-hi)), transparent);
+          animation: shpp-keyline-travel 9s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+        }
+        @keyframes shpp-keyline-travel {
+          0% {
+            transform: translateX(-120%);
+          }
+          55%,
+          100% {
+            transform: translateX(560%);
+          }
+        }
+
+        .shpp-wordmark {
+          color: rgb(var(--lb-gold));
+          text-shadow:
+            0 0 18px rgb(var(--lb-gold) / 0.4),
+            0 0 44px rgb(var(--lb-gold) / 0.16);
         }
 
         .shpp-perk {
           border: 1px solid rgb(var(--lb-panel-edge) / 0.08);
           background: rgb(var(--lb-panel-edge) / 0.03);
         }
-
-        .shpp-price {
-          color: rgb(var(--z50));
+        .shpp-plus {
+          color: rgb(var(--lb-gold) / 0.9);
         }
 
+        .shpp-plate-tag {
+          color: rgb(var(--lb-gold));
+          background: rgb(0 0 0 / 0.6);
+        }
+
+        .shpp-card {
+          position: relative;
+          overflow: hidden;
+          border: 1px solid rgb(var(--lb-panel-edge) / 0.12);
+          background: rgb(var(--lb-panel-edge) / 0.03);
+        }
+        .shpp-card-featured {
+          border-color: rgb(var(--lb-gold) / 0.42);
+          background: linear-gradient(180deg, rgb(var(--lb-gold) / 0.08), transparent 55%),
+            rgb(var(--lb-panel-edge) / 0.03);
+        }
+        .shpp-card-keyline {
+          position: absolute;
+          inset-inline: 0;
+          top: 0;
+          height: 1px;
+          background: linear-gradient(
+            90deg,
+            transparent 6%,
+            rgb(var(--lb-gold) / 0.8) 50%,
+            transparent 94%
+          );
+        }
+
+        .shpp-tag {
+          color: rgb(var(--lb-gold) / 0.95);
+          border: 1px solid rgb(var(--lb-gold) / 0.35);
+          background: rgb(var(--lb-gold) / 0.08);
+          letter-spacing: 0.1em;
+        }
+
+        /* LED scoreboard digits — gold, not the old acid yellow */
+        .shpp-price {
+          color: rgb(var(--lb-gold-hi));
+          text-shadow:
+            0 0 18px rgb(var(--lb-gold) / 0.45),
+            0 0 42px rgb(var(--lb-gold) / 0.18);
+        }
+        .shpp-price-ch {
+          display: inline-block;
+          animation: shpp-digit-roll 340ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+          animation-delay: var(--d, 0ms);
+        }
+        @keyframes shpp-digit-roll {
+          from {
+            opacity: 0;
+            transform: translateY(0.5em);
+          }
+        }
+
+        /* GO PRO — rest chrome is a static box-shadow (paints once); only
+           the hover delta animates, as opacity on the ::before glow. */
         .shpp-go {
           position: relative;
           isolation: isolate;
-          color: rgb(252 211 77);
-          border: 1px solid rgb(252 211 77 / 0.4);
-          background: rgb(252 211 77 / 0.06);
+          color: rgb(var(--lb-gold));
+          border: 2px solid rgb(var(--lb-gold) / 0.55);
+          background: linear-gradient(
+              180deg,
+              rgb(var(--lb-gold) / 0.16),
+              rgb(var(--lb-gold) / 0.05)
+            ),
+            rgb(var(--lb-panel-bg) / 0.6);
+          text-shadow: 0 0 14px rgb(var(--lb-gold) / 0.5);
+          box-shadow:
+            0 0 30px -10px rgb(var(--lb-gold) / 0.45),
+            inset 0 1px 0 rgb(255 255 255 / 0.12);
           transition:
             border-color 220ms ease,
-            background-color 220ms ease,
             transform 120ms ease;
+        }
+        .shpp-go::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+          box-shadow: 0 0 44px -6px rgb(var(--lb-gold) / 0.35);
+          opacity: 0;
+          transition: opacity 220ms ease;
+          pointer-events: none;
+          z-index: -1;
         }
         .shpp-go-clip {
           position: absolute;
@@ -216,16 +372,24 @@ export function ProCards({ loading, isPro }: { loading: boolean; isPro: boolean 
           background: linear-gradient(100deg, transparent, rgb(255 245 200 / 0.28), transparent);
           transform: translateX(-160%) skewX(-16deg);
         }
+        .shpp-go-arrow {
+          transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+        }
         @media (hover: hover) and (pointer: fine) {
           .shpp-go:hover {
-            border-color: rgb(252 211 77 / 0.7);
-            background: rgb(252 211 77 / 0.1);
+            border-color: rgb(var(--lb-gold) / 0.85);
+          }
+          .shpp-go:hover::before {
+            opacity: 1;
           }
           .shpp-go:hover .shpp-go-clip::after {
-            animation: shpp-go-glare 700ms ease forwards;
+            animation: shpp-go-sheen 650ms ease forwards;
+          }
+          .shpp-go:hover .shpp-go-arrow {
+            transform: translateX(3px);
           }
         }
-        @keyframes shpp-go-glare {
+        @keyframes shpp-go-sheen {
           to {
             transform: translateX(320%) skewX(-16deg);
           }
@@ -238,30 +402,60 @@ export function ProCards({ loading, isPro }: { loading: boolean; isPro: boolean 
           outline-offset: 2px;
         }
 
+        /* monthly's quieter twin — same geometry, no fill, so yearly reads
+           as the default choice. Declared after the base rules so its
+           overrides win at equal specificity. */
         .shpp-go-ghost {
-          color: rgb(var(--z200));
-          border-color: rgb(var(--lb-panel-edge) / 0.18);
+          color: rgb(var(--lb-gold) / 0.85);
+          border-width: 1px;
+          border-color: rgb(var(--lb-gold) / 0.35);
           background: transparent;
+          text-shadow: none;
+          box-shadow: none;
+        }
+        .shpp-go-ghost::before {
+          box-shadow: 0 0 30px -12px rgb(var(--lb-gold) / 0.35);
         }
         @media (hover: hover) and (pointer: fine) {
           .shpp-go-ghost:hover {
-            border-color: rgb(var(--lb-panel-edge) / 0.32);
-            background: rgb(var(--lb-panel-edge) / 0.04);
+            border-color: rgb(var(--lb-gold) / 0.6);
+            background: rgb(var(--lb-gold) / 0.06);
           }
         }
 
+        /* light mode: neon glows collapse on white — keep the gold as ink */
+        html.light .shpp-wordmark,
+        html.light .shpp-price {
+          text-shadow: none;
+        }
+        html.light .shpp-go {
+          text-shadow: none;
+          box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3);
+        }
+
         @media (prefers-reduced-motion: reduce) {
+          .shpp-keyline::after,
+          .shpp-price-ch,
           .shpp-go:hover .shpp-go-clip::after {
             animation: none;
           }
-          .shpp-go {
+          .shpp-go,
+          .shpp-go::before,
+          .shpp-go-arrow {
             transition: none;
           }
+          .shpp-go:hover .shpp-go-arrow {
+            transform: none;
+          }
         }
+        html[data-motion='reduced'] .shpp-keyline::after,
+        html[data-motion='reduced'] .shpp-price-ch,
         html[data-motion='reduced'] .shpp-go:hover .shpp-go-clip::after {
           animation: none;
         }
-        html[data-motion='reduced'] .shpp-go {
+        html[data-motion='reduced'] .shpp-go,
+        html[data-motion='reduced'] .shpp-go::before,
+        html[data-motion='reduced'] .shpp-go-arrow {
           transition: none;
         }
       `}</style>
