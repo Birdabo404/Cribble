@@ -2,8 +2,21 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { AdminShell, formatDate, type StaffMe } from '@/components/admin/AdminShell'
-import { ReasonDialog } from '@/components/admin/ReasonDialog'
+import {
+  AdminAvatar,
+  AdminButton,
+  AdminChip,
+  AdminEmpty,
+  AdminList,
+  AdminNotice,
+  AdminPageHeader,
+  AdminSection,
+  AdminSkeletonList,
+  ReasonDialog,
+  formatDate,
+  useAdmin,
+  type AdminChipTone
+} from '@/components/admin'
 import { BillboardCard } from '@/components/billboard/BillboardCard'
 import {
   BILLBOARD_DURATION_DAYS,
@@ -30,7 +43,7 @@ import {
 // the slot filled meanwhile). A rail ad may carry the buyer's
 // requested_rail_slot — surfaced as a WANTS chip and preselected in
 // the picker while free, but never binding: first confirmed payment
-// wins the slot. Expired ads surface in RECENT_DECISIONS with the same
+// wins the slot. Expired ads surface in Recent decisions with the same
 // activate controls relabelled as a renewal — payment is collected
 // manually again and the activate route stamps a fresh window, keeping
 // paid_at. Buyer-controlled fields (text, link_url, logo_url) are
@@ -91,23 +104,21 @@ type DialogState =
   | { kind: 'request_changes'; ad: AdRow }
   | { kind: 'archive'; ad: AdRow }
 
-const chipCls = 'rounded border px-2 py-0.5 text-[10px] tracking-[0.2em]'
-const sectionCls = 'rounded-md border border-white/10 bg-zinc-950/80 p-5 space-y-4'
-const headingCls = 'text-[10px] tracking-[0.25em] text-zinc-500'
+const PAGE_DESCRIPTION = `Paid ad slots, two placements — the flipper train on the dashboard + leaderboard ($${BILLBOARD_PRICE_CENTS / 100}/wk, max ${BILLBOARD_MAX_LIVE} live) and the always-on profile rails ($${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}–$${RAIL_SLOT_PRICE_CENTS.L1 / 100}/wk by row, ${RAIL_SLOTS.length} fixed slots). Approving emails the payment instructions to the ad's billing address (X DM @${BILLBOARD_PAYMENT_X_HANDLE} as backup); close payment there, then mark paid + go live — rail ads take their slot at activation.`
 
-function adChip(ad: AdRow, expired: boolean): { label: string; className: string } {
-  if (expired) return { label: 'EXPIRED', className: 'text-zinc-400 border-zinc-500/30' }
+function adChipMeta(ad: AdRow, expired: boolean): { label: string; tone: AdminChipTone } {
+  if (expired) return { label: 'EXPIRED', tone: 'neutral' }
   switch (ad.status) {
     case 'PENDING':
-      return { label: 'PENDING', className: 'text-amber-300 border-amber-400/30' }
+      return { label: 'PENDING', tone: 'warn' }
     case 'CHANGES_REQUESTED':
-      return { label: 'CHANGES REQUESTED', className: 'text-sky-300 border-sky-400/30' }
+      return { label: 'CHANGES REQUESTED', tone: 'info' }
     case 'APPROVED':
-      return { label: 'APPROVED', className: 'text-emerald-400 border-emerald-500/30' }
+      return { label: 'APPROVED', tone: 'good' }
     case 'REJECTED':
-      return { label: 'REJECTED', className: 'text-red-400 border-red-500/30' }
+      return { label: 'REJECTED', tone: 'danger' }
     case 'ARCHIVED':
-      return { label: 'ARCHIVED', className: 'text-zinc-400 border-zinc-500/30' }
+      return { label: 'ARCHIVED', tone: 'neutral' }
     default: {
       const exhaustive: never = ad.status
       return exhaustive
@@ -120,7 +131,7 @@ function adChip(ad: AdRow, expired: boolean): { label: string; className: string
 function PlacementChip({ ad }: { ad: AdRow }) {
   const label =
     ad.placement === 'rail' ? (ad.rail_slot ? `RAIL · ${ad.rail_slot}` : 'RAIL') : 'FLIPPER'
-  return <span className={`${chipCls} border-zinc-600/40 text-zinc-300`}>{label}</span>
+  return <AdminChip tone="neutral">{label}</AdminChip>
 }
 
 /** The buyer's slot wish with its exact price — worn by queue/awaiting
@@ -130,21 +141,20 @@ function PlacementChip({ ad }: { ad: AdRow }) {
 function RequestedSlotChip({ ad }: { ad: AdRow }) {
   if (ad.placement !== 'rail' || !ad.requested_rail_slot) return null
   return (
-    <span className={`${chipCls} border-amber-400/30 text-amber-300`}>
-      WANTS {ad.requested_rail_slot} · $
-      {RAIL_SLOT_PRICE_CENTS[ad.requested_rail_slot] / 100}/WK
-    </span>
+    <AdminChip tone="warn">
+      WANTS {ad.requested_rail_slot} · ${RAIL_SLOT_PRICE_CENTS[ad.requested_rail_slot] / 100}/WK
+    </AdminChip>
   )
 }
 
 /** Whether a payment email can go out for this ad: the billing address
- *  on file, or a loud amber NO BILLING EMAIL — the tell that this deal
+ *  on file, or an amber NO BILLING EMAIL — the tell that this deal
  *  closes over X DM instead (external sponsors, pre-040 rows). */
 function BillingEmailLine({ ad }: { ad: AdRow }) {
   if (!ad.billing_email) {
-    return <span className={`${chipCls} border-amber-400/30 text-amber-300`}>NO BILLING EMAIL</span>
+    return <AdminChip tone="warn">NO BILLING EMAIL</AdminChip>
   }
-  return <span className="break-all text-zinc-500">{ad.billing_email}</span>
+  return <span className="break-all text-[color:var(--st-text-faint)]">{ad.billing_email}</span>
 }
 
 /** Title fallback for rows predating company_name: the link's host,
@@ -167,36 +177,23 @@ function daysRemaining(endsAt: string | null): number {
 
 function OwnerLine({ ad }: { ad: AdRow }) {
   if (!ad.owner) {
-    return (
-      <span className={`${chipCls} border-zinc-600/40 text-zinc-400`}>
-        EXTERNAL SPONSOR
-      </span>
-    )
+    return <AdminChip tone="neutral">EXTERNAL SPONSOR</AdminChip>
   }
   return (
-    <span className="inline-flex items-center gap-2">
-      {ad.owner.avatar ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={ad.owner.avatar}
-          alt={ad.owner.display_name}
-          className="h-5 w-5 rounded-full border border-zinc-800 object-cover"
-        />
-      ) : (
-        <span className="h-5 w-5 rounded-full border border-zinc-800 bg-zinc-900" />
-      )}
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+      <AdminAvatar src={ad.owner.avatar} alt={ad.owner.display_name} size={20} />
       <Link
         href={`/admin/users/${ad.owner.userId}`}
-        className="text-zinc-200 hover:underline"
+        className="font-data text-[12px] text-[color:var(--st-text)] hover:underline"
       >
         @{ad.owner.username ?? ad.owner.userId}
       </Link>
       {ad.owner.username && (
         <Link
           href={`/u/${encodeURIComponent(ad.owner.username)}`}
-          className="text-[10px] tracking-[0.2em] text-zinc-500 transition-colors hover:text-zinc-200"
+          className="text-[11px] text-[color:var(--st-text-faint)] transition-colors duration-150 hover:text-[color:var(--st-text)]"
         >
-          PUBLIC →
+          Public ↗
         </Link>
       )}
     </span>
@@ -215,22 +212,42 @@ function AdPreview({ ad }: { ad: AdRow }) {
         accentColor={ad.accent_color ?? null}
         size={ad.placement === 'rail' ? 'rail' : 'lg'}
       />
-      <div className="text-xs text-zinc-500">
-        <span className="text-[9px] tracking-[0.3em] text-zinc-600">LINKS TO </span>
-        <span className="break-all text-zinc-400">{ad.link_url}</span>
-      </div>
+      <p className="text-[12px] leading-5">
+        <span className="mr-1.5 font-data text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--st-text-faint)]">
+          Links to
+        </span>
+        <span className="break-all text-[color:var(--st-text-muted)]">{ad.link_url}</span>
+      </p>
     </div>
   )
 }
 
-const actionBtn = (tone: 'green' | 'red' | 'sky' | 'zinc') => {
-  const tones = {
-    green: 'border-emerald-500/40 text-emerald-300 hover:bg-emerald-950/40',
-    red: 'border-red-500/40 text-red-300 hover:bg-red-950/40',
-    sky: 'border-sky-500/40 text-sky-300 hover:bg-sky-950/40',
-    zinc: 'border-white/10 text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
-  } as const
-  return `rounded-md border px-3 py-1.5 text-[10px] tracking-[0.2em] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${tones[tone]}`
+/** Muted meta fragment with the timestamp itself in font-data. */
+function MetaDate({ label, value }: { label: string; value: string | null }) {
+  return (
+    <span className="text-[color:var(--st-text-faint)]">
+      {label} <span className="font-data text-[12px]">{formatDate(value)}</span>
+    </span>
+  )
+}
+
+/** Quiet occupancy meter — live counts are the one place the brand
+ *  accent appears on this page. */
+function OccupancyMeter({ label, used, max }: { label: string; used: number; max: number }) {
+  const pct = max > 0 ? Math.min(100, (used / max) * 100) : 0
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className="font-data text-[11px] font-medium tabular-nums text-[color:var(--st-text-muted)]">
+        {label} {used}/{max}
+      </span>
+      <span
+        aria-hidden
+        className="h-1 w-12 overflow-hidden rounded-full bg-[color:var(--st-border)]"
+      >
+        <span className="block h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+      </span>
+    </span>
+  )
 }
 
 const railFullMsg = `All ${RAIL_SLOTS.length} rail slots are occupied — archive one or wait for a window to end.`
@@ -249,8 +266,8 @@ function emailStatusOf(payload: unknown): 'sent' | 'failed' | 'skipped' {
  *  picker (occupied slots disabled, defaulting to the ad's requested
  *  slot while it's free, else the first free one) plus the activate
  *  button, flipper ads just the button, disabled while the cap is
- *  full. Shared by AWAITING_PAYMENT (first activation) and the expired
- *  rows of RECENT_DECISIONS (renewal — the same route keeps paid_at
+ *  full. Shared by Awaiting payment (first activation) and the expired
+ *  rows of Recent decisions (renewal — the same route keeps paid_at
  *  and stamps a fresh window); only the button label differs. */
 function ActivateControls({
   ad,
@@ -290,45 +307,50 @@ function ActivateControls({
       : requestedFreeSlot ?? firstFreeSlot
   return ad.placement === 'rail' ? (
     <>
-      <label className="flex items-center gap-2 text-[9px] tracking-[0.3em] text-zinc-600">
-        SLOT
+      <label className="flex items-center gap-2">
+        <span className="font-data text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--st-text-faint)]">
+          Slot
+        </span>
         <select
           value={chosenSlot ?? ''}
           disabled={working || chosenSlot === undefined}
           onChange={(e) => onPickSlot(e.target.value as RailSlot)}
-          className="rounded-md border border-white/10 bg-black/50 px-2 py-1.5 text-xs text-white focus:border-accent/50 focus:outline-none"
+          className="st-input h-11 rounded-lg px-2 font-data text-[12px] disabled:cursor-not-allowed disabled:opacity-50 md:h-8"
         >
-          {chosenSlot === undefined && <option value="">ALL TAKEN</option>}
+          {chosenSlot === undefined && <option value="">All taken</option>}
           {RAIL_SLOTS.map((slot) => (
             <option key={slot} value={slot} disabled={occupiedSlots.has(slot)}>
               {slot} — ${RAIL_SLOT_PRICE_CENTS[slot] / 100}/wk
-              {occupiedSlots.has(slot) ? ' — TAKEN' : ''}
+              {occupiedSlots.has(slot) ? ' — taken' : ''}
             </option>
           ))}
         </select>
       </label>
-      <button
-        disabled={working || chosenSlot === undefined}
+      <AdminButton
+        variant="good"
+        pending={working}
+        disabled={chosenSlot === undefined}
         title={chosenSlot === undefined ? railFullMsg : undefined}
         onClick={() => chosenSlot && onActivate(ad, chosenSlot)}
-        className={actionBtn('green')}
       >
-        {working ? 'WORKING…' : label}
-      </button>
+        {label}
+      </AdminButton>
     </>
   ) : (
-    <button
-      disabled={working || flipperFull}
+    <AdminButton
+      variant="good"
+      pending={working}
+      disabled={flipperFull}
       title={flipperFull ? flipperFullMsg : undefined}
       onClick={() => onActivate(ad)}
-      className={actionBtn('green')}
     >
-      {working ? 'WORKING…' : label}
-    </button>
+      {label}
+    </AdminButton>
   )
 }
 
-function BillboardQueue({ me }: { me: StaffMe }) {
+export default function AdminBillboardPage() {
+  const me = useAdmin()
   const [data, setData] = useState<BillboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -346,12 +368,12 @@ function BillboardQueue({ me }: { me: StaffMe }) {
       const res = await fetch('/api/admin/billboard', { credentials: 'include' })
       const payload = await res.json().catch(() => null)
       if (!res.ok || !Array.isArray(payload?.queue)) {
-        throw new Error(payload?.error ?? 'Failed to load billboard ads.')
+        throw new Error(payload?.error ?? 'Failed to load sponsor ads.')
       }
       setData(payload as BillboardData)
     } catch (err) {
       setData(null)
-      setError(err instanceof Error ? err.message : 'Failed to load billboard ads.')
+      setError(err instanceof Error ? err.message : 'Failed to load sponsor ads.')
     } finally {
       setLoading(false)
     }
@@ -411,7 +433,7 @@ function BillboardQueue({ me }: { me: StaffMe }) {
           case 'sent':
             return `Ad #${ad.id} approved — payment email sent to ${ad.billing_email}. Close it in that thread, then mark paid + go live.`
           case 'failed':
-            return `Ad #${ad.id} approved — payment email to ${ad.billing_email} FAILED. Chase over X DM (@${BILLBOARD_PAYMENT_X_HANDLE}), then mark paid + go live.`
+            return `Ad #${ad.id} approved — the payment email to ${ad.billing_email} failed. Chase over X DM (@${BILLBOARD_PAYMENT_X_HANDLE}), then mark paid + go live.`
           case 'skipped':
             return `Ad #${ad.id} approved — no payment email went out (${
               ad.billing_email ? 'email delivery is not configured' : 'no billing email on file'
@@ -460,7 +482,7 @@ function BillboardQueue({ me }: { me: StaffMe }) {
     }
     switch (state.kind) {
       case 'reject':
-        setNotice(`Ad #${state.ad.id} rejected — the buyer sees the reason at /billboard.`)
+        setNotice(`Ad #${state.ad.id} rejected — the buyer sees the reason at /sponsorship.`)
         break
       case 'request_changes':
         setNotice(`Ad #${state.ad.id} sent back to the buyer for changes.`)
@@ -492,140 +514,140 @@ function BillboardQueue({ me }: { me: StaffMe }) {
   )
   const firstFreeSlot = RAIL_SLOTS.find((slot) => !occupiedSlots.has(slot))
 
-  return (
-    <>
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Billboard</h1>
-        <p className="text-sm text-gray-400">
-          Paid ad slots, two placements — the flipper train on the dashboard + leaderboard ($
-          {BILLBOARD_PRICE_CENTS / 100}/wk, max {BILLBOARD_MAX_LIVE} live) and the always-on
-          profile rails (${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}–$
-          {RAIL_SLOT_PRICE_CENTS.L1 / 100}/wk by row, {RAIL_SLOTS.length} fixed slots).
-          Approving emails the payment instructions to the {`ad's`} billing address (X DM @
-          {BILLBOARD_PAYMENT_X_HANDLE} as backup); close payment there, then mark paid + go
-          live — rail ads take their slot at activation.
-        </p>
-      </div>
+  const showFlipperWarn =
+    flipperFull && (data?.awaiting.some((ad) => ad.placement === 'flipper') ?? false)
+  const showRailWarn =
+    firstFreeSlot === undefined && (data?.awaiting.some((ad) => ad.placement === 'rail') ?? false)
 
-      {notice && (
-        <p className="rounded-md border border-amber-500/20 bg-amber-950/20 px-3 py-2 text-xs text-amber-300">
-          {notice}
-        </p>
+  return (
+    <div className="space-y-6">
+      <AdminPageHeader title="Sponsorship" description={PAGE_DESCRIPTION} />
+
+      {error && (
+        <AdminNotice tone="danger">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{error}</span>
+            <AdminButton variant="ghost" onClick={() => void load()}>
+              Retry
+            </AdminButton>
+          </div>
+        </AdminNotice>
       )}
-      {error && <p className="text-xs text-red-400">{error}</p>}
+      {notice && <AdminNotice tone="info">{notice}</AdminNotice>}
 
       {loading ? (
-        <p className="text-xs text-zinc-600">Loading…</p>
+        <>
+          {['Review queue', 'Awaiting payment', 'Live now', 'Recent decisions'].map((title) => (
+            <AdminSection key={title} title={title} flush>
+              <AdminSkeletonList rows={2} />
+            </AdminSection>
+          ))}
+        </>
       ) : !data ? null : (
         <>
-          <section className={sectionCls}>
-            <h2 className={headingCls}>REVIEW_QUEUE ({data.queue.length})</h2>
+          <AdminSection title="Review queue" count={data.queue.length} flush>
             {data.queue.length === 0 ? (
-              <p className="text-xs text-zinc-600">Nothing waiting for review.</p>
+              <AdminEmpty
+                title="Nothing waiting for review"
+                hint="New submissions from /sponsorship land here."
+              />
             ) : (
-              <ul className="divide-y divide-white/5">
+              <AdminList>
                 {data.queue.map((ad) => {
-                  const chip = adChip(ad, false)
+                  const chip = adChipMeta(ad, false)
                   const working = workingId === ad.id
                   return (
-                    <li key={ad.id} className="py-4 space-y-3">
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
-                        <span className={`${chipCls} ${chip.className}`}>{chip.label}</span>
+                    <li key={ad.id} className="space-y-3 px-4 py-4">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+                        <AdminChip tone={chip.tone}>{chip.label}</AdminChip>
                         <PlacementChip ad={ad} />
                         <RequestedSlotChip ad={ad} />
-                        <span className="text-zinc-600">#{ad.id}</span>
+                        <span className="font-data text-[12px] text-[color:var(--st-text-faint)]">
+                          #{ad.id}
+                        </span>
                         <OwnerLine ad={ad} />
                         <BillingEmailLine ad={ad} />
-                        <span className="text-zinc-600">
-                          submitted {formatDate(ad.created_at)}
-                        </span>
+                        <MetaDate label="submitted" value={ad.created_at} />
                       </div>
                       <AdPreview ad={ad} />
                       {ad.status === 'CHANGES_REQUESTED' && ad.review_note && (
-                        <p className="text-xs text-sky-300/80">
-                          <span className="text-[9px] tracking-[0.3em] text-zinc-600">
-                            SENT BACK{' '}
+                        <p className="text-[12.5px] leading-5 text-sky-600">
+                          <span className="mr-1.5 font-data text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--st-text-faint)]">
+                            Sent back
                           </span>
                           {ad.review_note}
                         </p>
                       )}
                       {isOwner && (
                         <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            disabled={working}
-                            onClick={() => approve(ad)}
-                            className={actionBtn('green')}
-                          >
-                            {working ? 'WORKING…' : 'APPROVE'}
-                          </button>
+                          <AdminButton variant="good" pending={working} onClick={() => approve(ad)}>
+                            Approve
+                          </AdminButton>
                           {ad.status === 'PENDING' && (
-                            <button
+                            <AdminButton
+                              variant="ghost"
                               disabled={working}
                               onClick={() => setDialog({ kind: 'request_changes', ad })}
-                              className={actionBtn('sky')}
                             >
-                              REQUEST CHANGES
-                            </button>
+                              Request changes
+                            </AdminButton>
                           )}
-                          <button
+                          <AdminButton
+                            variant="danger"
                             disabled={working}
                             onClick={() => setDialog({ kind: 'reject', ad })}
-                            className={actionBtn('red')}
                           >
-                            REJECT
-                          </button>
+                            Reject
+                          </AdminButton>
                         </div>
                       )}
                     </li>
                   )
                 })}
-              </ul>
+              </AdminList>
             )}
-          </section>
+          </AdminSection>
 
-          <section className={sectionCls}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className={headingCls}>AWAITING_PAYMENT ({data.awaiting.length})</h2>
-              <p className="text-[10px] text-zinc-600">
-                Payment closes in the email thread (X DM @{BILLBOARD_PAYMENT_X_HANDLE} as
-                backup) — nothing here bills the buyer.
-              </p>
-            </div>
-            {flipperFull &&
-              data.awaiting.some((ad) => ad.placement === 'flipper') && (
-                <p className="text-xs text-amber-300/80">{flipperFullMsg}</p>
-              )}
-            {firstFreeSlot === undefined &&
-              data.awaiting.some((ad) => ad.placement === 'rail') && (
-                <p className="text-xs text-amber-300/80">{railFullMsg}</p>
-              )}
+          <AdminSection
+            title="Awaiting payment"
+            count={data.awaiting.length}
+            description={`Payment closes in the email thread (X DM @${BILLBOARD_PAYMENT_X_HANDLE} as backup) — nothing here bills the buyer.`}
+            flush
+          >
+            {(showFlipperWarn || showRailWarn) && (
+              <div className="space-y-2 border-b border-[color:var(--st-border)] p-3">
+                {showFlipperWarn && <AdminNotice tone="warning">{flipperFullMsg}</AdminNotice>}
+                {showRailWarn && <AdminNotice tone="warning">{railFullMsg}</AdminNotice>}
+              </div>
+            )}
             {data.awaiting.length === 0 ? (
-              <p className="text-xs text-zinc-600">No approved ads waiting on payment.</p>
+              <AdminEmpty
+                title="No approved ads waiting on payment"
+                hint="Approve a submission above to start a payment thread."
+              />
             ) : (
-              <ul className="divide-y divide-white/5">
+              <AdminList>
                 {data.awaiting.map((ad) => {
                   const working = workingId === ad.id
                   return (
-                    <li key={ad.id} className="py-4 space-y-3">
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
-                        <span className={`${chipCls} text-emerald-400 border-emerald-500/30`}>
-                          APPROVED
-                        </span>
+                    <li key={ad.id} className="space-y-3 px-4 py-4">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+                        <AdminChip tone="good">APPROVED</AdminChip>
                         <PlacementChip ad={ad} />
                         <RequestedSlotChip ad={ad} />
-                        <span className="text-zinc-600">#{ad.id}</span>
+                        <span className="font-data text-[12px] text-[color:var(--st-text-faint)]">
+                          #{ad.id}
+                        </span>
                         <OwnerLine ad={ad} />
                         <BillingEmailLine ad={ad} />
-                        <span className="text-zinc-600">
-                          approved {formatDate(ad.reviewed_at)}
-                        </span>
+                        <MetaDate label="approved" value={ad.reviewed_at} />
                       </div>
                       <AdPreview ad={ad} />
                       {isOwner && (
                         <div className="flex flex-wrap items-center gap-2">
                           <ActivateControls
                             ad={ad}
-                            label="MARK PAID + GO LIVE"
+                            label="Mark paid + go live"
                             working={working}
                             pick={railSlotPick[ad.id]}
                             occupiedSlots={occupiedSlots}
@@ -637,109 +659,125 @@ function BillboardQueue({ me }: { me: StaffMe }) {
                             }
                             onActivate={activate}
                           />
-                          <button
+                          <AdminButton
+                            variant="ghost"
                             disabled={working}
                             onClick={() => setDialog({ kind: 'archive', ad })}
-                            className={actionBtn('zinc')}
                           >
-                            ARCHIVE
-                          </button>
+                            Archive
+                          </AdminButton>
                         </div>
                       )}
                     </li>
                   )
                 })}
-              </ul>
+              </AdminList>
             )}
-          </section>
+          </AdminSection>
 
-          <section className={sectionCls}>
-            {/* both products' occupancy, derived from the list below */}
-            <h2 className={headingCls}>
-              LIVE_NOW ({data.live.length}) · FLIPPER {flipperLiveCount}/{data.maxLive} · RAIL{' '}
-              {occupiedSlots.size}/{RAIL_SLOTS.length}
-            </h2>
+          <AdminSection
+            title="Live now"
+            count={data.live.length}
+            action={
+              // Both products' occupancy, derived from the live list.
+              <div className="flex flex-wrap items-center gap-4">
+                <OccupancyMeter label="Flipper" used={flipperLiveCount} max={data.maxLive} />
+                <OccupancyMeter label="Rail" used={occupiedSlots.size} max={RAIL_SLOTS.length} />
+              </div>
+            }
+            flush
+          >
             {data.live.length === 0 ? (
-              <p className="text-xs text-zinc-600">No ads on the billboard right now.</p>
+              <AdminEmpty
+                title="No ads live right now"
+                hint="Ads land here after mark paid + go live."
+              />
             ) : (
-              <ul className="divide-y divide-white/5">
+              <AdminList>
                 {data.live.map((ad) => {
                   const working = workingId === ad.id
                   const days = daysRemaining(ad.ends_at)
                   return (
-                    <li key={ad.id} className="py-4 space-y-3">
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
-                        <span className={`${chipCls} text-emerald-400 border-emerald-500/30`}>
-                          LIVE
-                        </span>
+                    <li key={ad.id} className="space-y-3 px-4 py-4">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+                        <AdminChip tone="good">LIVE</AdminChip>
                         <PlacementChip ad={ad} />
-                        <span className="text-zinc-600">#{ad.id}</span>
+                        <span className="font-data text-[12px] text-[color:var(--st-text-faint)]">
+                          #{ad.id}
+                        </span>
                         <OwnerLine ad={ad} />
-                        <span className="text-zinc-300">
+                        <span className="tabular-nums text-[color:var(--st-text)]">
                           {days} day{days === 1 ? '' : 's'} left
                         </span>
-                        <span className="text-zinc-600">ends {formatDate(ad.ends_at)}</span>
-                        <span className="text-zinc-300">
+                        <MetaDate label="ends" value={ad.ends_at} />
+                        <span className="tabular-nums text-[color:var(--st-text)]">
                           {ad.clicks.toLocaleString('en-US')} click{ad.clicks === 1 ? '' : 's'}
                         </span>
                       </div>
                       <AdPreview ad={ad} />
                       {isOwner && (
                         <div className="flex flex-wrap items-center gap-2">
-                          <button
+                          <AdminButton
+                            variant="danger"
                             disabled={working}
                             onClick={() => setDialog({ kind: 'archive', ad })}
-                            className={actionBtn('red')}
                           >
-                            ARCHIVE
-                          </button>
+                            Archive
+                          </AdminButton>
                         </div>
                       )}
                     </li>
                   )
                 })}
-              </ul>
+              </AdminList>
             )}
-          </section>
+          </AdminSection>
 
-          <section className={sectionCls}>
-            <h2 className={headingCls}>RECENT_DECISIONS ({data.recent.length})</h2>
+          <AdminSection title="Recent decisions" count={data.recent.length} flush>
             {data.recent.length === 0 ? (
-              <p className="text-xs text-zinc-600">No past decisions yet.</p>
+              <AdminEmpty title="No past decisions yet" />
             ) : (
-              <ul className="divide-y divide-white/5">
+              <AdminList>
                 {data.recent.map((ad) => {
                   // APPROVED rows only land here when their window ran
                   // out — those get renew controls below. REJECTED and
                   // ARCHIVED rows stay read-only.
                   const expired = ad.status === 'APPROVED'
-                  const chip = adChip(ad, expired)
+                  const chip = adChipMeta(ad, expired)
                   const working = workingId === ad.id
                   return (
-                    <li key={ad.id} className="py-3 space-y-1">
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
-                        <span className={`${chipCls} ${chip.className}`}>{chip.label}</span>
+                    <li key={ad.id} className="space-y-1.5 px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+                        <AdminChip tone={chip.tone}>{chip.label}</AdminChip>
                         <PlacementChip ad={ad} />
                         {expired && <RequestedSlotChip ad={ad} />}
-                        <span className="text-zinc-600">#{ad.id}</span>
+                        <span className="font-data text-[12px] text-[color:var(--st-text-faint)]">
+                          #{ad.id}
+                        </span>
                         <OwnerLine ad={ad} />
-                        <span className="text-zinc-600">{formatDate(ad.updated_at)}</span>
+                        <span className="font-data text-[12px] text-[color:var(--st-text-faint)]">
+                          {formatDate(ad.updated_at)}
+                        </span>
                         {ad.clicks > 0 && (
-                          <span className="text-zinc-500">
+                          <span className="tabular-nums text-[color:var(--st-text-faint)]">
                             {ad.clicks.toLocaleString('en-US')} click
                             {ad.clicks === 1 ? '' : 's'}
                           </span>
                         )}
                       </div>
-                      <p className="break-words text-sm text-zinc-300">{ad.text}</p>
+                      <p className="break-words text-[13.5px] leading-5 text-[color:var(--st-text)]">
+                        {ad.text}
+                      </p>
                       {ad.review_note && (
-                        <p className="text-xs text-zinc-500">{ad.review_note}</p>
+                        <p className="text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+                          {ad.review_note}
+                        </p>
                       )}
                       {isOwner && expired && (
                         <div className="flex flex-wrap items-center gap-2 pt-1">
                           <ActivateControls
                             ad={ad}
-                            label="RENEW — MARK PAID + GO LIVE"
+                            label="Renew — mark paid + go live"
                             working={working}
                             pick={railSlotPick[ad.id]}
                             occupiedSlots={occupiedSlots}
@@ -756,17 +794,17 @@ function BillboardQueue({ me }: { me: StaffMe }) {
                     </li>
                   )
                 })}
-              </ul>
+              </AdminList>
             )}
-          </section>
+          </AdminSection>
         </>
       )}
 
       {dialog?.kind === 'reject' && (
         <ReasonDialog
-          title={`REJECT AD #${dialog.ad.id}`}
-          description="Marks the submission rejected. The reason is stored on the ad, shown to the buyer at /billboard, and logged to the audit trail."
-          confirmLabel="REJECT AD"
+          title={`Reject ad #${dialog.ad.id}`}
+          description="Marks the submission rejected. The reason is stored on the ad, shown to the buyer at /sponsorship, and logged to the audit trail."
+          confirmLabel="Reject ad"
           danger
           onConfirm={(reason) => confirmDialog(dialog, reason)}
           onClose={() => setDialog(null)}
@@ -774,27 +812,23 @@ function BillboardQueue({ me }: { me: StaffMe }) {
       )}
       {dialog?.kind === 'request_changes' && (
         <ReasonDialog
-          title={`REQUEST CHANGES — AD #${dialog.ad.id}`}
-          description="Sends the ad back to the buyer with this note. They edit and resubmit at /billboard, which returns it to the review queue."
-          confirmLabel="REQUEST CHANGES"
+          title={`Request changes — ad #${dialog.ad.id}`}
+          description="Sends the ad back to the buyer with this note. They edit and resubmit at /sponsorship, which returns it to the review queue."
+          confirmLabel="Request changes"
           onConfirm={(reason) => confirmDialog(dialog, reason)}
           onClose={() => setDialog(null)}
         />
       )}
       {dialog?.kind === 'archive' && (
         <ReasonDialog
-          title={`ARCHIVE AD #${dialog.ad.id}`}
-          description="Takes the ad off the billboard immediately. Click stats are kept; the slot is not refunded here — refunds are handled manually if owed."
-          confirmLabel="ARCHIVE AD"
+          title={`Archive ad #${dialog.ad.id}`}
+          description="Takes the ad down immediately. Click stats are kept; the slot is not refunded here — refunds are handled manually if owed."
+          confirmLabel="Archive ad"
           danger
           onConfirm={(reason) => confirmDialog(dialog, reason)}
           onClose={() => setDialog(null)}
         />
       )}
-    </>
+    </div>
   )
-}
-
-export default function AdminBillboardPage() {
-  return <AdminShell section="BILLBOARD">{(me) => <BillboardQueue me={me} />}</AdminShell>
 }

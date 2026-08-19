@@ -279,8 +279,11 @@ function NotificationGlyph({
 
 /** One plain feed row. Social events deep-link to the actor's profile so
  *  a "started following you" lands one click from FOLLOW BACK; team
- *  invites land on the accept/decline page, and an accepted invite or an
- *  identity-review update takes the team straight to its console. */
+ *  invites land on the accept/decline page, an accepted invite or an
+ *  identity-review update takes the team straight to its console, and a
+ *  sponsorship review update lands on /sponsorship (its data.kind stays
+ *  'billboard_review' — a frozen internal contract, not part of the
+ *  rename). */
 function SingleFeedRow({
   notification: n,
   fresh,
@@ -300,9 +303,11 @@ function SingleFeedRow({
       ? '/team/invites'
       : n.type === 'team_invite_accepted' || n.data?.kind === 'team_review'
         ? '/team'
-        : actorUsername
-          ? `/u/${encodeURIComponent(actorUsername)}`
-          : null
+        : n.data?.kind === 'billboard_review'
+          ? '/sponsorship'
+          : actorUsername
+            ? `/u/${encodeURIComponent(actorUsername)}`
+            : null
   const rowCls = `notif-row-in flex items-start gap-3 border-b border-white/[0.045] px-4 py-3 last:border-b-0 ${
     fresh ? 'bg-white/[0.03]' : ''
   }`

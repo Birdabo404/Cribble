@@ -1,12 +1,22 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import {
-  AdminShell,
+  AdminButton,
+  AdminChip,
+  AdminEmpty,
+  AdminList,
+  AdminNotice,
+  AdminPageHeader,
+  AdminSection,
+  AdminSkeletonList,
+  ReasonDialog,
   formatDate,
-  type StaffMe
-} from '@/components/admin/AdminShell'
-import { ReasonDialog } from '@/components/admin/ReasonDialog'
+  useAdmin,
+  type AdminChipTone
+} from '@/components/admin'
+import { TextArea, TextField } from '@/components/settings/Field'
+import { Skeleton } from '@/components/settings/Skeleton'
 
 // Season calendar management. Automation (season_tick via pg_cron) runs
 // the calendar; this page edits the calendar: schedule the next season,
@@ -23,14 +33,14 @@ interface AdminSeason {
   archivedPlayers: number
 }
 
-function seasonChip(status: string): { label: string; className: string } {
+function seasonChipMeta(status: string): { label: string; tone: AdminChipTone } {
   if (status === 'active') {
-    return { label: 'ACTIVE', className: 'text-emerald-400 border-emerald-500/30' }
+    return { label: 'ACTIVE', tone: 'good' }
   }
   if (status === 'complete') {
-    return { label: 'COMPLETE', className: 'text-zinc-500 border-zinc-600/40' }
+    return { label: 'COMPLETE', tone: 'neutral' }
   }
-  return { label: 'UPCOMING', className: 'text-sky-300 border-sky-400/30' }
+  return { label: 'UPCOMING', tone: 'info' }
 }
 
 /** ISO → value for <input type="datetime-local"> in the operator's zone. */
@@ -47,11 +57,9 @@ function localInputToIso(value: string): string | null {
   return Number.isFinite(ms) ? new Date(ms).toISOString() : null
 }
 
-const inputCls =
-  'w-full rounded-md border border-white/10 bg-black/50 px-3 py-2 text-sm text-white placeholder:text-zinc-700 focus:border-accent/50 focus:outline-none'
-const labelCls = 'block space-y-1 text-xs text-zinc-400'
-
-/** Edit dialog for one season: fields depend on status, reason mandatory. */
+/** Edit dialog for one season: fields depend on status, reason mandatory.
+ *  Same surface as ReasonDialog (rounded-2xl panel on --st-panel, plain
+ *  0.55 black scrim) — kept separate because the forms differ. */
 function EditSeasonDialog({
   season,
   onSubmit,
@@ -64,6 +72,7 @@ function EditSeasonDialog({
   ) => Promise<string | null>
   onClose: () => void
 }) {
+  const titleId = useId()
   const [name, setName] = useState(season.name)
   const [startsAt, setStartsAt] = useState(isoToLocalInput(season.startsAt))
   const [endsAt, setEndsAt] = useState(isoToLocalInput(season.endsAt))
@@ -103,71 +112,87 @@ function EditSeasonDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} aria-hidden />
-      <div className="relative w-full max-w-md rounded-md border border-white/10 bg-zinc-950 p-5 space-y-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+    >
+      <div className="absolute inset-0 bg-[rgb(0_0_0/0.55)]" onClick={onClose} aria-hidden />
+      <div className="relative w-full max-w-md space-y-4 rounded-2xl border border-[color:var(--st-border)] bg-[color:var(--st-panel)] p-5 shadow-[var(--st-panel-shadow)]">
         <div className="space-y-1">
-          <h2 className="text-sm tracking-[0.15em] text-zinc-100">
-            EDIT {season.name}
+          <h2
+            id={titleId}
+            className="text-[15px] font-semibold leading-6 text-[color:var(--st-text)]"
+          >
+            Edit {season.name}
           </h2>
-          <p className="text-xs leading-relaxed text-zinc-500">
+          <p className="text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
             {isUpcoming
               ? 'Upcoming season — name and both dates can move.'
               : 'Active season — rename or move the end (extend or close sooner). The start already happened.'}
           </p>
         </div>
 
-        <label className={labelCls}>
-          <span>Name</span>
-          <input type="text" value={name} onChange={(e) => setName(e.target.value.slice(0, 40))} className={inputCls} />
-        </label>
+        <TextField
+          label="Name"
+          value={name}
+          maxLength={40}
+          onChange={(e) => setName(e.target.value.slice(0, 40))}
+        />
 
         {isUpcoming && (
-          <label className={labelCls}>
-            <span>Starts (your local time)</span>
-            <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} className={inputCls} />
-          </label>
+          <TextField
+            label="Starts"
+            description="Your local time."
+            type="datetime-local"
+            value={startsAt}
+            onChange={(e) => setStartsAt(e.target.value)}
+          />
         )}
 
-        <label className={labelCls}>
-          <span>Ends (your local time)</span>
-          <input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} className={inputCls} />
-        </label>
+        <TextField
+          label="Ends"
+          description="Your local time."
+          type="datetime-local"
+          value={endsAt}
+          onChange={(e) => setEndsAt(e.target.value)}
+        />
 
-        <label className={labelCls}>
-          <span>Reason — required, logged to the audit trail (10 char minimum)</span>
-          <textarea
-            value={reason}
-            onChange={(e) => setReason(e.target.value.slice(0, 500))}
-            rows={2}
-            placeholder="why are you changing the calendar?"
-            className={`${inputCls} resize-none`}
-          />
-        </label>
+        <TextArea
+          label="Reason"
+          description="Required and logged to the audit trail — 10 characters minimum."
+          rows={2}
+          value={reason}
+          maxLength={500}
+          onChange={(e) => setReason(e.target.value.slice(0, 500))}
+          placeholder="Why are you changing the calendar?"
+        />
 
-        {error && <p className="text-xs text-red-400">{error}</p>}
+        {error && (
+          <p className="text-[12.5px] leading-5 text-[color:var(--st-danger)]">{error}</p>
+        )}
 
         <div className="flex items-center justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-md border border-white/10 px-4 py-2 text-xs tracking-[0.15em] text-zinc-400 transition-colors hover:bg-white/5"
-          >
-            CANCEL
-          </button>
-          <button
+          <AdminButton variant="ghost" onClick={onClose}>
+            Cancel
+          </AdminButton>
+          <AdminButton
+            variant="primary"
+            pending={submitting}
+            disabled={!reasonValid}
             onClick={submit}
-            disabled={!reasonValid || submitting}
-            className="rounded-md bg-white px-4 py-2 text-xs tracking-[0.15em] text-black transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {submitting ? 'WORKING…' : 'SAVE'}
-          </button>
+            Save
+          </AdminButton>
         </div>
       </div>
     </div>
   )
 }
 
-function SeasonsAdmin({ me }: { me: StaffMe }) {
+export default function AdminSeasonsPage() {
+  const me = useAdmin()
   const [seasons, setSeasons] = useState<AdminSeason[]>([])
   const [phase, setPhase] = useState<'active' | 'intermission' | null>(null)
   const [loaded, setLoaded] = useState(false)
@@ -312,155 +337,171 @@ function SeasonsAdmin({ me }: { me: StaffMe }) {
 
   if (me.role !== 'owner') {
     return (
-      <section className="rounded-md border border-white/10 bg-zinc-950/80 p-5">
-        <p className="text-sm text-red-400">Owner access required.</p>
-        <p className="mt-1 text-xs text-zinc-500">
-          The season calendar controls every player&apos;s scores and standings.
-        </p>
-      </section>
+      <div className="space-y-6">
+        <AdminPageHeader
+          title="Seasons"
+          description="Automation runs the calendar — the tick closes and starts seasons on schedule (every 15 minutes)."
+        />
+        <AdminNotice tone="warning">
+          Owner access required — the season calendar controls every player&apos;s scores and
+          standings.
+        </AdminNotice>
+      </div>
     )
   }
 
   return (
-    <>
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Seasons</h1>
-        <p className="text-sm text-gray-400">
-          Automation runs the calendar — the tick closes and starts seasons on
-          schedule (every 15 minutes). You edit the calendar.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <AdminPageHeader
+        title="Seasons"
+        description="Automation runs the calendar — the tick closes and starts seasons on schedule (every 15 minutes). You edit the calendar."
+      />
 
-      {(notice || error) && (
-        <p className={`text-xs ${error ? 'text-red-400' : 'text-emerald-400'}`}>
-          {error ?? notice}
-        </p>
+      {error && (
+        <AdminNotice tone="danger">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{error}</span>
+            <AdminButton variant="ghost" onClick={() => void load()}>
+              Retry
+            </AdminButton>
+          </div>
+        </AdminNotice>
       )}
+      {notice && !error && <AdminNotice tone="info">{notice}</AdminNotice>}
 
-      {/* phase + tick */}
-      <section className="rounded-md border border-white/10 bg-zinc-950/80 p-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-[10px] tracking-[0.25em] text-zinc-500">PHASE</h2>
-          <p className="mt-1 text-sm text-zinc-100">
-            {!loaded ? '…' : phase === 'intermission' ? 'INTERMISSION — standings locked' : 'SEASON ACTIVE'}
-          </p>
-        </div>
-        <button
-          onClick={runTick}
-          disabled={ticking}
-          className="rounded-md border border-white/10 px-4 py-2 text-xs tracking-[0.15em] text-zinc-300 transition-colors hover:bg-white/5 disabled:cursor-wait disabled:opacity-50"
-          title="Run the same idempotent lifecycle pass pg_cron runs every 15 minutes"
-        >
-          {ticking ? 'RUNNING…' : 'RUN TICK NOW'}
-        </button>
-      </section>
-
-      {/* calendar */}
-      <section className="rounded-md border border-white/10 bg-zinc-950/80 p-5 space-y-4">
-        <h2 className="text-[10px] tracking-[0.25em] text-zinc-500">CALENDAR</h2>
+      <AdminSection
+        title="Phase"
+        action={
+          <AdminButton
+            variant="ghost"
+            pending={ticking}
+            onClick={runTick}
+            title="Run the same idempotent lifecycle pass pg_cron runs every 15 minutes"
+          >
+            Run tick now
+          </AdminButton>
+        }
+      >
         {!loaded ? (
-          <p className="text-xs text-zinc-600">Loading…</p>
-        ) : seasons.length === 0 ? (
-          <p className="text-xs text-zinc-600">
-            No seasons yet — apply migration 025 or schedule one below.
-          </p>
+          <Skeleton className="h-4 w-48 max-w-full" />
         ) : (
-          <ul className="divide-y divide-white/5">
+          <p className="flex items-center gap-2 text-[13.5px] leading-5 text-[color:var(--st-text)]">
+            {phase !== 'intermission' && (
+              // The one live signal on this page — the season is on.
+              <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+            )}
+            {phase === 'intermission' ? 'Intermission — standings locked' : 'Season active'}
+          </p>
+        )}
+      </AdminSection>
+
+      <AdminSection title="Calendar" count={loaded ? seasons.length : undefined} flush>
+        {!loaded ? (
+          <AdminSkeletonList rows={3} />
+        ) : seasons.length === 0 ? (
+          <AdminEmpty
+            title="No seasons yet"
+            hint="Apply migration 025 or schedule one below."
+          />
+        ) : (
+          <AdminList>
             {seasons.map((season) => {
-              const chip = seasonChip(season.status)
+              const chip = seasonChipMeta(season.status)
               return (
-                <li key={season.id} className="flex flex-wrap items-center gap-3 px-1 py-3">
+                <li key={season.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                   <div className="min-w-0">
-                    <div className="text-sm text-zinc-100">
+                    <div className="text-[13.5px] leading-5 text-[color:var(--st-text)]">
                       {season.name}
-                      <span className="ml-2 text-xs text-zinc-600">#{season.number}</span>
+                      <span className="ml-2 font-data text-[11px] text-[color:var(--st-text-faint)]">
+                        #{season.number}
+                      </span>
                     </div>
-                    <div className="mt-0.5 text-xs text-zinc-500">
-                      {formatDate(season.startsAt)} → {formatDate(season.endsAt)}
+                    <div className="mt-0.5 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+                      <span className="font-data text-[12px]">{formatDate(season.startsAt)}</span>
+                      {' → '}
+                      <span className="font-data text-[12px]">{formatDate(season.endsAt)}</span>
                       {season.status === 'complete' && (
-                        <span className="ml-2 text-zinc-600">
+                        <span className="text-[color:var(--st-text-faint)]">
+                          {' '}
                           · {season.archivedPlayers} archived
                         </span>
                       )}
                     </div>
                   </div>
                   <div className="ml-auto flex items-center gap-2">
-                    <span className={`rounded border px-2 py-0.5 text-[10px] tracking-[0.2em] ${chip.className}`}>
-                      {chip.label}
-                    </span>
+                    <AdminChip tone={chip.tone}>{chip.label}</AdminChip>
                     {season.status !== 'complete' && (
-                      <button
-                        onClick={() => setEditTarget(season)}
-                        className="rounded-md border border-white/10 px-3 py-1 text-[10px] tracking-[0.2em] text-zinc-300 transition-colors hover:bg-white/5"
-                      >
-                        EDIT
-                      </button>
+                      <AdminButton variant="ghost" onClick={() => setEditTarget(season)}>
+                        Edit
+                      </AdminButton>
                     )}
                     {season.status === 'active' && (
-                      <button
-                        onClick={() => setForceEndTarget(season)}
-                        className="rounded-md border border-red-500/40 px-3 py-1 text-[10px] tracking-[0.2em] text-red-300 transition-colors hover:bg-red-950/40"
-                      >
-                        FORCE END
-                      </button>
+                      <AdminButton variant="danger" onClick={() => setForceEndTarget(season)}>
+                        Force end
+                      </AdminButton>
                     )}
                   </div>
                 </li>
               )
             })}
-          </ul>
+          </AdminList>
         )}
-      </section>
+      </AdminSection>
 
-      {/* schedule next */}
-      <section className="rounded-md border border-white/10 bg-zinc-950/80 p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-[10px] tracking-[0.25em] text-zinc-500">SCHEDULE_SEASON</h2>
-          {hasUpcoming && (
-            <p className="text-[10px] text-zinc-600">
-              One is already scheduled — the close also auto-schedules if you don&apos;t.
-            </p>
-          )}
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className={labelCls}>
-            <span>Name (optional — defaults to SEASON NN)</span>
-            <input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value.slice(0, 40))}
-              placeholder="SEASON 02"
-              className={inputCls}
-            />
-          </label>
-          <div />
-          <label className={labelCls}>
-            <span>Starts (your local time)</span>
-            <input type="datetime-local" value={newStart} onChange={(e) => setNewStart(e.target.value)} className={inputCls} />
-          </label>
-          <label className={labelCls}>
-            <span>Ends (your local time)</span>
-            <input type="datetime-local" value={newEnd} onChange={(e) => setNewEnd(e.target.value)} className={inputCls} />
-          </label>
-        </div>
-        <label className={labelCls}>
-          <span>Reason — required, logged to the audit trail (10 char minimum)</span>
-          <input
-            type="text"
-            value={newReason}
-            onChange={(e) => setNewReason(e.target.value.slice(0, 500))}
-            placeholder="scheduling season 02 for the oct–jan quarter"
-            className={inputCls}
+      <AdminSection
+        title="Schedule a season"
+        description={
+          hasUpcoming
+            ? 'One is already scheduled — the close also auto-schedules if you don’t.'
+            : undefined
+        }
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <TextField
+            label="Name"
+            description="Optional — defaults to SEASON NN."
+            value={newName}
+            maxLength={40}
+            onChange={(e) => setNewName(e.target.value.slice(0, 40))}
+            placeholder="SEASON 02"
           />
-        </label>
-        <button
-          onClick={createSeason}
-          disabled={creating || !newStart || !newEnd || newReason.trim().length < 10}
-          className="rounded-md bg-white px-4 py-2 text-xs tracking-[0.15em] text-black transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {creating ? 'SCHEDULING…' : 'SCHEDULE'}
-        </button>
-      </section>
+          <div className="hidden sm:block" aria-hidden />
+          <TextField
+            label="Starts"
+            description="Your local time."
+            type="datetime-local"
+            value={newStart}
+            onChange={(e) => setNewStart(e.target.value)}
+          />
+          <TextField
+            label="Ends"
+            description="Your local time."
+            type="datetime-local"
+            value={newEnd}
+            onChange={(e) => setNewEnd(e.target.value)}
+          />
+        </div>
+        <div className="mt-4">
+          <TextField
+            label="Reason"
+            description="Required and logged to the audit trail — 10 characters minimum."
+            value={newReason}
+            maxLength={500}
+            onChange={(e) => setNewReason(e.target.value.slice(0, 500))}
+            placeholder="Scheduling season 02 for the oct–jan quarter"
+          />
+        </div>
+        <div className="mt-4">
+          <AdminButton
+            variant="primary"
+            pending={creating}
+            disabled={!newStart || !newEnd || newReason.trim().length < 10}
+            onClick={createSeason}
+          >
+            Schedule
+          </AdminButton>
+        </div>
+      </AdminSection>
 
       {editTarget && (
         <EditSeasonDialog
@@ -472,18 +513,14 @@ function SeasonsAdmin({ me }: { me: StaffMe }) {
 
       {forceEndTarget && (
         <ReasonDialog
-          title={`FORCE END ${forceEndTarget.name}`}
+          title={`Force end ${forceEndTarget.name}`}
           description="Ends the season immediately: standings are archived exactly as they stand, placement notifications go out, and the next season is scheduled 3 days out. This cannot be undone."
-          confirmLabel="END SEASON NOW"
+          confirmLabel="End season now"
           danger
           onConfirm={(reason) => forceEnd(forceEndTarget.id, reason)}
           onClose={() => setForceEndTarget(null)}
         />
       )}
-    </>
+    </div>
   )
-}
-
-export default function AdminSeasonsPage() {
-  return <AdminShell section="SEASONS">{(me) => <SeasonsAdmin me={me} />}</AdminShell>
 }

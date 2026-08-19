@@ -56,7 +56,7 @@ function sanitizeError(name: string, message: string): string {
 
 // Where the email points back to: the buyer's status tracker. Always
 // production — this mail only goes out for real approvals.
-const BILLBOARD_URL = 'https://cribble.dev/billboard'
+const BILLBOARD_URL = 'https://cribble.dev/sponsorship'
 
 // Email palette: fixed dark rendering of the landing page's zinc +
 // hacker-green accent. Inline styles only, no external assets — the
@@ -71,7 +71,7 @@ const ACCENT = '#02fe01'
 function placementLabel(placement: BillboardPlacement): string {
   switch (placement) {
     case 'flipper':
-      return 'the billboard flipper'
+      return 'the flipper'
     case 'rail':
       return 'a profile rail slot'
     default: {
@@ -83,9 +83,9 @@ function placementLabel(placement: BillboardPlacement): string {
 
 function renderText(placement: BillboardPlacement, priceLine: string): string {
   return [
-    'cribble. — billboard',
+    'cribble. — sponsorship',
     '',
-    'your billboard ad passed review. one step left: payment.',
+    'your sponsor ad passed review. one step left: payment.',
     '',
     `the ask: ${priceLine} — ${placementLabel(placement)}, live for ${BILLBOARD_DURATION_DAYS} days once payment is confirmed.`,
     '',
@@ -108,9 +108,9 @@ function renderHtml(placement: BillboardPlacement, priceLine: string): string {
   <body style="margin: 0; padding: 0; background-color: ${BG};">
     <div style="background-color: ${BG}; padding: 40px 16px;">
       <div style="max-width: 480px; margin: 0 auto; font-family: ${mono}; color: ${TEXT};">
-        <p style="margin: 0; font-size: 10px; letter-spacing: 0.25em; color: ${FAINT};">BILLBOARD &middot; AD APPROVED</p>
+        <p style="margin: 0; font-size: 10px; letter-spacing: 0.25em; color: ${FAINT};">SPONSORSHIP &middot; AD APPROVED</p>
         <p style="margin: 16px 0 0; font-size: 28px; font-weight: 600; color: #fafafa;">cribble<span style="color: ${ACCENT};">.</span></p>
-        <p style="margin: 24px 0 0; font-size: 14px; line-height: 1.7; color: ${MUTED};">your billboard ad passed review. one step left: payment.</p>
+        <p style="margin: 24px 0 0; font-size: 14px; line-height: 1.7; color: ${MUTED};">your sponsor ad passed review. one step left: payment.</p>
         <p style="margin: 20px 0 0; display: inline-block; border: 1px solid ${CARD_BORDER}; border-radius: 6px; padding: 10px 14px; font-size: 15px; letter-spacing: 0.04em; color: ${TEXT};">${priceLine}</p>
         <p style="margin: 10px 0 0; font-size: 12px; line-height: 1.7; color: ${FAINT};">${placementLabel(placement)} &middot; live ${BILLBOARD_DURATION_DAYS} days once payment is confirmed</p>
         <p style="margin: 24px 0 0; font-size: 14px; line-height: 1.7; color: ${MUTED};">payment is manual &mdash; nothing charges automatically. reply to this email and we'll settle it. once confirmed, your ad is activated and goes live, usually within minutes to a few hours.</p>
@@ -119,7 +119,7 @@ function renderHtml(placement: BillboardPlacement, priceLine: string): string {
         </p>
         <p style="margin: 24px 0 0; font-size: 12px; color: ${FAINT};">email awkward? <a href="${BILLBOARD_PAYMENT_X_URL}" style="color: ${MUTED};">DM @${BILLBOARD_PAYMENT_X_HANDLE} on X</a> instead.</p>
         <hr style="margin: 32px 0 0; border: none; border-top: 1px solid ${CARD_BORDER};" />
-        <p style="margin: 16px 0 0; font-size: 11px; line-height: 1.7; color: ${FAINT};">cribble &middot; ranking AI users, worldwide<br />you're getting this because your billboard ad was approved at cribble.dev/billboard.</p>
+        <p style="margin: 16px 0 0; font-size: 11px; line-height: 1.7; color: ${FAINT};">cribble &middot; ranking AI users, worldwide<br />you're getting this because your sponsor ad was approved at cribble.dev/sponsorship.</p>
       </div>
     </div>
   </body>
@@ -148,7 +148,7 @@ export async function sendSponsorshipPaymentEmail({
         from,
         to,
         replyTo,
-        subject: 'Your Cribble Billboard ad is approved — payment details',
+        subject: 'Your Cribble sponsorship is approved — payment details',
         html: renderHtml(placement, priceLine),
         text: renderText(placement, priceLine)
       },

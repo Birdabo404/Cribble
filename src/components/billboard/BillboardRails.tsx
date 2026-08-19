@@ -14,7 +14,7 @@
 // succeeds — the loaded gate keeps an OPEN box from ever flashing over
 // a sold slot — and then every slot does: a paid card where the slot
 // is sold, a vacant-slot CTA deep-linking its own slot into the
-// /billboard composer (?slot=L2#pitch) where it isn't. The vacant cell
+// /sponsorship composer (?slot=L2#pitch) where it isn't. The vacant cell
 // is not an ad — no counting redirect, no AD tag — just corner
 // brackets and that slot's price pitch (see .billboard-rail-vacant in
 // globals.css).
@@ -157,7 +157,7 @@ export function BillboardRails() {
                      code up top, the pitch pinned to the bottom, and the
                      brackets + hatch from .billboard-rail-vacant. */
                   <Link
-                    href={`/billboard?slot=${slot}#pitch`}
+                    href={`/sponsorship?slot=${slot}#pitch`}
                     className="billboard-rail-vacant relative flex h-full w-full flex-col justify-between rounded-lg px-3.5 py-3 transition-transform duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 motion-safe:hover:-translate-y-0.5"
                   >
                     <span className="text-[9px] tracking-[0.3em] text-zinc-500">{slot}</span>

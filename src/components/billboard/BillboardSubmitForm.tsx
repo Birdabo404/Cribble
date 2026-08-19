@@ -1,6 +1,6 @@
 'use client'
 
-// The buyer's ad composer — used twice on /billboard: as the main
+// The buyer's ad composer — used twice on /sponsorship: as the main
 // submission form (POST /api/billboard/submit) and, embedded in the
 // status tracker, as the edit / edit-and-resubmit form for a PENDING or
 // CHANGES_REQUESTED ad (PATCH /api/billboard/[id]). The placement
@@ -13,13 +13,11 @@
 // and edit. Taken slots stay selectable — a request is a preference
 // resolved first-confirmed-payment-first, never a hold — and the rail
 // placement card's price live-tracks the selected slot's ladder tier.
-// The live preview is the real BillboardCard in the
-// chosen placement's shape (lg strip for the flipper, the vertical rail
-// card for a rail), fed the form values as typed, with the caller's
-// avatar standing in while the logo URL is blank — so the composer
-// always shows exactly the card that airs. The accent tint on the
-// preview is best-effort client-side (canvas-sampled from the logo);
-// the shipped color is extracted server-side at submit.
+// The preview is BillboardPreviewStage, fed the form values as typed
+// with the caller's avatar standing in while the logo URL is blank — so
+// the composer always shows exactly the card that airs. The accent tint
+// is best-effort client-side (canvas-sampled from the logo); the
+// shipped color is extracted server-side at submit.
 //
 // The server owns real validation (required company name, code-point
 // caps, SSRF-safe URL checks, the one-in-flight rule); this form only
@@ -30,17 +28,20 @@
 //
 // Skin: the settings design system. The --st-* tokens and the st-input
 // chrome only resolve under an ancestor .settings-scope, which the
-// /billboard page shell provides.
+// /sponsorship page shell provides.
 //
-// Layout: on lg the form splits into a fields column and a sticky
-// 300px preview column (300 over the plan's 320 because the tracker
-// embeds the same form inside max-w-3xl, where ~700px is all there
-// is). The preview leads the DOM so it stacks above the fields on
-// mobile — the card is the product hook.
+// Layout: one column of fields either way, with two shells around it.
+// 'studio' is the buy page, where an inventory strip owns the product
+// choice and a big sticky stage owns the preview: the form renders
+// neither, and instead reports its resolved preview values up through
+// onPreviewChange. 'embedded' is the tracker's edit row, which has no
+// such surroundings, so it keeps the placement and slot pickers and
+// leads with a compact stage above the fields — the card is the product
+// hook.
 
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import Link from 'next/link'
-import { BillboardCard } from '@/components/billboard/BillboardCard'
+import { BillboardPreviewStage } from '@/components/billboard/BillboardPreviewStage'
 import { SettingsButton } from '@/components/settings'
 import { toast } from '@/components/Toaster'
 import {
@@ -67,6 +68,22 @@ export interface AdFormValues {
   /** Where the payment instructions are emailed on approval (migration
    *  040) — required by the server; never shown publicly. */
   billing_email: string
+}
+
+/** What the preview stage needs, already resolved: placeholders applied,
+ *  avatar substituted for a blank logo, accent sampled. Reported upward
+ *  in the studio layout so the parent's sticky stage paints the card the
+ *  buyer is typing without duplicating any of that resolution. */
+export interface AdPreviewValues {
+  title: string
+  text: string
+  logoUrl: string | null
+  /** The debounced client-side sample; null = the neutral card. */
+  accentColor: string | null
+  placement: BillboardPlacement
+  requestedSlot: RailSlot | null
+  /** True while the logo field is blank and the avatar is standing in. */
+  usingAvatarFallback: boolean
 }
 
 /** Create posts a new submission; edit rewrites one in place. A redo
@@ -185,7 +202,7 @@ const PLACEMENTS: {
 }[] = [
   {
     value: 'flipper',
-    label: 'Billboard flipper',
+    label: 'Flipper',
     price: `$${BILLBOARD_PRICE_CENTS / 100}`,
     blurb: 'Rotates under the nav on the dashboard + leaderboard.'
   },
@@ -198,7 +215,7 @@ const PLACEMENTS: {
 ]
 
 const fieldInputCls =
-  'st-input block w-full rounded-lg px-3 py-2.5 text-[16px] leading-6 md:py-1.5 md:text-[14px]'
+  'st-input block w-full rounded-lg px-3 py-2.5 text-[16px] leading-6 md:py-1.5 md:text-[15px]'
 
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
@@ -246,9 +263,11 @@ export function BillboardSubmitForm({
   initial,
   fallbackLogoUrl,
   signedIn,
+  layout = 'embedded',
   onSaved,
   onConflict,
-  onCancel
+  onCancel,
+  onPreviewChange
 }: {
   target: AdFormTarget
   initial?: AdFormValues
@@ -258,11 +277,19 @@ export function BillboardSubmitForm({
   /** null = still resolving; only a definitive false swaps the submit
    *  button for a sign-in link. */
   signedIn: boolean | null
+  /** 'studio' drops the placement / slot pickers and the preview — the
+   *  buy page's inventory strip and sticky stage own both, and remount
+   *  the form with the choice preset on `initial`. 'embedded' (the
+   *  tracker's edit row) keeps the pickers and its own compact stage. */
+  layout?: 'studio' | 'embedded'
   onSaved: () => void
   /** Fired on 409 so the caller can refresh the tracker — either the
    *  in-flight submission (create) or a concurrent admin decision (edit). */
   onConflict?: () => void
   onCancel?: () => void
+  /** Resolved preview values, on mount and on every change, so a parent
+   *  stage can render the card as it's typed. */
+  onPreviewChange?: (preview: AdPreviewValues) => void
 }) {
   const [companyName, setCompanyName] = useState(initial?.company_name ?? '')
   const [text, setText] = useState(initial?.text ?? '')
@@ -291,11 +318,13 @@ export function BillboardSubmitForm({
   const placementLabelId = `${uid}-placement`
   const slotLabelId = `${uid}-slot`
 
-  // The picker's availability, fetched by the form itself: it mounts in
-  // two contexts (landing create, tracker edit) and only it knows when
-  // the rail — and therefore the picker — is in play. Best-effort, same
-  // guard as the landing's board fetch.
+  // The picker's availability, fetched by the form itself because only
+  // the embedded layout renders a picker and only it knows when the rail
+  // is in play. Best-effort, same guard as the landing's board fetch.
+  // Skipped in the studio layout, which renders no picker (and remounts
+  // per inventory pick, so a fetch here would fire on every click).
   useEffect(() => {
+    if (layout !== 'embedded') return
     let cancelled = false
     fetch('/api/billboard/slots')
       .then((res) => (res.ok ? res.json() : null))
@@ -310,7 +339,7 @@ export function BillboardSubmitForm({
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [layout])
 
   // Roving tabindex for the placement radiogroup, mirroring
   // SegmentedControl: Tab lands on the checked card, arrows move and
@@ -352,6 +381,7 @@ export function BillboardSubmitForm({
   const previewTitle = companyName.trim() || hostFromLink(linkUrl) || 'Your company'
   const previewText = text.trim() || 'Your one line goes here'
   const previewLogo = logoUrl.trim() || fallbackLogoUrl
+  const usingAvatarFallback = !logoUrl.trim() && !!fallbackLogoUrl
 
   // Sample the logo for the preview tint. Debounced — previewLogo
   // changes per keystroke in the logo field — and cancellation-guarded
@@ -372,6 +402,29 @@ export function BillboardSubmitForm({
       window.clearTimeout(timer)
     }
   }, [previewLogo])
+
+  // Report the resolved preview upward — on mount too, so a parent stage
+  // paints real values instead of its own placeholders for a frame.
+  useEffect(() => {
+    onPreviewChange?.({
+      title: previewTitle,
+      text: previewText,
+      logoUrl: previewLogo,
+      accentColor: previewAccent,
+      placement,
+      requestedSlot,
+      usingAvatarFallback
+    })
+  }, [
+    previewTitle,
+    previewText,
+    previewLogo,
+    previewAccent,
+    placement,
+    requestedSlot,
+    usingAvatarFallback,
+    onPreviewChange
+  ])
 
   const submitLabel =
     target.mode === 'create'
@@ -452,170 +505,161 @@ export function BillboardSubmitForm({
   }
 
   return (
-    <form onSubmit={submit} className="lg:grid lg:grid-cols-[1fr_300px] lg:gap-6">
-      {/* ---- live preview: the exact card, on ticker-dark ground. First
-          in the DOM so it stacks above the fields on mobile; order-2
-          puts it in the sticky right column on lg. ---- */}
-      <div className="mb-4 lg:order-2 lg:mb-0 lg:sticky lg:top-20 lg:self-start">
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="text-[13px] font-medium leading-5 text-[color:var(--st-text)]">
-            Live preview
-          </span>
-          <span className="text-[12.5px] text-[color:var(--st-text-faint)]">
-            Exactly as it airs
-          </span>
-        </div>
-        <div className="mt-1.5 flex items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-[#09090b] px-4 py-5">
-          <BillboardCard
-            text={previewText}
-            title={previewTitle}
-            logoUrl={previewLogo}
-            accentColor={previewAccent}
-            size={placement === 'rail' ? 'rail' : 'lg'}
-            className="max-w-full"
-          />
-        </div>
-        {!logoUrl.trim() && fallbackLogoUrl && (
-          <p className="mt-1.5 text-[12px] leading-5 text-[color:var(--st-text-faint)]">
-            Previewing with your avatar
-          </p>
-        )}
-        <p className="mt-1.5 text-[12px] leading-5 text-[color:var(--st-text-faint)]">
-          Final accent color is derived from your logo server-side — the preview approximates it.
-        </p>
-      </div>
+    <form onSubmit={submit} className="space-y-4">
+      {/* ---- the edit row inside the tracker has no stage around it, so
+          it leads with a compact one. Studio's parent owns the full-size
+          stage and feeds it from onPreviewChange. ---- */}
+      {layout === 'embedded' && (
+        <BillboardPreviewStage
+          title={previewTitle}
+          text={previewText}
+          logoUrl={previewLogo}
+          accentColor={previewAccent}
+          placement={placement}
+          slot={requestedSlot}
+          density="compact"
+          note={usingAvatarFallback ? 'Previewing with your avatar' : null}
+        />
+      )}
 
-      <div className="space-y-4 lg:order-1">
-        {/* ---- placement: which product this card buys ---- */}
-        <div>
-          <div className="flex items-baseline justify-between gap-3">
-            <span
-              id={placementLabelId}
-              className="text-[13px] font-medium leading-5 text-[color:var(--st-text)]"
-            >
-              Placement
-            </span>
-            <span className="text-[12.5px] text-[color:var(--st-text-faint)]">
-              Where your card runs
-            </span>
-          </div>
-          <div
-            role="radiogroup"
-            aria-labelledby={placementLabelId}
-            className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2"
-          >
-            {PLACEMENTS.map((opt, i) => {
-              const selected = placement === opt.value
-              // The rail card's price tracks the picked slot's tier;
-              // with none picked it keeps the "from $199" floor.
-              const price =
-                opt.value === 'rail' && requestedSlot
-                  ? `$${RAIL_SLOT_PRICE_CENTS[requestedSlot] / 100}`
-                  : opt.price
-              return (
-                <button
-                  key={opt.value}
-                  ref={(el) => {
-                    placementRefs.current[i] = el
-                  }}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  tabIndex={i === tabbablePlacement ? 0 : -1}
-                  onClick={() => setPlacement(opt.value)}
-                  onKeyDown={(event) => onPlacementKeyDown(event, i)}
-                  className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
-                    selected
-                      ? 'border-[color:var(--st-border-strong)] bg-[color:var(--st-panel-hover)]'
-                      : 'border-[color:var(--st-border)] hover:border-[color:var(--st-border-strong)]'
-                  }`}
-                >
-                  <span className="flex items-baseline justify-between gap-2">
-                    <span className="text-[13px] font-medium text-[color:var(--st-text)]">
-                      {opt.label}
-                    </span>
-                    <span
-                      className="shrink-0 text-[12.5px] font-medium"
-                      style={{ color: 'rgb(var(--lb-gold) / 0.9)' }}
-                    >
-                      {price}/wk
-                    </span>
-                  </span>
-                  <span className="mt-1 block text-[12.5px] leading-5 text-[color:var(--st-text-faint)]">
-                    {opt.blurb}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* ---- rail slot preference: a 2x4 grid in the real rail
-            geometry (L column, R column, rows top to bottom). Taken
-            slots stay selectable — a request is a queue position, not
-            a hold; the first confirmed payment takes the slot. ---- */}
-        {placement === 'rail' && (
+      {/* ---- which product this card buys, and where on the rail. Studio
+          hides both: the inventory strip above the form owns the choice
+          and remounts the form with it preset on `initial`. ---- */}
+      {layout === 'embedded' && (
+        <div className="space-y-4">
+          {/* ---- placement ---- */}
           <div>
             <div className="flex items-baseline justify-between gap-3">
               <span
-                id={slotLabelId}
+                id={placementLabelId}
                 className="text-[13px] font-medium leading-5 text-[color:var(--st-text)]"
               >
-                Rail slot
+                Placement
               </span>
               <span className="text-[12.5px] text-[color:var(--st-text-faint)]">
-                {requestedSlot ? 'Tap again to clear' : 'Optional — any open slot'}
+                Where your card runs
               </span>
             </div>
             <div
-              role="group"
-              aria-labelledby={slotLabelId}
-              className="mt-1.5 grid auto-cols-fr grid-flow-col grid-rows-4 gap-2"
+              role="radiogroup"
+              aria-labelledby={placementLabelId}
+              className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2"
             >
-              {RAIL_SLOTS.map((slot) => {
-                const selected = requestedSlot === slot
-                const takenUntil =
-                  board?.rails.find((rail) => rail.slot === slot)?.takenUntil ?? null
+              {PLACEMENTS.map((opt, i) => {
+                const selected = placement === opt.value
+                // The rail card's price tracks the picked slot's tier;
+                // with none picked it keeps the "from $199" floor.
+                const price =
+                  opt.value === 'rail' && requestedSlot
+                    ? `$${RAIL_SLOT_PRICE_CENTS[requestedSlot] / 100}`
+                    : opt.price
                 return (
                   <button
-                    key={slot}
+                    key={opt.value}
+                    ref={(el) => {
+                      placementRefs.current[i] = el
+                    }}
                     type="button"
-                    aria-pressed={selected}
-                    onClick={() => setRequestedSlot(selected ? null : slot)}
-                    className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                    role="radio"
+                    aria-checked={selected}
+                    tabIndex={i === tabbablePlacement ? 0 : -1}
+                    onClick={() => setPlacement(opt.value)}
+                    onKeyDown={(event) => onPlacementKeyDown(event, i)}
+                    className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
                       selected
                         ? 'border-[color:var(--st-border-strong)] bg-[color:var(--st-panel-hover)]'
                         : 'border-[color:var(--st-border)] hover:border-[color:var(--st-border-strong)]'
                     }`}
                   >
                     <span className="flex items-baseline justify-between gap-2">
-                      <span className="text-[12px] font-medium text-[color:var(--st-text)]">
-                        {slot}
+                      <span className="text-[13px] font-medium text-[color:var(--st-text)]">
+                        {opt.label}
                       </span>
                       <span
-                        className="shrink-0 text-[12px] font-medium"
+                        className="shrink-0 text-[12.5px] font-medium"
                         style={{ color: 'rgb(var(--lb-gold) / 0.9)' }}
                       >
-                        ${RAIL_SLOT_PRICE_CENTS[slot] / 100}/wk
+                        {price}/wk
                       </span>
                     </span>
-                    <span className="mt-0.5 block text-[12px] leading-4 text-[color:var(--st-text-faint)]">
-                      {takenUntil
-                        ? `taken until ${fmtDate(takenUntil)}`
-                        : board
-                          ? 'Open'
-                          : '\u00A0'}
+                    <span className="mt-1 block text-[12.5px] leading-5 text-[color:var(--st-text-faint)]">
+                      {opt.blurb}
                     </span>
                   </button>
                 )
               })}
             </div>
-            <p className="mt-1.5 text-[12px] leading-5 text-[color:var(--st-text-faint)]">
-              {`Pitching a slot doesn't reserve it — the first confirmed payment takes it. If yours sells first, you can switch to any open slot.`}
-            </p>
           </div>
-        )}
 
+          {/* ---- rail slot preference: a 2x4 grid in the real rail
+              geometry (L column, R column, rows top to bottom). Taken
+              slots stay selectable — a request is a queue position, not
+              a hold; the first confirmed payment takes the slot. ---- */}
+          {placement === 'rail' && (
+            <div>
+              <div className="flex items-baseline justify-between gap-3">
+                <span
+                  id={slotLabelId}
+                  className="text-[13px] font-medium leading-5 text-[color:var(--st-text)]"
+                >
+                  Rail slot
+                </span>
+                <span className="text-[12.5px] text-[color:var(--st-text-faint)]">
+                  {requestedSlot ? 'Tap again to clear' : 'Optional — any open slot'}
+                </span>
+              </div>
+              <div
+                role="group"
+                aria-labelledby={slotLabelId}
+                className="mt-1.5 grid auto-cols-fr grid-flow-col grid-rows-4 gap-2"
+              >
+                {RAIL_SLOTS.map((slot) => {
+                  const selected = requestedSlot === slot
+                  const takenUntil =
+                    board?.rails.find((rail) => rail.slot === slot)?.takenUntil ?? null
+                  return (
+                    <button
+                      key={slot}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => setRequestedSlot(selected ? null : slot)}
+                      className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                        selected
+                          ? 'border-[color:var(--st-border-strong)] bg-[color:var(--st-panel-hover)]'
+                          : 'border-[color:var(--st-border)] hover:border-[color:var(--st-border-strong)]'
+                      }`}
+                    >
+                      <span className="flex items-baseline justify-between gap-2">
+                        <span className="text-[12px] font-medium text-[color:var(--st-text)]">
+                          {slot}
+                        </span>
+                        <span
+                          className="shrink-0 text-[12px] font-medium"
+                          style={{ color: 'rgb(var(--lb-gold) / 0.9)' }}
+                        >
+                          ${RAIL_SLOT_PRICE_CENTS[slot] / 100}/wk
+                        </span>
+                      </span>
+                      <span className="mt-0.5 block text-[12px] leading-4 text-[color:var(--st-text-faint)]">
+                        {takenUntil
+                          ? `taken until ${fmtDate(takenUntil)}`
+                          : board
+                            ? 'Open'
+                            : '\u00A0'}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="mt-1.5 text-[12px] leading-5 text-[color:var(--st-text-faint)]">
+                {`Pitching a slot doesn't reserve it — the first confirmed payment takes it. If yours sells first, you can switch to any open slot.`}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="space-y-4">
         <FormField
           id={companyId}
           label="Company / brand name"
@@ -758,24 +802,29 @@ export function BillboardSubmitForm({
           </p>
         )}
 
-        <div className="flex items-center gap-3">
-          {signedIn === false ? (
-            <Link
-              href="/login"
-              className="inline-flex h-11 shrink-0 items-center justify-center rounded-lg border border-transparent bg-[color:var(--st-accent)] px-3 text-[13px] font-medium leading-none text-[color:var(--st-accent-contrast)] transition-colors duration-150 hover:opacity-90 md:h-8"
-            >
-              Sign in to submit
-            </Link>
-          ) : (
-            <SettingsButton type="submit" variant="solid" pending={busy}>
-              {busy ? 'Sending…' : submitLabel}
-            </SettingsButton>
-          )}
-          {onCancel && (
-            <SettingsButton variant="ghost" onClick={onCancel}>
-              Cancel
-            </SettingsButton>
-          )}
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            {signedIn === false ? (
+              <Link
+                href="/login"
+                className="inline-flex h-11 shrink-0 items-center justify-center rounded-lg border border-transparent bg-[color:var(--st-accent)] px-3 text-[13px] font-medium leading-none text-[color:var(--st-accent-contrast)] transition-colors duration-150 hover:opacity-90 md:h-8"
+              >
+                Sign in to submit
+              </Link>
+            ) : (
+              <SettingsButton type="submit" variant="solid" pending={busy}>
+                {busy ? 'Sending…' : submitLabel}
+              </SettingsButton>
+            )}
+            {onCancel && (
+              <SettingsButton variant="ghost" onClick={onCancel}>
+                Cancel
+              </SettingsButton>
+            )}
+          </div>
+          <p className="text-[12.5px] leading-5 text-[color:var(--st-text-faint)]">
+            Nothing charges automatically. Payment is arranged over email after approval.
+          </p>
         </div>
       </div>
     </form>

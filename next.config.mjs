@@ -6,6 +6,15 @@ const nextConfig = {
   // mid-flight — that shared directory caused repeated ENOENT
   // routes-manifest.json 500s. Vercel is unaffected (NODE_ENV=production).
   distDir: process.env.NODE_ENV === 'development' ? '.next-dev' : '.next',
+  // The Billboard product renamed to Sponsorship: old emails, bookmarks
+  // and vacant-rail deep links (?slot= rides along automatically) keep
+  // landing. API routes under /api/billboard/* are unaffected.
+  async redirects() {
+    return [
+      { source: '/billboard', destination: '/sponsorship', permanent: true },
+      { source: '/admin/billboard', destination: '/admin/sponsorship', permanent: true },
+    ]
+  },
   eslint: {
     // Warning: This allows production builds to successfully complete even if
     // your project has ESLint errors.

@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 }
 
 const CONTACT_EMAIL = 'hello@cribble.dev'
-const LAST_UPDATED = 'August 4, 2026'
+const LAST_UPDATED = 'August 17, 2026'
 
 export default function PrivacyPage() {
   return (
@@ -95,6 +95,7 @@ export default function PrivacyPage() {
               <CollectedItem text="Profile details you choose to add (role, goals, preferred tools)" />
               <CollectedItem text="Usage stats derived from extension data: scores, streaks, and ranks" />
               <CollectedItem text="Records linking your browser extension to your account" />
+              <CollectedItem text="If you submit a sponsor ad: the ad content you submit and the billing email you provide for it" />
               <CollectedItem text="Your browser's timezone and a two-letter country code, used as coarse context for aggregate trends" />
             </ul>
             <p className="mt-5">
@@ -122,10 +123,12 @@ export default function PrivacyPage() {
               settings.
             </p>
             <p className="mt-4">
-              We do not sell your data, show ads, or share your data with
-              third parties, except for the infrastructure providers (hosting
-              and database services) that process it on our behalf to run
-              Cribble.
+              We do not sell your data, and we do not share it with third
+              parties, except for the infrastructure providers (hosting and
+              database services) that process it on our behalf to run
+              Cribble. Cribble does show sponsor cards — clearly marked
+              paid placements. They are never targeted using your personal
+              data; everyone sees the same cards.
             </p>
             <p className="mt-4">
               If Cribble is ever acquired or merged into another company,

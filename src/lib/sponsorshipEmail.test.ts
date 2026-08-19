@@ -40,16 +40,16 @@ afterEach(() => {
 describe('isSponsorshipEmailConfigured', () => {
   it('is true when RESEND_API_KEY, SPONSORSHIP_EMAIL_FROM and SPONSORSHIP_EMAIL_REPLY_TO are set', () => {
     vi.stubEnv('RESEND_API_KEY', 're_test_123')
-    vi.stubEnv('SPONSORSHIP_EMAIL_FROM', 'Cribble <sponsors@cribble.dev>')
-    vi.stubEnv('SPONSORSHIP_EMAIL_REPLY_TO', 'founder@cribble.dev')
+    vi.stubEnv('SPONSORSHIP_EMAIL_FROM', 'Cribble <birdabo@cribble.dev>')
+    vi.stubEnv('SPONSORSHIP_EMAIL_REPLY_TO', 'birdabo@cribble.dev')
 
     expect(isSponsorshipEmailConfigured()).toBe(true)
   })
 
   it('is false without RESEND_API_KEY', () => {
     vi.stubEnv('RESEND_API_KEY', '')
-    vi.stubEnv('SPONSORSHIP_EMAIL_FROM', 'Cribble <sponsors@cribble.dev>')
-    vi.stubEnv('SPONSORSHIP_EMAIL_REPLY_TO', 'founder@cribble.dev')
+    vi.stubEnv('SPONSORSHIP_EMAIL_FROM', 'Cribble <birdabo@cribble.dev>')
+    vi.stubEnv('SPONSORSHIP_EMAIL_REPLY_TO', 'birdabo@cribble.dev')
 
     expect(isSponsorshipEmailConfigured()).toBe(false)
   })
@@ -57,14 +57,14 @@ describe('isSponsorshipEmailConfigured', () => {
   it('is false without SPONSORSHIP_EMAIL_FROM', () => {
     vi.stubEnv('RESEND_API_KEY', 're_test_123')
     vi.stubEnv('SPONSORSHIP_EMAIL_FROM', '')
-    vi.stubEnv('SPONSORSHIP_EMAIL_REPLY_TO', 'founder@cribble.dev')
+    vi.stubEnv('SPONSORSHIP_EMAIL_REPLY_TO', 'birdabo@cribble.dev')
 
     expect(isSponsorshipEmailConfigured()).toBe(false)
   })
 
   it('is false without SPONSORSHIP_EMAIL_REPLY_TO', () => {
     vi.stubEnv('RESEND_API_KEY', 're_test_123')
-    vi.stubEnv('SPONSORSHIP_EMAIL_FROM', 'Cribble <sponsors@cribble.dev>')
+    vi.stubEnv('SPONSORSHIP_EMAIL_FROM', 'Cribble <birdabo@cribble.dev>')
     vi.stubEnv('SPONSORSHIP_EMAIL_REPLY_TO', '')
 
     expect(isSponsorshipEmailConfigured()).toBe(false)
@@ -74,8 +74,8 @@ describe('isSponsorshipEmailConfigured', () => {
 describe('sendSponsorshipPaymentEmail', () => {
   beforeEach(() => {
     vi.stubEnv('RESEND_API_KEY', 're_test_123')
-    vi.stubEnv('SPONSORSHIP_EMAIL_FROM', 'Cribble <sponsors@cribble.dev>')
-    vi.stubEnv('SPONSORSHIP_EMAIL_REPLY_TO', 'founder@cribble.dev')
+    vi.stubEnv('SPONSORSHIP_EMAIL_FROM', 'Cribble <birdabo@cribble.dev>')
+    vi.stubEnv('SPONSORSHIP_EMAIL_REPLY_TO', 'birdabo@cribble.dev')
   })
 
   it('sends one email carrying the ask, tracker link, X backup and per-decision idempotency key', async () => {
@@ -88,15 +88,15 @@ describe('sendSponsorshipPaymentEmail', () => {
     expect(resendConstructorMock).toHaveBeenCalledWith('re_test_123')
     expect(sendMock).toHaveBeenCalledTimes(1)
     const [payload, options] = sendMock.mock.calls[0]
-    expect(payload.from).toBe('Cribble <sponsors@cribble.dev>')
+    expect(payload.from).toBe('Cribble <birdabo@cribble.dev>')
     // A single string recipient — never a list.
     expect(payload.to).toBe('buyer@acme.dev')
     // Replies go straight to the inbox that closes the deal.
-    expect(payload.replyTo).toBe('founder@cribble.dev')
-    expect(payload.subject).toBe('Your Cribble Billboard ad is approved — payment details')
+    expect(payload.replyTo).toBe('birdabo@cribble.dev')
+    expect(payload.subject).toBe('Your Cribble sponsorship is approved — payment details')
     for (const body of [payload.html, payload.text]) {
       expect(body).toContain('$499/wk · slot R1')
-      expect(body).toContain('https://cribble.dev/billboard')
+      expect(body).toContain('https://cribble.dev/sponsorship')
       expect(body).toContain('https://x.com/birdabo')
       expect(body).toContain('@birdabo')
       expect(body).toContain('7 days')

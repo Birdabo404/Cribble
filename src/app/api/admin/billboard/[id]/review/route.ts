@@ -28,7 +28,7 @@ import { createServiceClient } from '@/lib/supabaseServer'
 //                     so the admin queue knows whether to chase on X.
 //   reject          — PENDING/CHANGES_REQUESTED -> REJECTED. Requires a
 //                     written reason, stored in review_note so the buyer
-//                     sees it at /billboard.
+//                     sees it at /sponsorship.
 //   request_changes — PENDING -> CHANGES_REQUESTED. Requires a note
 //                     (review_note); the buyer edits and resubmits.
 // Every transition is guarded on the status we read, so a concurrent
@@ -291,8 +291,8 @@ export async function POST(
               : `To complete payment (${priceLine}), email ${BILLBOARD_PAYMENT_EMAIL} — or DM @${BILLBOARD_PAYMENT_X_HANDLE} on X as backup.`
           notification = {
             type: 'premium',
-            title: 'BILLBOARD AD APPROVED',
-            body: `Your billboard ad passed review. ${paymentLine} Once it's confirmed, your ad is activated and goes live, usually within a few minutes to a few hours.`,
+            title: 'SPONSORSHIP AD APPROVED',
+            body: `Your sponsor ad passed review. ${paymentLine} Once it's confirmed, your ad is activated and goes live, usually within a few minutes to a few hours.`,
             data: { kind: 'billboard_review', result: 'approved', adId },
             dedupeKey: `billboard_${adId}_approved_${reviewedAt}`
           }
@@ -301,8 +301,8 @@ export async function POST(
         case 'reject':
           notification = {
             type: 'premium',
-            title: 'BILLBOARD AD REJECTED',
-            body: `Your billboard ad did not pass review: ${reason}`,
+            title: 'SPONSORSHIP AD REJECTED',
+            body: `Your sponsor ad did not pass review: ${reason}`,
             data: { kind: 'billboard_review', result: 'rejected', adId },
             dedupeKey: `billboard_${adId}_rejected_${reviewedAt}`
           }
@@ -310,8 +310,8 @@ export async function POST(
         case 'request_changes':
           notification = {
             type: 'premium',
-            title: 'BILLBOARD AD NEEDS CHANGES',
-            body: `Requested changes: ${reason} — edit and resubmit your ad at /billboard.`,
+            title: 'SPONSORSHIP AD NEEDS CHANGES',
+            body: `Requested changes: ${reason} — edit and resubmit your ad at /sponsorship.`,
             data: { kind: 'billboard_review', result: 'changes_requested', adId },
             dedupeKey: `billboard_${adId}_changes_${reviewedAt}`
           }

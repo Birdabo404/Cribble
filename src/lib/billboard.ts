@@ -71,7 +71,7 @@ export const BILLBOARD_DURATION_DAYS = 7
  *  the client-safe address shown in UI copy — the server's reply-to
  *  inbox comes from SPONSORSHIP_EMAIL_REPLY_TO instead, never from a
  *  bundled constant. */
-export const BILLBOARD_PAYMENT_EMAIL = 'sponsors@cribble.dev'
+export const BILLBOARD_PAYMENT_EMAIL = 'birdabo@cribble.dev'
 /** The backup channel — for ads with no billing_email on file (external
  *  sponsors, pre-040 rows) or when the email goes unanswered. These feed
  *  every "or DM @birdabo" surface (notifications, tracker, admin). */

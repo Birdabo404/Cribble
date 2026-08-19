@@ -307,7 +307,7 @@ export function AccountMenu({
             {/* Sponsor door — shares Premium's amber so the monetization
                 rows read as one cluster. */}
             <Link
-              href="/billboard"
+              href="/sponsorship"
               onClick={() => setOpen(false)}
               role="menuitem"
               className="group w-full flex items-center gap-3 px-3.5 py-2.5 text-left text-[11px] tracking-[0.2em] text-zinc-300 hover:text-zinc-50 hover:bg-amber-300/[0.06] transition-colors"
@@ -315,7 +315,7 @@ export function AccountMenu({
               <span className="text-zinc-500 transition-colors group-hover:text-amber-300">
                 <Icon d={ICONS.billboard} />
               </span>
-              BILLBOARD
+              SPONSORSHIP
               <span className={arrowCls}>→</span>
             </Link>
             <Link

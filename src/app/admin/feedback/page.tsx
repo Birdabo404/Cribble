@@ -1,12 +1,25 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { AdminShell, formatDate } from '@/components/admin/AdminShell'
+import {
+  AdminButton,
+  AdminChip,
+  AdminEmpty,
+  AdminList,
+  AdminNotice,
+  AdminPageHeader,
+  AdminSection,
+  AdminSkeletonList,
+  categoryChipMeta,
+  formatDate,
+  type AdminChipMeta
+} from '@/components/admin'
+import { SegmentedControl } from '@/components/settings/SegmentedControl'
 
 // Beta feedback inbox: everything testers submit through the in-app
-// FEEDBACK button, newest first. Filter by triage status and move items
-// between NEW / SEEN / DONE without leaving the list.
+// feedback button, newest first. Filter by triage status and move items
+// between new / seen / done without leaving the list.
 
 interface FeedbackItem {
   id: number
@@ -19,37 +32,86 @@ interface FeedbackItem {
   created_at: string
 }
 
-const FILTERS = ['all', 'new', 'seen', 'done'] as const
-type StatusFilter = (typeof FILTERS)[number]
+const FILTER_OPTIONS = [
+  { value: 'all', label: 'All' },
+  { value: 'new', label: 'New' },
+  { value: 'seen', label: 'Seen' },
+  { value: 'done', label: 'Done' }
+] as const
+type StatusFilter = (typeof FILTER_OPTIONS)[number]['value']
 
 const STATUSES = ['new', 'seen', 'done'] as const
 
-function categoryChip(category: string): { label: string; className: string } {
-  if (category === 'bug') {
-    return { label: 'BUG', className: 'text-rose-400 border-rose-500/30' }
-  }
-  if (category === 'idea') {
-    return { label: 'IDEA', className: 'text-sky-300 border-sky-400/30' }
-  }
-  return { label: 'OTHER', className: 'text-zinc-400 border-zinc-500/30' }
+/** Triage status → chip. The kit's statusChipMeta maps account status
+ *  (active/suspended/banned), so the feedback pipeline keeps its own map:
+ *  new = needs attention, seen = informational, done = healthy. */
+function feedbackStatusChipMeta(status: string): AdminChipMeta {
+  if (status === 'done') return { label: 'DONE', tone: 'good' }
+  if (status === 'seen') return { label: 'SEEN', tone: 'info' }
+  return { label: 'NEW', tone: 'warn' }
 }
 
-function feedbackStatusChip(status: string): { label: string; className: string } {
-  if (status === 'done') {
-    return { label: 'DONE', className: 'text-emerald-400 border-emerald-500/30' }
-  }
-  if (status === 'seen') {
-    return { label: 'SEEN', className: 'text-sky-300 border-sky-400/30' }
-  }
-  return { label: 'NEW', className: 'text-amber-300 border-amber-400/30' }
+/** Message with a 2-line clamp that expands in place. It only becomes a
+ *  toggle (with aria-expanded) when the text actually overflows the
+ *  clamp — short messages stay plain text instead of advertising a
+ *  no-op click. */
+function ExpandableMessage({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const [clamped, setClamped] = useState(false)
+  const paragraphRef = useRef<HTMLParagraphElement | null>(null)
+
+  // clamped is a dependency because flipping it swaps the wrapper
+  // (plain p ↔ button > p) and the observer must re-attach to the
+  // re-created node. While expanded, the last measurement is kept so
+  // the collapse affordance stays visible.
+  useEffect(() => {
+    const el = paragraphRef.current
+    if (!el) return
+    const measure = () => {
+      if (!expanded) setClamped(el.scrollHeight > el.clientHeight + 1)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [text, expanded, clamped])
+
+  const paragraph = (
+    <p
+      ref={paragraphRef}
+      className={`whitespace-pre-wrap break-words text-[13.5px] leading-5 text-[color:var(--st-text)] ${
+        expanded ? '' : 'line-clamp-2'
+      }`}
+    >
+      {text}
+    </p>
+  )
+
+  if (!clamped && !expanded) return paragraph
+
+  return (
+    <button
+      type="button"
+      aria-expanded={expanded}
+      onClick={() => setExpanded((value) => !value)}
+      className="group block w-full rounded-md text-left"
+    >
+      {paragraph}
+      <span className="mt-1 block text-[12px] leading-4 text-[color:var(--st-text-faint)] transition-colors duration-150 group-hover:text-[color:var(--st-text-muted)]">
+        {expanded ? 'Show less' : 'Show more'}
+      </span>
+    </button>
+  )
 }
 
-function FeedbackInbox() {
+export default function AdminFeedbackPage() {
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [items, setItems] = useState<FeedbackItem[]>([])
   const [nextCursor, setNextCursor] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const loadSeq = useRef(0)
 
   const fetchPage = useCallback(async (status: StatusFilter, before: number | null) => {
     const query = new URLSearchParams()
@@ -69,37 +131,40 @@ function FeedbackInbox() {
     }
   }, [])
 
+  // The sequence guard drops responses a newer request has superseded
+  // (e.g. two quick filter switches resolving out of order).
+  const loadFirst = useCallback(async () => {
+    const seq = ++loadSeq.current
+    setLoading(true)
+    setError(null)
+    try {
+      const page = await fetchPage(filter, null)
+      if (seq !== loadSeq.current) return
+      setItems(page.items)
+      setNextCursor(page.nextCursor)
+    } catch (err) {
+      if (seq !== loadSeq.current) return
+      setError(err instanceof Error ? err.message : 'Failed to load feedback.')
+    } finally {
+      if (seq === loadSeq.current) setLoading(false)
+    }
+  }, [fetchPage, filter])
+
   useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const page = await fetchPage(filter, null)
-        if (cancelled) return
-        setItems(page.items)
-        setNextCursor(page.nextCursor)
-      } catch (err) {
-        if (cancelled) return
-        setError(err instanceof Error ? err.message : 'Failed to load feedback.')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    load()
-    return () => {
-      cancelled = true
-    }
-  }, [filter, fetchPage])
+    void loadFirst()
+  }, [loadFirst])
 
   const loadMore = async () => {
-    if (nextCursor === null) return
+    if (nextCursor === null || loadingMore) return
+    setLoadingMore(true)
     try {
       const page = await fetchPage(filter, nextCursor)
       setItems((current) => [...current, ...page.items])
       setNextCursor(page.nextCursor)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load more feedback.')
+    } finally {
+      setLoadingMore(false)
     }
   }
 
@@ -133,103 +198,103 @@ function FeedbackInbox() {
   }
 
   return (
-    <>
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Feedback</h1>
-        <p className="text-sm text-gray-400">
-          Everything testers send through the in-app FEEDBACK button.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <AdminPageHeader
+        title="Feedback"
+        description="Everything testers send through the in-app feedback button."
+      />
 
-      <section className="rounded-md border border-white/10 bg-zinc-950/80 p-5 space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          {FILTERS.map((value) => (
-            <button
-              key={value}
-              onClick={() => setFilter(value)}
-              className={`rounded-md border px-3 py-1.5 text-[10px] tracking-[0.2em] transition-colors ${
-                filter === value
-                  ? 'border-accent/50 text-accent'
-                  : 'border-white/10 text-zinc-500 hover:text-zinc-200'
-              }`}
-            >
-              {value.toUpperCase()}
-            </button>
-          ))}
-        </div>
+      <SegmentedControl
+        options={FILTER_OPTIONS}
+        value={filter}
+        onChange={setFilter}
+        aria-label="Filter feedback by status"
+      />
 
-        {error && <p className="text-xs text-red-400">{error}</p>}
+      {error && (
+        <AdminNotice tone="danger">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>{error}</span>
+            <AdminButton variant="danger" onClick={() => void loadFirst()}>
+              Retry
+            </AdminButton>
+          </div>
+        </AdminNotice>
+      )}
+
+      <AdminSection flush>
         {loading ? (
-          <p className="text-xs text-zinc-600">Loading…</p>
+          <AdminSkeletonList rows={5} />
         ) : items.length === 0 ? (
-          <p className="text-xs text-zinc-600">No feedback here.</p>
+          <AdminEmpty
+            title={filter === 'all' ? 'No feedback yet.' : `No ${filter} feedback.`}
+            hint={
+              filter === 'all'
+                ? 'Everything testers submit in-app lands here.'
+                : 'Nothing holds this status right now.'
+            }
+          />
         ) : (
-          <ul className="divide-y divide-white/5">
-            {items.map((item) => {
-              const category = categoryChip(item.category)
-              const status = feedbackStatusChip(item.status)
-              return (
-                <li key={item.id} className="py-4 space-y-2">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-400">
-                    <span
-                      className={`rounded border px-2 py-0.5 text-[10px] tracking-[0.2em] ${category.className}`}
-                    >
-                      {category.label}
-                    </span>
-                    <span className="text-zinc-600">#{item.id}</span>
-                    <span className="text-zinc-600">{formatDate(item.created_at)}</span>
-                    {item.username ? (
-                      <Link
-                        href={`/admin/users/${item.user_id}`}
-                        className="text-zinc-200 hover:underline"
-                      >
-                        @{item.username}
-                      </Link>
-                    ) : (
-                      <span className="text-zinc-200">#{item.user_id}</span>
-                    )}
-                    {item.page_path && (
-                      <span className="break-all text-zinc-500">{item.page_path}</span>
-                    )}
-                  </div>
-                  <p className="whitespace-pre-wrap break-words text-sm text-zinc-200">
-                    {item.message}
-                  </p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`rounded border px-2 py-0.5 text-[10px] tracking-[0.2em] ${status.className}`}
-                    >
-                      {status.label}
-                    </span>
-                    {STATUSES.filter((value) => value !== item.status).map((value) => (
-                      <button
-                        key={value}
-                        onClick={() => setStatus(item.id, value)}
-                        className="rounded-md border border-white/10 px-2.5 py-0.5 text-[10px] tracking-[0.2em] text-zinc-500 transition-colors hover:text-zinc-200 hover:bg-white/5"
-                      >
-                        {value.toUpperCase()}
-                      </button>
-                    ))}
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
+          <>
+            <AdminList>
+              {items.map((item) => {
+                const category = categoryChipMeta(item.category)
+                const status = feedbackStatusChipMeta(item.status)
+                return (
+                  <li key={item.id} className="space-y-2 px-4 py-3.5">
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                      <AdminChip tone={category.tone}>{category.label}</AdminChip>
+                      <span className="font-data text-[11px] leading-4 text-[color:var(--st-text-faint)]">
+                        #{item.id}
+                      </span>
+                      <span className="font-data text-[11px] leading-4 text-[color:var(--st-text-muted)]">
+                        {formatDate(item.created_at)}
+                      </span>
+                      {item.username ? (
+                        <Link
+                          href={`/admin/users/${item.user_id}`}
+                          className="font-data text-[12px] leading-4 text-[color:var(--st-text)] hover:underline"
+                        >
+                          @{item.username}
+                        </Link>
+                      ) : (
+                        <span className="font-data text-[12px] leading-4 text-[color:var(--st-text)]">
+                          #{item.user_id}
+                        </span>
+                      )}
+                      {item.page_path && (
+                        <span className="break-all font-data text-[11px] leading-4 text-[color:var(--st-text-muted)]">
+                          {item.page_path}
+                        </span>
+                      )}
+                    </div>
+                    <ExpandableMessage text={item.message} />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <AdminChip tone={status.tone}>{status.label}</AdminChip>
+                      {STATUSES.filter((value) => value !== item.status).map((value) => (
+                        <AdminButton
+                          key={value}
+                          variant="ghost"
+                          onClick={() => setStatus(item.id, value)}
+                        >
+                          Mark {value}
+                        </AdminButton>
+                      ))}
+                    </div>
+                  </li>
+                )
+              })}
+            </AdminList>
+            {nextCursor !== null && (
+              <div className="flex justify-center border-t border-[color:var(--st-border)] p-2">
+                <AdminButton variant="ghost" pending={loadingMore} onClick={loadMore}>
+                  Load more
+                </AdminButton>
+              </div>
+            )}
+          </>
         )}
-
-        {nextCursor !== null && !loading && (
-          <button
-            onClick={loadMore}
-            className="rounded-md border border-white/15 px-4 py-2 text-[10px] tracking-[0.2em] text-zinc-300 transition-colors hover:bg-white/5"
-          >
-            LOAD MORE
-          </button>
-        )}
-      </section>
-    </>
+      </AdminSection>
+    </div>
   )
-}
-
-export default function AdminFeedbackPage() {
-  return <AdminShell section="FEEDBACK">{() => <FeedbackInbox />}</AdminShell>
 }

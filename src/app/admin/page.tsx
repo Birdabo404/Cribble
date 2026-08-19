@@ -1,19 +1,31 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import {
-  AdminShell,
+  AdminAvatar,
+  AdminChip,
+  AdminEmpty,
+  AdminList,
+  AdminListRow,
+  AdminNotice,
+  AdminPageHeader,
+  AdminSection,
+  AdminSkeletonList,
   formatDate,
-  staffChip,
-  statusChip,
-  type StaffMe
-} from '@/components/admin/AdminShell'
+  staffChipMeta,
+  statusChipMeta,
+  tierChipMeta,
+  useAdmin
+} from '@/components/admin'
+import { Skeleton } from '@/components/settings/Skeleton'
 
-// Panel home: find a user (the entry point for every moderation action),
-// see who currently holds staff access, and glance at the latest audit
-// activity. All data comes from the /api/admin/* routes — this page
-// renders nothing a non-staff session could fetch.
+// Console home: find a member (the entry point for every moderation
+// action), see which queues need a staff decision, who currently holds
+// staff access, and the latest audit activity. All data comes from the
+// /api/admin/* routes — this page renders nothing a non-staff session
+// could fetch. Moderators get search + recent activity only; the
+// owner-only sections are cosmetic gates (the APIs still 403).
 
 interface SearchResult {
   userId: number
@@ -47,14 +59,8 @@ interface AuditRow {
   created_at: string
 }
 
-function Avatar({ src, alt, size = 'h-8 w-8' }: { src: string | null; alt: string; size?: string }) {
-  return src ? (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt={alt} className={`${size} rounded-full border border-zinc-800 object-cover`} />
-  ) : (
-    <div className={`${size} rounded-full border border-zinc-800 bg-zinc-900`} />
-  )
-}
+const QUIET_LINK =
+  'text-[color:var(--st-text-muted)] transition-colors duration-150 hover:text-[color:var(--st-text)]'
 
 function UserSearchSection() {
   const [query, setQuery] = useState('')
@@ -87,118 +93,112 @@ function UserSearchSection() {
     }
   }, [query])
 
-  return (
-    <section className="rounded-md border border-white/10 bg-zinc-950/80 p-5 space-y-4">
-      <h2 className="text-[10px] tracking-[0.25em] text-zinc-500">FIND_USER</h2>
-      <input
-        type="text"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="handle, display name or user id…"
-        className="w-full rounded-md border border-white/10 bg-black/50 px-3 py-2 text-sm text-white placeholder:text-zinc-700 focus:border-accent/50 focus:outline-none"
-      />
-      {searching && <p className="text-xs text-zinc-600">Searching…</p>}
-      {!searching && query.trim() && results.length === 0 && (
-        <p className="text-xs text-zinc-600">No users found.</p>
-      )}
-      {results.length > 0 && (
-        <ul className="divide-y divide-white/5">
-          {results.map((user) => {
-            const status = statusChip(user.status)
-            const staff = staffChip(user.staff_role)
-            return (
-              <li key={user.userId}>
-                <Link
-                  href={`/admin/users/${user.userId}`}
-                  className="flex flex-wrap items-center gap-3 px-1 py-2.5 transition-colors hover:bg-white/[0.03]"
-                >
-                  <Avatar src={user.profile_image} alt={user.display_name} />
-                  <div className="min-w-0">
-                    <div className="text-sm text-zinc-100 truncate">{user.display_name}</div>
-                    <div className="text-xs text-zinc-500 truncate">
-                      @{user.username ?? '—'} · #{user.userId}
-                    </div>
-                  </div>
-                  <div className="ml-auto flex items-center gap-2">
-                    {staff && (
-                      <span className={`rounded border px-2 py-0.5 text-[10px] tracking-[0.2em] ${staff.className}`}>
-                        {staff.label}
-                      </span>
-                    )}
-                    <span className="rounded border border-zinc-600/40 px-2 py-0.5 text-[10px] tracking-[0.2em] text-zinc-400">
-                      {user.tier}
-                    </span>
-                    <span className={`rounded border px-2 py-0.5 text-[10px] tracking-[0.2em] ${status.className}`}>
-                      {status.label}
-                    </span>
-                  </div>
-                </Link>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-    </section>
-  )
-}
-
-function StaffSection() {
-  const [staff, setStaff] = useState<StaffRow[]>([])
-  const [loaded, setLoaded] = useState(false)
-
-  useEffect(() => {
-    const load = async () => {
-      const res = await fetch('/api/admin/staff', { credentials: 'include' })
-      const data = await res.json().catch(() => null)
-      setStaff(res.ok && Array.isArray(data?.staff) ? data.staff : [])
-      setLoaded(true)
-    }
-    load()
-  }, [])
-
-  return (
-    <section className="rounded-md border border-white/10 bg-zinc-950/80 p-5 space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-[10px] tracking-[0.25em] text-zinc-500">STAFF ({staff.length})</h2>
-        <p className="text-[10px] text-zinc-600">
-          Promote or demote from a user&apos;s page.
-        </p>
+  // Stale results stay on screen while a refined query is in flight, so
+  // the list only swaps to skeletons on the first search.
+  let body: ReactNode = null
+  if (results.length > 0) {
+    body = (
+      <AdminList className="border-t border-[color:var(--st-border)]">
+        {results.map((user) => {
+          const staff = staffChipMeta(user.staff_role)
+          const tier = tierChipMeta(user.tier)
+          const status = statusChipMeta(user.status)
+          return (
+            <AdminListRow key={user.userId} href={`/admin/users/${user.userId}`}>
+              <AdminAvatar src={user.profile_image} alt={user.display_name} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13.5px] font-medium leading-5 text-[color:var(--st-text)]">
+                  {user.display_name}
+                </p>
+                <p className="truncate font-data text-[11.5px] leading-4 text-[color:var(--st-text-muted)]">
+                  @{user.username ?? '—'} · #{user.userId}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {staff && <AdminChip tone={staff.tone}>{staff.label}</AdminChip>}
+                <AdminChip tone={tier.tone}>{tier.label}</AdminChip>
+                <AdminChip tone={status.tone}>{status.label}</AdminChip>
+              </div>
+            </AdminListRow>
+          )
+        })}
+      </AdminList>
+    )
+  } else if (searching) {
+    body = (
+      <div className="border-t border-[color:var(--st-border)]">
+        <AdminSkeletonList rows={3} />
       </div>
-      {!loaded ? (
-        <p className="text-xs text-zinc-600">Loading…</p>
-      ) : staff.length === 0 ? (
-        <p className="text-xs text-zinc-600">No staff yet.</p>
-      ) : (
-        <ul className="divide-y divide-white/5">
-          {staff.map((member) => {
-            const chip = staffChip(member.staff_role)
-            return (
-              <li key={member.userId}>
-                <Link
-                  href={`/admin/users/${member.userId}`}
-                  className="flex items-center gap-3 px-1 py-2.5 transition-colors hover:bg-white/[0.03]"
-                >
-                  <Avatar src={member.profile_image} alt={member.display_name} size="h-7 w-7" />
-                  <div className="min-w-0">
-                    <span className="text-sm text-zinc-100">{member.display_name}</span>
-                    <span className="ml-2 text-xs text-zinc-500">@{member.username ?? '—'}</span>
-                  </div>
-                  {chip && (
-                    <span className={`ml-auto rounded border px-2 py-0.5 text-[10px] tracking-[0.2em] ${chip.className}`}>
-                      {chip.label}
-                    </span>
-                  )}
-                </Link>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-    </section>
+    )
+  } else if (query.trim()) {
+    body = (
+      <div className="border-t border-[color:var(--st-border)]">
+        <AdminEmpty
+          title="No one matches."
+          hint="Try a handle without the @, a display name, or an exact user id."
+        />
+      </div>
+    )
+  }
+
+  return (
+    <AdminSection
+      title="Find a member"
+      description="Results open the member's dossier — the entry point for every staff action."
+      flush
+    >
+      <div className="p-4 sm:p-5">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Handle, display name or user id"
+          aria-label="Find a member"
+          className="st-input block w-full rounded-lg px-3.5 py-2.5 text-[16px] leading-6 md:text-[15px]"
+        />
+      </div>
+      {body}
+    </AdminSection>
   )
 }
 
-function BillboardSection() {
+/** One KPI cell — microlabel, big tabular number, one muted clause,
+ *  whole cell clicks through to the queue it counts. */
+function KpiCell({
+  href,
+  label,
+  number,
+  clause,
+  numberClass
+}: {
+  href: string
+  label: string
+  number: string
+  clause: string
+  numberClass: string
+}) {
+  return (
+    <Link
+      href={href}
+      className="block p-4 transition-colors duration-150 hover:bg-[color:var(--st-panel-hover)] sm:p-5"
+    >
+      <p className="font-data text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--st-text-faint)]">
+        {label}
+      </p>
+      <p className={`mt-1.5 text-[22px] font-semibold leading-7 tabular-nums ${numberClass}`}>
+        {number}
+      </p>
+      <p className="mt-1 text-[12px] leading-4 text-[color:var(--st-text-muted)]">{clause}</p>
+    </Link>
+  )
+}
+
+const KPI_GRID =
+  'grid grid-cols-1 divide-y divide-[color:var(--st-border)] sm:grid-cols-3 sm:divide-x sm:divide-y-0'
+
+// Billboard review is owner-gated like team review — hiding this section
+// for moderators is cosmetic; the API still 403s.
+function NeedsAttentionSection() {
   const [counts, setCounts] = useState<{
     queue: number
     awaiting: number
@@ -227,32 +227,137 @@ function BillboardSection() {
   }, [])
 
   return (
-    <section className="rounded-md border border-white/10 bg-zinc-950/80 p-5 space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-[10px] tracking-[0.25em] text-zinc-500">BILLBOARD</h2>
-        <Link
-          href="/admin/billboard"
-          className="text-[10px] tracking-[0.2em] text-zinc-500 hover:text-zinc-200 transition-colors"
-        >
-          REVIEW QUEUE →
+    <AdminSection title="Needs attention" flush>
+      {!loaded ? (
+        <div aria-hidden className={KPI_GRID}>
+          {Array.from({ length: 3 }, (_, index) => (
+            <div key={index} className="p-4 sm:p-5">
+              <Skeleton className="h-3 w-24 max-w-full" />
+              <Skeleton className="mt-2.5 h-7 w-14" />
+              <Skeleton className="mt-2 h-3 w-40 max-w-[80%]" />
+            </div>
+          ))}
+        </div>
+      ) : !counts ? (
+        <div className="p-4 sm:p-5">
+          <AdminNotice tone="danger">Sponsorship stats are unavailable right now.</AdminNotice>
+        </div>
+      ) : (
+        <div className={KPI_GRID}>
+          <KpiCell
+            href="/admin/sponsorship"
+            label="Awaiting review"
+            number={String(counts.queue)}
+            clause="Sponsorship submissions waiting on a decision"
+            numberClass={
+              counts.queue > 0
+                ? 'text-[color:var(--ad-attention)]'
+                : 'text-[color:var(--st-text-muted)]'
+            }
+          />
+          <KpiCell
+            href="/admin/sponsorship"
+            label="Awaiting payment"
+            number={String(counts.awaiting)}
+            clause="Approved ads waiting on manual payment"
+            numberClass={
+              counts.awaiting > 0
+                ? 'text-[color:var(--ad-attention)]'
+                : 'text-[color:var(--st-text-muted)]'
+            }
+          />
+          {/* Live occupancy is a live/on signal, not an attention number —
+              the one place the brand accent appears on this page. */}
+          <KpiCell
+            href="/admin/sponsorship"
+            label="Live now"
+            number={`${counts.live}/${counts.maxLive}`}
+            clause="Billboard slots currently running"
+            numberClass={counts.live > 0 ? 'text-accent' : 'text-[color:var(--st-text-muted)]'}
+          />
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[color:var(--st-border)] px-4 py-2.5 text-[12.5px] leading-5 sm:px-5">
+        <span className="text-[color:var(--st-text-faint)]">Open queues</span>
+        <Link href="/admin/feedback" className={QUIET_LINK}>
+          Feedback
+        </Link>
+        <Link href="/admin/teams" className={QUIET_LINK}>
+          Teams
+        </Link>
+        <Link href="/admin/waitlist" className={QUIET_LINK}>
+          Waitlist
         </Link>
       </div>
+    </AdminSection>
+  )
+}
+
+function StaffSection() {
+  const [staff, setStaff] = useState<StaffRow[]>([])
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    const load = async () => {
+      const res = await fetch('/api/admin/staff', { credentials: 'include' })
+      const data = await res.json().catch(() => null)
+      setStaff(res.ok && Array.isArray(data?.staff) ? data.staff : [])
+      setLoaded(true)
+    }
+    load()
+  }, [])
+
+  return (
+    <AdminSection
+      title="Staff"
+      count={loaded ? staff.length : undefined}
+      description="Promote or demote from a user's page."
+      flush
+    >
       {!loaded ? (
-        <p className="text-xs text-zinc-600">Loading…</p>
-      ) : !counts ? (
-        <p className="text-xs text-zinc-600">Billboard stats unavailable.</p>
+        <AdminSkeletonList rows={3} />
+      ) : staff.length === 0 ? (
+        <AdminEmpty
+          title="No staff yet."
+          hint="Find a member above and promote them from their page."
+        />
       ) : (
-        <p className="text-xs text-zinc-400">
-          <span className={counts.queue > 0 ? 'text-amber-300' : undefined}>
-            {counts.queue} awaiting review
-          </span>
-          {' · '}
-          {counts.awaiting} awaiting payment
-          {' · '}
-          {counts.live}/{counts.maxLive} live
-        </p>
+        <AdminList>
+          {staff.map((member) => {
+            const chip = staffChipMeta(member.staff_role)
+            return (
+              <AdminListRow key={member.userId} href={`/admin/users/${member.userId}`}>
+                <AdminAvatar src={member.profile_image} alt={member.display_name} size={28} />
+                <div className="min-w-0 flex-1 truncate">
+                  <span className="text-[13.5px] font-medium leading-5 text-[color:var(--st-text)]">
+                    {member.display_name}
+                  </span>
+                  <span className="ml-2 font-data text-[11.5px] text-[color:var(--st-text-muted)]">
+                    @{member.username ?? '—'}
+                  </span>
+                </div>
+                {chip && <AdminChip tone={chip.tone}>{chip.label}</AdminChip>}
+              </AdminListRow>
+            )
+          })}
+        </AdminList>
       )}
-    </section>
+    </AdminSection>
+  )
+}
+
+/** Audit rows carry no avatar, so the queue skeleton would misrepresent
+ *  the layout — this one is two text lines per row instead. */
+function ActivitySkeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <div aria-hidden className="divide-y divide-[color:var(--st-border)]">
+      {Array.from({ length: rows }, (_, index) => (
+        <div key={index} className="px-4 py-3">
+          <Skeleton className="h-3.5 w-72 max-w-[85%]" />
+          <Skeleton className="mt-2 h-3 w-48 max-w-[60%]" />
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -271,69 +376,73 @@ function RecentActivitySection() {
   }, [])
 
   return (
-    <section className="rounded-md border border-white/10 bg-zinc-950/80 p-5 space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-[10px] tracking-[0.25em] text-zinc-500">RECENT_ACTIVITY</h2>
-        <Link
-          href="/admin/audit"
-          className="text-[10px] tracking-[0.2em] text-zinc-500 hover:text-zinc-200 transition-colors"
-        >
-          FULL LOG →
+    <AdminSection
+      title="Recent activity"
+      description="The last eight staff actions across the console."
+      action={
+        <Link href="/admin/audit" className={QUIET_LINK}>
+          View full log
         </Link>
-      </div>
+      }
+      flush
+    >
       {!loaded ? (
-        <p className="text-xs text-zinc-600">Loading…</p>
+        <ActivitySkeleton />
       ) : entries.length === 0 ? (
-        <p className="text-xs text-zinc-600">No staff actions recorded yet.</p>
+        <AdminEmpty
+          title="No staff actions recorded yet."
+          hint="Reason-gated actions land here as they happen."
+        />
       ) : (
-        <ul className="space-y-2">
+        <AdminList>
           {entries.map((entry) => (
-            <li key={entry.id} className="text-xs text-zinc-400">
-              <span className="text-zinc-600">{formatDate(entry.created_at)}</span>{' '}
-              <span className="text-zinc-200">
-                @{entry.admin_username ?? `#${entry.admin_user_id ?? '?'}`}
-              </span>{' '}
-              <span className="text-accent">{entry.action}</span>
-              {entry.target_user_id !== null && (
-                <>
-                  {' → '}
-                  <Link
-                    href={`/admin/users/${entry.target_user_id}`}
-                    className="text-zinc-200 hover:underline"
-                  >
-                    @{entry.target_username ?? `#${entry.target_user_id}`}
-                  </Link>
-                </>
-              )}
-              {entry.reason && <span className="text-zinc-600"> — {entry.reason}</span>}
-            </li>
+            <AdminListRow key={entry.id}>
+              <div className="min-w-0 flex-1">
+                <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[13px] leading-5">
+                  <span className="shrink-0 font-data text-[11px] text-[color:var(--st-text-faint)]">
+                    {formatDate(entry.created_at)}
+                  </span>
+                  <span className="text-[color:var(--st-text-muted)]">
+                    @{entry.admin_username ?? `#${entry.admin_user_id ?? '?'}`}
+                  </span>
+                  <span className="font-data text-[12px] font-medium text-[color:var(--st-text)]">
+                    {entry.action}
+                  </span>
+                  {entry.target_user_id !== null && (
+                    <Link
+                      href={`/admin/users/${entry.target_user_id}`}
+                      className="text-[color:var(--st-text)] underline-offset-2 hover:underline"
+                    >
+                      @{entry.target_username ?? `#${entry.target_user_id}`}
+                    </Link>
+                  )}
+                </p>
+                {entry.reason && (
+                  <p className="mt-0.5 truncate text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+                    {entry.reason}
+                  </p>
+                )}
+              </div>
+            </AdminListRow>
           ))}
-        </ul>
+        </AdminList>
       )}
-    </section>
-  )
-}
-
-function AdminHome({ me }: { me: StaffMe }) {
-  return (
-    <>
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Staff panel</h1>
-        <p className="text-sm text-gray-400">
-          Every action here requires a reason and is permanently recorded in the audit log,
-          visible to all staff.
-        </p>
-      </div>
-      <UserSearchSection />
-      {me.role === 'owner' && <StaffSection />}
-      {/* Billboard review is owner-gated like team review — hiding the
-          card for moderators is cosmetic; the API still 403s. */}
-      {me.role === 'owner' && <BillboardSection />}
-      <RecentActivitySection />
-    </>
+    </AdminSection>
   )
 }
 
 export default function AdminHomePage() {
-  return <AdminShell section="PANEL">{(me) => <AdminHome me={me} />}</AdminShell>
+  const me = useAdmin()
+  return (
+    <div className="space-y-6">
+      <AdminPageHeader
+        title="Overview"
+        description="Every action is reason-gated and written to the audit log."
+      />
+      <UserSearchSection />
+      {me.role === 'owner' && <NeedsAttentionSection />}
+      {me.role === 'owner' && <StaffSection />}
+      <RecentActivitySection />
+    </div>
+  )
 }

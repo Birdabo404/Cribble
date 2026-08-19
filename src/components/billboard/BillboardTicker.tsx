@@ -478,7 +478,7 @@ export function BillboardTicker() {
     >
       <div className="billboard-slot-inner">
         <aside
-          aria-label="Billboard"
+          aria-label="Sponsorship"
           className="billboard-shell"
           style={
             {
@@ -492,7 +492,7 @@ export function BillboardTicker() {
             {/* Broadcast chrome: inverted-monochrome label + live dot. */}
             <div className="billboard-label flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5">
               <span aria-hidden className="billboard-live-dot shrink-0" />
-              <span className="text-[9px] font-semibold tracking-[0.3em]">BILLBOARD</span>
+              <span className="text-[9px] font-semibold tracking-[0.3em]">SPONSOR</span>
             </div>
 
             {/* The flipper stage: the active layer sizes it; the leaving

@@ -2,10 +2,21 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { AdminShell, formatDate } from '@/components/admin/AdminShell'
+import {
+  AdminButton,
+  AdminEmpty,
+  AdminNotice,
+  AdminPageHeader,
+  AdminSection,
+  AdminSkeletonList,
+  AdminTable,
+  formatDate,
+  type AdminTableColumn
+} from '@/components/admin'
+import { TextField } from '@/components/settings/Field'
 
 // The full audit trail — append-only, readable by every staff member.
-// Filter by actor or target (user ids; a user page's HISTORY section is
+// Filter by actor or target (user ids; a user page's history section is
 // the shortcut for one target) and page backwards with the id cursor.
 
 interface AuditEntry {
@@ -21,7 +32,42 @@ interface AuditEntry {
   created_at: string
 }
 
-function AuditLog() {
+const COLUMNS: readonly AdminTableColumn[] = [
+  { label: 'When' },
+  { label: 'Actor' },
+  { label: 'Action' },
+  { label: 'Target' },
+  { label: 'Reason', className: 'w-full min-w-[16rem]' }
+]
+
+/** One old/new payload, pretty-printed inside the diff disclosure. */
+function DiffBlock({ label, value }: { label: string; value: Record<string, unknown> }) {
+  return (
+    <div>
+      <span className="text-[11px] leading-4 text-[color:var(--st-text-faint)]">{label}</span>
+      <pre className="mt-0.5 whitespace-pre-wrap break-all rounded-md border border-[color:var(--st-border)] bg-[color:var(--st-canvas)] px-2 py-1.5 font-data text-[11px] leading-4 text-[color:var(--st-text-muted)]">
+        {JSON.stringify(value, null, 2)}
+      </pre>
+    </div>
+  )
+}
+
+/** old_values / new_values stay collapsed so rows scan as one line each. */
+function AuditDiff({ entry }: { entry: AuditEntry }) {
+  return (
+    <details className="mt-1.5">
+      <summary className="cursor-pointer select-none font-data text-[11px] leading-4 text-[color:var(--st-text-faint)] transition-colors duration-150 hover:text-[color:var(--st-text)]">
+        Diff
+      </summary>
+      <div className="mt-1.5 max-w-xl space-y-1.5">
+        {entry.old_values && <DiffBlock label="From" value={entry.old_values} />}
+        {entry.new_values && <DiffBlock label="To" value={entry.new_values} />}
+      </div>
+    </details>
+  )
+}
+
+export default function AdminAuditPage() {
   const [adminFilter, setAdminFilter] = useState('')
   const [targetFilter, setTargetFilter] = useState('')
   const [applied, setApplied] = useState<{ admin: string; target: string }>({
@@ -31,6 +77,7 @@ function AuditLog() {
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [nextCursor, setNextCursor] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const fetchPage = useCallback(
@@ -73,129 +120,145 @@ function AuditLog() {
   )
 
   useEffect(() => {
-    loadFirstPage(applied)
+    void loadFirstPage(applied)
   }, [applied, loadFirstPage])
 
   const loadMore = async () => {
-    if (nextCursor === null) return
+    if (nextCursor === null || loadingMore) return
+    setLoadingMore(true)
     try {
       const page = await fetchPage(applied, nextCursor)
       setEntries((current) => [...current, ...page.entries])
       setNextCursor(page.nextCursor)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load more entries.')
+    } finally {
+      setLoadingMore(false)
     }
   }
 
-  const inputCls =
-    'w-32 rounded-md border border-white/10 bg-black/50 px-3 py-1.5 text-xs text-white placeholder:text-zinc-700 focus:border-accent/50 focus:outline-none'
+  const hasFilters = Boolean(applied.admin || applied.target)
 
   return (
-    <>
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Audit log</h1>
-        <p className="text-sm text-gray-400">
-          Every staff action, permanently. There is no way to edit or delete entries.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <AdminPageHeader
+        title="Audit log"
+        description="Every staff action, permanently. There is no way to edit or delete entries."
+      />
 
-      <section className="rounded-md border border-white/10 bg-zinc-950/80 p-5 space-y-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="space-y-1 text-xs text-zinc-400">
-            <span>Actor (user id)</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={adminFilter}
-              onChange={(e) => setAdminFilter(e.target.value.replace(/\D/g, ''))}
-              placeholder="any"
-              className={inputCls}
-            />
-          </label>
-          <label className="space-y-1 text-xs text-zinc-400">
-            <span>Target (user id)</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={targetFilter}
-              onChange={(e) => setTargetFilter(e.target.value.replace(/\D/g, ''))}
-              placeholder="any"
-              className={inputCls}
-            />
-          </label>
-          <button
-            onClick={() => setApplied({ admin: adminFilter, target: targetFilter })}
-            className="rounded-md border border-white/15 px-4 py-1.5 text-[10px] tracking-[0.2em] text-zinc-300 transition-colors hover:bg-white/5"
-          >
-            APPLY
-          </button>
-          {(applied.admin || applied.target) && (
-            <button
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="w-40">
+          <TextField
+            label="Actor (user id)"
+            inputMode="numeric"
+            value={adminFilter}
+            onChange={(e) => setAdminFilter(e.target.value.replace(/\D/g, ''))}
+            placeholder="Any"
+          />
+        </div>
+        <div className="w-40">
+          <TextField
+            label="Target (user id)"
+            inputMode="numeric"
+            value={targetFilter}
+            onChange={(e) => setTargetFilter(e.target.value.replace(/\D/g, ''))}
+            placeholder="Any"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <AdminButton onClick={() => setApplied({ admin: adminFilter, target: targetFilter })}>
+            Apply
+          </AdminButton>
+          {hasFilters && (
+            <AdminButton
+              variant="ghost"
               onClick={() => {
                 setAdminFilter('')
                 setTargetFilter('')
                 setApplied({ admin: '', target: '' })
               }}
-              className="text-[10px] tracking-[0.2em] text-zinc-500 hover:text-zinc-200 transition-colors"
             >
-              CLEAR
-            </button>
+              Clear
+            </AdminButton>
           )}
         </div>
+      </div>
 
-        {error && <p className="text-xs text-red-400">{error}</p>}
+      {error && (
+        <AdminNotice tone="danger">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>{error}</span>
+            <AdminButton variant="danger" onClick={() => void loadFirstPage(applied)}>
+              Retry
+            </AdminButton>
+          </div>
+        </AdminNotice>
+      )}
+
+      <AdminSection flush>
         {loading ? (
-          <p className="text-xs text-zinc-600">Loading…</p>
+          <AdminSkeletonList rows={6} />
         ) : entries.length === 0 ? (
-          <p className="text-xs text-zinc-600">No entries match.</p>
+          <AdminEmpty
+            title={hasFilters ? 'No entries match.' : 'No audit entries yet.'}
+            hint={
+              hasFilters
+                ? 'Clear the filters to see the full log.'
+                : 'Staff actions land here as they happen.'
+            }
+          />
         ) : (
-          <ul className="divide-y divide-white/5">
-            {entries.map((entry) => (
-              <li key={entry.id} className="py-3 text-xs text-zinc-400 space-y-0.5">
-                <div className="flex flex-wrap items-center gap-x-2">
-                  <span className="text-zinc-600">#{entry.id}</span>
-                  <span className="text-zinc-600">{formatDate(entry.created_at)}</span>
-                  <span className="text-zinc-200">
+          <>
+            <AdminTable columns={COLUMNS}>
+              {entries.map((entry) => (
+                <tr key={entry.id}>
+                  <td className="whitespace-nowrap">
+                    <span className="font-data text-[12px] leading-4 text-[color:var(--st-text-muted)]">
+                      {formatDate(entry.created_at)}
+                    </span>
+                    <span className="mt-0.5 block font-data text-[11px] leading-4 text-[color:var(--st-text-faint)]">
+                      #{entry.id}
+                    </span>
+                  </td>
+                  <td className="whitespace-nowrap font-data text-[12px] text-[color:var(--st-text)]">
                     @{entry.admin_username ?? `#${entry.admin_user_id ?? '?'}`}
-                  </span>
-                  <span className="text-accent">{entry.action}</span>
-                  {entry.target_user_id !== null && (
-                    <>
-                      <span className="text-zinc-600">→</span>
+                  </td>
+                  <td className="whitespace-nowrap font-data text-[12px] text-[color:var(--st-text)]">
+                    {entry.action}
+                  </td>
+                  <td className="whitespace-nowrap font-data text-[12px]">
+                    {entry.target_user_id !== null ? (
                       <Link
                         href={`/admin/users/${entry.target_user_id}`}
-                        className="text-zinc-200 hover:underline"
+                        className="text-[color:var(--st-text)] hover:underline"
                       >
                         @{entry.target_username ?? `#${entry.target_user_id}`}
                       </Link>
-                    </>
-                  )}
-                </div>
-                {entry.reason && <div className="text-zinc-500">“{entry.reason}”</div>}
-                {(entry.old_values || entry.new_values) && (
-                  <div className="break-all text-[10px] text-zinc-600">
-                    {entry.old_values ? `from ${JSON.stringify(entry.old_values)} ` : ''}
-                    {entry.new_values ? `to ${JSON.stringify(entry.new_values)}` : ''}
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
+                    ) : (
+                      <span className="text-[color:var(--st-text-faint)]">—</span>
+                    )}
+                  </td>
+                  <td>
+                    {entry.reason ? (
+                      <span className="text-[color:var(--st-text-muted)]">“{entry.reason}”</span>
+                    ) : (
+                      <span className="text-[color:var(--st-text-faint)]">—</span>
+                    )}
+                    {(entry.old_values || entry.new_values) && <AuditDiff entry={entry} />}
+                  </td>
+                </tr>
+              ))}
+            </AdminTable>
+            {nextCursor !== null && (
+              <div className="flex justify-center border-t border-[color:var(--st-border)] p-2">
+                <AdminButton variant="ghost" pending={loadingMore} onClick={loadMore}>
+                  Load more
+                </AdminButton>
+              </div>
+            )}
+          </>
         )}
-
-        {nextCursor !== null && !loading && (
-          <button
-            onClick={loadMore}
-            className="rounded-md border border-white/15 px-4 py-2 text-[10px] tracking-[0.2em] text-zinc-300 transition-colors hover:bg-white/5"
-          >
-            LOAD MORE
-          </button>
-        )}
-      </section>
-    </>
+      </AdminSection>
+    </div>
   )
-}
-
-export default function AdminAuditPage() {
-  return <AdminShell section="AUDIT">{() => <AuditLog />}</AdminShell>
 }

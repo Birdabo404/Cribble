@@ -217,7 +217,7 @@ export async function POST(
           if (count >= BILLBOARD_MAX_LIVE) {
             return NextResponse.json(
               {
-                error: `All ${BILLBOARD_MAX_LIVE} billboard slots are live right now — archive one or wait for a window to end.`
+                error: `All ${BILLBOARD_MAX_LIVE} flipper slots are live right now — archive one or wait for a window to end.`
               },
               { status: 409 }
             )
@@ -298,8 +298,8 @@ export async function POST(
           await insertMissingNotifications(supabase, ownerUserId, [
             {
               type: 'premium',
-              title: 'BILLBOARD AD LIVE',
-              body: `Your billboard ad is LIVE for the next ${BILLBOARD_DURATION_DAYS} days.`,
+              title: 'SPONSORSHIP AD LIVE',
+              body: `Your sponsor ad is LIVE for the next ${BILLBOARD_DURATION_DAYS} days.`,
               data: { kind: 'billboard_review', result: 'live', adId },
               dedupeKey: `billboard_${adId}_live_${startsAt}`
             }

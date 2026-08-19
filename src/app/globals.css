@@ -2000,6 +2000,34 @@ html.light .billboard-rail-vacant:hover {
   }
 }
 
+/* Sponsorship preview stage (BillboardPreviewStage.tsx): the fake
+   flipper viewport's countdown hairline. The real ticker's bar fills
+   once per hold (billboard-progress) and then flips to the next item;
+   the stage has no rotation to time, so its sweep just loops at the
+   ticker's default 8s cadence — a "this strip rotates" cue, not a real
+   countdown. Reduced motion parks it at a mid-hold snapshot instead of
+   hiding it, so the hairline still reads as a progress bar, frozen. */
+@keyframes billboard-stage-sweep {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.billboard-stage-sweep {
+  transform-origin: left;
+  animation: billboard-stage-sweep 8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .billboard-stage-sweep {
+    animation: none;
+    transform: scaleX(0.38);
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Dashboard duotone instrument kit — /dashboard only.
 
@@ -2220,6 +2248,157 @@ html.light .settings-scope {
   .st-savebar {
     animation: none;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Staff console — scoped design system (/admin only).
+
+   Same isolation pattern and the exact same --st-* token values as
+   .settings-scope (keep the two blocks in sync): admin components style
+   with these tokens only, never Tailwind zinc/gray/black/white utilities,
+   so light mode is a first-class surface. The only admin-specific
+   additions are layout/attention aliases (--ad-*), not new hues.
+
+   /admin renders outside the app nav shell, so the scope owns the whole
+   viewport. Typography: Geist, injected by src/app/admin/layout.tsx as
+   --font-settings (shared with the settings hub).
+--------------------------------------------------------------------------- */
+
+.admin-scope {
+  /* surfaces */
+  --st-canvas: #0a0a0b;
+  --st-panel: #131316;
+  --st-panel-hover: #1b1b1f;
+  --st-border: rgba(255, 255, 255, 0.07);
+  --st-border-strong: rgba(255, 255, 255, 0.14);
+  /* ink */
+  --st-text: #f4f4f5;
+  --st-text-muted: #9fa0a8;
+  --st-text-faint: #6a6b75;
+  /* monochrome accent — white in dark, near-black in light */
+  --st-accent: #fafafa;
+  --st-accent-contrast: #0a0a0b;
+  /* danger */
+  --st-danger: #f5504e;
+  --st-danger-muted: rgba(245, 80, 78, 0.4);
+  --st-danger-bg: rgba(245, 80, 78, 0.08);
+  /* focus ring */
+  --st-focus: rgba(250, 250, 250, 0.6);
+  /* elevation */
+  --st-panel-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+  --st-savebar-shadow: 0 12px 32px -8px rgb(0 0 0 / 0.65);
+  /* no app nav above /admin — reused settings components stick to 0 */
+  --st-sticky-top: 0px;
+
+  /* admin-only aliases — layout + attention, never new hues */
+  --ad-rail-w: 220px;
+  --ad-attention: var(--ember);
+
+  font-family: var(--font-settings), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--st-text);
+  background: var(--st-canvas);
+  min-height: 100vh;
+}
+
+html.light .admin-scope {
+  --st-canvas: #ffffff;
+  --st-panel: #ffffff;
+  --st-panel-hover: #f4f4f5;
+  --st-border: #e4e4e7;
+  --st-border-strong: #d4d4d8;
+  --st-text: #09090b;
+  --st-text-muted: #71717a;
+  --st-text-faint: #a1a1aa;
+  --st-accent: #09090b;
+  --st-accent-contrast: #ffffff;
+  --st-danger: #dc2626;
+  --st-danger-muted: rgba(220, 38, 38, 0.35);
+  --st-danger-bg: rgba(220, 38, 38, 0.05);
+  --st-focus: rgba(9, 9, 11, 0.4);
+  --st-panel-shadow: 0 1px 2px rgb(9 9 11 / 0.04);
+  --st-savebar-shadow: 0 12px 32px -8px rgb(9 9 11 / 0.16);
+}
+
+/* Keyboard focus — one visible ring for everything in the scope. */
+.admin-scope :focus-visible {
+  outline: 2px solid var(--st-focus);
+  outline-offset: 2px;
+}
+
+/* Same quiet 1px-bordered text controls as settings, so TextField /
+   TextArea and the ReasonDialog textarea work unchanged in this scope. */
+.admin-scope .st-input {
+  background: var(--st-canvas);
+  border: 1px solid var(--st-border-strong);
+  color: var(--st-text);
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.admin-scope .st-input::placeholder {
+  color: var(--st-text-faint);
+}
+
+.admin-scope .st-input:focus-visible {
+  outline: none;
+}
+
+.admin-scope .st-input:focus {
+  border-color: var(--st-accent);
+}
+
+.admin-scope .st-input[aria-invalid='true'] {
+  border-color: var(--st-danger);
+}
+
+.admin-scope .st-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Data table (AdminTable) — hairline rows, microlabel header, tabular
+   nums. Pages emit plain <tr>/<td>; the scope owns cell chrome. */
+.admin-scope .ad-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+.admin-scope .ad-table th {
+  padding: 8px 12px;
+  font-family: var(--font-data), ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--st-text-faint);
+  border-bottom: 1px solid var(--st-border);
+  white-space: nowrap;
+}
+
+.admin-scope .ad-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--st-border);
+  vertical-align: top;
+}
+
+.admin-scope .ad-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Opt-in sticky header for long tables (AdminTable stickyHeader).
+   Only effective when the table is not inside a horizontal scroller. */
+.admin-scope .ad-table-sticky th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--st-panel);
 }
 
 /* ---------------------------------------------------------------------------

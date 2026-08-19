@@ -2,8 +2,26 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { AdminShell, formatDate, type StaffMe } from '@/components/admin/AdminShell'
-import { ReasonDialog } from '@/components/admin/ReasonDialog'
+import {
+  AdminAvatar,
+  AdminButton,
+  AdminChip,
+  AdminEmpty,
+  AdminFactGrid,
+  AdminList,
+  AdminNotice,
+  AdminPageHeader,
+  AdminSection,
+  AdminSkeletonList,
+  ReasonDialog,
+  formatDate,
+  statusChipMeta,
+  tierChipMeta,
+  useAdmin,
+  type AdminChipMeta,
+  type AdminFact
+} from '@/components/admin'
+import { SegmentedControl } from '@/components/settings/SegmentedControl'
 
 // Team review queue: every account that bought the team plan waits here
 // (pay first, badge later) until the owner approves or rejects it. The
@@ -30,19 +48,18 @@ interface TeamRow {
   seats: number | null
 }
 
-const FILTERS = ['pending', 'approved', 'rejected'] as const
-type ReviewFilter = (typeof FILTERS)[number]
+const FILTER_OPTIONS = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected', label: 'Rejected' }
+] as const
+type ReviewFilter = (typeof FILTER_OPTIONS)[number]['value']
 
-const chipCls = 'rounded border px-2 py-0.5 text-[10px] tracking-[0.2em]'
-
-function reviewChip(status: string): { label: string; className: string } {
-  if (status === 'approved') {
-    return { label: 'APPROVED', className: 'text-emerald-400 border-emerald-500/30' }
-  }
-  if (status === 'rejected') {
-    return { label: 'REJECTED', className: 'text-red-400 border-red-500/30' }
-  }
-  return { label: 'PENDING', className: 'text-amber-300 border-amber-400/30' }
+/** Review status → chip (review_status arrives as a plain string). */
+function reviewChipMeta(status: string): AdminChipMeta {
+  if (status === 'approved') return { label: 'APPROVED', tone: 'good' }
+  if (status === 'rejected') return { label: 'REJECTED', tone: 'danger' }
+  return { label: 'PENDING', tone: 'warn' }
 }
 
 /** Compact account age — brand-new accounts are the impersonation tell. */
@@ -58,26 +75,159 @@ function accountAge(created: string | null): string {
 }
 
 function providerLabel(hint: TeamRow['provider_hint']): string {
-  if (hint === 'github') return 'GITHUB'
-  if (hint === 'x') return 'X'
-  return 'PROVIDER?'
+  switch (hint) {
+    case 'github':
+      return 'GitHub'
+    case 'x':
+      return 'X'
+    case 'unknown':
+      return 'Unknown'
+    default: {
+      const exhaustive: never = hint
+      return exhaustive
+    }
+  }
 }
 
-function Fact({ label, value }: { label: string; value: React.ReactNode }) {
+function TeamListRow({
+  team,
+  isOwner,
+  working,
+  onApprove,
+  onReject
+}: {
+  team: TeamRow
+  isOwner: boolean
+  working: boolean
+  onApprove: () => void
+  onReject: () => void
+}) {
+  const review = reviewChipMeta(team.review_status)
+  const tier = tierChipMeta(team.tier)
+
+  const facts: AdminFact[] = [
+    {
+      label: 'Provider',
+      value: (
+        <>
+          {providerLabel(team.provider_hint)} ·{' '}
+          <span className="font-data text-[12px]">id {team.provider_user_id ?? '—'}</span>
+        </>
+      )
+    },
+    {
+      label: 'Account age',
+      value: (
+        <span className="font-data text-[12px]">
+          {accountAge(team.created_at)} · {formatDate(team.created_at)}
+        </span>
+      )
+    },
+    {
+      label: 'Website',
+      value: team.website ? (
+        <a
+          href={team.website}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={team.website}
+          className="font-data text-[12px] text-sky-600 hover:underline"
+        >
+          {team.website}
+        </a>
+      ) : (
+        'None claimed'
+      )
+    },
+    {
+      label: 'Seats',
+      value: (
+        <span className="font-data text-[12px]">
+          {team.seats === null ? '—' : `${team.seats}/10`}
+        </span>
+      )
+    },
+    {
+      label: 'Last login',
+      value: <span className="font-data text-[12px]">{formatDate(team.last_login)}</span>
+    },
+    {
+      label: 'Team since',
+      value: <span className="font-data text-[12px]">{formatDate(team.team_since)}</span>
+    }
+  ]
+  if (team.review_status === 'approved') {
+    facts.push({
+      label: 'Approved',
+      value: <span className="font-data text-[12px]">{formatDate(team.team_approved_at)}</span>
+    })
+  }
+  if (team.account_status !== 'active') {
+    const account = statusChipMeta(team.account_status)
+    facts.push({
+      label: 'Account',
+      value: <AdminChip tone={account.tone}>{account.label}</AdminChip>
+    })
+  }
+
   return (
-    <div>
-      <div className="text-[9px] tracking-[0.3em] text-zinc-600">{label}</div>
-      <div className="mt-0.5 text-xs text-zinc-300">{value}</div>
-    </div>
+    <li className="space-y-3 p-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <AdminAvatar src={team.avatar} alt={team.display_name} size={40} />
+        <div className="min-w-0">
+          <Link
+            href={`/admin/users/${team.userId}`}
+            className="text-[13.5px] font-medium leading-5 text-[color:var(--st-text)] hover:underline"
+          >
+            {team.display_name}
+          </Link>
+          <div className="flex flex-wrap items-center gap-x-2 text-[12px] leading-4 text-[color:var(--st-text-muted)]">
+            <span className="truncate font-data">
+              @{team.username ?? '—'} · #{team.userId}
+            </span>
+            {team.username && (
+              <Link
+                href={`/u/${encodeURIComponent(team.username)}`}
+                className="shrink-0 transition-colors duration-150 hover:text-[color:var(--st-text)]"
+              >
+                Public profile ↗
+              </Link>
+            )}
+          </div>
+        </div>
+        <div className="ml-auto flex items-center gap-1.5">
+          <AdminChip tone={tier.tone}>{tier.label}</AdminChip>
+          <AdminChip tone={review.tone}>{review.label}</AdminChip>
+        </div>
+      </div>
+
+      <AdminFactGrid facts={facts} columns={4} />
+
+      {isOwner && (
+        <div className="flex flex-wrap items-center gap-2">
+          {team.review_status !== 'approved' && (
+            <AdminButton variant="good" pending={working} onClick={onApprove}>
+              Approve
+            </AdminButton>
+          )}
+          {team.review_status !== 'rejected' && (
+            <AdminButton variant="danger" disabled={working} onClick={onReject}>
+              Reject
+            </AdminButton>
+          )}
+        </div>
+      )}
+    </li>
   )
 }
 
-function TeamQueue({ me }: { me: StaffMe }) {
+export default function AdminTeamsPage() {
+  const me = useAdmin()
   const [filter, setFilter] = useState<ReviewFilter>('pending')
   const [teams, setTeams] = useState<TeamRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{ text: string; tone: 'info' | 'warning' } | null>(null)
   const [workingId, setWorkingId] = useState<number | null>(null)
   const [rejecting, setRejecting] = useState<TeamRow | null>(null)
 
@@ -102,7 +252,7 @@ function TeamQueue({ me }: { me: StaffMe }) {
   }, [])
 
   useEffect(() => {
-    load(filter)
+    void load(filter)
   }, [filter, load])
 
   const approve = async (team: TeamRow) => {
@@ -121,7 +271,10 @@ function TeamQueue({ me }: { me: StaffMe }) {
       if (!res.ok) {
         throw new Error(data?.error ?? 'Failed to approve team.')
       }
-      setNotice(`@${team.username ?? team.userId} approved — gold badge is live.`)
+      setNotice({
+        text: `@${team.username ?? team.userId} approved — gold badge is live.`,
+        tone: 'info'
+      })
       await load(filter)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to approve team.')
@@ -142,9 +295,10 @@ function TeamQueue({ me }: { me: StaffMe }) {
     if (!res.ok) {
       return data?.error ?? 'Failed to reject team.'
     }
-    setNotice(
-      `@${team.username ?? team.userId} rejected. ${data?.refundReminder ?? ''}`.trim()
-    )
+    setNotice({
+      text: `@${team.username ?? team.userId} rejected. ${data?.refundReminder ?? ''}`.trim(),
+      tone: 'warning'
+    })
     await load(filter)
     return null
   }
@@ -152,178 +306,70 @@ function TeamQueue({ me }: { me: StaffMe }) {
   const isOwner = me.role === 'owner'
 
   return (
-    <>
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Team review</h1>
-        <p className="text-sm text-gray-400">
-          Pay-first anti-impersonation gate: badges and affiliate seats stay off until an
-          account is approved here. Rejections revert the tier — refunds are manual in Polar.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <AdminPageHeader
+        title="Team review"
+        description="Pay-first anti-impersonation gate: badges and affiliate seats stay off until an account is approved here. Rejections revert the tier — refunds are manual in Polar."
+      />
 
-      <section className="rounded-md border border-white/10 bg-zinc-950/80 p-5 space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          {FILTERS.map((value) => (
-            <button
-              key={value}
-              onClick={() => setFilter(value)}
-              className={`rounded-md border px-3 py-1.5 text-[10px] tracking-[0.2em] transition-colors ${
-                filter === value
-                  ? 'border-accent/50 text-accent'
-                  : 'border-white/10 text-zinc-500 hover:text-zinc-200'
-              }`}
-            >
-              {value.toUpperCase()}
-            </button>
-          ))}
-        </div>
+      <SegmentedControl
+        options={FILTER_OPTIONS}
+        value={filter}
+        onChange={setFilter}
+        aria-label="Filter teams by review status"
+      />
 
-        {notice && (
-          <p className="rounded-md border border-amber-500/20 bg-amber-950/20 px-3 py-2 text-xs text-amber-300">
-            {notice}
-          </p>
-        )}
-        {error && <p className="text-xs text-red-400">{error}</p>}
+      {notice && <AdminNotice tone={notice.tone}>{notice.text}</AdminNotice>}
 
+      {error && (
+        <AdminNotice tone="danger">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>{error}</span>
+            <AdminButton variant="danger" onClick={() => void load(filter)}>
+              Retry
+            </AdminButton>
+          </div>
+        </AdminNotice>
+      )}
+
+      <AdminSection flush>
         {loading ? (
-          <p className="text-xs text-zinc-600">Loading…</p>
+          <AdminSkeletonList rows={3} />
         ) : teams.length === 0 ? (
-          <p className="text-xs text-zinc-600">No {filter} teams.</p>
+          <AdminEmpty
+            title={`No ${filter} teams.`}
+            hint={
+              filter === 'pending'
+                ? 'New team-plan purchases wait here for review.'
+                : `Teams appear here once ${filter}.`
+            }
+          />
         ) : (
-          <ul className="divide-y divide-white/5">
-            {teams.map((team) => {
-              const review = reviewChip(team.review_status)
-              const working = workingId === team.userId
-              return (
-                <li key={team.userId} className="py-4 space-y-3">
-                  <div className="flex flex-wrap items-center gap-3">
-                    {team.avatar ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={team.avatar}
-                        alt={team.display_name}
-                        className="h-10 w-10 rounded-md border border-zinc-800 object-cover"
-                      />
-                    ) : (
-                      <div className="h-10 w-10 rounded-md border border-zinc-800 bg-zinc-900" />
-                    )}
-                    <div className="min-w-0">
-                      <Link
-                        href={`/admin/users/${team.userId}`}
-                        className="text-sm text-zinc-100 hover:underline"
-                      >
-                        {team.display_name}
-                      </Link>
-                      <div className="text-xs text-zinc-500 truncate">
-                        @{team.username ?? '—'} · #{team.userId}
-                        {team.username && (
-                          <Link
-                            href={`/u/${encodeURIComponent(team.username)}`}
-                            className="ml-2 text-[10px] tracking-[0.2em] text-zinc-500 hover:text-zinc-200 transition-colors"
-                          >
-                            PUBLIC →
-                          </Link>
-                        )}
-                      </div>
-                    </div>
-                    <div className="ml-auto flex items-center gap-2">
-                      <span className={`${chipCls} border-zinc-600/40 text-zinc-400`}>
-                        {team.tier}
-                      </span>
-                      <span className={`${chipCls} ${review.className}`}>{review.label}</span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    <Fact
-                      label="PROVIDER"
-                      value={`${providerLabel(team.provider_hint)} · id ${team.provider_user_id ?? '—'}`}
-                    />
-                    <Fact
-                      label="ACCOUNT AGE"
-                      value={`${accountAge(team.created_at)} · ${formatDate(team.created_at)}`}
-                    />
-                    <Fact
-                      label="WEBSITE"
-                      value={
-                        team.website ? (
-                          <a
-                            href={team.website}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="break-all text-sky-300 hover:underline"
-                          >
-                            {team.website}
-                          </a>
-                        ) : (
-                          'none claimed'
-                        )
-                      }
-                    />
-                    <Fact
-                      label="SEATS"
-                      value={team.seats === null ? '—' : `${team.seats}/10`}
-                    />
-                    <Fact label="LAST LOGIN" value={formatDate(team.last_login)} />
-                    <Fact label="TEAM SINCE" value={formatDate(team.team_since)} />
-                    {team.review_status === 'approved' && (
-                      <Fact label="APPROVED" value={formatDate(team.team_approved_at)} />
-                    )}
-                    {team.account_status !== 'active' && (
-                      <Fact
-                        label="ACCOUNT"
-                        value={
-                          <span className="text-red-400">
-                            {team.account_status.toUpperCase()}
-                          </span>
-                        }
-                      />
-                    )}
-                  </div>
-
-                  {isOwner && (
-                    <div className="flex flex-wrap items-center gap-2">
-                      {team.review_status !== 'approved' && (
-                        <button
-                          disabled={working}
-                          onClick={() => approve(team)}
-                          className="rounded-md border border-emerald-500/40 px-3 py-1.5 text-[10px] tracking-[0.2em] text-emerald-300 transition-colors hover:bg-emerald-950/40 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          {working ? 'WORKING…' : 'APPROVE'}
-                        </button>
-                      )}
-                      {team.review_status !== 'rejected' && (
-                        <button
-                          disabled={working}
-                          onClick={() => setRejecting(team)}
-                          className="rounded-md border border-red-500/40 px-3 py-1.5 text-[10px] tracking-[0.2em] text-red-300 transition-colors hover:bg-red-950/40 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          REJECT
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
+          <AdminList>
+            {teams.map((team) => (
+              <TeamListRow
+                key={team.userId}
+                team={team}
+                isOwner={isOwner}
+                working={workingId === team.userId}
+                onApprove={() => void approve(team)}
+                onReject={() => setRejecting(team)}
+              />
+            ))}
+          </AdminList>
         )}
-      </section>
+      </AdminSection>
 
       {rejecting && (
         <ReasonDialog
-          title={`REJECT TEAM — @${rejecting.username ?? rejecting.userId}`}
+          title={`Reject team — @${rejecting.username ?? rejecting.userId}`}
           description="Marks the review as rejected and reverts the tier to FREE. Billing is untouched: cancel and refund the Polar subscription manually."
-          confirmLabel="REJECT TEAM"
+          confirmLabel="Reject team"
           danger
           onConfirm={(reason) => reject(rejecting, reason)}
           onClose={() => setRejecting(null)}
         />
       )}
-    </>
+    </div>
   )
-}
-
-export default function AdminTeamsPage() {
-  return <AdminShell section="TEAMS">{(me) => <TeamQueue me={me} />}</AdminShell>
 }

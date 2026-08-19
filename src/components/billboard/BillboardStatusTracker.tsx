@@ -1,23 +1,26 @@
 'use client'
 
-// The buyer's slot tracker on /billboard — every submission from GET
+// The buyer's slot tracker on /sponsorship — every submission from GET
 // /api/billboard/mine as one compact row inside a single hairline panel,
-// sorted action-first. A row expands in place to the ad rendered with
-// the real BillboardCard on a fixed dark ground (it mirrors the
-// always-dark ticker in both themes), the stage-specific story beneath
-// it, and — for PENDING / CHANGES_REQUESTED — the shared composer for
-// edit / edit-and-resubmit. Admin feedback (review_note) stays the
-// loudest element of a redo/reject row because it is the one thing the
-// buyer must read.
+// sorted action-first. A row expands in place to the ad rendered on the
+// shared compact preview stage, the stage-specific story beneath it,
+// and — for PENDING / CHANGES_REQUESTED — the shared composer for edit /
+// edit-and-resubmit. Admin feedback (review_note) stays the loudest
+// element of a redo/reject row because it is the one thing the buyer
+// must read.
 
 import { useMemo, useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import { BillboardCard } from '@/components/billboard/BillboardCard'
+import { BillboardPreviewStage } from '@/components/billboard/BillboardPreviewStage'
 import {
   BillboardSubmitForm,
   type AdFormTarget
 } from '@/components/billboard/BillboardSubmitForm'
-import { SettingsButton } from '@/components/settings'
+import {
+  SegmentedControl,
+  SettingsButton,
+  type SegmentedOption
+} from '@/components/settings'
 import {
   BILLBOARD_DURATION_DAYS,
   BILLBOARD_PAYMENT_EMAIL,
@@ -94,9 +97,9 @@ function chipMeta(ad: MineAd, now: Date): ChipMeta {
         return { label: 'Run complete', rgb: ZINC }
       }
       if (ad.starts_at && new Date(ad.starts_at).getTime() > now.getTime()) {
-        return { label: 'Scheduled', rgb: 'var(--lb-gold)' }
+        return { label: 'Scheduled', rgb: ZINC }
       }
-      return { label: 'Awaiting payment', rgb: 'var(--lb-gold)' }
+      return { label: 'Awaiting payment', rgb: ZINC }
     }
     case 'REJECTED':
       return { label: 'Rejected', rgb: 'var(--lb-down)' }
@@ -197,11 +200,11 @@ function matchesFilter(ad: MineAd, filter: FilterId, now: Date): boolean {
   }
 }
 
-const FILTERS: { id: FilterId; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'live', label: 'Live' },
-  { id: 'review', label: 'In review' },
-  { id: 'ended', label: 'Ended' }
+const FILTERS: readonly SegmentedOption<FilterId>[] = [
+  { value: 'all', label: 'All' },
+  { value: 'live', label: 'Live' },
+  { value: 'review', label: 'In review' },
+  { value: 'ended', label: 'Ended' }
 ]
 
 /** Compact lifecycle pill: colored dot + 12px label. */
@@ -262,10 +265,10 @@ function SkeletonRows() {
   return (
     <Panel>
       {[0, 1, 2].map((i) => (
-        <div key={i} className="flex items-center gap-3 px-4 py-3.5">
+        <div key={i} className="flex items-center gap-3 px-4 py-3">
           <span className="block h-5 w-20 animate-pulse rounded-full bg-[color:var(--st-panel-hover)]" />
           <span className="block h-4 w-36 animate-pulse rounded bg-[color:var(--st-panel-hover)]" />
-          <span className="ml-auto block h-4 w-14 animate-pulse rounded bg-[color:var(--st-panel-hover)]" />
+          <span className="ml-auto block h-4 w-28 animate-pulse rounded bg-[color:var(--st-panel-hover)]" />
         </div>
       ))}
     </Panel>
@@ -317,10 +320,10 @@ function AdRow({
         className="flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-left transition-colors hover:bg-[color:var(--st-panel-hover)]"
       >
         <Chip meta={meta} />
-        <span className="min-w-0 truncate text-[15px] font-medium text-[color:var(--st-text)]">
+        <span className="min-w-0 truncate text-[13.5px] font-medium leading-5 text-[color:var(--st-text)]">
           {title}
         </span>
-        <span className="shrink-0 text-[12px] text-[color:var(--st-text-faint)]">
+        <span className="font-data shrink-0 text-[11.5px] text-[color:var(--st-text-muted)]">
           {placementLabel}
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-2.5">
@@ -347,18 +350,15 @@ function AdRow({
 
       {open && (
         <div id={regionId} className="space-y-3 px-4 pb-4 pt-1">
-          {/* the card itself, in its placement's shape, on a fixed dark
-              ground — it mirrors the always-dark ticker in both themes */}
-          <div className="flex items-center overflow-hidden rounded-lg border border-[color:var(--st-border)] bg-[#09090b] px-4 py-4">
-            <BillboardCard
-              text={ad.text}
-              title={ad.company_name ?? hostOfLink(ad.link_url)}
-              logoUrl={ad.logo_url ?? fallbackLogoUrl}
-              accentColor={ad.accent_color ?? null}
-              size={ad.placement === 'rail' ? 'rail' : 'lg'}
-              className="max-w-full"
-            />
-          </div>
+          <BillboardPreviewStage
+            density="compact"
+            title={ad.company_name ?? hostOfLink(ad.link_url) ?? 'Untitled'}
+            text={ad.text}
+            logoUrl={ad.logo_url ?? fallbackLogoUrl}
+            accentColor={ad.accent_color}
+            placement={ad.placement}
+            slot={ad.rail_slot ?? ad.requested_rail_slot}
+          />
           <p className="truncate text-[12px] text-[color:var(--st-text-faint)]">
             Links to <span className="text-[color:var(--st-text-muted)]">{ad.link_url}</span>
           </p>
@@ -498,7 +498,7 @@ export function BillboardStatusTracker({
   fallbackLogoUrl: string | null
   onChanged: () => void
   /** Hands the empty state's Browse slots button to the parent, which
-   *  switches /billboard to the buy tab. Omitting it drops the button. */
+   *  switches /sponsorship to the buy tab. Omitting it drops the button. */
   onBrowseSlots?: () => void
 }) {
   const [filter, setFilter] = useState<FilterId>('all')
@@ -509,9 +509,12 @@ export function BillboardStatusTracker({
 
   if (signedIn === false) {
     return (
-      <div className="rounded-xl border border-[color:var(--st-border)] bg-[color:var(--st-panel)] px-5 py-6 text-center [box-shadow:var(--st-panel-shadow)]">
-        <p className="text-[13px] leading-relaxed text-[color:var(--st-text-muted)]">
-          Your submissions and their review status show up here.
+      <div className="rounded-xl border border-[color:var(--st-border)] bg-[color:var(--st-panel)] px-4 py-4 text-left [box-shadow:var(--st-panel-shadow)]">
+        <p className="text-[13.5px] font-medium leading-5 text-[color:var(--st-text)]">
+          Track your slots here.
+        </p>
+        <p className="mt-1 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+          Submissions, review feedback, live windows and clicks all land on this tab.
         </p>
         <Link
           href="/login"
@@ -529,20 +532,27 @@ export function BillboardStatusTracker({
 
   if (error) {
     return (
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[color:var(--st-border)] bg-[color:var(--st-panel)] px-5 py-4 [box-shadow:var(--st-panel-shadow)]">
-        <p className="text-[13px] leading-relaxed text-[color:var(--st-danger)]">{error}</p>
-        <SettingsButton variant="ghost" onClick={onChanged}>
-          Retry
-        </SettingsButton>
+      <div className="rounded-xl border border-[color:var(--st-border)] bg-[color:var(--st-panel)] px-4 py-4 text-left [box-shadow:var(--st-panel-shadow)]">
+        <p className="text-[13.5px] font-medium leading-5 text-[color:var(--st-danger)]">
+          {error}
+        </p>
+        <div className="mt-3">
+          <SettingsButton variant="ghost" onClick={onChanged}>
+            Retry
+          </SettingsButton>
+        </div>
       </div>
     )
   }
 
   if (ads.length === 0) {
     return (
-      <div className="rounded-xl border border-[color:var(--st-border)] bg-[color:var(--st-panel)] px-5 py-6 text-center [box-shadow:var(--st-panel-shadow)]">
-        <p className="text-[13px] leading-relaxed text-[color:var(--st-text-muted)]">
-          No submissions yet — pitch your card and it lands here for tracking.
+      <div className="rounded-xl border border-[color:var(--st-border)] bg-[color:var(--st-panel)] px-4 py-4 text-left [box-shadow:var(--st-panel-shadow)]">
+        <p className="text-[13.5px] font-medium leading-5 text-[color:var(--st-text)]">
+          No submissions yet.
+        </p>
+        <p className="mt-1 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+          Pitch a card and it lands here for tracking.
         </p>
         {onBrowseSlots && (
           <div className="mt-3">
@@ -568,27 +578,18 @@ export function BillboardStatusTracker({
   return (
     <div>
       {ads.length > 1 && (
-        <p className="mb-3 text-[13px] tabular-nums text-[color:var(--st-text-muted)]">
+        <p className="mb-3 text-[12.5px] tabular-nums text-[color:var(--st-text-muted)]">
           {summaryParts.join(' · ')}
         </p>
       )}
 
-      <div className="mb-3 flex flex-wrap items-center gap-1.5">
-        {FILTERS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            aria-pressed={filter === f.id}
-            onClick={() => setFilter(f.id)}
-            className={`inline-flex min-h-11 items-center rounded-full border px-2.5 py-1 text-[12px] leading-4 transition-colors md:min-h-0 ${
-              filter === f.id
-                ? 'border-[color:var(--st-border-strong)] bg-[color:var(--st-panel-hover)] text-[color:var(--st-text)]'
-                : 'border-[color:var(--st-border)] text-[color:var(--st-text-muted)] hover:bg-[color:var(--st-panel-hover)] hover:text-[color:var(--st-text)]'
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
+      <div className="mb-3">
+        <SegmentedControl
+          options={FILTERS}
+          value={filter}
+          onChange={setFilter}
+          aria-label="Filter your ads"
+        />
       </div>
 
       <Panel>

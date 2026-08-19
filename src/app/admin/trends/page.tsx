@@ -1,7 +1,19 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AdminShell } from '@/components/admin/AdminShell'
+import {
+  AdminButton,
+  AdminChip,
+  AdminEmpty,
+  AdminNotice,
+  AdminPageHeader,
+  AdminSection,
+  AdminSkeletonList,
+  AdminTable,
+  type AdminChipTone
+} from '@/components/admin'
+import { SegmentedControl, type SegmentedOption } from '@/components/settings/SegmentedControl'
+import { Skeleton } from '@/components/settings/Skeleton'
 import { TOOL_CATEGORIES, type ToolCategory } from '@/lib/toolTaxonomy'
 
 // Aggregate usage trends, staff-only. Everything on this page comes from
@@ -48,20 +60,28 @@ interface TrendsData {
   releases: TrendsRelease[]
 }
 
-const WINDOW_OPTIONS = [30, 90, 180] as const
+type WindowValue = '30' | '90' | '180'
+
+const WINDOW_SEGMENTS: readonly SegmentedOption<WindowValue>[] = [
+  { value: '30', label: '30d' },
+  { value: '90', label: '90d' },
+  { value: '180', label: '180d' }
+]
 
 const CHART_TOOL_LIMIT = 8
 
-/** Line palette tuned for the black dossier canvas. */
+/** Line palette at Tailwind's 600 weight — the same mid-saturation level
+ *  the chip kit uses, so every hue reads on both the dark #0a0a0b canvas
+ *  and the light #ffffff one without a per-theme palette swap. */
 const SERIES_COLORS = [
-  '#f97316',
-  '#38bdf8',
-  '#a78bfa',
-  '#34d399',
-  '#fbbf24',
-  '#f472b6',
-  '#22d3ee',
-  '#a3e635'
+  '#ea580c', // orange-600
+  '#0284c7', // sky-600
+  '#7c3aed', // violet-600
+  '#059669', // emerald-600
+  '#d97706', // amber-600
+  '#db2777', // pink-600
+  '#0891b2', // cyan-600
+  '#65a30d' // lime-600
 ]
 
 function asCategory(value: string): ToolCategory {
@@ -70,30 +90,29 @@ function asCategory(value: string): ToolCategory {
     : 'other'
 }
 
-function categoryChipClass(value: string): string {
+/** Tool category → chip tone. Only the active-work categories carry a
+ *  hue (color means state, and 9 taxonomy colors would be noise): chat
+ *  reads informational, coding healthy-green, agent amber; media,
+ *  writing and platform surfaces stay neutral. */
+function categoryChipTone(value: string): AdminChipTone {
   const category = asCategory(value)
   switch (category) {
     case 'chat':
-      return 'text-sky-300 border-sky-400/30'
+      return 'info'
     case 'coding':
-      return 'text-emerald-300 border-emerald-400/30'
-    case 'image':
-      return 'text-fuchsia-300 border-fuchsia-400/30'
-    case 'video':
-      return 'text-rose-300 border-rose-400/30'
-    case 'audio':
-      return 'text-amber-300 border-amber-400/30'
-    case 'writing':
-      return 'text-violet-300 border-violet-400/30'
+      return 'good'
     case 'agent':
-      return 'text-orange-300 border-orange-400/30'
+      return 'warn'
+    case 'image':
+    case 'video':
+    case 'audio':
+    case 'writing':
     case 'platform':
-      return 'text-cyan-300 border-cyan-400/30'
     case 'other':
-      return 'text-zinc-400 border-zinc-500/30'
+      return 'neutral'
     default: {
       const exhaustive: never = category
-      throw new Error(`Unhandled tool category: ${exhaustive}`)
+      return exhaustive
     }
   }
 }
@@ -224,10 +243,16 @@ function ShareChart({ data }: { data: TrendsData }) {
                 y1={y}
                 x2={W - PAD_R}
                 y2={y}
-                stroke="rgba(255,255,255,0.08)"
+                stroke="var(--st-border)"
                 strokeWidth="1"
               />
-              <text x={PAD_L - 6} y={y + 3} textAnchor="end" fontSize="9" fill="#52525b">
+              <text
+                x={PAD_L - 6}
+                y={y + 3}
+                textAnchor="end"
+                fontSize="9"
+                fill="var(--st-text-muted)"
+              >
                 {Math.round(share)}%
               </text>
             </g>
@@ -241,7 +266,7 @@ function ShareChart({ data }: { data: TrendsData }) {
               y1={PAD_T - 8}
               x2={release.x}
               y2={PAD_T + PLOT_H}
-              stroke="rgba(255,255,255,0.35)"
+              stroke="var(--st-border-strong)"
               strokeWidth="1"
               strokeDasharray="3 3"
             />
@@ -249,7 +274,7 @@ function ShareChart({ data }: { data: TrendsData }) {
               x={release.x + 3}
               y={PAD_T - 10}
               fontSize="8"
-              fill="#a1a1aa"
+              fill="var(--st-text-muted)"
               transform={`rotate(-90 ${release.x + 3} ${PAD_T - 10})`}
               textAnchor="end"
             >
@@ -280,7 +305,7 @@ function ShareChart({ data }: { data: TrendsData }) {
             y={H - 6}
             textAnchor={day === 0 ? 'start' : day === dayCount - 1 ? 'end' : 'middle'}
             fontSize="9"
-            fill="#52525b"
+            fill="var(--st-text-muted)"
           >
             {formatDay(data.dates[day])}
           </text>
@@ -289,13 +314,19 @@ function ShareChart({ data }: { data: TrendsData }) {
 
       <div className="flex flex-wrap gap-x-4 gap-y-1.5">
         {lines.map((line) => (
-          <span key={line.domain} className="inline-flex items-center gap-1.5 text-[10px] text-zinc-400">
+          <span
+            key={line.domain}
+            className="inline-flex items-center gap-1.5 text-[12px] leading-4 text-[color:var(--st-text-muted)]"
+          >
             <span
-              className="h-2 w-2 rounded-full"
+              aria-hidden
+              className="h-2 w-2 shrink-0 rounded-full"
               style={{ backgroundColor: line.color }}
             />
             {line.domain}
-            <span className="text-zinc-600">{line.windowSharePct.toFixed(1)}%</span>
+            <span className="font-data text-[11px] tabular-nums text-[color:var(--st-text-faint)]">
+              {line.windowSharePct.toFixed(1)}%
+            </span>
           </span>
         ))}
       </div>
@@ -305,13 +336,17 @@ function ShareChart({ data }: { data: TrendsData }) {
           {markers.map((release) => (
             <li
               key={`list-${release.vendor}-${release.product}-${release.releaseDate}`}
-              className="text-[10px] text-zinc-500"
+              className="text-[12px] leading-5 text-[color:var(--st-text-muted)]"
             >
-              <span className="text-zinc-600">{release.releaseDate}</span>{' '}
-              <span className="text-zinc-300">
+              <span className="font-data text-[11px] text-[color:var(--st-text-faint)]">
+                {release.releaseDate}
+              </span>{' '}
+              <span className="text-[color:var(--st-text)]">
                 {release.vendor} {release.product}
               </span>
-              {release.notes && <span className="text-zinc-600"> — {release.notes}</span>}
+              {release.notes && (
+                <span className="text-[color:var(--st-text-faint)]"> — {release.notes}</span>
+              )}
             </li>
           ))}
         </ul>
@@ -320,69 +355,75 @@ function ShareChart({ data }: { data: TrendsData }) {
   )
 }
 
-function SessionDepthTable({ tools }: { tools: TrendsTool[] }) {
+/** Chart-shaped placeholder so the panel doesn't jump when data lands. */
+function ChartSkeleton() {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-xs">
-        <thead>
-          <tr className="text-[9px] tracking-[0.2em] text-zinc-600">
-            <th className="py-2 pr-3 font-normal">TOOL</th>
-            <th className="py-2 pr-3 font-normal">CATEGORY</th>
-            <th className="py-2 pr-3 font-normal text-right">ACTIVE</th>
-            <th className="py-2 pr-3 font-normal text-right">SESSIONS</th>
-            <th className="py-2 pr-3 font-normal text-right">MED SESSION</th>
-            <th className="py-2 pr-3 font-normal text-right">MED FOCUS</th>
-            <th className="py-2 font-normal text-right">PEAK USERS/D</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-white/5">
-          {tools.map((tool) => (
-            <tr key={tool.domain}>
-              <td className="py-2 pr-3">
-                <span className="text-zinc-100">{tool.vendor}</span>{' '}
-                <span className="text-zinc-500">{tool.domain}</span>
-              </td>
-              <td className="py-2 pr-3">
-                <span
-                  className={`rounded border px-1.5 py-0.5 text-[9px] tracking-[0.15em] uppercase ${categoryChipClass(tool.category)}`}
-                >
-                  {tool.category}
-                </span>
-              </td>
-              <td className="py-2 pr-3 text-right text-zinc-200">
-                {formatDurationMs(tool.activeMs)}
-              </td>
-              <td className="py-2 pr-3 text-right text-zinc-400">
-                {tool.sessions.toLocaleString()}
-              </td>
-              <td className="py-2 pr-3 text-right text-zinc-400">
-                {formatSessionLength(tool.medianSessionMs)}
-              </td>
-              <td className="py-2 pr-3 text-right text-zinc-400">
-                {formatFocus(tool.medianFocusRatio)}
-              </td>
-              <td className="py-2 text-right text-zinc-400">
-                {tool.peakDailyUsers.toLocaleString()}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div aria-hidden className="space-y-3">
+      <Skeleton className="h-56 w-full rounded-lg" />
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+        {Array.from({ length: 5 }, (_, index) => (
+          <Skeleton key={index} className="h-3 w-24 rounded" />
+        ))}
+      </div>
     </div>
   )
 }
 
-function TrendsPanel() {
-  const [days, setDays] = useState<number>(90)
+function SessionDepthTable({ tools }: { tools: TrendsTool[] }) {
+  return (
+    <AdminTable
+      columns={[
+        { label: 'Tool' },
+        { label: 'Category' },
+        { label: 'Active', align: 'right' },
+        { label: 'Sessions', align: 'right' },
+        { label: 'Med session', align: 'right' },
+        { label: 'Med focus', align: 'right' },
+        { label: 'Peak users/d', align: 'right' }
+      ]}
+    >
+      {tools.map((tool) => (
+        <tr key={tool.domain}>
+          <td>
+            <span className="text-[color:var(--st-text)]">{tool.vendor}</span>{' '}
+            <span className="text-[color:var(--st-text-muted)]">{tool.domain}</span>
+          </td>
+          <td>
+            <AdminChip tone={categoryChipTone(tool.category)}>{tool.category}</AdminChip>
+          </td>
+          <td className="text-right tabular-nums text-[color:var(--st-text)]">
+            {formatDurationMs(tool.activeMs)}
+          </td>
+          <td className="text-right tabular-nums text-[color:var(--st-text-muted)]">
+            {tool.sessions.toLocaleString()}
+          </td>
+          <td className="text-right tabular-nums text-[color:var(--st-text-muted)]">
+            {formatSessionLength(tool.medianSessionMs)}
+          </td>
+          <td className="text-right tabular-nums text-[color:var(--st-text-muted)]">
+            {formatFocus(tool.medianFocusRatio)}
+          </td>
+          <td className="text-right tabular-nums text-[color:var(--st-text-muted)]">
+            {tool.peakDailyUsers.toLocaleString()}
+          </td>
+        </tr>
+      ))}
+    </AdminTable>
+  )
+}
+
+export default function AdminTrendsPage() {
+  const [windowValue, setWindowValue] = useState<WindowValue>('90')
   const [data, setData] = useState<TrendsData | null>(null)
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [retryToken, setRetryToken] = useState(0)
 
   useEffect(() => {
     let cancelled = false
     setLoadState('loading')
     const load = async () => {
       try {
-        const res = await fetch(`/api/admin/trends?days=${days}`, {
+        const res = await fetch(`/api/admin/trends?days=${windowValue}`, {
           credentials: 'include',
           cache: 'no-store'
         })
@@ -402,86 +443,75 @@ function TrendsPanel() {
     return () => {
       cancelled = true
     }
-  }, [days])
+  }, [windowValue, retryToken])
 
   const hasData =
     !!data &&
     data.dates.length > 0 &&
     data.totalActiveMs.some((ms) => ms > 0)
 
-  return (
-    <>
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Usage trends</h1>
-        <p className="text-sm text-gray-400">
-          Aggregate view of tool usage across all users who have not opted
-          out. Built entirely from nightly rollups — no individual rows.
-        </p>
+  const loadError = (
+    <AdminNotice tone="danger">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span>Failed to load trends.</span>
+        <AdminButton variant="ghost" onClick={() => setRetryToken((token) => token + 1)}>
+          Retry
+        </AdminButton>
       </div>
+    </AdminNotice>
+  )
 
-      <div className="flex items-center gap-2">
-        {WINDOW_OPTIONS.map((option) => (
-          <button
-            key={option}
-            onClick={() => setDays(option)}
-            className={`rounded border px-3 py-1 text-[10px] tracking-[0.2em] transition-colors ${
-              days === option
-                ? 'border-accent/50 text-zinc-100'
-                : 'border-white/10 text-zinc-500 hover:text-zinc-200'
-            }`}
-          >
-            {option}D
-          </button>
-        ))}
+  return (
+    <div className="space-y-6">
+      <AdminPageHeader
+        title="Usage trends"
+        description="Aggregate view of tool usage across all users who have not opted out. Built entirely from nightly rollups — no individual rows."
+      />
+
+      <div className="flex flex-wrap items-center gap-3">
+        <SegmentedControl
+          options={WINDOW_SEGMENTS}
+          value={windowValue}
+          onChange={setWindowValue}
+          aria-label="Time window"
+        />
         {data && (
-          <span className="ml-auto text-[10px] tracking-[0.2em] text-zinc-600">
+          <span className="ml-auto font-data text-[11px] tabular-nums text-[color:var(--st-text-muted)]">
             {data.start} → {data.end}
           </span>
         )}
       </div>
 
-      <section className="rounded-md border border-white/10 bg-zinc-950/80 p-5 space-y-4">
-        <h2 className="text-[10px] tracking-[0.25em] text-zinc-500">
-          SHARE_OF_ACTIVE_MINUTES
-        </h2>
+      <AdminSection title="Share of active minutes">
         {loadState === 'loading' ? (
-          <p className="text-xs text-zinc-600">Loading…</p>
+          <ChartSkeleton />
         ) : loadState === 'error' ? (
-          <p className="text-xs text-red-400">Failed to load trends.</p>
+          loadError
         ) : !hasData ? (
-          <p className="text-xs text-zinc-600">
-            NO AGGREGATE DATA YET — rollup runs nightly.
-          </p>
+          <AdminEmpty title="No aggregate data yet" hint="The rollup runs nightly." />
         ) : (
           <ShareChart data={data} />
         )}
-      </section>
+      </AdminSection>
 
-      <section className="rounded-md border border-white/10 bg-zinc-950/80 p-5 space-y-4">
-        <h2 className="text-[10px] tracking-[0.25em] text-zinc-500">SESSION_DEPTH</h2>
+      <AdminSection title="Session depth" flush>
         {loadState === 'loading' ? (
-          <p className="text-xs text-zinc-600">Loading…</p>
+          <AdminSkeletonList rows={5} />
         ) : loadState === 'error' ? (
-          <p className="text-xs text-red-400">Failed to load trends.</p>
+          <div className="p-4">{loadError}</div>
         ) : !data || data.tools.length === 0 ? (
-          <p className="text-xs text-zinc-600">
-            NO AGGREGATE DATA YET — rollup runs nightly.
-          </p>
+          <AdminEmpty title="No aggregate data yet" hint="The rollup runs nightly." />
         ) : (
           <SessionDepthTable tools={data.tools} />
         )}
-      </section>
+      </AdminSection>
 
-      <p className="text-[10px] leading-relaxed text-zinc-600">
+      <p className="text-[12px] leading-5 text-[color:var(--st-text-faint)]">
         Data comes exclusively from daily_tool_aggregates — per-user rows
         never leave the database. Session-depth medians are session-weighted
         medians of the daily medians. A public version of this view must
         enforce a minimum cohort of 50 distinct users per slice at read time.
       </p>
-    </>
+    </div>
   )
-}
-
-export default function AdminTrendsPage() {
-  return <AdminShell section="TRENDS">{() => <TrendsPanel />}</AdminShell>
 }

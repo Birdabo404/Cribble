@@ -149,7 +149,7 @@ export async function GET(request: NextRequest) {
         '[AdminBillboard] Queue query failed:',
         active.error ?? decided.error
       )
-      return NextResponse.json({ error: 'Failed to load billboard ads' }, { status: 500 })
+      return NextResponse.json({ error: 'Failed to load sponsor ads' }, { status: 500 })
     }
 
     const now = new Date()

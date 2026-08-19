@@ -1,13 +1,27 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
-import { AdminShell, formatDate } from '@/components/admin/AdminShell'
+import {
+  AdminButton,
+  AdminChip,
+  AdminEmpty,
+  AdminNotice,
+  AdminPageHeader,
+  AdminSection,
+  AdminSkeletonList,
+  AdminTable,
+  formatDate,
+  type AdminChipMeta,
+  type AdminTableColumn
+} from '@/components/admin'
+import { SegmentedControl } from '@/components/settings/SegmentedControl'
+import { TextField } from '@/components/settings/Field'
 
 // Waitlist invite queue: launch-waitlist signups, invited into the private
-// beta one email at a time. AdminShell gates staff; the API itself is
+// beta one email at a time. The frame gates staff; the API itself is
 // owner-only — a moderator reaching the page gets 403 from the queue fetch
-// and sees the OWNER_ONLY note instead of the list.
+// and sees the owner-only notice instead of the list.
 
 interface WaitlistEntry {
   id: string
@@ -26,6 +40,14 @@ interface WaitlistEntry {
 const FILTERS = ['all', 'pending', 'sent', 'failed', 'redeemed'] as const
 type StatusFilter = (typeof FILTERS)[number]
 
+const FILTER_LABELS: Record<StatusFilter, string> = {
+  all: 'All',
+  pending: 'Pending',
+  sent: 'Sent',
+  failed: 'Failed',
+  redeemed: 'Redeemed'
+}
+
 interface QueueData {
   entries: WaitlistEntry[]
   total: number
@@ -38,24 +60,30 @@ const PAGE_SIZE = 50
 
 // A row can be stuck in 'sending' if the server died mid-send. Matches
 // the 5-minute stale-claim window in prepare_waitlist_invite (migration
-// 039): any shorter and RETRY would appear while the server still
-// answers 409 in_progress for the same row.
+// 039): any shorter and the retry action would appear while the server
+// still answers 409 in_progress for the same row.
 const STALE_SENDING_MS = 5 * 60_000
 
-const chipCls = 'rounded border px-2 py-0.5 text-[10px] tracking-[0.2em]'
+const COLUMNS: readonly AdminTableColumn[] = [
+  { label: 'Email', className: 'w-full' },
+  { label: 'Joined' },
+  { label: 'Status' },
+  { label: <span className="sr-only">Action</span>, align: 'right' }
+]
 
-function entryChip(status: WaitlistEntry['status']): { label: string; className: string } {
+/** Queue status → chip (color means state). */
+function waitlistChipMeta(status: WaitlistEntry['status']): AdminChipMeta {
   switch (status) {
     case 'pending':
-      return { label: 'PENDING', className: 'text-zinc-400 border-zinc-500/30' }
+      return { label: 'PENDING', tone: 'neutral' }
     case 'sending':
-      return { label: 'SENDING', className: 'animate-pulse text-amber-300 border-amber-400/30' }
+      return { label: 'SENDING', tone: 'warn' }
     case 'sent':
-      return { label: 'SENT', className: 'text-emerald-400 border-emerald-500/30' }
+      return { label: 'SENT', tone: 'good' }
     case 'failed':
-      return { label: 'FAILED', className: 'text-red-400 border-red-500/30' }
+      return { label: 'FAILED', tone: 'danger' }
     case 'redeemed':
-      return { label: 'REDEEMED', className: 'text-sky-300 border-sky-400/30' }
+      return { label: 'REDEEMED', tone: 'info' }
     default: {
       const exhaustive: never = status
       return exhaustive
@@ -69,10 +97,10 @@ function staleSending(entry: WaitlistEntry): boolean {
   return !Number.isFinite(age) || age > STALE_SENDING_MS
 }
 
-function rowAction(entry: WaitlistEntry): 'SEND INVITE' | 'RETRY' | null {
-  if (entry.status === 'pending') return 'SEND INVITE'
-  if (entry.status === 'failed') return 'RETRY'
-  if (entry.status === 'sending' && staleSending(entry)) return 'RETRY'
+function rowAction(entry: WaitlistEntry): 'Send invite' | 'Retry' | null {
+  if (entry.status === 'pending') return 'Send invite'
+  if (entry.status === 'failed') return 'Retry'
+  if (entry.status === 'sending' && staleSending(entry)) return 'Retry'
   return null
 }
 
@@ -82,24 +110,56 @@ function emptyLabel(filter: StatusFilter, query: string): string {
   return filter === 'all' ? 'The waitlist is empty.' : `No ${scope}.`
 }
 
-const filterChipCls = (active: boolean) =>
-  `rounded-md border px-3 py-1.5 text-[10px] tracking-[0.2em] transition-colors ${
-    active
-      ? 'border-accent/50 text-accent'
-      : 'border-white/10 text-zinc-500 hover:text-zinc-200'
-  }`
+/** Per-status trail under the email — sent/code, redeemed, attempts, errors. */
+function entryDetail(entry: WaitlistEntry): ReactNode {
+  switch (entry.status) {
+    case 'pending':
+      return null
+    case 'sending':
+      return (
+        <>
+          Attempt {entry.attemptCount} started {formatDate(entry.lastAttemptAt)}
+        </>
+      )
+    case 'sent':
+      return (
+        <>
+          Sent {formatDate(entry.sentAt)}
+          {entry.code && (
+            <>
+              {' '}
+              · code <span className="text-[color:var(--st-text)]">{entry.code}</span>
+            </>
+          )}
+        </>
+      )
+    case 'failed':
+      return (
+        <>
+          Attempts {entry.attemptCount}
+          {entry.lastError && (
+            <>
+              {' '}
+              · <span className="text-[color:var(--st-danger)]">{entry.lastError}</span>
+            </>
+          )}
+        </>
+      )
+    case 'redeemed':
+      return (
+        <>
+          Redeemed {formatDate(entry.redeemedAt)}
+          {entry.redeemedBy && <> · by @{entry.redeemedBy}</>}
+        </>
+      )
+    default: {
+      const exhaustive: never = entry.status
+      return exhaustive
+    }
+  }
+}
 
-const sendBtnCls = (armed: boolean) =>
-  `rounded-md border px-3 py-1.5 text-[10px] tracking-[0.2em] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-    armed
-      ? 'border-amber-400/60 bg-amber-950/40 text-amber-200 hover:bg-amber-950/60'
-      : 'border-emerald-500/40 text-emerald-300 hover:bg-emerald-950/40'
-  }`
-
-const pageBtnCls =
-  'rounded-md border border-white/10 px-3 py-1.5 text-[10px] tracking-[0.2em] text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40'
-
-function WaitlistQueue() {
+export default function AdminWaitlistPage() {
   const router = useRouter()
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [searchInput, setSearchInput] = useState('')
@@ -130,8 +190,8 @@ function WaitlistQueue() {
 
   // Refetches keep the current list on screen (a send updates its row in
   // place, then this refreshes counts quietly); only the very first load
-  // shows the LOADING… placeholder. The sequence guard drops responses
-  // that a newer request has superseded.
+  // shows the skeleton. The sequence guard drops responses that a newer
+  // request has superseded.
   const load = useCallback(async () => {
     const seq = ++loadSeq.current
     setLoading(true)
@@ -170,7 +230,7 @@ function WaitlistQueue() {
   }, [filter, page, query, router])
 
   useEffect(() => {
-    load()
+    void load()
   }, [load])
 
   // Sending the last row of a page can shrink the page count under us.
@@ -258,7 +318,7 @@ function WaitlistQueue() {
     }
   }
 
-  /** First click arms CONFIRM?, second fires; the arm decays after 3s. */
+  /** First click arms Confirm?, second fires; the arm decays after 3s. */
   const onAction = (entry: WaitlistEntry) => {
     if (sendingId !== null) return
     if (armedId === entry.id) {
@@ -285,170 +345,167 @@ function WaitlistQueue() {
   const from = total === 0 ? 0 : (page - 1) * pageSize + 1
   const to = Math.min(page * pageSize, total)
 
+  const filterOptions = FILTERS.map((value) => ({
+    value,
+    label: data ? `${FILTER_LABELS[value]} (${data.counts[value]})` : FILTER_LABELS[value]
+  }))
+
   return (
-    <>
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Waitlist queue</h1>
-        <p className="text-sm text-gray-400">
-          Launch waitlist signups, oldest first — send private beta invites one at a time
-          and track each one from pending through sent, failed or redeemed.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <AdminPageHeader
+        title="Waitlist queue"
+        description="Launch waitlist signups, oldest first — send private beta invites one at a time and track each one from pending through sent, failed or redeemed."
+      />
 
       {emailUnconfigured && (
-        <p className="rounded-md border border-red-500/30 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+        <AdminNotice tone="warning">
           Email delivery is not configured — add RESEND_API_KEY and INVITE_EMAIL_FROM to the
           server env. Sends will fail until then.
-        </p>
+        </AdminNotice>
       )}
 
       {forbidden ? (
-        <section className="rounded-md border border-white/10 bg-zinc-950/80 p-5 space-y-2">
-          <h2 className="text-[10px] tracking-[0.25em] text-zinc-500">OWNER_ONLY</h2>
-          <p className="text-xs text-zinc-500">
-            The waitlist API only answers the owner — there is nothing to show here.
-          </p>
-        </section>
+        <AdminNotice tone="info">
+          Owner only — the waitlist API only answers the owner, so there is nothing to show
+          here.
+        </AdminNotice>
       ) : (
-        <section className="rounded-md border border-white/10 bg-zinc-950/80 p-5 space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            {FILTERS.map((value) => (
-              <button
-                key={value}
-                onClick={() => {
-                  setFilter(value)
-                  setPage(1)
-                }}
-                className={filterChipCls(filter === value)}
-              >
-                {value.toUpperCase()}
-                {data ? ` (${data.counts[value]})` : ''}
-              </button>
-            ))}
-            {loading && data && (
-              <span className="ml-auto text-[10px] tracking-[0.2em] text-zinc-600">
-                LOADING…
-              </span>
-            )}
+        <>
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="st-no-scrollbar min-w-0 max-w-full overflow-x-auto">
+                <SegmentedControl
+                  options={filterOptions}
+                  value={filter}
+                  onChange={(value) => {
+                    setFilter(value)
+                    setPage(1)
+                  }}
+                  aria-label="Filter the waitlist by status"
+                />
+              </div>
+              {loading && data && (
+                <span
+                  role="status"
+                  className="inline-flex items-center text-[color:var(--st-text-faint)]"
+                >
+                  <svg
+                    aria-hidden
+                    viewBox="0 0 16 16"
+                    className="h-3.5 w-3.5 animate-spin"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.75"
+                    strokeLinecap="round"
+                  >
+                    <path d="M14.25 8A6.25 6.25 0 1 1 8 1.75" />
+                  </svg>
+                  <span className="sr-only">Refreshing</span>
+                </span>
+              )}
+            </div>
+            <div className="max-w-md">
+              <TextField
+                label="Search by email"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="name@example.com"
+              />
+            </div>
           </div>
 
-          <input
-            type="text"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="search by email…"
-            className="w-full rounded-md border border-white/10 bg-black/50 px-3 py-2 text-sm text-white placeholder:text-zinc-700 focus:border-accent/50 focus:outline-none"
-          />
-
-          {error && <p className="text-xs text-red-400">{error}</p>}
-
-          {loading && !data ? (
-            <p className="text-xs tracking-[0.2em] text-zinc-500">LOADING…</p>
-          ) : !data ? null : !loading && data.entries.length === 0 ? (
-            <p className="text-xs text-zinc-600">{emptyLabel(filter, query)}</p>
-          ) : (
-            <ul className="divide-y divide-white/5">
-              {data.entries.map((entry) => {
-                const chip = entryChip(entry.status)
-                const action = rowAction(entry)
-                const inFlight = sendingId === entry.id
-                const armed = armedId === entry.id
-                const rowError = rowErrors[entry.id]
-                return (
-                  <li key={entry.id} className="py-3 space-y-1.5">
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm text-zinc-100">{entry.email}</div>
-                        <div className="text-xs text-zinc-600">
-                          joined {formatDate(entry.createdAt)}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`${chipCls} ${chip.className}`}>{chip.label}</span>
-                        {entry.status === 'redeemed' && entry.redeemedBy && (
-                          <span className="text-xs text-sky-300/80">
-                            by @{entry.redeemedBy}
-                          </span>
-                        )}
-                        {action && (
-                          <button
-                            disabled={sendingId !== null}
-                            onClick={() => onAction(entry)}
-                            onBlur={() => disarm(entry.id)}
-                            className={sendBtnCls(armed)}
-                          >
-                            {inFlight ? 'SENDING…' : armed ? 'CONFIRM?' : action}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {entry.status === 'sent' && (
-                      <p className="text-xs text-zinc-500">
-                        sent {formatDate(entry.sentAt)}
-                        {entry.code && (
-                          <>
-                            {' '}
-                            · code{' '}
-                            <span className="tracking-[0.15em] text-accent">{entry.code}</span>
-                          </>
-                        )}
-                      </p>
-                    )}
-                    {entry.status === 'redeemed' && (
-                      <p className="text-xs text-zinc-500">
-                        redeemed {formatDate(entry.redeemedAt)}
-                      </p>
-                    )}
-                    {entry.status === 'sending' && (
-                      <p className="text-xs text-zinc-500">
-                        attempt {entry.attemptCount} started {formatDate(entry.lastAttemptAt)}
-                      </p>
-                    )}
-                    {entry.status === 'failed' && (
-                      <p className="truncate text-xs text-zinc-500">
-                        attempts {entry.attemptCount}
-                        {entry.lastError && (
-                          <>
-                            {' '}
-                            · <span className="text-red-400/90">{entry.lastError}</span>
-                          </>
-                        )}
-                      </p>
-                    )}
-                    {rowError && <p className="text-xs text-red-400">{rowError}</p>}
-                  </li>
-                )
-              })}
-            </ul>
+          {error && (
+            <AdminNotice tone="danger">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span>{error}</span>
+                <AdminButton variant="danger" onClick={() => void load()}>
+                  Retry
+                </AdminButton>
+              </div>
+            </AdminNotice>
           )}
 
-          {data && total > 0 && (
-            <div className="flex flex-wrap items-center gap-3 border-t border-white/5 pt-3">
-              <button
-                disabled={loading || page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className={pageBtnCls}
-              >
-                PREV
-              </button>
-              <button
-                disabled={loading || page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-                className={pageBtnCls}
-              >
-                NEXT
-              </button>
-              <span className="ml-auto text-xs text-zinc-600">
-                showing {from}–{to} of {total}
-              </span>
-            </div>
+          {(loading || data) && (
+            <AdminSection flush>
+              {loading && !data ? (
+                <AdminSkeletonList rows={6} />
+              ) : !data ? null : !loading && data.entries.length === 0 ? (
+                <AdminEmpty title={emptyLabel(filter, query)} />
+              ) : (
+                <AdminTable columns={COLUMNS}>
+                  {data.entries.map((entry) => {
+                    const chip = waitlistChipMeta(entry.status)
+                    const action = rowAction(entry)
+                    const inFlight = sendingId === entry.id
+                    const armed = armedId === entry.id
+                    const rowError = rowErrors[entry.id]
+                    const detail = entryDetail(entry)
+                    return (
+                      <tr key={entry.id}>
+                        <td>
+                          <div className="break-all font-data text-[13px] leading-5 text-[color:var(--st-text)]">
+                            {entry.email}
+                          </div>
+                          {detail && (
+                            <div className="mt-0.5 break-words font-data text-[12px] leading-4 text-[color:var(--st-text-muted)]">
+                              {detail}
+                            </div>
+                          )}
+                          {rowError && (
+                            <div className="mt-0.5 break-words text-[12px] leading-4 text-[color:var(--st-danger)]">
+                              {rowError}
+                            </div>
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap font-data text-[12px] text-[color:var(--st-text-muted)]">
+                          {formatDate(entry.createdAt)}
+                        </td>
+                        <td>
+                          <AdminChip tone={chip.tone}>{chip.label}</AdminChip>
+                        </td>
+                        <td className="text-right">
+                          {action && (
+                            <AdminButton
+                              variant={armed ? 'warn' : 'good'}
+                              pending={inFlight}
+                              disabled={sendingId !== null}
+                              onClick={() => onAction(entry)}
+                              onBlur={() => disarm(entry.id)}
+                            >
+                              {inFlight ? 'Sending…' : armed ? 'Confirm?' : action}
+                            </AdminButton>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </AdminTable>
+              )}
+              {data && total > 0 && (
+                <div className="flex flex-wrap items-center gap-2 border-t border-[color:var(--st-border)] px-4 py-2.5">
+                  <AdminButton
+                    variant="ghost"
+                    disabled={loading || page <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    Previous
+                  </AdminButton>
+                  <AdminButton
+                    variant="ghost"
+                    disabled={loading || page >= totalPages}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Next
+                  </AdminButton>
+                  <span className="ml-auto text-[12px] tabular-nums text-[color:var(--st-text-muted)]">
+                    Showing {from}–{to} of {total}
+                  </span>
+                </div>
+              )}
+            </AdminSection>
           )}
-        </section>
+        </>
       )}
-    </>
+    </div>
   )
-}
-
-export default function AdminWaitlistPage() {
-  return <AdminShell section="WAITLIST">{() => <WaitlistQueue />}</AdminShell>
 }

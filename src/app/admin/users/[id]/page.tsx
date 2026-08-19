@@ -1,23 +1,39 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import {
-  AdminShell,
+  AdminAvatar,
+  AdminButton,
+  AdminChip,
+  AdminEmpty,
+  AdminFactGrid,
+  AdminList,
+  AdminListRow,
+  AdminNotice,
+  AdminSection,
+  AdminSkeletonList,
+  ReasonDialog,
   formatDate,
-  staffChip,
-  statusChip,
+  staffChipMeta,
+  statusChipMeta,
+  tierChipMeta,
+  useAdmin,
+  type AdminChipMeta,
   type StaffMe
-} from '@/components/admin/AdminShell'
-import { ReasonDialog } from '@/components/admin/ReasonDialog'
+} from '@/components/admin'
+import { TextArea } from '@/components/settings/Field'
+import { Skeleton } from '@/components/settings/Skeleton'
 import { getPlate, PLATES } from '@/lib/cosmetics/plates'
 
 // One user's moderation dossier plus every action staff can take on
 // them. Each mutation opens the reason dialog; the API enforces the
 // same guardrails the UI reflects (no self-targets, owners untouchable,
 // moderators only actionable by the owner), so hiding a button here is
-// cosmetic — the server is the gate.
+// cosmetic — the server is the gate. Layout: identity header, then
+// Moderation + Team review on the left and Entitlements + Staff access
+// on the right (lg), with the audit history full-width below.
 
 interface UserDetail {
   userId: number
@@ -77,42 +93,112 @@ type DialogSpec =
   | { kind: 'staff'; action: 'promote' | 'demote' }
   | { kind: 'team_reject' }
 
-const chipCls = 'rounded border px-2 py-0.5 text-[10px] tracking-[0.2em]'
+const QUIET_LINK =
+  'text-[color:var(--st-text-muted)] transition-colors duration-150 hover:text-[color:var(--st-text)]'
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+/** Team review status → chip; not a closed union server-side, so this
+ *  maps the two decided states and lets anything else read as pending. */
+function teamReviewChipMeta(status: string): AdminChipMeta {
+  if (status === 'approved') return { label: 'APPROVED', tone: 'good' }
+  if (status === 'rejected') return { label: 'REJECTED', tone: 'danger' }
+  return { label: status.toUpperCase(), tone: 'warn' }
+}
+
+/** `Overview / {current}` — the frame does not provide breadcrumbs, so
+ *  the dossier renders its own above the identity panel. */
+function Breadcrumb({ current }: { current: ReactNode }) {
   return (
-    <section className="rounded-md border border-white/10 bg-zinc-950/80 p-5 space-y-4">
-      <h2 className="text-[10px] tracking-[0.25em] text-zinc-500">{title}</h2>
-      {children}
-    </section>
+    <nav
+      aria-label="Breadcrumb"
+      className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] leading-5"
+    >
+      <Link href="/admin" className={QUIET_LINK}>
+        Overview
+      </Link>
+      <span aria-hidden className="text-[color:var(--st-text-faint)]">
+        /
+      </span>
+      {current}
+    </nav>
   )
 }
 
-function Fact({ label, value }: { label: string; value: React.ReactNode }) {
+/** Sub-heading inside a section panel (sentence case, quiet). */
+function SubHeading({ children, count }: { children: ReactNode; count?: number }) {
+  return (
+    <h3 className="text-[13px] font-medium leading-5 text-[color:var(--st-text)]">
+      {children}
+      {count !== undefined && (
+        <span className="ml-2 font-data text-[11px] font-medium tabular-nums text-[color:var(--st-text-faint)]">
+          {count}
+        </span>
+      )}
+    </h3>
+  )
+}
+
+/** Collapsed old/new values on a history row — JSON stays behind the
+ *  disclosure instead of dumping into the line. */
+function DiffDetails({
+  oldValues,
+  newValues
+}: {
+  oldValues: Record<string, unknown> | null
+  newValues: Record<string, unknown> | null
+}) {
+  return (
+    <details className="mt-1">
+      <summary className="w-fit cursor-pointer select-none text-[11.5px] leading-4 text-[color:var(--st-text-muted)] transition-colors duration-150 hover:text-[color:var(--st-text)]">
+        Diff
+      </summary>
+      <div className="mt-1.5 space-y-1.5">
+        {oldValues && <DiffBlock label="Old" value={oldValues} />}
+        {newValues && <DiffBlock label="New" value={newValues} />}
+      </div>
+    </details>
+  )
+}
+
+function DiffBlock({ label, value }: { label: string; value: Record<string, unknown> }) {
   return (
     <div>
-      <div className="text-[9px] tracking-[0.3em] text-zinc-600">{label}</div>
-      <div className="mt-0.5 text-xs text-zinc-300">{value}</div>
+      <span className="font-data text-[10px] font-medium text-[color:var(--st-text-faint)]">
+        {label}
+      </span>
+      <pre className="mt-0.5 overflow-x-auto whitespace-pre-wrap break-all rounded-md border border-[color:var(--st-border)] bg-[color:var(--st-canvas)] px-2.5 py-2 font-data text-[11px] leading-4 text-[color:var(--st-text-muted)]">
+        {JSON.stringify(value, null, 2)}
+      </pre>
     </div>
   )
 }
 
-function actionButtonCls(tone: 'danger' | 'warn' | 'good' | 'neutral'): string {
-  const base = 'rounded-md border px-3 py-1.5 text-[10px] tracking-[0.2em] transition-colors disabled:cursor-not-allowed disabled:opacity-40'
-  switch (tone) {
-    case 'danger':
-      return `${base} border-red-500/40 text-red-300 hover:bg-red-950/40`
-    case 'warn':
-      return `${base} border-amber-500/40 text-amber-300 hover:bg-amber-950/40`
-    case 'good':
-      return `${base} border-emerald-500/40 text-emerald-300 hover:bg-emerald-950/40`
-    case 'neutral':
-      return `${base} border-white/15 text-zinc-300 hover:bg-white/5`
-    default: {
-      const exhaustive: never = tone
-      return exhaustive
-    }
-  }
+/** Identity-panel-shaped placeholder so the page does not jump when the
+ *  dossier lands. */
+function DossierSkeleton() {
+  return (
+    <div aria-hidden className="space-y-6">
+      <AdminSection>
+        <div className="flex flex-wrap items-center gap-4">
+          <Skeleton className="h-[52px] w-[52px] shrink-0 rounded-full" />
+          <div className="min-w-0 flex-1">
+            <Skeleton className="h-5 w-44 max-w-full" />
+            <Skeleton className="mt-2 h-3.5 w-56 max-w-full" />
+          </div>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 border-t border-[color:var(--st-border)] pt-4 sm:grid-cols-3 lg:grid-cols-4">
+          {Array.from({ length: 8 }, (_, index) => (
+            <div key={index}>
+              <Skeleton className="h-2.5 w-16" />
+              <Skeleton className="mt-1.5 h-3.5 w-24 max-w-full" />
+            </div>
+          ))}
+        </div>
+      </AdminSection>
+      <AdminSection flush>
+        <AdminSkeletonList rows={4} />
+      </AdminSection>
+    </div>
+  )
 }
 
 function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
@@ -229,25 +315,25 @@ function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
         switch (action) {
           case 'ban':
             return {
-              title: `BAN ${handle}`,
+              title: `Ban ${handle}`,
               description:
                 'Destroys every live session, blocks future sign-ins and hides the account from all public surfaces. Reversible via unban.',
-              confirmLabel: 'BAN USER',
+              confirmLabel: 'Ban user',
               danger: true
             }
           case 'suspend':
             return {
-              title: `SUSPEND ${handle}`,
+              title: `Suspend ${handle}`,
               description:
                 'Soft state: they keep access, but disappear from the leaderboard and user search until restored.',
-              confirmLabel: 'SUSPEND',
+              confirmLabel: 'Suspend',
               danger: true
             }
           case 'unban':
             return {
-              title: `RESTORE ${handle}`,
+              title: `Restore ${handle}`,
               description: 'Sets the account back to active and lifts every restriction.',
-              confirmLabel: 'RESTORE',
+              confirmLabel: 'Restore',
               danger: false
             }
           default: {
@@ -258,16 +344,16 @@ function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
       }
       case 'moderate':
         return {
-          title: `CLEAR CONTENT — ${handle}`,
+          title: `Clear content — ${handle}`,
           description: `Wipes: ${dialog.fields.join(', ')}. The removed values are preserved in the audit log.`,
-          confirmLabel: 'CLEAR SELECTED',
+          confirmLabel: 'Clear selected',
           danger: true
         }
       case 'notes':
         return {
-          title: `STAFF NOTES — ${handle}`,
+          title: `Staff notes — ${handle}`,
           description: 'Replaces the internal notes on this account. Never shown publicly.',
-          confirmLabel: 'SAVE NOTES',
+          confirmLabel: 'Save notes',
           danger: false
         }
       case 'entitlement': {
@@ -275,31 +361,31 @@ function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
         switch (action) {
           case 'grant_pro':
             return {
-              title: `GRANT PRO — ${handle}`,
+              title: `Grant Pro — ${handle}`,
               description:
                 'Runs the same fulfillment as a paid subscription: tier PRO, premium metadata and the welcome notification.',
-              confirmLabel: 'GRANT PRO',
+              confirmLabel: 'Grant Pro',
               danger: false
             }
           case 'revoke_pro':
             return {
-              title: `REVOKE PRO — ${handle}`,
+              title: `Revoke Pro — ${handle}`,
               description: 'Drops the tier back to FREE, mirroring a subscription revocation.',
-              confirmLabel: 'REVOKE PRO',
+              confirmLabel: 'Revoke Pro',
               danger: true
             }
           case 'grant_plate':
             return {
-              title: `GRANT PLATE — ${handle}`,
+              title: `Grant plate — ${handle}`,
               description: `Grants "${getPlate(dialog.plateId ?? '')?.name ?? dialog.plateId}" as an admin grant (no order attached).`,
-              confirmLabel: 'GRANT PLATE',
+              confirmLabel: 'Grant plate',
               danger: false
             }
           case 'revoke_plate':
             return {
-              title: `REVOKE PLATE — ${handle}`,
+              title: `Revoke plate — ${handle}`,
               description: `Removes "${getPlate(dialog.plateId ?? '')?.name ?? dialog.plateId}" from their inventory. The audit log keeps how it was acquired.`,
-              confirmLabel: 'REVOKE PLATE',
+              confirmLabel: 'Revoke plate',
               danger: true
             }
           default: {
@@ -310,10 +396,10 @@ function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
       }
       case 'team_reject':
         return {
-          title: `REJECT TEAM — ${handle}`,
+          title: `Reject team — ${handle}`,
           description:
             'Marks the team review as rejected and reverts the tier to FREE. Billing is untouched: cancel and refund the Polar subscription manually.',
-          confirmLabel: 'REJECT TEAM',
+          confirmLabel: 'Reject team',
           danger: true
         }
       case 'staff': {
@@ -321,17 +407,17 @@ function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
         switch (action) {
           case 'promote':
             return {
-              title: `PROMOTE ${handle}`,
+              title: `Promote ${handle}`,
               description:
                 'Grants moderator access: user moderation and the audit log. No entitlement or staff powers.',
-              confirmLabel: 'PROMOTE',
+              confirmLabel: 'Promote',
               danger: false
             }
           case 'demote':
             return {
-              title: `DEMOTE ${handle}`,
+              title: `Demote ${handle}`,
               description: 'Removes moderator access immediately.',
-              confirmLabel: 'DEMOTE',
+              confirmLabel: 'Demote',
               danger: true
             }
           default: {
@@ -374,29 +460,55 @@ function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
 
   if (loadError) {
     return (
-      <div className="rounded-md border border-red-500/30 bg-red-950/20 p-5 text-sm text-red-300">
-        {loadError}
+      <div className="space-y-6">
+        <Breadcrumb
+          current={
+            <span className="font-data text-[11.5px] text-[color:var(--st-text-muted)]">
+              #{userId}
+            </span>
+          }
+        />
+        <AdminNotice tone="danger">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{loadError}</span>
+            <button
+              type="button"
+              onClick={load}
+              className="font-medium underline underline-offset-2"
+            >
+              Retry
+            </button>
+          </div>
+        </AdminNotice>
       </div>
     )
   }
   if (!user) {
-    return <p className="text-sm text-zinc-500 tracking-[0.2em]">LOADING…</p>
+    return (
+      <div className="space-y-6">
+        <Breadcrumb current={<Skeleton className="h-3.5 w-32" />} />
+        <DossierSkeleton />
+      </div>
+    )
   }
 
-  const status = statusChip(user.status)
-  const staff = staffChip(user.staff_role)
+  const status = statusChipMeta(user.status)
+  const staff = staffChipMeta(user.staff_role)
+  const tier = tierChipMeta(user.tier)
+  const teamChip =
+    user.team_review_status !== null ? teamReviewChipMeta(user.team_review_status) : null
   const socialsEntries = Object.entries(user.profile.socials).filter(
     (entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].length > 0
   )
 
   const contentRows: { field: ModeratableField; label: string; value: string | null }[] = [
-    { field: 'bio', label: 'BIO', value: user.profile.bio },
-    { field: 'location', label: 'LOCATION', value: user.profile.location },
-    { field: 'website', label: 'WEBSITE', value: user.profile.website },
-    { field: 'banner', label: 'BANNER', value: user.profile.banner_image },
+    { field: 'bio', label: 'Bio', value: user.profile.bio },
+    { field: 'location', label: 'Location', value: user.profile.location },
+    { field: 'website', label: 'Website', value: user.profile.website },
+    { field: 'banner', label: 'Banner', value: user.profile.banner_image },
     {
       field: 'socials',
-      label: 'SOCIALS',
+      label: 'Socials',
       value: socialsEntries.length
         ? socialsEntries.map(([key, value]) => `${key}: ${value}`).join(' · ')
         : null
@@ -417,109 +529,65 @@ function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
   )
   const grantablePlates = PLATES.filter((plate) => !ownedPlateIds.has(plate.id))
 
-  return (
-    <>
-      {/* identity */}
-      <section className="rounded-md border border-white/10 bg-zinc-950/80 p-5 space-y-4">
-        <div className="flex flex-wrap items-center gap-4">
-          {user.profile_image ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={user.profile_image}
-              alt={user.display_name}
-              className="h-14 w-14 rounded-full border border-zinc-800 object-cover"
-            />
-          ) : (
-            <div className="h-14 w-14 rounded-full border border-zinc-800 bg-zinc-900" />
-          )}
-          <div className="min-w-0">
-            <h1 className="text-xl font-semibold tracking-tight truncate">{user.display_name}</h1>
-            <div className="text-sm text-zinc-500">
-              @{user.username ?? '—'} · #{user.userId}
-              {user.username && (
-                <Link
-                  href={`/u/${encodeURIComponent(user.username)}`}
-                  className="ml-3 text-[10px] tracking-[0.2em] text-zinc-500 hover:text-zinc-200 transition-colors"
-                >
-                  PUBLIC PROFILE →
-                </Link>
-              )}
-            </div>
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            {staff && <span className={`${chipCls} ${staff.className}`}>{staff.label}</span>}
-            <span className={`${chipCls} border-zinc-600/40 text-zinc-400`}>{user.tier}</span>
-            <span className={`${chipCls} ${status.className}`}>{status.label}</span>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <Fact label="CREATED" value={formatDate(user.created_at)} />
-          <Fact label="LAST LOGIN" value={formatDate(user.last_login)} />
-          <Fact label="LAST SYNC" value={formatDate(user.last_extension_sync)} />
-          <Fact label="ONBOARDED" value={user.onboarded_at ? formatDate(user.onboarded_at) : 'No'} />
-          <Fact label="SCORE" value={user.total_score.toLocaleString()} />
-          <Fact label="LIVE SESSIONS" value={user.active_sessions} />
-          <Fact label="PRIVATE" value={user.profile.is_private ? 'Yes' : 'No'} />
-          <Fact label="ROLE BADGE" value={user.role ?? '—'} />
-        </div>
-        {guardMessage && (
-          <p className="rounded-md border border-amber-500/20 bg-amber-950/20 px-3 py-2 text-xs text-amber-300">
-            {guardMessage}
-          </p>
-        )}
-      </section>
-
-      {/* moderation */}
-      {actionable && (
-        <Section title="MODERATION">
+  const moderationSection = actionable && (
+    <AdminSection title="Moderation">
+      <div className="space-y-4">
+        <div>
           <div className="flex flex-wrap items-center gap-2">
             {user.status !== 'banned' && (
               <>
                 {user.status !== 'suspended' && (
-                  <button
+                  <AdminButton
+                    variant="warn"
                     onClick={() => setDialog({ kind: 'status', action: 'suspend' })}
-                    className={actionButtonCls('warn')}
                   >
-                    SUSPEND
-                  </button>
+                    Suspend
+                  </AdminButton>
                 )}
                 {user.status === 'suspended' && (
-                  <button
+                  <AdminButton
+                    variant="good"
                     onClick={() => setDialog({ kind: 'status', action: 'unban' })}
-                    className={actionButtonCls('good')}
                   >
-                    RESTORE
-                  </button>
+                    Restore
+                  </AdminButton>
                 )}
-                <button
+                <AdminButton
+                  variant="danger"
                   onClick={() => setDialog({ kind: 'status', action: 'ban' })}
-                  className={actionButtonCls('danger')}
                 >
-                  BAN
-                </button>
+                  Ban
+                </AdminButton>
               </>
             )}
             {user.status === 'banned' && (
-              <button
+              <AdminButton
+                variant="good"
                 onClick={() => setDialog({ kind: 'status', action: 'unban' })}
-                className={actionButtonCls('good')}
               >
-                UNBAN
-              </button>
+                Unban
+              </AdminButton>
             )}
-            <span className="text-[10px] text-zinc-600">
-              Ban: blocks sign-in, kills sessions, hides everywhere. Suspend: hides from
-              leaderboard and search only.
-            </span>
           </div>
+          <p className="mt-2 text-[12px] leading-4 text-[color:var(--st-text-muted)]">
+            Ban blocks sign-in, kills sessions and hides the account everywhere. Suspend only
+            hides them from the leaderboard and search.
+          </p>
+        </div>
 
-          <div className="space-y-2 border-t border-white/5 pt-4">
-            <div className="text-[9px] tracking-[0.3em] text-zinc-600">PROFILE CONTENT</div>
+        <div className="border-t border-[color:var(--st-border)] pt-4">
+          <SubHeading>Profile content</SubHeading>
+          <p className="mt-0.5 text-[12px] leading-4 text-[color:var(--st-text-muted)]">
+            Select fields to wipe — the removed values are preserved in the audit log.
+          </p>
+          <div className="mt-2 space-y-1">
             {contentRows.map((row) => (
               <label
                 key={row.field}
-                className={`flex items-start gap-3 rounded-md px-2 py-1.5 text-xs ${
-                  row.value ? 'cursor-pointer hover:bg-white/[0.03]' : 'opacity-40'
+                className={`flex items-start gap-3 rounded-md px-2 py-1.5 text-[12.5px] leading-5 ${
+                  row.value
+                    ? 'cursor-pointer transition-colors duration-150 hover:bg-[color:var(--st-panel-hover)]'
+                    : 'opacity-40'
                 }`}
               >
                 <input
@@ -527,95 +595,160 @@ function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
                   disabled={!row.value}
                   checked={selectedFields.has(row.field)}
                   onChange={() => toggleField(row.field)}
-                  className="mt-0.5 accent-red-400"
+                  className="mt-1 accent-[color:var(--st-danger)]"
                 />
-                <span className="w-20 shrink-0 text-[9px] tracking-[0.25em] text-zinc-500 pt-0.5">
+                <span className="w-16 shrink-0 text-[12px] leading-5 text-[color:var(--st-text-muted)]">
                   {row.label}
                 </span>
-                <span className="min-w-0 break-words text-zinc-300">{row.value ?? 'empty'}</span>
+                <span className="min-w-0 break-words text-[color:var(--st-text)]">
+                  {row.value ?? <span className="text-[color:var(--st-text-faint)]">Empty</span>}
+                </span>
               </label>
             ))}
-            <button
+          </div>
+          <div className="mt-3">
+            <AdminButton
+              variant="danger"
               disabled={selectedFields.size === 0}
               onClick={() => setDialog({ kind: 'moderate', fields: Array.from(selectedFields) })}
-              className={actionButtonCls('danger')}
             >
-              CLEAR SELECTED ({selectedFields.size})
-            </button>
+              Clear selected ({selectedFields.size})
+            </AdminButton>
           </div>
+        </div>
 
-          <div className="space-y-2 border-t border-white/5 pt-4">
-            <div className="text-[9px] tracking-[0.3em] text-zinc-600">STAFF NOTES (INTERNAL)</div>
-            <textarea
-              value={notesDraft}
-              onChange={(e) => setNotesDraft(e.target.value.slice(0, 2000))}
-              rows={3}
-              placeholder="context for the next moderator…"
-              className="w-full resize-none rounded-md border border-white/10 bg-black/50 px-3 py-2 text-sm text-white placeholder:text-zinc-700 focus:border-accent/50 focus:outline-none"
-            />
-            <button
+        <div className="border-t border-[color:var(--st-border)] pt-4">
+          <TextArea
+            label="Staff notes"
+            description="Internal context for the next moderator — never shown publicly."
+            value={notesDraft}
+            onChange={(e) => setNotesDraft(e.target.value.slice(0, 2000))}
+            maxLength={2000}
+            rows={3}
+            placeholder="Context for the next moderator…"
+          />
+          <div className="mt-3">
+            <AdminButton
+              variant="primary"
               disabled={notesDraft.trim() === (user.admin_notes ?? '')}
               onClick={() => setDialog({ kind: 'notes', notes: notesDraft })}
-              className={actionButtonCls('neutral')}
             >
-              SAVE NOTES
-            </button>
+              Save notes
+            </AdminButton>
           </div>
-        </Section>
-      )}
+        </div>
+      </div>
+    </AdminSection>
+  )
 
-      {/* entitlements — owner only */}
-      {actionable && me.role === 'owner' && (
-        <Section title="ENTITLEMENTS (OWNER)">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-zinc-400">
-              Tier: <span className="text-zinc-100">{user.tier}</span>
+  // Visible whenever the account ever bought a team plan; the decision
+  // buttons are owner-only shortcuts into the same API the /admin/teams
+  // queue uses.
+  const teamReviewSection = user.team_review_status !== null && (
+    <AdminSection
+      title="Team review"
+      action={
+        <Link href="/admin/teams" className={QUIET_LINK}>
+          Review queue
+        </Link>
+      }
+    >
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {teamChip && <AdminChip tone={teamChip.tone}>{teamChip.label}</AdminChip>}
+          {user.team_review_status === 'approved' && (
+            <span className="text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+              approved{' '}
+              <span className="font-data text-[11.5px]">{formatDate(user.team_approved_at)}</span>
             </span>
-            {/* Team accounts never get the Pro buttons — their tier is
-                owned by the TEAM REVIEW section below (the API refuses
-                grant_pro/revoke_pro on TEAM targets too). */}
-            {user.tier === 'TEAM' ? (
-              <span className="text-[10px] text-zinc-600">
-                Team plan — managed from the TEAM REVIEW section below.
-              </span>
-            ) : user.tier !== 'PRO' ? (
-              <button
-                onClick={() => setDialog({ kind: 'entitlement', action: 'grant_pro' })}
-                className={actionButtonCls('good')}
-              >
-                GRANT PRO
-              </button>
-            ) : (
-              <button
-                onClick={() => setDialog({ kind: 'entitlement', action: 'revoke_pro' })}
-                className={actionButtonCls('danger')}
-              >
-                REVOKE PRO
-              </button>
-            )}
-          </div>
-
-          <div className="space-y-2 border-t border-white/5 pt-4">
-            <div className="text-[9px] tracking-[0.3em] text-zinc-600">
-              OWNED PLATES ({ownedPlateIds.size})
+          )}
+        </div>
+        {me.role === 'owner' && actionable && (
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              {user.team_review_status !== 'approved' && (
+                <AdminButton variant="good" pending={teamWorking} onClick={approveTeam}>
+                  Approve team
+                </AdminButton>
+              )}
+              {user.team_review_status !== 'rejected' && (
+                <AdminButton
+                  variant="danger"
+                  disabled={teamWorking}
+                  onClick={() => setDialog({ kind: 'team_reject' })}
+                >
+                  Reject team
+                </AdminButton>
+              )}
             </div>
-            {user.cosmetics.length === 0 ? (
-              <p className="text-xs text-zinc-600">No cosmetics owned.</p>
-            ) : (
-              <ul className="space-y-1.5">
-                {user.cosmetics.map((item) => (
-                  <li
-                    key={`${item.item_type}:${item.item_id}`}
-                    className="flex flex-wrap items-center gap-2 text-xs text-zinc-300"
-                  >
-                    <span className="text-zinc-100">
-                      {getPlate(item.item_id)?.name ?? item.item_id}
-                    </span>
-                    <span className="text-zinc-600">
-                      via {item.acquired_via}
-                      {item.source_order_id ? ` · ${item.source_order_id}` : ''}
-                    </span>
-                    <button
+            <p className="mt-2 text-[12px] leading-4 text-[color:var(--st-text-muted)]">
+              Rejecting reverts the tier to FREE — refund the Polar subscription manually.
+            </p>
+          </div>
+        )}
+        {teamError && <AdminNotice tone="danger">{teamError}</AdminNotice>}
+      </div>
+    </AdminSection>
+  )
+
+  const entitlementsSection = actionable && me.role === 'owner' && (
+    <AdminSection title="Entitlements" description="Owner only — grants mirror paid fulfillment.">
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">Tier</span>
+          <AdminChip tone={tier.tone}>{tier.label}</AdminChip>
+          {/* Team accounts never get the Pro buttons — their tier is owned
+              by the Team review section (the API refuses grant_pro /
+              revoke_pro on TEAM targets too). */}
+          {user.tier === 'TEAM' ? (
+            <span className="text-[12px] leading-4 text-[color:var(--st-text-muted)]">
+              Team plan — managed from the Team review section.
+            </span>
+          ) : user.tier !== 'PRO' ? (
+            <AdminButton
+              variant="good"
+              onClick={() => setDialog({ kind: 'entitlement', action: 'grant_pro' })}
+            >
+              Grant Pro
+            </AdminButton>
+          ) : (
+            <AdminButton
+              variant="danger"
+              onClick={() => setDialog({ kind: 'entitlement', action: 'revoke_pro' })}
+            >
+              Revoke Pro
+            </AdminButton>
+          )}
+        </div>
+
+        <div className="border-t border-[color:var(--st-border)] pt-4">
+          <SubHeading count={ownedPlateIds.size}>Owned plates</SubHeading>
+          {user.cosmetics.length === 0 ? (
+            <p className="mt-2 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+              No cosmetics owned.
+            </p>
+          ) : (
+            <ul className="mt-2 space-y-2">
+              {user.cosmetics.map((item) => (
+                <li
+                  key={`${item.item_type}:${item.item_id}`}
+                  className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] leading-5"
+                >
+                  <span className="text-[color:var(--st-text)]">
+                    {getPlate(item.item_id)?.name ?? item.item_id}
+                  </span>
+                  <span className="text-[color:var(--st-text-faint)]">
+                    via {item.acquired_via}
+                    {item.source_order_id ? (
+                      <>
+                        {' · '}
+                        <span className="font-data text-[11px]">{item.source_order_id}</span>
+                      </>
+                    ) : null}
+                  </span>
+                  <span className="ml-auto">
+                    <AdminButton
+                      variant="danger"
                       onClick={() =>
                         setDialog({
                           kind: 'entitlement',
@@ -623,153 +756,201 @@ function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
                           plateId: item.item_id
                         })
                       }
-                      className="ml-auto rounded border border-red-500/30 px-2 py-0.5 text-[9px] tracking-[0.2em] text-red-400 transition-colors hover:bg-red-950/40"
                     >
-                      REVOKE
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <select
-                value={plateToGrant}
-                onChange={(e) => setPlateToGrant(e.target.value)}
-                className="rounded-md border border-white/10 bg-black/50 px-3 py-1.5 text-xs text-white focus:border-accent/50 focus:outline-none"
-              >
-                <option value="">select a plate…</option>
-                {grantablePlates.map((plate) => (
-                  <option key={plate.id} value={plate.id}>
-                    {plate.name} ({plate.rarity})
-                  </option>
-                ))}
-              </select>
-              <button
-                disabled={!plateToGrant}
-                onClick={() =>
-                  setDialog({ kind: 'entitlement', action: 'grant_plate', plateId: plateToGrant })
-                }
-                className={actionButtonCls('good')}
-              >
-                GRANT PLATE
-              </button>
-            </div>
-          </div>
-        </Section>
-      )}
-
-      {/* team review — visible whenever the account ever bought a team
-          plan; the decision buttons are owner-only shortcuts into the
-          same API the /admin/teams queue uses */}
-      {user.team_review_status !== null && (
-        <Section title="TEAM REVIEW">
-          <div className="flex flex-wrap items-center gap-2">
-            <span
-              className={`${chipCls} ${
-                user.team_review_status === 'approved'
-                  ? 'text-emerald-400 border-emerald-500/30'
-                  : user.team_review_status === 'rejected'
-                    ? 'text-red-400 border-red-500/30'
-                    : 'text-amber-300 border-amber-400/30'
-              }`}
-            >
-              {user.team_review_status.toUpperCase()}
-            </span>
-            {user.team_review_status === 'approved' && (
-              <span className="text-xs text-zinc-500">
-                approved {formatDate(user.team_approved_at)}
-              </span>
-            )}
-            <Link
-              href="/admin/teams"
-              className="ml-auto text-[10px] tracking-[0.2em] text-zinc-500 hover:text-zinc-200 transition-colors"
-            >
-              REVIEW QUEUE →
-            </Link>
-          </div>
-          {me.role === 'owner' && actionable && (
-            <div className="flex flex-wrap items-center gap-2">
-              {user.team_review_status !== 'approved' && (
-                <button
-                  disabled={teamWorking}
-                  onClick={approveTeam}
-                  className={actionButtonCls('good')}
-                >
-                  {teamWorking ? 'WORKING…' : 'APPROVE TEAM'}
-                </button>
-              )}
-              {user.team_review_status !== 'rejected' && (
-                <button
-                  disabled={teamWorking}
-                  onClick={() => setDialog({ kind: 'team_reject' })}
-                  className={actionButtonCls('danger')}
-                >
-                  REJECT TEAM
-                </button>
-              )}
-              <span className="text-[10px] text-zinc-600">
-                Rejecting reverts the tier to FREE — refund the Polar subscription manually.
-              </span>
-            </div>
+                      Revoke
+                    </AdminButton>
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
-          {teamError && <p className="text-xs text-red-400">{teamError}</p>}
-        </Section>
-      )}
-
-      {/* staff management — owner only */}
-      {me.role === 'owner' && !isSelf && user.staff_role !== 'owner' && (
-        <Section title="STAFF ACCESS (OWNER)">
-          <div className="flex flex-wrap items-center gap-3">
-            {user.staff_role === 'moderator' ? (
-              <button
-                onClick={() => setDialog({ kind: 'staff', action: 'demote' })}
-                className={actionButtonCls('danger')}
-              >
-                DEMOTE MODERATOR
-              </button>
-            ) : (
-              <button
-                onClick={() => setDialog({ kind: 'staff', action: 'promote' })}
-                className={actionButtonCls('good')}
-              >
-                PROMOTE TO MODERATOR
-              </button>
-            )}
-            <span className="text-[10px] text-zinc-600">
-              Moderators can moderate users and read the audit log. Owners can only be changed
-              via the environment allowlist or the database.
-            </span>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <select
+              value={plateToGrant}
+              onChange={(e) => setPlateToGrant(e.target.value)}
+              aria-label="Plate to grant"
+              className="st-input h-11 rounded-lg px-3 text-[13px] md:h-8"
+            >
+              <option value="">Select a plate…</option>
+              {grantablePlates.map((plate) => (
+                <option key={plate.id} value={plate.id}>
+                  {plate.name} ({plate.rarity})
+                </option>
+              ))}
+            </select>
+            <AdminButton
+              variant="good"
+              disabled={!plateToGrant}
+              onClick={() =>
+                setDialog({ kind: 'entitlement', action: 'grant_plate', plateId: plateToGrant })
+              }
+            >
+              Grant plate
+            </AdminButton>
           </div>
-        </Section>
-      )}
+        </div>
+      </div>
+    </AdminSection>
+  )
 
-      {/* audit history */}
-      <Section title={`HISTORY (${user.audit.length})`}>
+  const staffAccessSection = me.role === 'owner' && !isSelf && user.staff_role !== 'owner' && (
+    <AdminSection title="Staff access" description="Owner only.">
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {user.staff_role === 'moderator' ? (
+            <AdminButton
+              variant="danger"
+              onClick={() => setDialog({ kind: 'staff', action: 'demote' })}
+            >
+              Demote moderator
+            </AdminButton>
+          ) : (
+            <AdminButton
+              variant="good"
+              onClick={() => setDialog({ kind: 'staff', action: 'promote' })}
+            >
+              Promote to moderator
+            </AdminButton>
+          )}
+        </div>
+        <p className="text-[12px] leading-4 text-[color:var(--st-text-muted)]">
+          Moderators can moderate users and read the audit log. Owners can only be changed via
+          the environment allowlist or the database.
+        </p>
+      </div>
+    </AdminSection>
+  )
+
+  return (
+    <div className="space-y-6">
+      <Breadcrumb
+        current={
+          <span className="flex min-w-0 items-baseline gap-x-1.5">
+            <span className="truncate font-medium text-[color:var(--st-text)]">
+              {user.display_name}
+            </span>
+            <span className="shrink-0 font-data text-[11.5px] text-[color:var(--st-text-muted)]">
+              {user.username ? `@${user.username}` : `#${user.userId}`}
+            </span>
+          </span>
+        }
+      />
+
+      <AdminSection>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+          <AdminAvatar src={user.profile_image} alt={user.display_name} size={52} />
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-[18px] font-semibold leading-6 tracking-[-0.01em] text-[color:var(--st-text)]">
+              {user.display_name}
+            </h1>
+            <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+              <span className="font-data text-[11.5px]">
+                @{user.username ?? '—'} · #{user.userId}
+              </span>
+              {user.username && (
+                <Link
+                  href={`/u/${encodeURIComponent(user.username)}`}
+                  className={`${QUIET_LINK} underline-offset-2 hover:underline`}
+                >
+                  Public profile
+                </Link>
+              )}
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+            {staff && <AdminChip tone={staff.tone}>{staff.label}</AdminChip>}
+            <AdminChip tone={tier.tone}>{tier.label}</AdminChip>
+            <AdminChip tone={status.tone}>{status.label}</AdminChip>
+          </div>
+        </div>
+        <AdminFactGrid
+          columns={4}
+          className="mt-5 border-t border-[color:var(--st-border)] pt-4"
+          facts={[
+            {
+              label: 'Created',
+              value: <span className="font-data text-[12px]">{formatDate(user.created_at)}</span>
+            },
+            {
+              label: 'Last login',
+              value: <span className="font-data text-[12px]">{formatDate(user.last_login)}</span>
+            },
+            {
+              label: 'Last sync',
+              value: (
+                <span className="font-data text-[12px]">
+                  {formatDate(user.last_extension_sync)}
+                </span>
+              )
+            },
+            {
+              label: 'Onboarded',
+              value: user.onboarded_at ? (
+                <span className="font-data text-[12px]">{formatDate(user.onboarded_at)}</span>
+              ) : (
+                'No'
+              )
+            },
+            {
+              label: 'Score',
+              value: <span className="tabular-nums">{user.total_score.toLocaleString()}</span>
+            },
+            {
+              label: 'Live sessions',
+              value: <span className="tabular-nums">{user.active_sessions}</span>
+            },
+            { label: 'Private', value: user.profile.is_private ? 'Yes' : 'No' },
+            { label: 'Role badge', value: user.role ?? '—' }
+          ]}
+        />
+      </AdminSection>
+
+      {guardMessage && <AdminNotice tone="warning">{guardMessage}</AdminNotice>}
+
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        <div className="min-w-0 space-y-6">
+          {moderationSection}
+          {teamReviewSection}
+        </div>
+        <div className="min-w-0 space-y-6">
+          {entitlementsSection}
+          {staffAccessSection}
+        </div>
+      </div>
+
+      <AdminSection title="History" count={user.audit.length} flush>
         {user.audit.length === 0 ? (
-          <p className="text-xs text-zinc-600">No staff actions on this user yet.</p>
+          <AdminEmpty title="No staff actions on this user yet." />
         ) : (
-          <ul className="space-y-3">
+          <AdminList>
             {user.audit.map((entry) => (
-              <li key={entry.id} className="text-xs text-zinc-400 space-y-0.5">
-                <div>
-                  <span className="text-zinc-600">{formatDate(entry.created_at)}</span>{' '}
-                  <span className="text-zinc-200">
-                    @{entry.admin_username ?? `#${entry.admin_user_id ?? '?'}`}
-                  </span>{' '}
-                  <span className="text-accent">{entry.action}</span>
+              <AdminListRow key={entry.id}>
+                <div className="min-w-0 flex-1">
+                  <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[13px] leading-5">
+                    <span className="shrink-0 font-data text-[11px] text-[color:var(--st-text-faint)]">
+                      {formatDate(entry.created_at)}
+                    </span>
+                    <span className="text-[color:var(--st-text-muted)]">
+                      @{entry.admin_username ?? `#${entry.admin_user_id ?? '?'}`}
+                    </span>
+                    <span className="font-data text-[12px] font-medium text-[color:var(--st-text)]">
+                      {entry.action}
+                    </span>
+                  </p>
+                  {entry.reason && (
+                    <p className="mt-0.5 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+                      “{entry.reason}”
+                    </p>
+                  )}
+                  {(entry.old_values || entry.new_values) && (
+                    <DiffDetails oldValues={entry.old_values} newValues={entry.new_values} />
+                  )}
                 </div>
-                {entry.reason && <div className="text-zinc-500">“{entry.reason}”</div>}
-                {(entry.old_values || entry.new_values) && (
-                  <div className="break-all text-[10px] text-zinc-600">
-                    {entry.old_values ? `from ${JSON.stringify(entry.old_values)} ` : ''}
-                    {entry.new_values ? `to ${JSON.stringify(entry.new_values)}` : ''}
-                  </div>
-                )}
-              </li>
+              </AdminListRow>
             ))}
-          </ul>
+          </AdminList>
         )}
-      </Section>
+      </AdminSection>
 
       {dialog && dialogCopy && (
         <ReasonDialog
@@ -781,23 +962,25 @@ function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
           onClose={() => setDialog(null)}
         />
       )}
-    </>
+    </div>
   )
 }
 
 export default function AdminUserPage() {
   const params = useParams<{ id: string }>()
   const userId = Number(params.id)
+  const me = useAdmin()
 
-  return (
-    <AdminShell section="USER">
-      {(me) =>
-        Number.isInteger(userId) && userId > 0 ? (
-          <AdminUserDetail me={me} userId={userId} />
-        ) : (
-          <p className="text-sm text-red-400">Invalid user id.</p>
-        )
-      }
-    </AdminShell>
-  )
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return (
+      <div className="space-y-6">
+        <Breadcrumb
+          current={<span className="text-[color:var(--st-text-muted)]">Unknown user</span>}
+        />
+        <AdminNotice tone="danger">Invalid user id.</AdminNotice>
+      </div>
+    )
+  }
+
+  return <AdminUserDetail me={me} userId={userId} />
 }
