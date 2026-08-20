@@ -71,6 +71,11 @@ const BOARD_TABS: { id: BoardView; label: string }[] = [
   { id: 'ai', label: 'AI' }
 ]
 
+/** One score-gain pop: the points gained between two polls, a per-pop tilt
+ *  so repeat pops don't stamp identically, and a stamp that remounts the
+ *  span (key change) so the CSS animation restarts on back-to-back gains. */
+type ScoreFlash = { amount: number; tilt: number; stamp: number }
+
 export default function LeaderboardArena() {
   const [rows, setRows] = useState<LeaderRow[]>([])
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
@@ -89,8 +94,8 @@ export default function LeaderboardArena() {
   const viewRef = useRef<BoardView>(view)
   viewRef.current = view
 
-  // score-gain pops: userId -> points gained between two polls
-  const [flashes, setFlashes] = useState<ReadonlyMap<number, number>>(new Map())
+  // score-gain pops: userId -> pop payload for the +N floater
+  const [flashes, setFlashes] = useState<ReadonlyMap<number, ScoreFlash>>(new Map())
   const prevScores = useRef(new Map<number, number>())
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -111,10 +116,16 @@ export default function LeaderboardArena() {
       const next: LeaderRow[] = Array.isArray(data.data) ? data.data : []
 
       // diff scores for the +N pops
-      const gained = new Map<number, number>()
+      const gained = new Map<number, ScoreFlash>()
       for (const row of next) {
         const old = prevScores.current.get(row.userId)
-        if (old !== undefined && row.score > old) gained.set(row.userId, row.score - old)
+        if (old !== undefined && row.score > old) {
+          gained.set(row.userId, {
+            amount: row.score - old,
+            tilt: Math.random() * 14 - 7,
+            stamp: Date.now()
+          })
+        }
       }
       prevScores.current = new Map(next.map((r) => [r.userId, r.score]))
       if (gained.size > 0) {
@@ -613,7 +624,9 @@ export default function LeaderboardArena() {
             text-align: center;
           }
 
-          /* score-gain pop — floats up off the score and fades */
+          /* score-gain pop — impact bounce, then floats up off the score
+             and fades. Every frame carries rotate(var(--gain-rot)) so the
+             per-pop tilt stays on for the whole flight. */
           .lb4-gain {
             animation: lb4-gain-float ${FLASH_MS}ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
             pointer-events: none;
@@ -621,17 +634,25 @@ export default function LeaderboardArena() {
           @keyframes lb4-gain-float {
             0% {
               opacity: 0;
-              transform: translateY(4px);
+              transform: translateY(6px) scale(0.45) rotate(var(--gain-rot, 0deg));
             }
-            12% {
+            16% {
               opacity: 1;
+              transform: translateY(0) scale(1.22) rotate(var(--gain-rot, 0deg));
+            }
+            26% {
+              transform: translateY(0) scale(0.94) rotate(var(--gain-rot, 0deg));
+            }
+            38% {
+              transform: translateY(0) scale(1) rotate(var(--gain-rot, 0deg));
             }
             70% {
               opacity: 1;
+              transform: translateY(-8px) scale(1) rotate(var(--gain-rot, 0deg));
             }
             100% {
               opacity: 0;
-              transform: translateY(-14px);
+              transform: translateY(-20px) scale(1) rotate(var(--gain-rot, 0deg));
             }
           }
 
@@ -1190,7 +1211,7 @@ function Row({
   index: number
   topScore: number
   isYou: boolean
-  flash: number | null
+  flash: ScoreFlash | null
   onSelect: (u: LeaderRow) => void
   setRef: (id: number, el: HTMLLIElement | null) => void
 }) {
@@ -1391,10 +1412,15 @@ function Row({
         <div className="lb4-dk relative min-w-[7.5rem] text-right md:min-w-0">
           {flash && (
             <span
+              key={flash.stamp}
               className="lb4-gain absolute -top-3 right-0 text-[9px] font-semibold tabular-nums"
-              style={{ color: 'rgb(var(--lb-up))' }}
+              style={{
+                ['--gain-rot' as string]: `${flash.tilt}deg`,
+                color: 'rgb(var(--lb-gold-hi))',
+                textShadow: '0 0 8px rgb(var(--lb-gold) / 0.55)'
+              }}
             >
-              +{formatCompact(flash)}
+              +{formatCompact(flash.amount)}
             </span>
           )}
           <div
