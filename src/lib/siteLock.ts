@@ -44,12 +44,11 @@ export function isAllowedDuringLock(pathname: string, hasSession = false): boole
   if (pathname.startsWith('/audio/')) return true
   if (!pathname.startsWith('/api/') && STATIC_ASSET_RE.test(pathname)) return true
   if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) return true
-  // Settings hub, bag, and the billboard pitch page are signed-in only
-  // while locked (same session-presence gate as /shop). Billboard APIs
-  // stay open below — the ticker/rails mount on allowlisted shell pages.
+  // Settings hub and bag are signed-in only while locked (same
+  // session-presence gate as /shop). Billboard APIs stay open below —
+  // the ticker/rails mount on allowlisted shell pages.
   if (pathname === '/settings' || pathname.startsWith('/settings/')) return hasSession
   if (pathname === '/bag' || pathname.startsWith('/bag/')) return hasSession
-  if (pathname === '/billboard' || pathname.startsWith('/billboard/')) return hasSession
   if (pathname === '/admin' || pathname.startsWith('/admin/')) return true
   if (pathname.startsWith('/api/admin/')) return true
   if (pathname === '/leaderboard' || pathname.startsWith('/leaderboard/')) return true
@@ -92,6 +91,10 @@ export function isAllowedDuringLock(pathname: string, hasSession = false): boole
   // The Cribble Team pitch page is shared with companies while the beta
   // is locked — its checkout/API lanes are already open above.
   if (pathname === '/teams') return true
+  // The sponsorship buyer page is the same kind of shareable pitch
+  // (/billboard was the old path; keep this public so cribble.dev/sponsorship
+  // does not rewrite to /maintenance for signed-out buyers).
+  if (pathname === '/sponsorship' || pathname.startsWith('/sponsorship/')) return true
   // The team console is Polar's checkout success URL
   // (/team?checkout=success&checkout_id=...) — a mid-lock Team purchase
   // must land on the live page so the entitlement sync runs, and the
