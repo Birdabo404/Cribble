@@ -85,11 +85,15 @@ export default async function JoinPage({ params }: JoinPageProps) {
           RECRUIT A PILOT
         </p>
 
-        <h1
-          className="mt-4 text-xl leading-relaxed text-[#fcff00] [font-family:var(--font-pixel)] sm:text-2xl"
-          style={{ textShadow: '0 0 18px rgb(252 255 0 / 0.35)' }}
-        >
-          YOU&apos;RE INVITED
+        {/* Two-tone to match the share card: the ask in chalk, the payoff in lime. */}
+        <h1 className="mt-4 flex flex-col items-center gap-2 text-xl leading-relaxed [font-family:var(--font-pixel)] sm:text-2xl">
+          <span className="text-zinc-100">YOU&apos;RE</span>
+          <span
+            className="text-[#fcff00]"
+            style={{ textShadow: '0 0 18px rgb(252 255 0 / 0.35)' }}
+          >
+            INVITED!
+          </span>
         </h1>
 
         {cells ? (
