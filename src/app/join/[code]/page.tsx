@@ -1,6 +1,7 @@
+import { Fragment } from 'react'
 import type { Metadata } from 'next'
 import Image from 'next/image'
-import { normalizeInviteCode } from '@/lib/inviteCodes'
+import { inviteKeyCells, normalizeInviteCode } from '@/lib/inviteCodes'
 import { JoinRedirect } from './JoinRedirect'
 
 // Shareable referral URL: /join/CODE. Crawlers get real HTML here —
@@ -52,6 +53,7 @@ export async function generateMetadata({ params }: JoinPageProps): Promise<Metad
 export default async function JoinPage({ params }: JoinPageProps) {
   const { code } = await params
   const normalized = normalizeInviteCode(code || '')
+  const cells = inviteKeyCells(normalized)
   const href = loginHref(normalized)
 
   return (
@@ -80,7 +82,7 @@ export default async function JoinPage({ params }: JoinPageProps) {
 
         <p className="mt-7 flex items-center gap-2.5 text-[10px] tracking-[0.32em] text-zinc-500">
           <span className="h-1.5 w-1.5 rounded-full bg-[#fcff00] shadow-[0_0_8px_rgb(252_255_0/0.7)]" />
-          PERSONAL INVITE
+          RECRUIT A PILOT
         </p>
 
         <h1
@@ -90,11 +92,25 @@ export default async function JoinPage({ params }: JoinPageProps) {
           YOU&apos;RE INVITED
         </h1>
 
-        {normalized && (
+        {cells ? (
+          <div className="mt-7 flex items-center gap-1.5">
+            <span className="flex h-11 shrink-0 items-center rounded-lg border border-zinc-800 bg-black/30 px-2 font-mono text-xs tracking-[0.08em] text-zinc-500">
+              CRIB
+            </span>
+            {cells.map((char, i) => (
+              <Fragment key={`${char}-${i}`}>
+                {i === 4 && <span className="h-px w-2 shrink-0 bg-zinc-700" />}
+                <span className="flex h-11 w-10 items-center justify-center rounded-lg border border-[rgb(252_255_0/0.28)] bg-[rgb(252_255_0/0.05)] font-mono text-lg text-[#fcff00]">
+                  {char}
+                </span>
+              </Fragment>
+            ))}
+          </div>
+        ) : normalized ? (
           <p className="mt-6 rounded-lg border border-[rgb(252_255_0/0.2)] bg-[rgb(252_255_0/0.04)] px-4 py-2 text-sm tracking-[0.2em] text-zinc-100">
             {normalized}
           </p>
-        )}
+        ) : null}
 
         <p className="mt-7 animate-pulse text-[10px] tracking-[0.3em] text-zinc-500">
           TAKING YOU TO SIGN IN…
