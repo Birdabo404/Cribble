@@ -17,7 +17,7 @@ export type BackgroundTrack = (typeof BACKGROUND_TRACKS)[number]
 
 export const MUSIC_VOLUME_KEY = 'cribble.music.volume' // 0–1 float string
 export const MUSIC_MUTED_KEY = 'cribble.music.muted' // '1' | '0'
-export const DEFAULT_MUSIC_VOLUME = 0.4
+export const DEFAULT_MUSIC_VOLUME = 0.1
 
 export const MUSIC_PLAY_ROUTES = [
   '/dashboard',
