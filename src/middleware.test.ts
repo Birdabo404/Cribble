@@ -116,8 +116,12 @@ describe('middleware site lock', () => {
     expect(rewriteTarget('/leaderboard')).toBeNull()
     // Payments must survive the lock: the API lanes stay reachable so
     // Polar webhooks and checkout bounces keep landing.
-    // The Team pitch page is publicly shareable while the beta is locked.
+    // The Team and sponsorship pitch pages are publicly shareable while
+    // the beta is locked — otherwise cribble.dev/sponsorship rewrites
+    // to /maintenance for every visitor, signed-in or not.
     expect(rewriteTarget('/teams')).toBeNull()
+    expect(rewriteTarget('/sponsorship')).toBeNull()
+    expect(rewriteTarget('/sponsorship?slot=L2')).toBeNull()
     // The team console is Polar's checkout success URL and its API lanes
     // back it — a mid-lock Team purchase must not land on /maintenance.
     expect(rewriteTarget('/team')).toBeNull()
@@ -125,8 +129,7 @@ describe('middleware site lock', () => {
     expect(middleware(request('/api/team/roster')).status).toBe(200)
     expect(middleware(request('/api/webhooks/polar')).status).toBe(200)
     expect(middleware(request('/api/user/subscription/sync')).status).toBe(200)
-    // Billboard APIs back the ticker/rails on allowlisted shell pages;
-    // the /billboard pitch page itself is session-gated (below).
+    // Billboard APIs back the ticker/rails on allowlisted shell pages.
     expect(middleware(request('/api/billboard')).status).toBe(200)
     expect(middleware(request('/api/billboard/slots')).status).toBe(200)
   })
@@ -151,7 +154,7 @@ describe('middleware site lock', () => {
     expect(middleware(request('/geo/countries-110m.geojson')).status).toBe(200)
   })
 
-  it('walls /shop /bag /settings /billboard behind sign-in while locked', () => {
+  it('walls /shop /bag /settings behind sign-in while locked', () => {
     vi.stubEnv('SITE_LOCKED', '1')
     // Not the maintenance screen: a session would open these sectors, so
     // the visitor gets the sign-in wall instead of "under construction".
@@ -159,10 +162,9 @@ describe('middleware site lock', () => {
     expect(rewriteTarget('/bag')).toBe('/restricted')
     expect(rewriteTarget('/settings')).toBe('/restricted')
     expect(rewriteTarget('/settings/account')).toBe('/restricted')
-    expect(rewriteTarget('/billboard')).toBe('/restricted')
   })
 
-  it('keeps /shop /bag /settings /billboard open for signed-in pilots while locked', () => {
+  it('keeps /shop /bag /settings open for signed-in pilots while locked', () => {
     vi.stubEnv('SITE_LOCKED', '1')
     // Presence-only gate: the middleware never validates the token, so any
     // cribble_session cookie opens the shell — the data lanes behind it
@@ -172,7 +174,6 @@ describe('middleware site lock', () => {
     expect(rewriteTarget('/bag', cookie)).toBeNull()
     expect(rewriteTarget('/settings', cookie)).toBeNull()
     expect(rewriteTarget('/settings/privacy', cookie)).toBeNull()
-    expect(rewriteTarget('/billboard', cookie)).toBeNull()
   })
 
   it('does not rewrite anything when unlocked', () => {
