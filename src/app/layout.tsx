@@ -3,6 +3,7 @@ import { IBM_Plex_Mono, Instrument_Serif, Inter, Noto_Sans_Arabic, Noto_Sans_JP,
 import { Analytics } from '@vercel/analytics/react'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import { NAV_BOOT_SCRIPT } from '@/components/nav/navBoot'
+import { resolveShareOrigin } from '@/lib/appUrl'
 import './globals.css'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -102,6 +103,9 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
+  // Canonical share origin so relative OG/twitter image URLs (e.g. the
+  // /join/[code] invite card) resolve to absolute https://cribble.dev links.
+  metadataBase: new URL(resolveShareOrigin()),
   title: 'Cribble - AI Usage Leaderboard for Developers',
   description: 'Discover your rank among AI-powered developers globally.',
   icons: {

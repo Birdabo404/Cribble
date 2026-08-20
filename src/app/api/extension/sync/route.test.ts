@@ -1,6 +1,9 @@
 import { NextRequest } from 'next/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEVICE_TOKEN_HEADER, hashDeviceSyncToken } from '@/lib/deviceToken'
+import { refreshLeaderboardSnapshot } from '@/lib/leaderboardSnapshot'
+import { maybeGrantReferralReward } from '@/lib/referrals'
+import { recalculateUserScore } from '@/lib/scoring'
 
 // ── Mock plumbing ─────────────────────────────────────────────────────────
 // The route builds its Supabase client at module load, so the fake client
@@ -193,7 +196,9 @@ vi.mock('@/lib/notifications', () => ({
 }))
 
 vi.mock('@/lib/referrals', () => ({
-  maybeGrantReferralReward: vi.fn(async () => undefined)
+  // Resolves null = "nothing newly granted"; individual tests override with
+  // mockResolvedValueOnce to simulate a fresh grant.
+  maybeGrantReferralReward: vi.fn(async () => null)
 }))
 
 vi.mock('@/lib/eventsIdentity', () => ({
@@ -279,6 +284,11 @@ beforeEach(() => {
   rpcMock.mockReset()
   sessionMock.mockReset()
   sessionMock.mockResolvedValue({ ok: false, status: 401, error: 'Unauthorized' })
+  // Deferred-work mocks accumulate calls across tests; clear the history
+  // (implementations from the factories stay) so per-test call assertions
+  // see only their own sync.
+  vi.mocked(maybeGrantReferralReward).mockClear()
+  vi.mocked(refreshLeaderboardSnapshot).mockClear()
 })
 
 describe('POST /api/extension/sync — relink / account switch', () => {
@@ -535,5 +545,78 @@ describe('POST /api/extension/sync — transient failures and serverScore', () =
     // The benign path still advances the device/user sync markers.
     expect(state.deviceUpdates.length).toBeGreaterThan(0)
     expect(state.userUpdates.length).toBeGreaterThan(0)
+  })
+})
+
+// The referral reward credits the REFERRER, so it must not hide behind this
+// user's processed>0 / fresh-score gates: a duplicate batch (processed 0)
+// or a stale recalculation is exactly when a previously missed grant gets
+// its retry. These pin that the deferred grant runs on those paths too.
+describe('POST /api/extension/sync — deferred referral grant', () => {
+  it('evaluates the grant with ingestedNewEvents=false when every event is a duplicate', async () => {
+    bindActiveDevice()
+    const timestamp = Date.now() - 60_000
+    state.existingEventRows = [
+      { domain: 'chatgpt.com', timestamp: new Date(timestamp).toISOString() }
+    ]
+
+    const response = await POST(
+      makeSyncRequest({
+        userId: NEW_USER,
+        token: 'new-account-token',
+        events: [makeVisitEvent(timestamp)]
+      })
+    )
+    const body = await response.json()
+
+    expect(body.success).toBe(true)
+    expect(body.processed).toBe(0)
+    expect(maybeGrantReferralReward).toHaveBeenCalledWith(supabaseMock, NEW_USER, {
+      ingestedNewEvents: false
+    })
+    // Nothing recalculated and nothing granted: no reason to re-diff ranks.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(refreshLeaderboardSnapshot).not.toHaveBeenCalled()
+  })
+
+  it('evaluates the grant even when the score recalculation is stale', async () => {
+    bindActiveDevice()
+    vi.mocked(recalculateUserScore).mockResolvedValueOnce({ scoresStale: true })
+
+    const response = await POST(
+      makeSyncRequest({
+        userId: NEW_USER,
+        token: 'new-account-token',
+        events: [makeVisitEvent(Date.now() - 60_000)]
+      })
+    )
+    const body = await response.json()
+
+    expect(body.success).toBe(true)
+    // Stale recalc omits serverScore but must not starve the grant; this
+    // sync DID ingest rows, so the helper is told so.
+    expect(body.serverScore).toBeUndefined()
+    expect(maybeGrantReferralReward).toHaveBeenCalledWith(supabaseMock, NEW_USER, {
+      ingestedNewEvents: true
+    })
+  })
+
+  it('refreshes the leaderboard snapshot when a no-ingest sync newly grants points', async () => {
+    bindActiveDevice()
+    // Retry path succeeds: the referrer's total_score just moved, so the
+    // top-100 snapshot must be re-diffed even though processed === 0.
+    vi.mocked(maybeGrantReferralReward).mockResolvedValueOnce(1500)
+
+    const response = await POST(
+      makeSyncRequest({ userId: NEW_USER, token: 'new-account-token', events: [] })
+    )
+    const body = await response.json()
+
+    expect(body.success).toBe(true)
+    expect(body.processed).toBe(0)
+    expect(maybeGrantReferralReward).toHaveBeenCalledWith(supabaseMock, NEW_USER, {
+      ingestedNewEvents: false
+    })
+    await vi.waitFor(() => expect(refreshLeaderboardSnapshot).toHaveBeenCalledTimes(1))
   })
 })

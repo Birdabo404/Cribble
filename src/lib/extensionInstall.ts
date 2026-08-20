@@ -39,6 +39,9 @@ export interface ExtensionGateInput {
   /** Feature switch — false while EXTENSION_INSTALL_URL is unset. */
   enabled: boolean
   signedIn: boolean
+  /** From onboarding metadata.account_type; anything but a literal
+   *  'team' counts as solo. */
+  accountType: 'solo' | 'team'
   capableBrowser: boolean
   /** Live postMessage handshake result; only consulted on capable browsers. */
   detected: boolean
@@ -51,19 +54,23 @@ export interface ExtensionGateInput {
 
 // One decision shared by both enforcement points — the (app) ExtensionGate
 // and /welcome — so they can never disagree and bounce a user in a loop.
-// Capable browsers must pass the live handshake (this is what catches
-// "I removed the extension"; past linkage doesn't count). Browsers that
-// can't install the extension are never gated: the store listing is
-// desktop-Chromium only, so an install wall would hand Safari/Firefox/
-// mobile users a task they cannot complete — a signed-in user who never
-// linked would be locked on /welcome forever behind a dead CTA. They
-// pass through instead; phone users get the one-time desktop-only
-// notice (shouldShowMobileExtensionNotice below) so they know why
-// nothing is tracking.
+// Team buyer accounts are never walled: they track nothing (checkout
+// already leaves the wizard), so demanding the tracker would gate them
+// on software they have no use for. Affiliated pilots sign up solo and
+// still hit the wall. Capable browsers must pass the live handshake
+// (this is what catches "I removed the extension"; past linkage doesn't
+// count). Browsers that can't install the extension are never gated:
+// the store listing is desktop-Chromium only, so an install wall would
+// hand Safari/Firefox/mobile users a task they cannot complete — a
+// signed-in user who never linked would be locked on /welcome forever
+// behind a dead CTA. They pass through instead; phone users get the
+// one-time desktop-only notice (shouldShowMobileExtensionNotice below)
+// so they know why nothing is tracking.
 export function evaluateExtensionGate(
   input: ExtensionGateInput
 ): ExtensionGateVerdict {
   if (!input.enabled || !input.signedIn) return 'allow'
+  if (input.accountType === 'team') return 'allow'
   if (input.capableBrowser) return input.detected ? 'allow' : 'install'
   return 'allow'
 }

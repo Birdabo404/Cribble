@@ -1,0 +1,66 @@
+{
+  "results": [
+    {
+      "name": "dark/season: panels square, zero ticks, chips square",
+      "ok": true,
+      "note": "5 panels square, 0 corner ticks, 0 chips square — season board"
+    },
+    {
+      "name": "dark/season: standings panel keeps overflow clipping",
+      "ok": true,
+      "note": "overflow-hidden intact"
+    },
+    {
+      "name": "dark/season: sticky YouBar state",
+      "ok": true,
+      "note": "YouBar not rendered — logged-out session (needs auth); geometry covered by shared CSS"
+    },
+    {
+      "name": "dark/ai: tab switch + squared tool standings",
+      "ok": true,
+      "note": "2 panels square, 0 corner ticks, 9 chips square — AI board"
+    },
+    {
+      "name": "dark/teams: tab switch + squared team standings",
+      "ok": true,
+      "note": "2 panels square, 0 corner ticks, 1 chips square — teams board"
+    },
+    {
+      "name": "light: theme flips, panels stay square with zero ticks",
+      "ok": true,
+      "note": "2 panels square, 0 corner ticks, 4 chips square — season board, light; toggle=button"
+    },
+    {
+      "name": "console: no unexpected errors/warnings across phases",
+      "ok": true,
+      "note": "5 known-noise entries only"
+    }
+  ],
+  "consoleErrors": [
+    {
+      "phase": "dark-season",
+      "kind": "log:network",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized) http://localhost:3000/api/user/me"
+    },
+    {
+      "phase": "dark-season",
+      "kind": "log:network",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized) http://localhost:3000/api/user/onboarding"
+    },
+    {
+      "phase": "dark-season",
+      "kind": "log:network",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized) http://localhost:3000/api/user/notifications"
+    },
+    {
+      "phase": "dark-season",
+      "kind": "log:network",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized) http://localhost:3000/api/user/notifications"
+    },
+    {
+      "phase": "dark-teams",
+      "kind": "log:network",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized) http://localhost:3000/api/user/me"
+    }
+  ]
+}

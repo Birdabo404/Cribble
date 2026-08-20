@@ -188,11 +188,22 @@ export async function GET(request: NextRequest) {
       }
       user = created
 
-      const { error: redemptionLogError } = await supabase
-        .from('invite_redemptions')
-        .insert({ invite_code_id: inviteCodeId, user_id: user.id })
+      // The referral reward can only find this recruit through the
+      // invite_redemptions row: losing this insert bumps JOINED (use_count
+      // is already claimed) while silently voiding the referrer's reward
+      // forever. Retry once; if it still fails, log and continue — the
+      // account and session already exist and must not be blocked on
+      // attribution bookkeeping.
+      const logRedemption = () =>
+        supabase
+          .from('invite_redemptions')
+          .insert({ invite_code_id: inviteCodeId, user_id: created.id })
+      let { error: redemptionLogError } = await logRedemption()
       if (redemptionLogError) {
-        console.error('Failed to log invite redemption:', redemptionLogError)
+        ;({ error: redemptionLogError } = await logRedemption())
+      }
+      if (redemptionLogError) {
+        console.error('Failed to log invite redemption after retry:', redemptionLogError)
       }
     }
 

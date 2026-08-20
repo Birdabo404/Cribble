@@ -15,17 +15,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: session.error }, { status: session.status })
     }
 
-    // Single parallel phase after auth: both calls only need userId.
-    // `joined` comes from invite_codes.use_count (atomically maintained
-    // by redeem_invite_code, migration 008), so no separate count query.
-    const [referral, rewardsResult] = await Promise.all([
-      ensureReferralCode(supabase, session.userId),
-      supabase
-        .from('referral_rewards')
-        .select('points')
-        .eq('referrer_user_id', session.userId)
-    ])
-
+    // The joined count is keyed on the code's id, so the code must resolve
+    // before the second phase; rewards and the count then run in parallel.
+    const referral = await ensureReferralCode(supabase, session.userId)
     if (!referral) {
       return NextResponse.json(
         { error: 'Failed to prepare referral code' },
@@ -33,8 +25,31 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // `joined` counts living redemptions, not invite_codes.use_count:
+    // deleting a recruit SET NULLs invite_redemptions.user_id but never
+    // decrements use_count, so the raw counter permanently overstates
+    // JOINED relative to recruits who can still activate a reward.
+    const [rewardsResult, joinedResult] = await Promise.all([
+      supabase
+        .from('referral_rewards')
+        .select('points')
+        .eq('referrer_user_id', session.userId),
+      supabase
+        .from('invite_redemptions')
+        .select('id', { count: 'exact', head: true })
+        .eq('invite_code_id', referral.id)
+        .not('user_id', 'is', null)
+    ])
+
     if (rewardsResult.error) {
       console.error('[Referrals] Rewards read failed:', rewardsResult.error)
+    }
+
+    let joined = joinedResult.count
+    if (joinedResult.error || joined === null) {
+      console.error('[Referrals] Joined count failed:', joinedResult.error)
+      // Fall back to the lifetime counter — overstated, but never blank.
+      joined = referral.useCount
     }
 
     const rewards = rewardsResult.data ?? []
@@ -49,7 +64,7 @@ export async function GET(request: NextRequest) {
       // publicly, so it must be the canonical domain even from a dev box.
       link: `${resolveShareOrigin()}/join/${referral.code}`,
       stats: {
-        joined: referral.useCount,
+        joined,
         rewarded,
         pointsEarned,
         capRemaining: Math.max(0, REFERRAL_CAP - rewarded)

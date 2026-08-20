@@ -83,7 +83,7 @@ export function AiBoard() {
     <>
       {/* ---------- stat strip ---------- */}
       <section className="lbai-reveal">
-        <div className="lb-panel grid grid-cols-2 overflow-hidden rounded-2xl md:grid-cols-4">
+        <div className="lb-panel grid grid-cols-2 overflow-hidden md:grid-cols-4">
           <StatCell divider={0} icon={<IconSwords size={11} className="text-zinc-600" />} label="TOOLS RANKED">
             <AnimatedCounter
               value={tools?.length ?? 0}
@@ -151,7 +151,7 @@ export function AiBoard() {
           <UpdatedStamp generatedAt={generatedAt} />
         </div>
 
-        <div className="lb-panel relative overflow-hidden rounded-2xl">
+        <div className="lb-panel relative overflow-hidden">
           <div
             className={`${ROW_GRID} border-b border-[rgb(var(--lb-panel-edge)/0.08)] py-3 text-[9px] tracking-[0.35em] text-zinc-500`}
           >
@@ -305,7 +305,7 @@ function ToolRow({
       <div className="flex items-center">
         {medal ? (
           <span
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[11px] [font-family:var(--font-pixel)]"
+            className="inline-flex h-8 w-8 items-center justify-center text-[11px] [font-family:var(--font-pixel)]"
             style={{
               color: medal.fg,
               border: `1px solid ${medalA(medal.rgb, 0.5)}`,
@@ -397,7 +397,7 @@ function SkeletonRow({ index }: { index: number }) {
       {/* shimmer blocks ride the panel-edge ink so they read on the white
           panel too */}
       <div className={`${ROW_GRID} animate-pulse py-4`}>
-        <span className="h-8 w-8 rounded-lg bg-[rgb(var(--lb-panel-edge)/0.05)]" />
+        <span className="h-8 w-8 bg-[rgb(var(--lb-panel-edge)/0.05)]" />
         <span className="flex items-center gap-3">
           <span className="h-9 w-9 rounded-full bg-[rgb(var(--lb-panel-edge)/0.05)]" />
           <span className="h-3 w-28 rounded bg-[rgb(var(--lb-panel-edge)/0.05)]" />

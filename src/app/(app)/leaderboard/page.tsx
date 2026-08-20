@@ -39,7 +39,6 @@ import {
   IconPulse,
   IconRefresh,
   IconSearch,
-  IconTarget,
   IconTrophy,
   IconUsers,
   MoveGlyph,
@@ -51,6 +50,7 @@ import { AiBoard } from '@/components/leaderboard/AiBoard'
 import { PlayerCard, type ChaseInfo } from '@/components/leaderboard/PlayerCard'
 import { Podium } from '@/components/leaderboard/Podium'
 import { RankAvatar } from '@/components/leaderboard/RankRegalia'
+import { TeamBoard } from '@/components/leaderboard/TeamBoard'
 import { medalA, medalFor, medalGlow, type LeaderRow } from '@/components/leaderboard/types'
 import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
@@ -61,15 +61,21 @@ const PAGE_SIZE = 25
 const POLL_MS = 15_000
 const FLASH_MS = 2_400
 
-/** Which board is on stage: the season race, lifetime standings, or the
- *  machines (ai). */
-type BoardView = 'season' | 'alltime' | 'ai'
+/** Which board is on stage: the season race, lifetime standings, the
+ *  machines (ai), or the companies (teams). */
+type BoardView = 'season' | 'alltime' | 'ai' | 'teams'
 
 const BOARD_TABS: { id: BoardView; label: string }[] = [
   { id: 'season', label: 'SEASON' },
   { id: 'alltime', label: 'ALL-TIME' },
-  { id: 'ai', label: 'AI' }
+  { id: 'ai', label: 'AI' },
+  { id: 'teams', label: 'TEAMS' }
 ]
+
+/** The two pilot standings views — the only ones that own the pilot
+ *  chrome (stat bar, podium, standings table) and the 15s poll. AI and
+ *  TEAMS render self-fetching boards instead. */
+const isStandingsView = (v: BoardView) => v === 'season' || v === 'alltime'
 
 /** One score-gain pop: the points gained between two polls, a per-pop tilt
  *  so repeat pops don't stamp identically, and a stamp that remounts the
@@ -93,6 +99,10 @@ export default function LeaderboardArena() {
   // mount effect below never has to re-subscribe on view flips.
   const viewRef = useRef<BoardView>(view)
   viewRef.current = view
+
+  // Pilot chrome (stat bar, podium, standings, refresh) only exists on
+  // the standings views — AI and TEAMS hide all of it.
+  const isStandings = isStandingsView(view)
 
   // score-gain pops: userId -> pop payload for the +N floater
   const [flashes, setFlashes] = useState<ReadonlyMap<number, ScoreFlash>>(new Map())
@@ -157,16 +167,17 @@ export default function LeaderboardArena() {
 
   // initial load + poll + refetch when the tab regains focus.
   // Hidden tabs skip the poll entirely — the visibility handler refetches
-  // the moment the player comes back. The AI view skips it too (its data
-  // is a 5-minute server cache; AiBoard refetches itself), and switching
-  // back to a standings board refetches immediately so the pause never shows.
+  // the moment the player comes back. The AI and TEAMS views skip it too
+  // (their data is server-cached; each board refetches itself), and
+  // switching back to a standings board refetches immediately so the
+  // pause never shows.
   useEffect(() => {
     Promise.all([fetchData(), fetchMe()]).finally(() => setLoading(false))
     const id = setInterval(() => {
-      if (!document.hidden && viewRef.current !== 'ai') void fetchData()
+      if (!document.hidden && isStandingsView(viewRef.current)) void fetchData()
     }, POLL_MS)
     const onVisible = () => {
-      if (document.visibilityState === 'visible' && viewRef.current !== 'ai') {
+      if (document.visibilityState === 'visible' && isStandingsView(viewRef.current)) {
         void fetchData()
       }
     }
@@ -184,7 +195,7 @@ export default function LeaderboardArena() {
     (next: BoardView) => {
       const prev = viewRef.current
       setView((current) => (current === next ? current : next))
-      if (next !== 'ai' && prev !== next) {
+      if (isStandingsView(next) && prev !== next) {
         // The two standings boards rank by different scores — a board
         // switch must never read as everyone "gaining" the difference.
         viewRef.current = next
@@ -327,7 +338,13 @@ export default function LeaderboardArena() {
             <span className="h-px w-8 bg-gradient-to-r from-transparent to-[rgb(var(--lb-gold)/0.6)]" />
             <IconCrown size={13} />
             <span className="font-display text-[10px] font-semibold tracking-[0.42em] sm:tracking-[0.55em]">
-              {view === 'ai' ? 'THE AI' : view === 'alltime' ? 'ALL-TIME' : 'SEASON'}
+              {view === 'ai'
+                ? 'THE AI'
+                : view === 'teams'
+                  ? 'THE TEAMS'
+                  : view === 'alltime'
+                    ? 'ALL-TIME'
+                    : 'SEASON'}
             </span>
             <IconCrown size={13} className="-scale-x-100" />
             <span className="h-px w-8 bg-gradient-to-l from-transparent to-[rgb(var(--lb-gold)/0.6)]" />
@@ -344,6 +361,8 @@ export default function LeaderboardArena() {
             <span className="mx-2 text-zinc-800">·</span>
             {view === 'ai' ? (
               'the machines, ranked by pilot usage'
+            ) : view === 'teams' ? (
+              'ranked by combined season score'
             ) : (
               <>
                 {view === 'alltime' ? 'ranked by lifetime score' : 'ranked by season score'}
@@ -356,7 +375,7 @@ export default function LeaderboardArena() {
 
         <main className="mt-8 space-y-5">
           {/* ---------- stat bar ---------- */}
-          {view !== 'ai' && (
+          {isStandings && (
             <section className="lb4-reveal" style={{ ['--rv' as string]: '90ms' }}>
               <StatBar
                 totalPlayers={totals.totalPlayers}
@@ -371,13 +390,13 @@ export default function LeaderboardArena() {
           {/* ---------- view controls ---------- */}
           <div
             className={`lb4-reveal flex flex-wrap items-center justify-between gap-2 ${
-              view !== 'ai' ? '!mt-3' : ''
+              isStandings ? '!mt-3' : ''
             }`}
             style={{ ['--rv' as string]: '150ms' }}
           >
-            {/* board switch — pilots or the machines */}
+            {/* board switch — pilots, the machines, or the teams */}
             <div
-              className="lb-inset flex items-center gap-0.5 rounded-lg p-0.5"
+              className="lb-inset flex min-w-0 max-w-full flex-nowrap items-center gap-0.5 overflow-x-auto overscroll-x-contain rounded-lg p-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               role="tablist"
               aria-label="Leaderboard view"
             >
@@ -390,7 +409,7 @@ export default function LeaderboardArena() {
                     role="tab"
                     aria-selected={active}
                     onClick={() => handleViewChange(tab.id)}
-                    className={`rounded-md px-3.5 py-2 sm:px-3 sm:py-1 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] transition-colors ${
+                    className={`shrink-0 rounded-md px-2.5 py-2 sm:px-3 sm:py-1 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] transition-colors ${
                       active ? '' : 'text-zinc-500 hover:text-zinc-100'
                     }`}
                     style={
@@ -409,7 +428,7 @@ export default function LeaderboardArena() {
               })}
             </div>
 
-            {view !== 'ai' && (
+            {isStandings && (
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -440,6 +459,9 @@ export default function LeaderboardArena() {
           {/* ---------- THE AI LEADERBOARD ---------- */}
           {view === 'ai' && <AiBoard />}
 
+          {/* ---------- THE TEAMS BOARD ---------- */}
+          {view === 'teams' && <TeamBoard />}
+
           {/* ---------- intermission: standings locked ---------- */}
           {view === 'season' && seasonMeta?.phase === 'intermission' && (
             <IntermissionBanner state={seasonMeta} />
@@ -449,7 +471,7 @@ export default function LeaderboardArena() {
           {/* visibility joins the transition so the collapsed podium drops out
               of paint, tab order and screen readers; lb4-pod-off freezes its
               infinite FX so they stop burning frames while hidden */}
-          {view !== 'ai' && (
+          {isStandings && (
           <div
             className={`lb4-reveal grid transition-[grid-template-rows,opacity,margin,visibility] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${
               showPodium ? '' : 'lb4-pod-off'
@@ -475,7 +497,7 @@ export default function LeaderboardArena() {
           )}
 
           {/* ---------- standings ---------- */}
-          {view !== 'ai' && (
+          {isStandings && (
           <section className="lb4-reveal relative" style={{ ['--rv' as string]: '300ms' }}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-baseline gap-3">
@@ -491,7 +513,7 @@ export default function LeaderboardArena() {
               <SearchBar value={query} onChange={setQuery} />
             </div>
 
-            <div className="lb-panel relative overflow-hidden rounded-2xl">
+            <div className="lb-panel relative overflow-hidden">
               <HeaderRow />
               <ul className="relative">
                 {loading &&
@@ -526,7 +548,7 @@ export default function LeaderboardArena() {
             {/* ---------- sticky YOU bar ---------- */}
             {me && (
               <div className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 mt-4">
-                <YouBar me={me} chase={chaseFor(me)} rows={rows} onSelect={handleSelect} />
+                <YouBar me={me} chase={chaseFor(me)} onSelect={handleSelect} />
               </div>
             )}
           </section>
@@ -1021,7 +1043,7 @@ function IntermissionBanner({ state }: { state: SeasonState }) {
   return (
     <section className="lb4-reveal" style={{ ['--rv' as string]: '180ms' }}>
       <div
-        className="lb-panel flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-2xl px-5 py-4"
+        className="lb-panel flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-4"
         style={{ border: '1px solid rgb(var(--lb-gold) / 0.35)' }}
       >
         <div className="flex items-center gap-3">
@@ -1085,7 +1107,7 @@ function StatBar({
   }
 
   return (
-    <div className="lb-panel grid grid-cols-2 overflow-hidden rounded-2xl md:grid-cols-4">
+    <div className="lb-panel grid grid-cols-2 overflow-hidden md:grid-cols-4">
       {/* players */}
       <div className={`px-3.5 py-3.5 sm:px-4 sm:py-4 ${divCls(0)}`}>
         <div className="flex items-center gap-1.5 text-[9px] tracking-[0.28em] sm:tracking-[0.35em] text-zinc-500">
@@ -1331,7 +1353,7 @@ function Row({
         <div className="relative flex items-center gap-2">
           {medal ? (
             <span
-              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[11px] [font-family:var(--font-pixel)]"
+              className="inline-flex h-8 w-8 items-center justify-center text-[11px] [font-family:var(--font-pixel)]"
               style={{
                 color: medal.fg,
                 border: `1px solid ${medalA(medal.rgb, 0.5)}`,
@@ -1492,7 +1514,7 @@ function SkeletonRow({ index }: { index: number }) {
           table doesn't jump when data lands; shimmer blocks ride the
           panel-edge ink so they read on the white panel too */}
       <div className={`${ROW_GRID} animate-pulse py-4`}>
-        <span className="h-8 w-8 rounded-lg bg-[rgb(var(--lb-panel-edge)/0.05)]" />
+        <span className="h-8 w-8 bg-[rgb(var(--lb-panel-edge)/0.05)]" />
         <span className="flex items-center gap-3">
           <span className="h-9 w-9 rounded-full bg-[rgb(var(--lb-panel-edge)/0.05)]" />
           <span className="h-3 w-32 rounded bg-[rgb(var(--lb-panel-edge)/0.05)]" />
@@ -1511,7 +1533,7 @@ function PodiumSkeleton() {
     <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-3 md:gap-5">
       {[64, 96, 48].map((h, i) => (
         <div key={i} className={`animate-pulse ${i === 1 ? 'md:order-2' : i === 0 ? 'md:order-1' : 'md:order-3'}`}>
-          <div className="lb-panel rounded-2xl p-5">
+          <div className="lb-panel p-5">
             <div className="mx-auto h-16 w-16 rounded-full bg-[rgb(var(--lb-panel-edge)/0.05)]" />
             <div className="mx-auto mt-4 h-3 w-24 rounded bg-[rgb(var(--lb-panel-edge)/0.05)]" />
             <div className="mx-auto mt-3 h-5 w-32 rounded bg-[rgb(var(--lb-panel-edge)/0.07)]" />
@@ -1528,20 +1550,13 @@ function PodiumSkeleton() {
 function YouBar({
   me,
   chase,
-  rows,
   onSelect
 }: {
   me: LeaderRow
   chase: ChaseInfo | null
-  rows: LeaderRow[]
   onSelect: (u: LeaderRow) => void
 }) {
-  const behind = rows.find((u) => u.rank === me.rank + 1) || null
-  const defendGap = behind ? me.score - behind.score : null
-  const above = me.rank > 1 ? rows.find((u) => u.rank === me.rank - 1) : null
-  // progress toward overtaking the player above (goal-gradient bar)
-  const overtakePct =
-    above && above.score > 0 ? Math.min(99.5, (me.score / above.score) * 100) : null
+  const medal = medalFor(me.rank)
 
   return (
     <button
@@ -1550,94 +1565,90 @@ function YouBar({
       aria-label="Open your profile card"
       // blur-md, not xl: this sticky bar re-samples whatever scrolls under
       // it every frame, so the kernel size directly prices every scroll.
-      className="block w-full rounded-2xl text-left backdrop-blur-md transition-transform hover:-translate-y-0.5"
+      className="block w-full text-left backdrop-blur-md"
       style={{
-        background: 'linear-gradient(180deg, rgb(var(--accent-rgb) / 0.07), rgb(var(--accent-rgb) / 0.03)), rgb(var(--lb-panel-bg) / 0.88)',
-        border: '1px solid rgb(var(--accent-rgb) / 0.35)',
-        boxShadow:
-          '0 10px 40px -14px rgb(var(--accent-rgb) / 0.25), 0 8px 24px -10px rgb(0 0 0 / 0.5)'
+        // A docked strip of your own table row: the same flat accent wash
+        // and 2px rail the isYou Row wears, on a translucent arena panel.
+        background:
+          'linear-gradient(0deg, rgb(var(--accent-rgb) / 0.045), rgb(var(--accent-rgb) / 0.045)), rgb(var(--lb-panel-bg) / 0.88)',
+        border: '1px solid rgb(var(--accent-rgb) / 0.18)',
+        boxShadow: 'inset 2px 0 0 rgb(var(--accent-rgb)), 0 16px 36px -20px rgb(0 0 0 / 0.5)'
       }}
     >
       <div className="flex items-center gap-3 px-4 py-3 md:gap-4 md:px-5">
-        {/* rank */}
-        <span
-          className="shrink-0 rounded-lg px-2 py-1.5 text-[12px] leading-none text-accent [font-family:var(--font-pixel)]"
-          style={{
-            border: '1px solid rgb(var(--accent-rgb) / 0.4)',
-            background: 'rgb(var(--accent-rgb) / 0.08)'
-          }}
-        >
-          #{me.rank}
-        </span>
+        {/* rank + movement — the table's badge, chip only when they moved */}
+        <div className="flex shrink-0 items-center gap-2">
+          {medal ? (
+            <span
+              className="inline-flex h-8 w-8 items-center justify-center text-[11px] [font-family:var(--font-pixel)]"
+              style={{
+                color: medal.fg,
+                border: `1px solid ${medalA(medal.rgb, 0.5)}`,
+                background: medalA(medal.rgb, 0.08),
+                textShadow: `0 0 10px ${medalGlow(medal.rgb, 0.55)}`
+              }}
+            >
+              {me.rank}
+            </span>
+          ) : (
+            <span className="inline-flex h-8 w-8 items-center justify-center text-[11px] tabular-nums text-zinc-500 [font-family:var(--font-pixel)]">
+              {me.rank}
+            </span>
+          )}
+          {(me.rankDelta !== 0 || me.isNew) && <MovementChip user={me} />}
+        </div>
 
-        {/* identity + chase line */}
+        <RankAvatar user={me} />
+
+        {/* identity + the one competitive fact: lead when #1, chase otherwise */}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-[9px] tracking-[0.35em] text-zinc-500">YOUR POSITION</span>
-            <MovementChip user={me} />
+            <span className="truncate font-display text-[13px] font-medium tracking-tight text-accent">
+              {me.display_name || `@${me.username}`}
+            </span>
+            <span
+              className="shrink-0 px-1.5 py-[3px] text-[8px] leading-none tracking-[0.25em] text-accent"
+              style={{
+                border: '1px solid rgb(var(--accent-rgb) / 0.4)',
+                background: 'rgb(var(--accent-rgb) / 0.08)'
+              }}
+            >
+              YOU
+            </span>
           </div>
-          <div className="mt-1 flex items-center gap-2 text-[10px] text-zinc-400">
-            {me.rank === 1 ? (
-              <>
-                <IconCrown size={11} className="shrink-0 text-[rgb(var(--lb-gold))]" />
-                <span className="truncate">
-                  THE THRONE IS YOURS
-                  {defendGap !== null && behind && (
-                    <span className="text-zinc-500">
-                      {' '}
-                      · <span className="text-zinc-200">+{formatNumber(defendGap)}</span> over @
-                      {behind.username}
-                    </span>
-                  )}
-                </span>
-              </>
-            ) : (
-              <>
-                <IconTarget size={11} className="shrink-0 text-zinc-500" />
-                <span className="truncate">
-                  {chase && (
-                    <>
-                      <span className="text-zinc-100">{formatNumber(chase.gap)} PTS</span> to
-                      overtake <span className="text-zinc-300">@{chase.username}</span>
-                    </>
-                  )}
-                  {defendGap !== null && defendGap >= 0 && behind && (
-                    <span className="hidden text-zinc-600 sm:inline">
-                      {' '}
-                      · defending <span className="text-zinc-400">+{formatNumber(defendGap)}</span>{' '}
-                      vs @{behind.username}
-                    </span>
-                  )}
-                </span>
-              </>
-            )}
-          </div>
-          {overtakePct !== null && (
-            <div className="mt-1.5 hidden h-1 overflow-hidden rounded-full bg-[rgb(var(--lb-panel-edge)/0.08)] sm:block">
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${overtakePct}%`,
-                  background:
-                    'linear-gradient(90deg, rgb(var(--accent-rgb) / 0.5), rgb(var(--accent-rgb)))'
-                }}
-              />
+          {chase && (
+            <div className="mt-1 truncate text-[11px] tabular-nums text-zinc-500">
+              {me.rank === 1 ? (
+                <>
+                  <span className="text-zinc-300">+{formatNumber(chase.gap)}</span> @
+                  {chase.username}
+                </>
+              ) : (
+                <>
+                  <span className="text-zinc-300">{formatNumber(chase.gap)}</span> to @
+                  {chase.username}
+                </>
+              )}
             </div>
           )}
         </div>
 
-        {/* your score */}
-        <div className="shrink-0 text-right">
-          <div className="text-[9px] tracking-[0.3em] text-zinc-500">
-            {me.todayScore > 0 ? (
-              <span style={{ color: 'rgb(var(--lb-up))' }}>+{formatCompact(me.todayScore)} TODAY</span>
-            ) : (
-              'SCORE'
-            )}
-          </div>
-          <div className="mt-1 text-[15px] leading-none text-zinc-50 tabular-nums [font-family:var(--font-pixel)]">
+        {/* today delta + score — the table's 24H and SCORE columns, docked */}
+        <div className="flex shrink-0 items-baseline gap-3">
+          {me.todayScore > 0 && (
+            <span className="text-[11px] tabular-nums" style={{ color: 'rgb(var(--lb-up))' }}>
+              +{formatCompact(me.todayScore)}
+            </span>
+          )}
+          <span
+            className="text-[15px] leading-none tabular-nums [font-family:var(--font-pixel)]"
+            style={{
+              color: 'rgb(var(--lb-score))',
+              textShadow: '0 0 10px rgb(var(--lb-score) / calc(0.22 * var(--lb-glow, 1)))'
+            }}
+          >
             {formatNumber(me.score)}
-          </div>
+          </span>
         </div>
       </div>
     </button>

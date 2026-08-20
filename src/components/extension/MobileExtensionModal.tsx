@@ -64,7 +64,7 @@ export function MobileExtensionModal({ onClose }: { onClose: () => void }) {
           <p className="mt-2.5 text-xs leading-relaxed text-zinc-400">
             The cribble-engine extension can&apos;t install on this device. Your
             stats, the leaderboard, the store, and your profile all work right
-            here — tracking picks back up the next time you open Cribble on
+            here. Tracking picks back up the next time you open Cribble on
             desktop Chrome.
           </p>
           <button

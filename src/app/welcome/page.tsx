@@ -83,7 +83,7 @@ const STEP_META: Record<
   team: { eyebrow: 'Your team' },
   privacy: { eyebrow: 'Privacy' },
   role: { eyebrow: 'About you' },
-  goal: { eyebrow: 'Mission' },
+  goal: { eyebrow: 'Goal' },
   tools: { eyebrow: 'Loadout' },
   extension: { eyebrow: 'Extension' }
 }
@@ -108,8 +108,8 @@ const GOALS: { id: string; label: string; hint: string; icon: IconComponent }[] 
   { id: 'learn', label: 'Learn a skill', hint: 'study, practice, level up', icon: IconBookOpen },
   { id: 'build', label: 'Build a product', hint: 'ship something real', icon: IconWrench },
   { id: 'research', label: 'Do research', hint: 'academic or industry', icon: IconMicroscope },
-  { id: 'work', label: 'Work faster', hint: 'crush daily output', icon: IconZap },
-  { id: 'hobby', label: 'Stay curious', hint: 'no agenda, just vibes', icon: IconOrbit },
+  { id: 'work', label: 'Work faster', hint: 'more done per day', icon: IconZap },
+  { id: 'hobby', label: 'Stay curious', hint: 'No brief. Just looking around.', icon: IconOrbit },
   { id: 'other', label: 'Something else', hint: 'tell us later', icon: IconAsterisk }
 ]
 
@@ -153,6 +153,9 @@ export default function WelcomePage() {
   const [alreadyOnboarded, setAlreadyOnboarded] = useState(false)
   const [statusKnown, setStatusKnown] = useState(false)
   const [extensionLinked, setExtensionLinked] = useState(false)
+  // From saved onboarding metadata; team buyers pass the extension gate.
+  // Anything that is not strictly 'team' counts as solo.
+  const [accountType, setAccountType] = useState<'solo' | 'team'>('solo')
   // UA sniffing must wait for the client — SSR only ever renders the
   // intro, which doesn't read this.
   const [capableBrowser, setCapableBrowser] = useState(false)
@@ -250,6 +253,7 @@ export default function WelcomePage() {
         setDevMode(dev)
         if (data?.onboarded && !dev) setAlreadyOnboarded(true)
         setExtensionLinked(data?.extensionLinked === true)
+        setAccountType(data?.metadata?.account_type === 'team' ? 'team' : 'solo')
         setStatusKnown(true)
       })
       .catch(() => {
@@ -277,7 +281,8 @@ export default function WelcomePage() {
     signedIn: true,
     capableBrowser,
     detected,
-    linked: extensionLinked
+    linked: extensionLinked,
+    accountType
   })
 
   const finish = useCallback(() => {
@@ -532,24 +537,21 @@ export default function WelcomePage() {
         @keyframes welcome-step-in {
           from {
             opacity: 0;
-            transform: translateY(14px);
-            filter: blur(5px);
+            transform: translateY(8px);
           }
           to {
             opacity: 1;
             transform: translateY(0);
-            filter: blur(0);
           }
         }
         .step-enter {
-          animation: welcome-step-in 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+          animation: welcome-step-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
         }
 
         @keyframes welcome-step-out {
           to {
             opacity: 0;
-            transform: translateY(-10px);
-            filter: blur(5px);
+            transform: translateY(-8px);
           }
         }
         .step-leave {
@@ -573,14 +575,11 @@ export default function WelcomePage() {
           animation-delay: var(--wd, 0ms);
         }
 
-        /* Selection check pops in with a slight overshoot. */
+        /* Selection check keeps its pop, without overshoot. */
         @keyframes welcome-check-pop {
           from {
             opacity: 0;
             transform: scale(0.4);
-          }
-          70% {
-            transform: scale(1.15);
           }
           to {
             opacity: 1;
@@ -588,7 +587,19 @@ export default function WelcomePage() {
           }
         }
         .check-pop {
-          animation: welcome-check-pop 260ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+          animation: welcome-check-pop 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        /* Hover never lifts (border/luminance changes only); a press
+           compresses like a control. */
+        .press-scale:not(:disabled):active {
+          transform: scale(0.985);
+        }
+        .cta-brighten:not(:disabled):hover {
+          box-shadow: 0 0 20px rgb(255 255 255 / 0.22);
+        }
+        html.light .cta-brighten:not(:disabled):hover {
+          box-shadow: 0 4px 18px rgb(9 9 11 / 0.25);
         }
 
         @keyframes welcome-note-in {
@@ -606,12 +617,10 @@ export default function WelcomePage() {
           from {
             opacity: 0;
             transform: translateY(16px);
-            filter: blur(6px);
           }
           to {
             opacity: 1;
             transform: translateY(0);
-            filter: blur(0);
           }
         }
         .intro-rise {
@@ -641,6 +650,9 @@ export default function WelcomePage() {
           .intro-rise,
           .intro-line {
             animation: none;
+          }
+          .press-scale:not(:disabled):active {
+            transform: none;
           }
         }
       `}</style>
@@ -712,7 +724,7 @@ function TopBar({
           {onSkip && (
             <button
               onClick={onSkip}
-              className="font-mono text-[10px] tracking-[0.3em] px-3 py-1.5 rounded border border-zinc-800 hover:border-zinc-600 text-zinc-500 hover:text-zinc-200 transition-colors"
+              className="press-scale font-mono text-[10px] tracking-[0.3em] px-3 py-1.5 rounded border border-zinc-800 hover:border-zinc-600 text-zinc-500 hover:text-zinc-200 transition-colors"
             >
               SKIP
             </button>
@@ -766,7 +778,7 @@ function IntroStage() {
         className="intro-rise mt-5 font-serif text-xl md:text-2xl text-zinc-400"
         style={{ ['--wd' as string]: '320ms' }}
       >
-        your AI grind, <em className="text-zinc-200">on the record</em>.
+        Time in AI tools. Counted.
       </div>
       <div className="mt-12 mx-auto h-px w-44 bg-zinc-900 overflow-hidden rounded-full">
         <div className="intro-line h-full w-full bg-accent/80" />
@@ -792,12 +804,8 @@ function ModeStage({
     <StageShell
       step={1}
       stage="mode"
-      title={
-        <>
-          how will you <em className="text-zinc-50">play</em>?
-        </>
-      }
-      subtitle="Cribble tracks your time inside AI tools and turns it into a score. Compete on your own, or represent your company."
+      title="How will you play?"
+      subtitle="Your own board, or your company's mark on it."
     >
       <div className="mt-9 grid grid-cols-1 md:grid-cols-2 gap-3">
         <ChoiceCard
@@ -823,7 +831,7 @@ function ModeStage({
           <CardIcon icon={IconTeam} selected={value === 'team'} />
           <div className="mt-4 text-base font-semibold text-zinc-100">Team</div>
           <p className="mt-1.5 text-[13px] leading-relaxed text-zinc-500">
-            Play as your company — the gold badge, the square avatar, and up
+            Play as your company: the gold badge, the square avatar, and up
             to 10 affiliated pilots wearing your mark on the board.
           </p>
         </ChoiceCard>
@@ -863,12 +871,8 @@ function TeamStage({
     <StageShell
       step={2}
       stage="team"
-      title={
-        <>
-          fly your <em className="text-zinc-50">company&apos;s</em> colors.
-        </>
-      }
-      subtitle="One account becomes the team. It carries the mark, and your pilots carry it onto the board — everyone keeps their own solo profile."
+      title="Fly your company's colors."
+      subtitle="One account becomes the team. It carries the mark, your pilots carry it onto the board, and everyone keeps their own solo profile."
     >
       <div className="mt-9 grid grid-cols-1 md:grid-cols-2 gap-3">
         {/* the pitch — three lines, gold checks */}
@@ -886,7 +890,7 @@ function TeamStage({
           </div>
           <ul className="mt-5 space-y-3">
             <TeamPerkItem text="The gold team badge on your callsign, every surface" />
-            <TeamPerkItem text="The square avatar — a company mark, not a face" />
+            <TeamPerkItem text="The square avatar: a company mark, not a face" />
             <TeamPerkItem text="Up to 10 affiliated pilots wearing your mark on the board" />
           </ul>
         </div>
@@ -942,8 +946,8 @@ function TeamStage({
 
       <p className="mt-6 text-[13px] leading-relaxed text-zinc-500">
         <span style={{ color: `rgb(${GOLD})` }}>*</span> Payment is followed
-        by hand identity verification — the badge unlocks on approval,
-        within 24 hours.
+        by hand identity verification. The badge unlocks on approval, within
+        24 hours.
       </p>
 
       <StageActions>
@@ -987,7 +991,7 @@ function PrivacyStage({
       stage="privacy"
       title={
         <>
-          we count <em className="text-zinc-50">showing up</em>, not what you
+          We count <em className="text-zinc-50">showing up</em>, not what you
           say.
         </>
       }
@@ -1024,14 +1028,9 @@ function PrivacyStage({
         </div>
       </div>
 
-      <p className="mt-6 text-[13px] leading-relaxed text-zinc-500">
-        <span className="text-accent">*</span> Think Strava for the prompt
-        grind — we log the session, never the conversation.
-      </p>
-
       <StageActions>
         <GhostButton onClick={onBack}>Back</GhostButton>
-        <PrimaryButton onClick={onNext}>Sounds fair</PrimaryButton>
+        <PrimaryButton onClick={onNext}>Continue</PrimaryButton>
       </StageActions>
     </StageShell>
   )
@@ -1069,12 +1068,8 @@ function RoleStage({
     <StageShell
       step={3}
       stage="role"
-      title={
-        <>
-          what do you <em className="text-zinc-50">do</em>?
-        </>
-      }
-      subtitle="Pick whatever fits best — we use it to tune leaderboards and recap copy. You can change it anytime from your profile."
+      title="What do you do?"
+      subtitle="Used for recaps and the board. Change it later in your profile."
     >
       <div className="mt-9 grid grid-cols-2 md:grid-cols-4 gap-2.5">
         {ROLES.map((r, i) => (
@@ -1122,12 +1117,8 @@ function GoalStage({
     <StageShell
       step={4}
       stage="goal"
-      title={
-        <>
-          what&apos;s the <em className="text-zinc-50">mission</em>?
-        </>
-      }
-      subtitle="One main thing you'd want AI tools to help you crush over the next few months."
+      title="What is this for?"
+      subtitle="The main reason you open these tools."
     >
       <div className="mt-9 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
         {GOALS.map((g, i) => (
@@ -1161,7 +1152,7 @@ function GoalStage({
 }
 
 /* ============================================================
-   STEP 5 — Top tools (multi-select), finishes straight to dashboard
+   STEP 5 — Top tools (multi-select), the questionnaire's last stop
    ============================================================ */
 
 function ToolsStage({
@@ -1182,16 +1173,17 @@ function ToolsStage({
     else if (value.length < 4) onChange([...value, id])
   }
 
+  // Honest CTA: with a live store listing the install stage still follows,
+  // so only promise the dashboard when this button actually finishes.
+  const ctaLabel = EXTENSION_STEP_ENABLED ? 'Continue' : 'Enter dashboard'
+  const busyLabel = EXTENSION_STEP_ENABLED ? 'Saving…' : 'Opening dashboard…'
+
   return (
     <StageShell
       step={5}
       stage="tools"
-      title={
-        <>
-          pick your <em className="text-zinc-50">daily drivers</em>.
-        </>
-      }
-      subtitle={`Up to four. The extension detects everything else automatically — this just preloads your dashboard. ${value.length}/4 selected.`}
+      title="Which tools do you open most?"
+      subtitle={`Up to four. The rest shows up once the extension is on. ${value.length}/4`}
     >
       <div className="mt-9 grid grid-cols-2 md:grid-cols-4 gap-2.5">
         {TOOLS.map((t, i) => {
@@ -1219,7 +1211,7 @@ function ToolsStage({
       <StageActions>
         <GhostButton onClick={onBack}>Back</GhostButton>
         <PrimaryButton onClick={onSubmit} disabled={saving}>
-          {saving ? 'Opening dashboard…' : 'Enter dashboard'}
+          {saving ? busyLabel : ctaLabel}
         </PrimaryButton>
       </StageActions>
     </StageShell>
@@ -1256,13 +1248,8 @@ function ExtensionStage({
     <StageShell
       step={SOLO_STEPS.length}
       stage="extension"
-      title={
-        <>
-          one last thing: the <em className="text-zinc-50">tracker</em>{' '}
-          itself.
-        </>
-      }
-      subtitle="Install the extension once. It links to your account on its own when your dashboard loads."
+      title="Install cribble-engine."
+      subtitle="Cribble cannot count anything until this is on. It measures which tools you open and for how long. Not what you type."
     >
       <div
         className="card-enter glass-lite mt-9 rounded-2xl p-6"
@@ -1287,7 +1274,7 @@ function ExtensionStage({
             href={EXTENSION_INSTALL_URL ?? undefined}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center justify-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-full border border-zinc-700 text-zinc-100 hover:border-zinc-500 hover:-translate-y-px transition-all duration-300"
+            className="press-scale inline-flex items-center justify-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-full border border-zinc-700 text-zinc-100 hover:border-zinc-500 transition-all duration-300"
           >
             Install cribble-engine
             <IconArrowRight size={14} />
@@ -1315,7 +1302,7 @@ function ExtensionStage({
                 </span>
               </div>
               <p className="mt-2 pl-8 text-xs leading-relaxed text-zinc-600">
-                After installing, reload this page so the extension can answer.
+                Installed? Reload this page.
               </p>
             </div>
           ) : (
@@ -1366,7 +1353,7 @@ function StageShell({
       <h1 className="mt-4 font-serif text-4xl md:text-5xl leading-[1.08] text-zinc-300">
         {title}
       </h1>
-      <p className="mt-4 text-sm md:text-[15px] text-zinc-500 leading-relaxed max-w-xl">
+      <p className="mt-4 text-[15px] leading-[1.45] text-zinc-500 max-w-xl">
         {subtitle}
       </p>
       {children}
@@ -1398,7 +1385,7 @@ function PrimaryButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="group inline-flex items-center gap-2.5 text-[13px] font-semibold px-6 py-3 rounded-full transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed enabled:hover:-translate-y-px enabled:active:translate-y-0"
+      className="press-scale cta-brighten inline-flex items-center gap-2.5 text-[13px] font-semibold px-6 py-3 rounded-full transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed"
       style={{
         background: 'var(--foreground)',
         color: 'var(--background)',
@@ -1408,10 +1395,7 @@ function PrimaryButton({
       }}
     >
       {children}
-      <IconArrowRight
-        size={15}
-        className="transition-transform duration-300 group-enabled:group-hover:translate-x-0.5"
-      />
+      <IconArrowRight size={15} />
     </button>
   )
 }
@@ -1429,7 +1413,7 @@ function GhostButton({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-2 text-[13px] px-5 py-3 rounded-full border border-zinc-800 text-zinc-400 hover:text-zinc-100 hover:border-zinc-600 transition-colors"
+      className="press-scale inline-flex items-center gap-2 text-[13px] px-5 py-3 rounded-full border border-zinc-800 text-zinc-400 hover:text-zinc-100 hover:border-zinc-600 transition-colors"
     >
       {!noIcon && <IconArrowLeft size={15} />}
       {children}
@@ -1477,14 +1461,14 @@ function ChoiceCard({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`card-enter relative text-left rounded-2xl border backdrop-blur-sm transition-all duration-300 ${
+      className={`card-enter press-scale relative text-left rounded-2xl border backdrop-blur-sm transition-all duration-300 ${
         large ? 'p-6' : 'p-4'
       } ${
         disabled
           ? 'opacity-35 cursor-not-allowed border-zinc-800 bg-zinc-950/70'
           : selected
           ? 'border-accent/50 bg-accent/[0.05]'
-          : 'border-zinc-800 bg-zinc-950/70 hover:border-zinc-600 hover:-translate-y-0.5'
+          : 'border-zinc-800 bg-zinc-950/70 hover:border-zinc-600'
       }`}
       style={{ ['--wd' as string]: `${index * 45}ms` }}
     >
