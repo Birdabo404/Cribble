@@ -67,7 +67,7 @@ describe('nextTrackIndex', () => {
 
 describe('parseStoredVolume', () => {
   const cases: { name: string; raw: string | null; volume: number }[] = [
-    { name: 'missing key falls back to the 40% default', raw: null, volume: DEFAULT_MUSIC_VOLUME },
+    { name: 'missing key falls back to the 10% default', raw: null, volume: DEFAULT_MUSIC_VOLUME },
     { name: 'blank value reads as unset, not silent', raw: '   ', volume: DEFAULT_MUSIC_VOLUME },
     { name: 'stored float round-trips', raw: '0.75', volume: 0.75 },
     { name: 'zero is a legitimate saved volume', raw: '0', volume: 0 },
