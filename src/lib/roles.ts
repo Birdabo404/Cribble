@@ -18,12 +18,12 @@ export interface RoleOption {
 export const ROLE_OPTIONS: RoleOption[] = [
   { id: 'student', label: 'Student', hint: 'classes, papers, projects', badge: 'STUDENT' },
   { id: 'researcher', label: 'Researcher', hint: 'theses, labs, science', badge: 'RESEARCHER' },
-  { id: 'developer', label: 'Developer', hint: 'shipping code daily', badge: 'DEVELOPER' },
+  { id: 'developer', label: 'Developer', hint: 'code, reviews, releases', badge: 'DEVELOPER' },
   { id: 'designer', label: 'Designer', hint: 'pixels, vectors, taste', badge: 'DESIGNER' },
-  { id: 'founder', label: 'Founder', hint: 'building a thing', badge: 'FOUNDER' },
+  { id: 'founder', label: 'Founder', hint: 'building a company', badge: 'FOUNDER' },
   { id: 'product', label: 'Product', hint: 'specs to shipping', badge: 'PRODUCT' },
   { id: 'writer', label: 'Writer', hint: 'words for a living', badge: 'WRITER' },
-  { id: 'other', label: 'Other', hint: 'something else cool', badge: 'EXPLORER' }
+  { id: 'other', label: 'Other', hint: 'none of the above', badge: 'EXPLORER' }
 ]
 
 export const ROLE_IDS = ROLE_OPTIONS.map((r) => r.id)

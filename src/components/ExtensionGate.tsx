@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { MobileExtensionModal } from '@/components/extension/MobileExtensionModal'
 import { fetchMe } from '@/lib/client/fetchMe'
@@ -9,23 +9,64 @@ import {
   EXTENSION_INSTALL_URL,
   evaluateExtensionGate,
   isExtensionCapableBrowser,
-  shouldShowMobileExtensionNotice
+  shouldShowMobileExtensionNotice,
+  type ExtensionGateInput
 } from '@/lib/extensionInstall'
 
 // Mirrors EXTENSION_STEP_ENABLED on /welcome: no store listing → no gate.
 const GATE_ENABLED = EXTENSION_INSTALL_URL !== null
 
+// Cover fade-out on release. Short enough that the happy path reads as a
+// beat, not a loading screen.
+const COVER_FADE_MS = 150
+// The handshake can hold the cover for up to IDENTITY_MS (3.5s, see
+// extensionBridge). Fast verdicts should pass as an unlabeled black beat,
+// so the mark waits this long before appearing.
+const COVER_MARK_DELAY_MS = 600
+
+// The cover must be in the first painted client frame — a passive effect
+// runs after paint and would let one dashboard frame through. On the
+// server (where 'use client' components still render once) useLayoutEffect
+// warns, so fall back to useEffect there; neither runs during SSR.
+const useClientLayoutEffect =
+  typeof window === 'undefined' ? useEffect : useLayoutEffect
+
 const noticeDismissKey = (userId: number) =>
   `cribble:ext-mobile-notice-dismissed:${userId}`
+
+// users.metadata is free-form JSON, so trust nothing about its shape.
+// Only a literal 'team' unlocks the ungated lane; absent, null, or
+// malformed metadata gates as solo — the strict default — so a broken
+// row can never skip the wall.
+function readAccountType(
+  metadata: unknown
+): ExtensionGateInput['accountType'] {
+  return typeof metadata === 'object' &&
+    metadata !== null &&
+    (metadata as Record<string, unknown>).account_type === 'team'
+    ? 'team'
+    : 'solo'
+}
+
+// off → holding (first client paint, capable browsers only)
+// holding → fading → done (verdict 'allow' or any status failure)
+// holding → unmount (verdict 'install': the redirect tears this layout down)
+type CoverPhase = 'off' | 'holding' | 'fading' | 'done'
 
 /**
  * Hard extension wall around the signed-in (app) surface. Runs one check
  * per app entry (the (app) layout persists across route changes): fetch
  * the account's status, run a single handshake on capable browsers, and
  * bounce to the /welcome install stage when the verdict is 'install'.
- * Children render immediately while the check is in flight, so the happy
- * path costs nothing — an uninstalled user sees at most ~4s of dashboard
- * before the redirect.
+ *
+ * Children stay mounted the whole time — the (app) group includes public
+ * pages whose SSR content must survive. On extension-capable browsers
+ * they instead sit under an opaque cover from the first client paint
+ * until the first verdict settles: 'allow' releases it, any status
+ * failure releases it too (401/403 is just signed out; 5xx and network
+ * errors fail open so a dead endpoint can't brick the site), and
+ * 'install' keeps it up while the redirect lands so the dashboard is
+ * never teased. Non-capable browsers never get the cover.
  *
  * Also owns the one-time MobileExtensionModal for phone users — the gate
  * never redirects non-capable browsers, so this is the only surface that
@@ -33,26 +74,67 @@ const noticeDismissKey = (userId: number) =>
  */
 export function ExtensionGate({ children }: { children: React.ReactNode }) {
   const router = useRouter()
+  const [coverPhase, setCoverPhase] = useState<CoverPhase>('off')
+  const [coverMark, setCoverMark] = useState(false)
   // Doubles as visibility: non-null only while the notice should be up,
   // and the id keys the per-user dismiss flag when GOT IT is pressed.
   const [mobileNoticeUserId, setMobileNoticeUserId] = useState<number | null>(
     null
   )
 
+  // Raise the cover before the browser paints the hydrated frame, but only
+  // for browsers that can actually hit the wall. SSR renders without it
+  // (navigator is undefined there), and this runs before paint, so neither
+  // side ever shows the dashboard early.
+  useClientLayoutEffect(() => {
+    if (GATE_ENABLED && isExtensionCapableBrowser()) setCoverPhase('holding')
+  }, [])
+
+  useEffect(() => {
+    if (coverPhase !== 'fading') return
+    const id = window.setTimeout(() => setCoverPhase('done'), COVER_FADE_MS)
+    return () => window.clearTimeout(id)
+  }, [coverPhase])
+
+  useEffect(() => {
+    if (coverPhase !== 'holding') return
+    const id = window.setTimeout(() => setCoverMark(true), COVER_MARK_DELAY_MS)
+    return () => window.clearTimeout(id)
+  }, [coverPhase])
+
   useEffect(() => {
     if (!GATE_ENABLED) return
 
     let cancelled = false
 
+    const releaseCover = () => {
+      if (cancelled) return
+      setCoverPhase((phase) => {
+        if (phase !== 'holding') return phase
+        // Reduced motion skips the fade and drops the cover in one step.
+        return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+          ? 'done'
+          : 'fading'
+      })
+    }
+
     const check = async () => {
       const res = await fetch('/api/user/onboarding', {
         credentials: 'include'
       })
+      if (cancelled) return
       // 401/403 means signed out — public (app) pages stay untouched. Any
       // other failure fails open: a flaky status endpoint must not brick
-      // the whole app.
-      if (!res.ok) return
-      const data = (await res.json()) as { extensionLinked?: unknown }
+      // the whole app. Either way the verdict is settled, so the cover
+      // comes down.
+      if (!res.ok) {
+        releaseCover()
+        return
+      }
+      const data = (await res.json()) as {
+        extensionLinked?: unknown
+        metadata?: unknown
+      }
 
       const capableBrowser = isExtensionCapableBrowser()
       const detected = capableBrowser
@@ -63,17 +145,21 @@ export function ExtensionGate({ children }: { children: React.ReactNode }) {
       const verdict = evaluateExtensionGate({
         enabled: GATE_ENABLED,
         signedIn: true,
+        accountType: readAccountType(data.metadata),
         capableBrowser,
         detected,
         linked: data.extensionLinked === true
       })
       switch (verdict) {
         case 'allow':
+          releaseCover()
           return
         case 'install': {
-          // Live pathname rather than one captured at mount — the user may
-          // have navigated during the ~4s check, and ?next= should restore
-          // wherever they ended up.
+          // The cover stays up through the redirect — this layout (and the
+          // cover with it) unmounts when /welcome takes over, so the
+          // dashboard is never seen. Live pathname rather than one captured
+          // at mount: the user may have navigated during the check, and
+          // ?next= should restore wherever they ended up.
           const next = encodeURIComponent(window.location.pathname)
           router.replace(`/welcome?next=${next}`)
           return
@@ -87,6 +173,7 @@ export function ExtensionGate({ children }: { children: React.ReactNode }) {
 
     void check().catch(() => {
       // Network hiccup — fail open, same reasoning as the !res.ok branch.
+      releaseCover()
     })
 
     return () => {
@@ -160,6 +247,23 @@ export function ExtensionGate({ children }: { children: React.ReactNode }) {
   return (
     <>
       {children}
+      {(coverPhase === 'holding' || coverPhase === 'fading') && (
+        <div
+          aria-hidden="true"
+          className={`fixed inset-0 z-[9999] flex items-center justify-center bg-black transition-opacity ${
+            coverPhase === 'fading'
+              ? 'pointer-events-none opacity-0'
+              : 'opacity-100'
+          }`}
+          style={{ transitionDuration: `${COVER_FADE_MS}ms` }}
+        >
+          {coverMark && (
+            <span className="font-mono text-sm font-semibold tracking-[0.4em] text-zinc-100 motion-safe:animate-pulse">
+              CRIBBLE<span className="text-accent">.</span>
+            </span>
+          )}
+        </div>
+      )}
       {mobileNoticeUserId !== null && (
         <MobileExtensionModal onClose={dismissMobileNotice} />
       )}

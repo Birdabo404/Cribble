@@ -17,6 +17,7 @@ describe('evaluateExtensionGate', () => {
   const base: ExtensionGateInput = {
     enabled: true,
     signedIn: true,
+    accountType: 'solo',
     capableBrowser: true,
     detected: false,
     linked: false
@@ -56,6 +57,25 @@ describe('evaluateExtensionGate', () => {
       name: 'capable browser: past linkage cannot stand in for the live handshake',
       input: { linked: true },
       expected: 'install'
+    },
+    // Team buyer accounts track nothing (checkout already leaves the
+    // wizard), so the wall never applies to them — not even on a capable
+    // browser with no handshake. Solo is the strict default: affiliated
+    // pilots sign up solo and must still install.
+    {
+      name: 'team account on a capable browser passes without a handshake',
+      input: { accountType: 'team' },
+      expected: 'allow'
+    },
+    {
+      name: 'solo account in the same spot still hits the wall',
+      input: { accountType: 'solo' },
+      expected: 'install'
+    },
+    {
+      name: 'team account with the feature off stays allowed',
+      input: { accountType: 'team', enabled: false },
+      expected: 'allow'
     },
     // Non-capable browsers (Safari/Firefox/mobile) can never install —
     // the store is desktop-Chromium only — so gating them would demand
