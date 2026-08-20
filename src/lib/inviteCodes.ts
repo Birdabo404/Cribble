@@ -19,3 +19,12 @@ export function generateInviteCode(): string {
 export function normalizeInviteCode(raw: string): string {
   return raw.trim().toUpperCase()
 }
+
+const INVITE_SHAPE = /^CRIB-([A-Z0-9]{4})-([A-Z0-9]{4})$/
+
+/** Eight payload characters for the login-style CRIB-····-···· cells. */
+export function inviteKeyCells(code: string): string[] | null {
+  const match = normalizeInviteCode(code).match(INVITE_SHAPE)
+  if (!match) return null
+  return [...match[1], ...match[2]]
+}
