@@ -54,6 +54,7 @@ Desktop.ini
 .eslintcache
 .vercel
 
-# Local visual-check screenshots
+# Local visual-check screenshots and smoke captures. Never commit these.
 .shots/
+.smoke/
 scripts/shots-*/
