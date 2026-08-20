@@ -653,11 +653,16 @@ export async function POST(request: NextRequest) {
     // Recalculate scores with the same policy the dashboard uses, so the
     // leaderboard (user_scores) and dashboard (/api/user/me) stay consistent.
     let serverScore: { totalScore: number; todayScore: number } | null = null
+    // True only when this sync ingested rows AND the recalculation landed —
+    // the deferred work below uses it to gate everything that reads this
+    // user's fresh totals.
+    let scoresRecalculated = false
     if (result.processed > 0) {
       const { scoresStale } = await recalculateUserScore(supabase, finalUserId)
       if (scoresStale) {
         console.error(`[Extension Sync] Score recalculation failed for user ${finalUserId}`)
       } else {
+        scoresRecalculated = true
         // Read the totals recalculateUserScore just upserted so the
         // response carries the same numbers the dashboard shows (it only
         // returns a staleness flag, not the totals). The extension snaps
@@ -678,44 +683,59 @@ export async function POST(request: NextRequest) {
             todayScore: Math.round(Number(scoreRow.today_score ?? 0))
           }
         }
-
-        // Rank buckets, score milestones, achievement unlocks, the referral
-        // reward, and the top-100 rank snapshot are all deduped server-side,
-        // safe to run on every sync — and none of them feeds this response,
-        // which the dashboard's sync handshake blocks on. after() defers
-        // them past the response. The original order is preserved (the
-        // snapshot re-diffs everyone's rank, so it must see the referral
-        // grant's effect on the referrer's score); each step is isolated so
-        // one failure can't starve the rest. The first sync with real
-        // events is the referral activation moment.
-        after(async () => {
-          try {
-            await evaluateScoreNotifications(supabase, finalUserId)
-          } catch (error) {
-            console.error(`[Extension Sync] Deferred score notifications failed for user ${finalUserId}:`, error)
-          }
-          try {
-            await evaluateAchievements(supabase, finalUserId)
-          } catch (error) {
-            console.error(`[Extension Sync] Deferred achievements evaluation failed for user ${finalUserId}:`, error)
-          }
-          try {
-            await maybeGrantReferralReward(supabase, finalUserId)
-          } catch (error) {
-            console.error(`[Extension Sync] Deferred referral reward failed for user ${finalUserId}:`, error)
-          }
-          try {
-            // Rank snapshots + demotion notifications moved off the
-            // leaderboard GET (which is now read-only): this user's fresh
-            // score can shift everyone's rank, so the whole top-100
-            // standing is re-diffed here on the write path.
-            await refreshLeaderboardSnapshot(supabase)
-          } catch (error) {
-            console.error('[Extension Sync] Deferred leaderboard snapshot failed:', error)
-          }
-        })
       }
     }
+
+    // Rank buckets, score milestones, achievement unlocks, the referral
+    // reward, and the top-100 rank snapshot are all deduped server-side,
+    // safe to run on every sync — and none of them feeds this response,
+    // which the dashboard's sync handshake blocks on. after() defers them
+    // past the response. Score notifications and achievements read THIS
+    // user's totals, so they stay gated on a fresh recalculation. The
+    // referral grant deliberately is not: the reward credits the REFERRER,
+    // and gating it on processed > 0 is exactly what let a missed first
+    // grant stay missed forever — a duplicate batch reports processed === 0
+    // ("all events already exist"), so the retry must ride those heartbeats
+    // too. The helper is told whether this sync ingested anything so a bare
+    // handshake still can't activate a recruit with no stored events. The
+    // original order is preserved (the snapshot re-diffs everyone's rank,
+    // so it must see the referral grant's effect on the referrer's score);
+    // each step is isolated so one failure can't starve the rest.
+    after(async () => {
+      if (scoresRecalculated) {
+        try {
+          await evaluateScoreNotifications(supabase, finalUserId)
+        } catch (error) {
+          console.error(`[Extension Sync] Deferred score notifications failed for user ${finalUserId}:`, error)
+        }
+        try {
+          await evaluateAchievements(supabase, finalUserId)
+        } catch (error) {
+          console.error(`[Extension Sync] Deferred achievements evaluation failed for user ${finalUserId}:`, error)
+        }
+      }
+      let awardedPoints: number | null = null
+      try {
+        awardedPoints = await maybeGrantReferralReward(supabase, finalUserId, {
+          ingestedNewEvents: result.processed > 0
+        })
+      } catch (error) {
+        console.error(`[Extension Sync] Deferred referral reward failed for user ${finalUserId}:`, error)
+      }
+      // Snapshot when standings could have moved: this user's totals were
+      // just recalculated, or the grant just credited the referrer.
+      if (scoresRecalculated || (awardedPoints ?? 0) > 0) {
+        try {
+          // Rank snapshots + demotion notifications moved off the
+          // leaderboard GET (which is now read-only): a fresh score can
+          // shift everyone's rank, so the whole top-100 standing is
+          // re-diffed here on the write path.
+          await refreshLeaderboardSnapshot(supabase)
+        } catch (error) {
+          console.error('[Extension Sync] Deferred leaderboard snapshot failed:', error)
+        }
+      }
+    })
 
     // Update user's last sync time
     await supabase

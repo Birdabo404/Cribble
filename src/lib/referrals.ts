@@ -5,6 +5,7 @@
 // writes go through the service-role client.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { applyEventsUserEq } from './eventsIdentity'
 import { generateInviteCode } from './inviteCodes'
 import { insertMissingNotifications } from './notifications'
 
@@ -98,15 +99,44 @@ export async function ensureReferralCode(
 type RedeemedInvite = { kind?: string | null; created_by?: number | null }
 
 /**
+ * PostgREST embeds a joined resource as an object when it can prove the
+ * relationship is to-one, and as a one-element array otherwise (the shape
+ * depends on how the FK metadata is reported, which has differed across
+ * environments). Treating the array shape as "no invite" silently failed
+ * the kind check and skipped every grant, so accept both.
+ */
+function unwrapInviteEmbed(embed: unknown): RedeemedInvite | null {
+  if (Array.isArray(embed)) return (embed[0] as RedeemedInvite | undefined) ?? null
+  if (embed && typeof embed === 'object') return embed as RedeemedInvite
+  return null
+}
+
+export interface MaybeGrantReferralRewardOptions {
+  /**
+   * Whether the sync that triggered this call stored new events_raw rows.
+   * When false, the grant first requires activity to already exist — that
+   * is the retry path for a grant a previous sync missed, while a bare
+   * handshake (no stored events at all) stays unrewarded.
+   */
+  ingestedNewEvents: boolean
+}
+
+/**
  * Grant the referral reward for this user's activation if one is due.
- * Called on every successful extension sync: non-referred users cost a
- * single indexed lookup on invite_redemptions(user_id) and bail. Never
- * throws — same convention as evaluateScoreNotifications.
+ * Called on EVERY extension sync response (including duplicate and empty
+ * batches), so cost ordering matters: non-referred users cost a single
+ * indexed lookup on invite_redemptions(user_id) and bail. Only referred,
+ * not-yet-rewarded users on a no-ingest sync pay for the events_raw
+ * existence probe. Returns the points recorded by a grant that happened
+ * NOW (0 when the referrer's cap ate the reward), or null when nothing
+ * was newly granted. Never throws — same convention as
+ * evaluateScoreNotifications.
  */
 export async function maybeGrantReferralReward(
   supabase: SupabaseClient,
-  userId: number
-): Promise<void> {
+  userId: number,
+  options: MaybeGrantReferralRewardOptions
+): Promise<number | null> {
   try {
     const { data: redemption, error: redemptionError } = await supabase
       .from('invite_redemptions')
@@ -117,13 +147,13 @@ export async function maybeGrantReferralReward(
 
     if (redemptionError) {
       console.error('[Referrals] Redemption lookup failed:', redemptionError)
-      return
+      return null
     }
 
-    const invite = (redemption?.invite_codes ?? null) as RedeemedInvite | null
-    if (!invite || invite.kind !== 'referral') return
+    const invite = unwrapInviteEmbed(redemption?.invite_codes ?? null)
+    if (!invite || invite.kind !== 'referral') return null
     const referrerId = Number(invite.created_by)
-    if (!Number.isInteger(referrerId) || referrerId <= 0 || referrerId === userId) return
+    if (!Number.isInteger(referrerId) || referrerId <= 0 || referrerId === userId) return null
 
     const { data: existingReward, error: rewardLookupError } = await supabase
       .from('referral_rewards')
@@ -133,9 +163,28 @@ export async function maybeGrantReferralReward(
 
     if (rewardLookupError) {
       console.error('[Referrals] Reward lookup failed:', rewardLookupError)
-      return
+      return null
     }
-    if (existingReward) return
+    if (existingReward) return null
+
+    if (!options.ingestedNewEvents) {
+      // This sync stored nothing, so activation hinges on whether a past
+      // sync did. The probe goes through the schema-compat layer: some
+      // deployments key events_raw on the legacy twitter_user_id integer
+      // column with user_id as a UUID, so a hardcoded .eq('user_id', …)
+      // would silently match nothing (or error) there.
+      const probe = supabase.from('events_raw').select('id').limit(1)
+      const { query: scopedProbe, column } = await applyEventsUserEq(supabase, probe, userId)
+      // No usable identity column means we cannot prove activity — treat
+      // as no events rather than granting blind.
+      if (!column) return null
+      const { data: activityRows, error: activityError } = await scopedProbe
+      if (activityError) {
+        console.error('[Referrals] Activity probe failed:', activityError)
+        return null
+      }
+      if (!activityRows || activityRows.length === 0) return null
+    }
 
     const { data: awarded, error: grantError } = await supabase.rpc('grant_referral_reward', {
       p_referrer: referrerId,
@@ -146,47 +195,56 @@ export async function maybeGrantReferralReward(
 
     if (grantError) {
       console.error('[Referrals] Reward grant failed:', grantError)
-      return
+      return null
     }
     // NULL means another sync already granted this reward — nothing to say.
-    if (awarded === null || awarded === undefined) return
+    if (awarded === null || awarded === undefined) return null
 
     const points = Number(awarded)
-    const { data: friend } = await supabase
-      .from('users')
-      .select('twitter_username')
-      .eq('id', userId)
-      .maybeSingle()
-    const username = friend?.twitter_username ? String(friend.twitter_username) : null
-    const handle = username ? `@${username}` : 'A recruit'
+    // The reward is recorded at this point: a notification hiccup must not
+    // hide the grant from the caller (the leaderboard snapshot keys on a
+    // positive return), so the notify step gets its own guard.
+    try {
+      const { data: friend } = await supabase
+        .from('users')
+        .select('twitter_username')
+        .eq('id', userId)
+        .maybeSingle()
+      const username = friend?.twitter_username ? String(friend.twitter_username) : null
+      const handle = username ? `@${username}` : 'A recruit'
 
-    // data.username makes the feed deep-link the row to the recruit's
-    // profile; data.kind lets the bell pick the referral glyph treatment.
-    const data: Record<string, unknown> = {
-      kind: 'referral',
-      friendId: userId,
-      points,
-      ...(username ? { username } : {})
+      // data.username makes the feed deep-link the row to the recruit's
+      // profile; data.kind lets the bell pick the referral glyph treatment.
+      const data: Record<string, unknown> = {
+        kind: 'referral',
+        friendId: userId,
+        points,
+        ...(username ? { username } : {})
+      }
+
+      await insertMissingNotifications(supabase, referrerId, [
+        points > 0
+          ? {
+              type: 'social',
+              title: `+${points} PTS — RECRUIT ACTIVATED`,
+              body: `${handle} joined through your invite and synced their first activity.`,
+              data,
+              dedupeKey: `referral_reward_${userId}`
+            }
+          : {
+              type: 'social',
+              title: 'RECRUIT ACTIVATED — CAP REACHED',
+              body: `${handle} joined through your invite, but your ${REFERRAL_CAP} reward slots are already claimed.`,
+              data,
+              dedupeKey: `referral_reward_${userId}`
+            }
+      ])
+    } catch (error) {
+      console.error('[Referrals] Reward notification failed:', error)
     }
-
-    await insertMissingNotifications(supabase, referrerId, [
-      points > 0
-        ? {
-            type: 'social',
-            title: `+${points} PTS — RECRUIT ACTIVATED`,
-            body: `${handle} joined through your invite and synced their first activity.`,
-            data,
-            dedupeKey: `referral_reward_${userId}`
-          }
-        : {
-            type: 'social',
-            title: 'RECRUIT ACTIVATED — CAP REACHED',
-            body: `${handle} joined through your invite, but your ${REFERRAL_CAP} reward slots are already claimed.`,
-            data,
-            dedupeKey: `referral_reward_${userId}`
-          }
-    ])
+    return points
   } catch (error) {
     console.error('[Referrals] Reward evaluation failed:', error)
+    return null
   }
 }
