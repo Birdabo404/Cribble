@@ -181,4 +181,19 @@ describe('middleware site lock', () => {
     vi.stubEnv('NEXT_PUBLIC_SITE_LOCKED', 'false')
     expect(rewriteTarget('/shop')).toBeNull()
   })
+
+  it('keeps lowercase /join/ invite links reachable while locked', () => {
+    vi.stubEnv('SITE_LOCKED', '1')
+    expect(rewriteTarget('/join/CRIB-THDM-AVQZ')).toBeNull()
+    expect(middleware(request('/join/CRIB-THDM-AVQZ')).status).toBe(200)
+  })
+
+  it('canonicalizes uppercase /JOIN/ invite links instead of the maintenance screen', () => {
+    vi.stubEnv('SITE_LOCKED', '1')
+    const response = middleware(request('/JOIN/CRIB-THDM-AVQZ'))
+    expect(response.status).toBe(308)
+    expect(response.headers.get('location')).toBe('https://cribble.dev/join/CRIB-THDM-AVQZ')
+    expect(response.headers.get('x-middleware-rewrite')).toBeNull()
+    expect(response.headers.get('x-frame-options')).toBe('DENY')
+  })
 })
