@@ -51,6 +51,7 @@ import { AiBoard } from '@/components/leaderboard/AiBoard'
 import { PlayerCard, type ChaseInfo } from '@/components/leaderboard/PlayerCard'
 import { Podium } from '@/components/leaderboard/Podium'
 import { RankAvatar } from '@/components/leaderboard/RankRegalia'
+import { TeamBoard } from '@/components/leaderboard/TeamBoard'
 import { medalA, medalFor, medalGlow, type LeaderRow } from '@/components/leaderboard/types'
 import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
@@ -61,15 +62,21 @@ const PAGE_SIZE = 25
 const POLL_MS = 15_000
 const FLASH_MS = 2_400
 
-/** Which board is on stage: the season race, lifetime standings, or the
- *  machines (ai). */
-type BoardView = 'season' | 'alltime' | 'ai'
+/** Which board is on stage: the season race, lifetime standings, the
+ *  machines (ai), or the companies (teams). */
+type BoardView = 'season' | 'alltime' | 'ai' | 'teams'
 
 const BOARD_TABS: { id: BoardView; label: string }[] = [
   { id: 'season', label: 'SEASON' },
   { id: 'alltime', label: 'ALL-TIME' },
-  { id: 'ai', label: 'AI' }
+  { id: 'ai', label: 'AI' },
+  { id: 'teams', label: 'TEAMS' }
 ]
+
+/** The two pilot standings views — the only ones that own the pilot
+ *  chrome (stat bar, podium, standings table) and the 15s poll. AI and
+ *  TEAMS render self-fetching boards instead. */
+const isStandingsView = (v: BoardView) => v === 'season' || v === 'alltime'
 
 /** One score-gain pop: the points gained between two polls, a per-pop tilt
  *  so repeat pops don't stamp identically, and a stamp that remounts the
@@ -93,6 +100,10 @@ export default function LeaderboardArena() {
   // mount effect below never has to re-subscribe on view flips.
   const viewRef = useRef<BoardView>(view)
   viewRef.current = view
+
+  // Pilot chrome (stat bar, podium, standings, refresh) only exists on
+  // the standings views — AI and TEAMS hide all of it.
+  const isStandings = isStandingsView(view)
 
   // score-gain pops: userId -> pop payload for the +N floater
   const [flashes, setFlashes] = useState<ReadonlyMap<number, ScoreFlash>>(new Map())
@@ -157,16 +168,17 @@ export default function LeaderboardArena() {
 
   // initial load + poll + refetch when the tab regains focus.
   // Hidden tabs skip the poll entirely — the visibility handler refetches
-  // the moment the player comes back. The AI view skips it too (its data
-  // is a 5-minute server cache; AiBoard refetches itself), and switching
-  // back to a standings board refetches immediately so the pause never shows.
+  // the moment the player comes back. The AI and TEAMS views skip it too
+  // (their data is server-cached; each board refetches itself), and
+  // switching back to a standings board refetches immediately so the
+  // pause never shows.
   useEffect(() => {
     Promise.all([fetchData(), fetchMe()]).finally(() => setLoading(false))
     const id = setInterval(() => {
-      if (!document.hidden && viewRef.current !== 'ai') void fetchData()
+      if (!document.hidden && isStandingsView(viewRef.current)) void fetchData()
     }, POLL_MS)
     const onVisible = () => {
-      if (document.visibilityState === 'visible' && viewRef.current !== 'ai') {
+      if (document.visibilityState === 'visible' && isStandingsView(viewRef.current)) {
         void fetchData()
       }
     }
@@ -184,7 +196,7 @@ export default function LeaderboardArena() {
     (next: BoardView) => {
       const prev = viewRef.current
       setView((current) => (current === next ? current : next))
-      if (next !== 'ai' && prev !== next) {
+      if (isStandingsView(next) && prev !== next) {
         // The two standings boards rank by different scores — a board
         // switch must never read as everyone "gaining" the difference.
         viewRef.current = next
@@ -327,7 +339,13 @@ export default function LeaderboardArena() {
             <span className="h-px w-8 bg-gradient-to-r from-transparent to-[rgb(var(--lb-gold)/0.6)]" />
             <IconCrown size={13} />
             <span className="font-display text-[10px] font-semibold tracking-[0.42em] sm:tracking-[0.55em]">
-              {view === 'ai' ? 'THE AI' : view === 'alltime' ? 'ALL-TIME' : 'SEASON'}
+              {view === 'ai'
+                ? 'THE AI'
+                : view === 'teams'
+                  ? 'THE TEAMS'
+                  : view === 'alltime'
+                    ? 'ALL-TIME'
+                    : 'SEASON'}
             </span>
             <IconCrown size={13} className="-scale-x-100" />
             <span className="h-px w-8 bg-gradient-to-l from-transparent to-[rgb(var(--lb-gold)/0.6)]" />
@@ -344,6 +362,8 @@ export default function LeaderboardArena() {
             <span className="mx-2 text-zinc-800">·</span>
             {view === 'ai' ? (
               'the machines, ranked by pilot usage'
+            ) : view === 'teams' ? (
+              'ranked by combined season score'
             ) : (
               <>
                 {view === 'alltime' ? 'ranked by lifetime score' : 'ranked by season score'}
@@ -356,7 +376,7 @@ export default function LeaderboardArena() {
 
         <main className="mt-8 space-y-5">
           {/* ---------- stat bar ---------- */}
-          {view !== 'ai' && (
+          {isStandings && (
             <section className="lb4-reveal" style={{ ['--rv' as string]: '90ms' }}>
               <StatBar
                 totalPlayers={totals.totalPlayers}
@@ -371,11 +391,11 @@ export default function LeaderboardArena() {
           {/* ---------- view controls ---------- */}
           <div
             className={`lb4-reveal flex flex-wrap items-center justify-between gap-2 ${
-              view !== 'ai' ? '!mt-3' : ''
+              isStandings ? '!mt-3' : ''
             }`}
             style={{ ['--rv' as string]: '150ms' }}
           >
-            {/* board switch — pilots or the machines */}
+            {/* board switch — pilots, the machines, or the teams */}
             <div
               className="lb-inset flex items-center gap-0.5 rounded-lg p-0.5"
               role="tablist"
@@ -409,7 +429,7 @@ export default function LeaderboardArena() {
               })}
             </div>
 
-            {view !== 'ai' && (
+            {isStandings && (
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -440,6 +460,9 @@ export default function LeaderboardArena() {
           {/* ---------- THE AI LEADERBOARD ---------- */}
           {view === 'ai' && <AiBoard />}
 
+          {/* ---------- THE TEAMS BOARD ---------- */}
+          {view === 'teams' && <TeamBoard />}
+
           {/* ---------- intermission: standings locked ---------- */}
           {view === 'season' && seasonMeta?.phase === 'intermission' && (
             <IntermissionBanner state={seasonMeta} />
@@ -449,7 +472,7 @@ export default function LeaderboardArena() {
           {/* visibility joins the transition so the collapsed podium drops out
               of paint, tab order and screen readers; lb4-pod-off freezes its
               infinite FX so they stop burning frames while hidden */}
-          {view !== 'ai' && (
+          {isStandings && (
           <div
             className={`lb4-reveal grid transition-[grid-template-rows,opacity,margin,visibility] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${
               showPodium ? '' : 'lb4-pod-off'
@@ -475,7 +498,7 @@ export default function LeaderboardArena() {
           )}
 
           {/* ---------- standings ---------- */}
-          {view !== 'ai' && (
+          {isStandings && (
           <section className="lb4-reveal relative" style={{ ['--rv' as string]: '300ms' }}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-baseline gap-3">
