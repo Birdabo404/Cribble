@@ -1,3 +1,5 @@
+import { isJoinInvitePath } from './joinPath'
+
 const TRUE_LIKE_VALUES = new Set(['1', 'true', 'yes', 'on'])
 
 function normalizeFlag(value: string | undefined): string {
@@ -40,7 +42,8 @@ export function isAllowedDuringLock(pathname: string, hasSession = false): boole
   if (pathname === '/status') return true
   if (pathname === '/api/status') return true
   // Referral share links redirect into /login and must work while locked.
-  if (pathname.startsWith('/join/')) return true
+  // Case-insensitive: /JOIN/CODE is a common mistype of the uppercase key.
+  if (isJoinInvitePath(pathname)) return true
   if (pathname.startsWith('/audio/')) return true
   if (!pathname.startsWith('/api/') && STATIC_ASSET_RE.test(pathname)) return true
   if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) return true

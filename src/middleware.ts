@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { canonicalizeJoinPathname } from '@/lib/joinPath'
 import { isAllowedDuringLock, isSiteLocked } from '@/lib/siteLock'
 
 export function middleware(request: NextRequest) {
@@ -36,6 +37,16 @@ export function middleware(request: NextRequest) {
   ].join('; ')
 
   response.headers.set('Content-Security-Policy', csp)
+
+  // /JOIN/CODE (any casing) → /join/CODE so the invite page matches and
+  // the site-lock allowlist sees the canonical path. Do this before the
+  // lock rewrite or uppercase links land on /maintenance.
+  const canonicalJoin = canonicalizeJoinPathname(pathname)
+  if (canonicalJoin) {
+    const url = request.nextUrl.clone()
+    url.pathname = canonicalJoin
+    return NextResponse.redirect(url, { status: 308, headers: response.headers })
+  }
 
   // CORS for API routes
   if (isApiRoute) {
