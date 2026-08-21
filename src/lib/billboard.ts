@@ -204,3 +204,81 @@ export function isLiveAd(
   const t = now.getTime()
   return t >= new Date(ad.starts_at).getTime() && t <= new Date(ad.ends_at).getTime()
 }
+
+/* ------------------------------------------------------------------ *
+ * Flipper cadence + chrome — the ticker's per-kind timing contract.
+ * Paid ads are the product and keep the long exposure. Top-3 hype
+ * announcements are a free courtesy: each gets one unhurried hold,
+ * but announcement-only trains play a single pass and retract instead
+ * of looping for the full sponsored show — that one-pass close, not
+ * the hold length, is what keeps free hype short of a sponsor's
+ * airtime. Pure so BillboardTicker's scheduling stays unit-testable
+ * without mounting the component.
+ * ------------------------------------------------------------------ */
+
+/** Per-rotation hold for a paid ad on a multi-item show. */
+export const BILLBOARD_AD_HOLD_MS = 8_000
+/** Per-appearance hold for a top-3 announcement — a longer beat than
+ *  an ad's rotation so the moment reads, affordable because hype only
+ *  ever airs once per show. */
+export const BILLBOARD_HYPE_HOLD_MS = 10_000
+/** A train that is a single paid ad re-keys its build-in at this
+ *  cadence instead of flipping. */
+export const BILLBOARD_AD_SOLO_REPLAY_MS = 24_000
+/** Wall-clock show length whenever at least one paid ad is aboard. */
+export const BILLBOARD_AD_SHOW_FOR_MS = 180_000
+/** Wall-clock cap on announcement-only shows. They normally end
+ *  themselves after one pass (billboardShouldCloseAfterHold); this
+ *  backstops that, e.g. against hover-pausing the rotation forever.
+ *  Sized to fit a full pass of the API's max three hype items. */
+export const BILLBOARD_HYPE_SHOW_FOR_MS = 30_000
+
+/** True when the fetched train carries no paid ads — only top-3
+ *  announcements. An empty train is nobody's announcement. */
+export function isAnnouncementOnly(items: BillboardItem[]): boolean {
+  return items.length > 0 && items.every((item) => item.kind === 'hype')
+}
+
+/** How long the given item holds on screen before the ticker advances.
+ *  `multi` = more than one item in the train: a solo ad's "hold" is the
+ *  replay cadence of its build-in; a hype item never earns the solo
+ *  replay treatment — its hold is one announcement beat either way. */
+export function billboardHoldMs(item: BillboardItem, multi: boolean): number {
+  if (item.kind === 'hype') return BILLBOARD_HYPE_HOLD_MS
+  return multi ? BILLBOARD_AD_HOLD_MS : BILLBOARD_AD_SOLO_REPLAY_MS
+}
+
+/** Wall-clock show length for a fetched train: any paid ad buys the
+ *  full sponsored loop; announcement-only trains get one hold per
+ *  item, capped. */
+export function billboardShowForMs(items: BillboardItem[]): number {
+  if (items.some((item) => item.kind === 'ad')) return BILLBOARD_AD_SHOW_FOR_MS
+  return Math.min(BILLBOARD_HYPE_SHOW_FOR_MS, items.length * BILLBOARD_HYPE_HOLD_MS)
+}
+
+/** Broadcast chrome for the active item: the inverted-mono label block
+ *  and the banner's aria-label. Hype is an announcement, not an ad —
+ *  mislabeling it SPONSOR is the bug this exists to prevent. */
+export function billboardChrome(item: BillboardItem): { label: string; ariaLabel: string } {
+  switch (item.kind) {
+    case 'ad':
+      return { label: 'SPONSOR', ariaLabel: 'Sponsorship' }
+    case 'hype':
+      return { label: 'ANNOUNCEMENT', ariaLabel: 'Announcement' }
+    default: {
+      const exhaustive: never = item
+      return exhaustive
+    }
+  }
+}
+
+/** Announcement-only trains end after the last item's hold instead of
+ *  wrapping (or, solo, replaying): true exactly when every item is hype
+ *  and `activeIndex` is the final one. Always false once an ad is
+ *  aboard — mixed trains keep the sponsored loop. */
+export function billboardShouldCloseAfterHold(
+  items: BillboardItem[],
+  activeIndex: number
+): boolean {
+  return isAnnouncementOnly(items) && activeIndex === items.length - 1
+}

@@ -1785,6 +1785,15 @@ html.light .billboard-progress-fill {
   background: #18181b;
 }
 
+/* Announcement (top-3 hype) cycles sweep the countdown in the
+   leaderboard gold; paid ads keep the monochrome fill. --lb-gold is
+   themed per mode, and the html.light selector outranks the light
+   mono fill above. */
+.billboard-progress-fill-hype,
+html.light .billboard-progress-fill-hype {
+  background: rgb(var(--lb-gold));
+}
+
 .billboard-progress-run {
   animation: billboard-progress var(--billboard-hold-ms, 8000ms) linear forwards;
 }

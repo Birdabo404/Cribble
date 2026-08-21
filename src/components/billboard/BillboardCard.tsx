@@ -8,9 +8,11 @@
 //        as "Title — text".
 //   lg — the flipper's full-width sub-banner strip, broadcast
 //        lower-third style: a 3px accent stripe on the left, a low-alpha
-//        accent wash, a 44px logo (accent ring) spanning both lines, the
-//        company/title line on top and the ad text under it. Without a
-//        title it stays the original single-line strip. accentColor is
+//        accent wash, a 32px logo (40px from sm up, accent ring)
+//        spanning both lines, the company/title line on top and the ad
+//        text under it. Padding and logo tighten below sm so the strip
+//        fits phone-width banners without clipping. Without a title it
+//        stays the original single-line strip. accentColor is
 //        extracted from the logo server-side and arrives at runtime as
 //        #rrggbb, so the tints are inline styles (hex + alpha suffix),
 //        not classes; null renders the same strip in neutral zinc.
@@ -36,7 +38,7 @@ const PILL_SM =
   'inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-zinc-800 bg-zinc-950/80 px-3 py-1.5'
 
 const STRIP_LG =
-  'relative flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/80 px-4 py-2.5'
+  'relative flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/80 px-3 py-2 sm:px-4 sm:py-2.5'
 
 const CARD_RAIL =
   'relative flex w-52 flex-col overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/80 px-3.5 py-3'
@@ -117,7 +119,7 @@ export function BillboardCard({
             alt=""
             aria-hidden
             loading="lazy"
-            className="relative h-11 w-11 shrink-0 rounded object-cover"
+            className="relative h-8 w-8 shrink-0 rounded object-cover sm:h-10 sm:w-10"
             style={{
               boxShadow: `0 0 0 1px ${accentColor ? `${accentColor}80` : 'rgb(255 255 255 / 0.14)'}`
             }}

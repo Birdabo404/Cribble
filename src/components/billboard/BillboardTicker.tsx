@@ -1,8 +1,14 @@
 'use client'
 
 // The Billboard banner — paid ads + free top-3 hype items shown one at
-// a time, news-flipper style, in a ~88px row that expands in-flow under
-// the nav on the dashboard and leaderboard, pushing page content down.
+// a time, news-flipper style, in a content-height block that expands
+// in-flow under the nav on the dashboard and leaderboard, pushing page
+// content down. Two stacked rows: a broadcast-chrome row (kind-aware
+// label + live dot, counter, countdown) above a full-width card stage,
+// so phones give the whole banner width to the card. The chrome follows
+// the active item's kind (lib/billboard's billboardChrome): SPONSOR for
+// paid ads, ANNOUNCEMENT for hype — a top-3 breakthrough is never
+// dressed as a sponsor.
 // Mounted once inside .app-nav-inset in AppShell and self-gating: it
 // never starts a show off the two allowed routes, and a localStorage
 // timestamp caps appearances to one per 20 minutes per visitor.
@@ -15,9 +21,15 @@
 //
 // One show: after a short delay (so the expand doesn't fight initial
 // page paint) the grid slot animates 0fr -> 1fr, then the flipper
-// rotates — each item holds for HOLD_MS, then flips out (slides up +
-// fades) while the next flips in from below — until the 3-minute
-// wall-clock end, when the slot collapses and content slides back up.
+// rotates — each item holds for its own billboardHoldMs (an ad its
+// rotation hold, a hype announcement its longer announcement beat),
+// then flips out (slides up + fades) while the next flips in from
+// below — until the billboardShowForMs wall-clock end, when the slot
+// collapses and content slides back up. Any paid ad aboard buys the
+// full 3-minute loop; an announcement-only train instead plays one
+// pass and closes itself after the last item's hold
+// (billboardShouldCloseAfterHold), with the short wall clock only as
+// a backstop — free hype never gets a sponsor's total exposure.
 // Hovering the banner pauses rotation for this visitor only: the
 // unspent hold is banked and resumed on unhover, and the progress bar
 // pauses via CSS animation-play-state — but the end-of-show is
@@ -28,12 +40,14 @@
 // An empty (or failed) /api/billboard fetch records no cooldown, but
 // arms a fetch backoff: retry ticks skip fetching for EMPTY_RETRY_MS
 // afterwards. Route changes clear the backoff, so a genuine landing
-// always fetches. Exactly one fetched item: no flips and no counter,
-// but not a static block either — every SOLO_REPLAY_MS the sub-banner
-// re-keys in place so its build-in replays (no flip-out layer, no
-// vertical motion), with the progress bar sweeping at that cadence.
-// The replay clock is the same pause-aware hold timer, so hovering
-// banks the remaining cycle exactly like a multi-item hold does.
+// always fetches. Exactly one fetched ad: no flips and no counter,
+// but not a static block either — every BILLBOARD_AD_SOLO_REPLAY_MS
+// the sub-banner re-keys in place so its build-in replays (no flip-out
+// layer, no vertical motion), with the progress bar sweeping at that
+// cadence. The replay clock is the same pause-aware hold timer, so
+// hovering banks the remaining cycle exactly like a multi-item hold
+// does. A solo hype item never replays — its one "advance" is the
+// close.
 //
 // Phases advance on transitionend of grid-template-rows, with a timer
 // fallback slightly longer than the transition for when it can't fire
@@ -42,15 +56,23 @@
 //
 // prefers-reduced-motion: swaps are instant (no leaving layer mounts,
 // so no flip animations render), the progress bar is dropped, the
-// build-in classes are animation:none (globals.css) and the solo
-// replay re-key is skipped, but the HOLD_MS cadence and the 3-minute
-// show are unchanged.
+// build-in classes are animation:none (globals.css) and the solo-ad
+// replay re-key is skipped, but the per-item hold cadence and the
+// show lengths are unchanged — including the announcement-only
+// one-pass close.
 
 import type { CSSProperties, TransitionEvent } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Avatar } from '@/components/leaderboard/Avatar'
+import {
+  BILLBOARD_AD_HOLD_MS,
+  billboardChrome,
+  billboardHoldMs,
+  billboardShouldCloseAfterHold,
+  billboardShowForMs
+} from '@/lib/billboard'
 import type { BillboardItem } from '@/lib/billboard'
 import { BillboardCard } from './BillboardCard'
 
@@ -62,14 +84,6 @@ const SHOW_EVERY_MS = 20 * 60_000
 const RETRY_TICK_MS = 60_000
 /** How long retry ticks skip fetching after an empty (or failed) fetch. */
 const EMPTY_RETRY_MS = 5 * 60_000
-/** How long a show runs before the banner retracts on its own. */
-const SHOW_FOR_MS = 180_000
-/** How long each item holds on screen before flipping to the next. */
-const HOLD_MS = 8_000
-/** Solo shows (exactly one item): how often the sub-banner re-keys so
- *  its build-in replays — no flip, and the progress bar cycles at this
- *  cadence instead of HOLD_MS. */
-const SOLO_REPLAY_MS = 24_000
 /** Must match the billboard-flip-in/out animation duration in globals.css. */
 const FLIP_MS = 450
 /** When the outgoing layer is dropped — after the flip-out has played,
@@ -131,11 +145,11 @@ export function BillboardTicker() {
   })
   /** Hover pause — mirrors the CSS :hover that pauses the progress bar. */
   const [paused, setPaused] = useState(false)
-  /** Solo shows: bumped once per replay cycle to re-key the sub-banner
-   *  so its build-in plays again. Constant 0 on multi-item shows. */
+  /** Solo-ad shows: bumped once per replay cycle to re-key the
+   *  sub-banner so its build-in plays again. Constant 0 otherwise. */
   const [replay, setReplay] = useState(0)
   /** Unspent hold for the current cycle: banked on pause, spent on resume. */
-  const holdRemainingRef = useRef(HOLD_MS)
+  const holdRemainingRef = useRef(BILLBOARD_AD_HOLD_MS)
   /** When the running hold timer started; 0 = nothing unbanked running. */
   const holdStartedAtRef = useRef(0)
   /** Which cycle ("active:replay") the banked hold belongs to — a new
@@ -154,7 +168,7 @@ export function BillboardTicker() {
     setFlip({ active: 0, leaving: null })
     setPaused(false)
     setReplay(0)
-    holdRemainingRef.current = HOLD_MS
+    holdRemainingRef.current = BILLBOARD_AD_HOLD_MS
     holdStartedAtRef.current = 0
     holdCycleRef.current = ''
   }, [])
@@ -270,12 +284,14 @@ export function BillboardTicker() {
   }, [phase, open])
 
   // Looping: wall-clock show length (a plain timeout — hovering pauses
-  // the rotation but doesn't extend the show).
+  // the rotation but doesn't extend the show). Any paid ad aboard gets
+  // the full sponsored loop; an announcement-only train's clock is one
+  // hold per item, a backstop behind the close-after-last-hold below.
   useEffect(() => {
     if (phase !== 'looping') return
-    const timer = window.setTimeout(beginLeaving, SHOW_FOR_MS)
+    const timer = window.setTimeout(beginLeaving, billboardShowForMs(items))
     return () => window.clearTimeout(timer)
-  }, [phase, beginLeaving])
+  }, [phase, items, beginLeaving])
 
   // Leaving -> unmount normally lands on the collapse's transitionend;
   // same fallback as the expand.
@@ -285,13 +301,21 @@ export function BillboardTicker() {
     return () => window.clearTimeout(timer)
   }, [phase, finishShow])
 
-  // Advance one step. Multi-item: the active item becomes the leaving
-  // layer (kept for the flip-out) and the next becomes active; reduced
-  // motion swaps instantly — no leaving layer, so no flip classes ever
-  // render. Solo: same item, same index — just bump the replay counter
-  // so the sub-banner re-keys and its build-in plays again, with no
-  // flip-out layer and no vertical motion.
+  // Advance one step. An announcement-only train that just spent its
+  // last item's hold doesn't wrap (or replay) — it retracts: free hype
+  // plays one pass, never a sponsor's loop. Otherwise, multi-item: the
+  // active item becomes the leaving layer (kept for the flip-out) and
+  // the next becomes active; reduced motion swaps instantly — no
+  // leaving layer, so no flip classes ever render. Solo (only ever a
+  // paid ad here — a solo hype closed above): same item, same index —
+  // just bump the replay counter so the sub-banner re-keys and its
+  // build-in plays again, with no flip-out layer and no vertical
+  // motion.
   const advance = useCallback(() => {
+    if (billboardShouldCloseAfterHold(items, flip.active)) {
+      beginLeaving()
+      return
+    }
     if (items.length === 1) {
       setReplay((r) => r + 1)
       return
@@ -300,32 +324,35 @@ export function BillboardTicker() {
       active: (f.active + 1) % items.length,
       leaving: reducedMotion ? null : f.active
     }))
-  }, [items.length, reducedMotion])
+  }, [items, flip.active, beginLeaving, reducedMotion])
 
-  // The pause-aware cycle clock, shared by both modes: a multi-item
-  // show advances the flipper after HOLD_MS, a solo show replays the
-  // build-in after SOLO_REPLAY_MS. Each (re)run spends holdRemainingRef
-  // — the full hold when the cycle is new, the banked remainder when
-  // resuming from hover. Pausing just tears the timer down: the
-  // mouseenter handler banks what's left before this cleanup runs. A
-  // cycle is (active index, replay count): multi advances change the
-  // index, solo replays bump the counter, and either one resets the
-  // bank to its mode's full hold. Solo + reduced motion arms nothing:
-  // the build-in is animation:none there, so a re-key would be
-  // invisible DOM churn — the item just holds for the whole show.
+  // The pause-aware cycle clock: each cycle holds for the ACTIVE item's
+  // billboardHoldMs — a multi-train ad its rotation hold, a hype item
+  // its announcement beat, a solo ad its replay cadence. Each (re)run spends
+  // holdRemainingRef — the full hold when the cycle is new, the banked
+  // remainder when resuming from hover. Pausing just tears the timer
+  // down: the mouseenter handler banks what's left before this cleanup
+  // runs. A cycle is (active index, replay count): multi advances
+  // change the index, solo-ad replays bump the counter, and either one
+  // resets the bank to that item's full hold. A solo AD under reduced
+  // motion arms nothing — its build-in is animation:none there, so a
+  // re-key would be invisible DOM churn and the ad just holds for the
+  // whole show. A solo hype still arms: its "advance" is the close, an
+  // actual retraction, reduced motion or not.
   useEffect(() => {
     if (phase !== 'looping' || paused || items.length === 0) return
+    const item = items[flip.active]
     const solo = items.length === 1
-    if (solo && reducedMotion) return
+    if (solo && reducedMotion && item.kind === 'ad') return
     const cycle = `${flip.active}:${replay}`
     if (holdCycleRef.current !== cycle) {
       holdCycleRef.current = cycle
-      holdRemainingRef.current = solo ? SOLO_REPLAY_MS : HOLD_MS
+      holdRemainingRef.current = billboardHoldMs(item, !solo)
     }
     holdStartedAtRef.current = Date.now()
     const timer = window.setTimeout(advance, holdRemainingRef.current)
     return () => window.clearTimeout(timer)
-  }, [phase, paused, items.length, reducedMotion, flip.active, replay, advance])
+  }, [phase, paused, items, reducedMotion, flip.active, replay, advance])
 
   // Drop the leaving layer once the flip-out has played. A timer rather
   // than animationend so environments where the animation can't run
@@ -369,6 +396,9 @@ export function BillboardTicker() {
   const multi = items.length > 1
   const activeItem = items[flip.active]
   const leavingItem = flip.leaving === null ? null : items[flip.leaving]
+  // Broadcast chrome tracks the ACTIVE item's kind — SPONSOR for paid
+  // ads, ANNOUNCEMENT for top-3 hype — as does the banner's aria-label.
+  const chrome = billboardChrome(activeItem)
 
   // One sub-banner as a full-width layer — the layer itself is the whole
   // click target. Ads go through the click-redirect route, never straight
@@ -423,11 +453,11 @@ export function BillboardTicker() {
         className={linkCls}
       >
         {/* Hype rides a fixed gold accent — same two-line strip anatomy
-            as the ad card (avatar seated where the 44px logo sits, name
-            as the title line, line classes mirrored from BillboardCard)
-            so the flip reads as one continuous surface. */}
+            as the ad card (avatar seated where the lg logo sits, name
+            as the title line, strip/line classes mirrored 1:1 from
+            BillboardCard) so the flip reads as one continuous surface. */}
         <span
-          className={`relative flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/80 px-4 py-2.5 ${hoverCls}`}
+          className={`relative flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/80 px-3 py-2 sm:px-4 sm:py-2.5 ${hoverCls}`}
         >
           <span
             aria-hidden
@@ -446,8 +476,8 @@ export function BillboardTicker() {
             <Avatar
               src={item.avatarUrl}
               char={(item.displayName || item.username).charAt(0).toUpperCase() || '?'}
-              imgClassName="block h-11 w-11 rounded-full object-cover"
-              fallbackClassName="flex h-11 w-11 items-center justify-center rounded-full bg-zinc-800 text-xs text-zinc-400"
+              imgClassName="block h-8 w-8 rounded-full object-cover sm:h-10 sm:w-10"
+              fallbackClassName="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-800 text-xs text-zinc-400 sm:h-10 sm:w-10"
             />
           </span>
           <span className="relative flex min-w-0 flex-1 flex-col justify-center gap-0.5">
@@ -478,54 +508,61 @@ export function BillboardTicker() {
     >
       <div className="billboard-slot-inner">
         <aside
-          aria-label="Sponsorship"
+          aria-label={chrome.ariaLabel}
           className="billboard-shell"
           style={
             {
-              '--billboard-hold-ms': `${multi ? HOLD_MS : SOLO_REPLAY_MS}ms`
+              '--billboard-hold-ms': `${billboardHoldMs(activeItem, multi)}ms`
             } as CSSProperties
           }
           onMouseEnter={pauseRotation}
           onMouseLeave={resumeRotation}
         >
-          <div className="flex h-[88px] items-center gap-3 px-3 sm:px-4">
-            {/* Broadcast chrome: inverted-monochrome label + live dot. */}
-            <div className="billboard-label flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5">
-              <span aria-hidden className="billboard-live-dot shrink-0" />
-              <span className="text-[9px] font-semibold tracking-[0.3em]">SPONSOR</span>
+          {/* Chrome row above a full-width stage — no fixed height, so
+              phones keep the whole banner width for the card instead of
+              squeezing it between the label pill and the counter. */}
+          <div className="flex flex-col gap-1.5 px-3 py-2 sm:px-4 sm:py-2.5">
+            <div className="flex items-center gap-2">
+              {/* Broadcast chrome: inverted-monochrome label + live dot,
+                  reading ANNOUNCEMENT or SPONSOR per the active item. */}
+              <div className="billboard-label flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5">
+                <span aria-hidden className="billboard-live-dot shrink-0" />
+                <span className="text-[9px] font-semibold tracking-[0.3em]">{chrome.label}</span>
+              </div>
+
+              {/* Monochrome counter + countdown. The counter is dropped on
+                  phones (it steals card width) and meaningless for a solo
+                  show (hidden), but the bar stays and sweeps at the active
+                  item's hold, so a solo ad's periodic re-key never reads
+                  as a random stutter. Reduced motion drops the bar in both
+                  modes; solo + reduced motion renders neither. */}
+              {(multi || !reducedMotion) && (
+                <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+                  {multi && (
+                    <span className="hidden shrink-0 text-[10px] tabular-nums tracking-[0.2em] text-zinc-500 sm:inline">
+                      {flip.active + 1} / {items.length}
+                    </span>
+                  )}
+                  {!reducedMotion && (
+                    <span className="billboard-progress-track block h-0.5 w-full max-w-[7rem] overflow-hidden rounded-full sm:w-14">
+                      <span
+                        key={`${flip.active}-r${replay}`}
+                        className={`billboard-progress-fill block h-full w-full ${
+                          activeItem.kind === 'hype' ? 'billboard-progress-fill-hype' : ''
+                        } ${phase === 'looping' ? 'billboard-progress-run' : ''}`}
+                      />
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* The flipper stage: the active layer sizes it; the leaving
                 layer stacks absolutely and slides out above it. */}
-            <div className="relative min-w-0 flex-1 overflow-hidden rounded-lg">
+            <div className="relative w-full min-w-0 overflow-hidden rounded-lg">
               {leavingItem !== null && renderLayer(leavingItem, true)}
               {renderLayer(activeItem, false)}
             </div>
-
-            {/* Monochrome counter + countdown. The counter is meaningless
-                for a solo show (hidden), but the bar stays and sweeps at
-                the replay cadence, so the periodic re-key never reads as
-                a random stutter. Reduced motion drops the bar in both
-                modes; solo + reduced motion renders neither. */}
-            {(multi || !reducedMotion) && (
-              <div className="flex shrink-0 flex-col items-end gap-1.5">
-                {multi && (
-                  <span className="text-[10px] tabular-nums tracking-[0.2em] text-zinc-500">
-                    {flip.active + 1} / {items.length}
-                  </span>
-                )}
-                {!reducedMotion && (
-                  <span className="billboard-progress-track block h-0.5 w-14 overflow-hidden rounded-full">
-                    <span
-                      key={`${flip.active}-r${replay}`}
-                      className={`billboard-progress-fill block h-full w-full ${
-                        phase === 'looping' ? 'billboard-progress-run' : ''
-                      }`}
-                    />
-                  </span>
-                )}
-              </div>
-            )}
           </div>
         </aside>
       </div>
