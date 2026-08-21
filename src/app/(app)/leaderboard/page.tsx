@@ -16,7 +16,6 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
-  useReducer,
   useRef,
   useState
 } from 'react'
@@ -51,6 +50,7 @@ import { PlayerCard, type ChaseInfo } from '@/components/leaderboard/PlayerCard'
 import { Podium } from '@/components/leaderboard/Podium'
 import { RankAvatar } from '@/components/leaderboard/RankRegalia'
 import { TeamBoard } from '@/components/leaderboard/TeamBoard'
+import { VisitorTicker } from '@/components/leaderboard/VisitorTicker'
 import { medalA, medalFor, medalGlow, type LeaderRow } from '@/components/leaderboard/types'
 import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
@@ -91,7 +91,6 @@ export default function LeaderboardArena() {
   const [showPodium, setShowPodium] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(null)
-  const [lastSyncAt, setLastSyncAt] = useState<number | null>(null)
   const [view, setView] = useState<BoardView>('season')
   const [seasonMeta, setSeasonMeta] = useState<SeasonState | null>(null)
 
@@ -145,7 +144,6 @@ export default function LeaderboardArena() {
       }
 
       setRows(next)
-      setLastSyncAt(Date.now())
     } catch {}
   }, [])
 
@@ -352,25 +350,7 @@ export default function LeaderboardArena() {
           <h1 className="lb4-title mt-4 select-none text-center leading-none [font-family:var(--font-pixel)]">
             LEADERBOARD
           </h1>
-          <p className="mt-4 text-[10px] tracking-[0.24em] sm:tracking-[0.3em] text-zinc-600">
-            <span className="text-[rgb(var(--lb-gold)/0.85)]">
-              {seasonMeta?.phase === 'intermission'
-                ? 'INTERMISSION'
-                : seasonMeta?.current?.name ?? 'SEASON'}
-            </span>
-            <span className="mx-2 text-zinc-800">·</span>
-            {view === 'ai' ? (
-              'the machines, ranked by pilot usage'
-            ) : view === 'teams' ? (
-              'ranked by combined season score'
-            ) : (
-              <>
-                {view === 'alltime' ? 'ranked by lifetime score' : 'ranked by season score'}
-                <span className="mx-2 text-zinc-800">·</span>
-                <SyncStatus lastSyncAt={lastSyncAt} />
-              </>
-            )}
-          </p>
+          <VisitorTicker />
         </header>
 
         <main className="mt-8 space-y-5">
@@ -945,26 +925,6 @@ export default function LeaderboardArena() {
 /* These own their 1s intervals so the clock only re-renders these leaf
    spans — previously the heartbeat re-rendered the entire arena (podium,
    all rows, stat bar) every single second. */
-
-function SyncStatus({ lastSyncAt }: { lastSyncAt: number | null }) {
-  const [, tick] = useReducer((n: number) => n + 1, 0)
-
-  useEffect(() => {
-    if (lastSyncAt === null) return
-    const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
-  }, [lastSyncAt])
-
-  const ago =
-    lastSyncAt === null ? null : Math.max(0, Math.floor((Date.now() - lastSyncAt) / 1000))
-
-  return (
-    <span className="inline-flex items-center gap-1.5" suppressHydrationWarning>
-      <span className="lb4-live-dot h-1.5 w-1.5 rounded-full" />
-      {ago === null ? 'connecting' : ago < 3 ? 'live' : `synced ${ago}s ago`}
-    </span>
-  )
-}
 
 function SeasonCountdown({ state }: { state: SeasonState | null }) {
   // Active season counts down to its lock; intermission counts down to the

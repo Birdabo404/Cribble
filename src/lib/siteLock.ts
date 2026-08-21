@@ -41,6 +41,9 @@ export function isAllowedDuringLock(pathname: string, hasSession = false): boole
   // /api/device/ rule below).
   if (pathname === '/status') return true
   if (pathname === '/api/status') return true
+  // Leaderboard visitor ticker (DataFast pulse). Exact match so nothing
+  // else under /api/analytics… rides along.
+  if (pathname === '/api/analytics/visitors') return true
   // Referral share links redirect into /login and must work while locked.
   // Case-insensitive: /JOIN/CODE is a common mistype of the uppercase key.
   if (isJoinInvitePath(pathname)) return true

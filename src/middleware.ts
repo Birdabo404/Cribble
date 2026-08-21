@@ -20,15 +20,15 @@ export function middleware(request: NextRequest) {
   // eval source maps). No production dependency evals code, so drop it there.
   const scriptSrc =
     process.env.NODE_ENV !== 'production'
-      ? "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com"
-      : "script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com"
+      ? "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com https://datafa.st"
+      : "script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com https://datafa.st"
   const csp = [
     "default-src 'self'",
     scriptSrc,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: https: blob:",
-    "connect-src 'self' https://*.supabase.co https://vitals.vercel-insights.com",
+    "connect-src 'self' https://*.supabase.co https://vitals.vercel-insights.com https://datafa.st",
     "frame-src 'none'",
     "object-src 'none'",
     "base-uri 'self'",

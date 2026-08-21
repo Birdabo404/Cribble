@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { IBM_Plex_Mono, Instrument_Serif, Inter, Noto_Sans_Arabic, Noto_Sans_JP, Noto_Sans_KR, Noto_Sans_SC, Press_Start_2P, Roboto, Space_Grotesk } from 'next/font/google'
+import Script from 'next/script'
 import { Analytics } from '@vercel/analytics/react'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import { NAV_BOOT_SCRIPT } from '@/components/nav/navBoot'
@@ -139,6 +140,12 @@ export default function RootLayout({
         <ThemeProvider>
           {children}
           <Analytics />
+          <Script
+            src="https://datafa.st/js/script.js"
+            data-website-id="dfid_QvFpyEIFkv80oNmVghPTx"
+            data-domain="cribble.dev"
+            strategy="afterInteractive"
+          />
         </ThemeProvider>
       </body>
     </html>
