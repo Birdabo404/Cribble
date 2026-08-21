@@ -3,7 +3,7 @@
 // Arena visitor pulse — Cribble-style stand-in for the outbid.lol live
 // chip. Sits under the LEADERBOARD wordmark, reads DataFast through
 // /api/analytics/visitors (never the API key), and the whole pill
-// opens the public DataFast dashboard.
+// opens the cribble.dev DataFast dashboard.
 
 import { useCallback, useEffect, useState } from 'react'
 import AnimatedCounter from '@/components/AnimatedCounter'
