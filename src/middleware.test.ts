@@ -26,11 +26,11 @@ describe('middleware security headers', () => {
     // dev tooling; production drops it (covered below).
     expect(response.headers.get('content-security-policy')).toBe(
       "default-src 'self'; " +
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com; " +
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com https://datafa.st; " +
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
         "font-src 'self' https://fonts.gstatic.com; " +
         "img-src 'self' data: https: blob:; " +
-        "connect-src 'self' https://*.supabase.co https://vitals.vercel-insights.com; " +
+        "connect-src 'self' https://*.supabase.co https://vitals.vercel-insights.com https://datafa.st; " +
         "frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; " +
         "frame-ancestors 'none'"
     )
@@ -42,7 +42,8 @@ describe('middleware security headers', () => {
     const response = middleware(new NextRequest('https://cribble.dev/login'))
     const csp = response.headers.get('content-security-policy')
 
-    expect(csp).toContain("script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com")
+    expect(csp).toContain("script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com https://datafa.st")
+    expect(csp).toContain('https://datafa.st')
     expect(csp).not.toContain('unsafe-eval')
   })
 
@@ -132,6 +133,7 @@ describe('middleware site lock', () => {
     // Billboard APIs back the ticker/rails on allowlisted shell pages.
     expect(middleware(request('/api/billboard')).status).toBe(200)
     expect(middleware(request('/api/billboard/slots')).status).toBe(200)
+    expect(middleware(request('/api/analytics/visitors')).status).toBe(200)
   })
 
   it('keeps the status observatory public while locked', () => {
@@ -143,6 +145,7 @@ describe('middleware site lock', () => {
     expect(rewriteTarget('/status')).toBeNull()
     expect(middleware(request('/status')).status).toBe(200)
     expect(middleware(request('/api/status')).status).toBe(200)
+    expect(middleware(request('/api/analytics/visitors')).status).toBe(200)
   })
 
   it('serves the landing globe assets while locked', () => {
