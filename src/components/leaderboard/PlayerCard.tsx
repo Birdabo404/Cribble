@@ -511,7 +511,7 @@ export function PlayerCard({
               />
             </span>
             <div className="mt-2.5 flex items-center gap-3 text-[10px] tabular-nums">
-              <span style={{ color: todayScore > 0 ? 'rgb(var(--lb-up))' : 'rgb(var(--z600))' }}>
+              <span style={{ color: todayScore > 0 ? 'rgb(var(--lb-delta))' : 'rgb(var(--z600))' }}>
                 +{formatNumber(todayScore)} today
               </span>
               <span className="text-zinc-700">·</span>

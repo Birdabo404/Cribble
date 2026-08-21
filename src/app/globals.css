@@ -130,6 +130,9 @@
   --lb-score: 252 255 0;
   --lb-up: 74 222 128;
   --lb-down: 251 113 133;
+  /* 24H delta — neon orange so today's grind doesn't collide with the
+     lime score or the semantic gain-green used for rank/online. */
+  --lb-delta: 255 95 31;
   --lb-panel-bg: 9 10 13;
   --lb-panel-edge: 255 255 255;
   /* Neon text-shadow multiplier — glow alphas are authored as
@@ -251,6 +254,8 @@ html.light {
   --lb-score: 96 108 0;
   --lb-up: 22 163 74;
   --lb-down: 225 29 72;
+  /* burnt orange ink on white — same AA move as --lb-score / --lb-up */
+  --lb-delta: 194 65 12;
   --lb-panel-bg: 255 255 255;
   --lb-panel-edge: 9 9 11;
   /* crisp ink instead of neon: text-shadow glows collapse on white

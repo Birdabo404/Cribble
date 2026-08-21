@@ -738,6 +738,7 @@ export default function LeaderboardArena() {
             --lb-score: 252 255 0;
             --lb-up: 74 222 128;
             --lb-down: 251 113 133;
+            --lb-delta: 255 95 31;
             --lb-panel-bg: 9 10 13;
             --lb-panel-edge: 255 255 255;
             --lb-glow: 1;
@@ -1419,7 +1420,7 @@ function Row({
             against whatever the art paints beneath. */}
         <div className="lb4-dk relative hidden text-right text-[11px] tabular-nums md:block">
           {user.todayScore > 0 ? (
-            <span className="lb4-delta" style={{ color: 'rgb(var(--lb-up))' }}>
+            <span className="lb4-delta" style={{ color: 'rgb(var(--lb-delta))' }}>
               +{formatCompact(user.todayScore)}
             </span>
           ) : (
@@ -1636,7 +1637,7 @@ function YouBar({
         {/* today delta + score — the table's 24H and SCORE columns, docked */}
         <div className="flex shrink-0 items-baseline gap-3">
           {me.todayScore > 0 && (
-            <span className="text-[11px] tabular-nums" style={{ color: 'rgb(var(--lb-up))' }}>
+            <span className="text-[11px] tabular-nums" style={{ color: 'rgb(var(--lb-delta))' }}>
               +{formatCompact(me.todayScore)}
             </span>
           )}

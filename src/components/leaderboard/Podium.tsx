@@ -284,7 +284,7 @@ function PodiumCard({
           {user.todayScore > 0 && (
             <>
               <span className="text-zinc-700">·</span>
-              <span style={{ color: 'rgb(var(--lb-up))' }}>+{formatNumber(user.todayScore)} today</span>
+              <span style={{ color: 'rgb(var(--lb-delta))' }}>+{formatNumber(user.todayScore)} today</span>
             </>
           )}
         </div>
@@ -429,7 +429,7 @@ function CompactPodiumCard({
         />
       </span>
       {user.todayScore > 0 && (
-        <span className="mt-1 block text-[9px] tabular-nums" style={{ color: 'rgb(var(--lb-up))' }}>
+        <span className="mt-1 block text-[9px] tabular-nums" style={{ color: 'rgb(var(--lb-delta))' }}>
           +{formatNumber(user.todayScore)} today
         </span>
       )}
