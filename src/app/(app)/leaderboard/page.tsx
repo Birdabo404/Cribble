@@ -50,6 +50,7 @@ import { PlayerCard, type ChaseInfo } from '@/components/leaderboard/PlayerCard'
 import { Podium } from '@/components/leaderboard/Podium'
 import { RankAvatar } from '@/components/leaderboard/RankRegalia'
 import { TeamBoard } from '@/components/leaderboard/TeamBoard'
+import { TokenBoard } from '@/components/leaderboard/TokenBoard'
 import { VisitorTicker } from '@/components/leaderboard/VisitorTicker'
 import { medalA, medalFor, medalGlow, type LeaderRow } from '@/components/leaderboard/types'
 import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
@@ -61,20 +62,21 @@ const PAGE_SIZE = 25
 const POLL_MS = 15_000
 const FLASH_MS = 2_400
 
-/** Which board is on stage: the season race, lifetime standings, the
- *  machines (ai), or the companies (teams). */
-type BoardView = 'season' | 'alltime' | 'ai' | 'teams'
+/** Which board is on stage: the season race, lifetime standings, voluntary
+ *  token burn, the machines (ai), or the companies (teams). */
+type BoardView = 'season' | 'alltime' | 'tokens' | 'ai' | 'teams'
 
 const BOARD_TABS: { id: BoardView; label: string }[] = [
   { id: 'season', label: 'SEASON' },
   { id: 'alltime', label: 'ALL-TIME' },
+  { id: 'tokens', label: 'TOKENS' },
   { id: 'ai', label: 'AI' },
   { id: 'teams', label: 'TEAMS' }
 ]
 
 /** The two pilot standings views — the only ones that own the pilot
- *  chrome (stat bar, podium, standings table) and the 15s poll. AI and
- *  TEAMS render self-fetching boards instead. */
+ *  chrome (stat bar, podium, standings table) and the 15s poll. TOKENS,
+ *  AI, and TEAMS render self-fetching boards instead. */
 const isStandingsView = (v: BoardView) => v === 'season' || v === 'alltime'
 
 /** One score-gain pop: the points gained between two polls, a per-pop tilt
@@ -340,9 +342,11 @@ export default function LeaderboardArena() {
                 ? 'THE AI'
                 : view === 'teams'
                   ? 'THE TEAMS'
-                  : view === 'alltime'
-                    ? 'ALL-TIME'
-                    : 'SEASON'}
+                  : view === 'tokens'
+                    ? 'THE BURN'
+                    : view === 'alltime'
+                      ? 'ALL-TIME'
+                      : 'SEASON'}
             </span>
             <IconCrown size={13} className="-scale-x-100" />
             <span className="h-px w-8 bg-gradient-to-l from-transparent to-[rgb(var(--lb-gold)/0.6)]" />
@@ -441,6 +445,9 @@ export default function LeaderboardArena() {
 
           {/* ---------- THE TEAMS BOARD ---------- */}
           {view === 'teams' && <TeamBoard />}
+
+          {/* ---------- THE TOKEN BURN BOARD ---------- */}
+          {view === 'tokens' && <TokenBoard />}
 
           {/* ---------- intermission: standings locked ---------- */}
           {view === 'season' && seasonMeta?.phase === 'intermission' && (
