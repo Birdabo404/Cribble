@@ -19,6 +19,7 @@ import {
 import { fetchMe } from '@/lib/client/fetchMe'
 import { EXTENSION_INSTALL_URL, isExtensionUnlinked } from '@/lib/extensionInstall'
 import type { ActiveDevice, MeUser, Tier } from '@/types/dashboard'
+import { AgentCliSection } from '@/components/settings/AgentCliSection'
 
 type MeState =
   | { phase: 'loading' }
@@ -285,6 +286,8 @@ export default function AccountSettingsPage() {
           </SettingsSection>
         </>
       )}
+
+      <AgentCliSection />
 
       <SettingsSection title="Session">
         <SettingsRow
