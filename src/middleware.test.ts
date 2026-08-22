@@ -96,7 +96,15 @@ describe('middleware site lock', () => {
     // Pages are session-gated (below); the data lanes still need to answer
     // once a pilot is in — they enforce real auth themselves.
     expect(middleware(request('/api/user/settings')).status).toBe(200)
+    expect(middleware(request('/api/user/agent-keys')).status).toBe(200)
     expect(middleware(request('/api/user/delete')).status).toBe(200)
+  })
+
+  it('opens only the exact agent usage API while locked', () => {
+    vi.stubEnv('SITE_LOCKED', '1')
+    expect(middleware(request('/api/agent/usage')).status).toBe(200)
+    expect(middleware(request('/api/agent/usage/')).status).toBe(200)
+    expect(middleware(request('/api/agent/other')).status).toBe(404)
   })
 
   it('keeps the void screens themselves reachable while locked', () => {
