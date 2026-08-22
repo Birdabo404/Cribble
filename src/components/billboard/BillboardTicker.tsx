@@ -1,23 +1,26 @@
 'use client'
 
-// The Billboard banner — paid ads + free top-3 hype items shown one at
-// a time, news-flipper style, in a content-height block that expands
-// in-flow under the nav on the dashboard and leaderboard, pushing page
-// content down. Two stacked rows: a broadcast-chrome row (kind-aware
-// label + live dot, counter, countdown) above a full-width card stage,
-// so phones give the whole banner width to the card. The chrome follows
-// the active item's kind (lib/billboard's billboardChrome): SPONSOR for
-// paid ads, ANNOUNCEMENT for hype — a top-3 breakthrough is never
-// dressed as a sponsor.
+// The Billboard banner — paid ads + free hype items (crown takeovers
+// and podium entries) shown one at a time, news-flipper style, in a
+// content-height block that expands in-flow under the nav on the
+// dashboard and leaderboard, pushing page content down. Two stacked
+// rows: a broadcast-chrome row (kind-aware label + live dot, counter,
+// countdown) above a full-width card stage, so phones give the whole
+// banner width to the card. The chrome follows the active item
+// (lib/billboard's billboardChrome): SPONSOR for paid ads, CROWN for a
+// new #1, PODIUM for a #2/#3 entry — hype is never dressed as a sponsor.
 // Mounted once inside .app-nav-inset in AppShell and self-gating: it
 // never starts a show off the two allowed routes, and a localStorage
-// timestamp caps appearances to one per 20 minutes per visitor.
+// timestamp caps appearances to one per 20 minutes per visitor —
+// except a fetched train that names a new #1, which bypasses that
+// cooldown so a throne change is not buried under the last ad show.
 // Visitors parked on an allowed route aren't stranded: while the banner
 // is hidden there, a retry tick re-attempts the show every RETRY_TICK_MS,
-// so a lapsing cooldown or a newly activated ad surfaces the banner
-// without a fresh navigation. The tick only runs while the tab is
-// visible — background tabs don't poll — and becoming visible again
-// re-attempts immediately instead of waiting out a fresh interval.
+// so a lapsing cooldown, a newly activated ad, or a fresh crown
+// surfaces the banner without a fresh navigation. The tick only runs
+// while the tab is visible — background tabs don't poll — and becoming
+// visible again re-attempts immediately instead of waiting out a fresh
+// interval.
 //
 // One show: after a short delay (so the expand doesn't fight initial
 // page paint) the grid slot animates 0fr -> 1fr, then the flipper
@@ -71,7 +74,10 @@ import {
   billboardChrome,
   billboardHoldMs,
   billboardShouldCloseAfterHold,
-  billboardShowForMs
+  billboardShowForMs,
+  freshCrownKey,
+  hypeCopy,
+  hypeMedalVar
 } from '@/lib/billboard'
 import type { BillboardItem } from '@/lib/billboard'
 import { BillboardCard } from './BillboardCard'
@@ -79,6 +85,8 @@ import { BillboardCard } from './BillboardCard'
 const TICKER_PATHS = ['/dashboard', '/leaderboard']
 /** Per-visitor frequency gate — epoch ms of when the last show ended. */
 const LAST_SHOWN_KEY = 'cribble:billboard-last-shown'
+/** Last crown event this visitor already aired (`userId:movedAt`). */
+const LAST_CROWN_KEY = 'cribble:billboard-last-crown'
 const SHOW_EVERY_MS = 20 * 60_000
 /** While hidden on an allowed route, how often the retry tick re-attempts. */
 const RETRY_TICK_MS = 60_000
@@ -103,6 +111,7 @@ type Phase = 'hidden' | 'entering' | 'looping' | 'leaving'
 // every show completion would immediately re-arm — this keeps the cap
 // honest for the tab's lifetime.
 let lastShownSessionMs = 0
+let lastCrownSessionKey = ''
 
 function canShowNow(): boolean {
   if (Date.now() - lastShownSessionMs < SHOW_EVERY_MS) return false
@@ -126,6 +135,26 @@ function recordShown() {
     window.localStorage.setItem(LAST_SHOWN_KEY, String(Date.now()))
   } catch {
     // Best effort — the session fallback above still enforces the cap.
+  }
+}
+
+function readLastCrownKey(): string | null {
+  if (lastCrownSessionKey) return lastCrownSessionKey
+  try {
+    const stored = window.localStorage.getItem(LAST_CROWN_KEY)
+    if (stored) lastCrownSessionKey = stored
+    return stored
+  } catch {
+    return lastCrownSessionKey || null
+  }
+}
+
+function rememberCrown(key: string) {
+  lastCrownSessionKey = key
+  try {
+    window.localStorage.setItem(LAST_CROWN_KEY, key)
+  } catch {
+    // Session fallback still stops the same takeover from re-interrupting.
   }
 }
 
@@ -188,11 +217,12 @@ export function BillboardTicker() {
 
   // Attempt one show per landing on an allowed route — and, via
   // retryTick, again every RETRY_TICK_MS while parked there hidden.
-  // Gated attempts don't fetch; empty or failed fetches record no
-  // cooldown (so a later landing retries) but do arm the fetch backoff.
+  // The 20-minute visitor cooldown is applied after the fetch so a
+  // crown takeover can still air; podium-only and ad-only trains stay
+  // gated. Empty or failed fetches record no cooldown (so a later
+  // landing retries) but do arm the fetch backoff.
   useEffect(() => {
     if (!TICKER_PATHS.includes(pathname) || phase !== 'hidden') return
-    if (!canShowNow()) return
     if (Date.now() - lastEmptyFetchAtRef.current < EMPTY_RETRY_MS) return
     let cancelled = false
     fetch('/api/billboard')
@@ -207,6 +237,12 @@ export function BillboardTicker() {
           return
         }
         if (cancelled) return
+        // Crown bypasses the 20-minute cap only for a takeover this
+        // visitor has not aired — otherwise the same #1 would replay
+        // on every parked retry for the rest of the 48h window.
+        const crownKey = freshCrownKey(fetched, readLastCrownKey())
+        if (!canShowNow() && crownKey === null) return
+        if (crownKey !== null) rememberCrown(crownKey)
         lastEmptyFetchAtRef.current = 0
         setReducedMotion(window.matchMedia('(prefers-reduced-motion: reduce)').matches)
         setItems(fetched)
@@ -224,11 +260,12 @@ export function BillboardTicker() {
   }, [pathname, phase, retryTick])
 
   // The parked retry tick: while hidden on an allowed route, nudge the
-  // show attempt above every RETRY_TICK_MS so a lapsed cooldown or a
-  // newly activated ad surfaces without a navigation. Most ticks are
-  // free (canShowNow or the backoff fails fast — no network). The
-  // interval only runs while the tab is visible, and becoming visible
-  // again ticks immediately rather than waiting out a fresh interval.
+  // show attempt above every RETRY_TICK_MS so a lapsed cooldown, a
+  // newly activated ad, or a fresh crown surfaces without a
+  // navigation. The empty-feed backoff still fails fast — no network.
+  // The interval only runs while the tab is visible, and becoming
+  // visible again ticks immediately rather than waiting out a fresh
+  // interval.
   useEffect(() => {
     if (!TICKER_PATHS.includes(pathname) || phase !== 'hidden') return
     let interval = 0
@@ -396,8 +433,8 @@ export function BillboardTicker() {
   const multi = items.length > 1
   const activeItem = items[flip.active]
   const leavingItem = flip.leaving === null ? null : items[flip.leaving]
-  // Broadcast chrome tracks the ACTIVE item's kind — SPONSOR for paid
-  // ads, ANNOUNCEMENT for top-3 hype — as does the banner's aria-label.
+  // Broadcast chrome tracks the ACTIVE item — SPONSOR / CROWN / PODIUM
+  // — as does the banner's aria-label.
   const chrome = billboardChrome(activeItem)
 
   // One sub-banner as a full-width layer — the layer itself is the whole
@@ -444,6 +481,13 @@ export function BillboardTicker() {
       )
     }
 
+    const copy = hypeCopy(item)
+    const medal = hypeMedalVar(item.rank)
+    const fallen = item.variant === 'crown' ? item.displaced : null
+    const fallenChar = fallen
+      ? (fallen.displayName || fallen.username).charAt(0).toUpperCase() || '?'
+      : ''
+
     return (
       <Link
         key={`hype-${item.userId}-${leaving ? 'out' : 'in'}-r${replay}`}
@@ -452,33 +496,52 @@ export function BillboardTicker() {
         aria-hidden={leaving || undefined}
         className={linkCls}
       >
-        {/* Hype rides a fixed gold accent — same two-line strip anatomy
-            as the ad card (avatar seated where the lg logo sits, name
-            as the title line, strip/line classes mirrored 1:1 from
-            BillboardCard) so the flip reads as one continuous surface. */}
+        {/* Hype rides the podium medal — gold / silver / bronze — on
+            the same two-line strip anatomy as the ad card (avatar
+            seated where the lg logo sits, name as the title line,
+            strip/line classes mirrored 1:1 from BillboardCard) so the
+            flip reads as one continuous surface. Crown cards tuck the
+            fallen #1 behind the challenger; the strip still links to
+            the new #1. */}
         <span
           className={`relative flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/80 px-3 py-2 sm:px-4 sm:py-2.5 ${hoverCls}`}
         >
           <span
             aria-hidden
             className="pointer-events-none absolute inset-0"
-            style={{ background: 'rgb(var(--lb-gold) / 0.08)' }}
+            style={{ background: `rgb(var(${medal}) / 0.08)` }}
           />
           <span
             aria-hidden
             className="absolute inset-y-0 left-0 w-[3px]"
-            style={{ background: 'rgb(var(--lb-gold))' }}
+            style={{ background: `rgb(var(${medal}))` }}
           />
           <span
-            className="relative shrink-0 rounded-full"
-            style={{ boxShadow: '0 0 0 1px rgb(var(--lb-gold) / 0.5)' }}
+            className={`relative flex shrink-0 items-center ${
+              fallen ? 'w-11 sm:w-[3.25rem]' : ''
+            }`}
           >
-            <Avatar
-              src={item.avatarUrl}
-              char={(item.displayName || item.username).charAt(0).toUpperCase() || '?'}
-              imgClassName="block h-8 w-8 rounded-full object-cover sm:h-10 sm:w-10"
-              fallbackClassName="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-800 text-xs text-zinc-400 sm:h-10 sm:w-10"
-            />
+            {fallen && (
+              <span aria-hidden className="absolute left-0 top-1/2 -translate-y-1/2 opacity-70">
+                <Avatar
+                  src={fallen.avatarUrl}
+                  char={fallenChar}
+                  imgClassName="block h-6 w-6 rounded-full object-cover sm:h-7 sm:w-7"
+                  fallbackClassName="flex h-6 w-6 items-center justify-center rounded-full bg-zinc-800 text-[10px] text-zinc-400 sm:h-7 sm:w-7"
+                />
+              </span>
+            )}
+            <span
+              className={`relative rounded-full ${fallen ? 'ml-3 sm:ml-3.5' : ''}`}
+              style={{ boxShadow: `0 0 0 1px rgb(var(${medal}) / 0.5)` }}
+            >
+              <Avatar
+                src={item.avatarUrl}
+                char={(item.displayName || item.username).charAt(0).toUpperCase() || '?'}
+                imgClassName="block h-8 w-8 rounded-full object-cover sm:h-10 sm:w-10"
+                fallbackClassName="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-800 text-xs text-zinc-400 sm:h-10 sm:w-10"
+              />
+            </span>
           </span>
           <span className="relative flex min-w-0 flex-1 flex-col justify-center gap-0.5">
             <span
@@ -486,14 +549,16 @@ export function BillboardTicker() {
                 animate ? 'billboard-build-title' : ''
               }`}
             >
-              {item.displayName || item.username}
+              {copy.title}
             </span>
             <span
               className={`truncate text-sm leading-5 text-zinc-200 ${
                 animate ? 'billboard-build-text' : ''
               }`}
             >
-              just entered the <span style={{ color: 'rgb(var(--lb-gold))' }}>TOP 3</span>
+              {copy.prefix}
+              <span style={{ color: `rgb(var(${medal}))` }}>{copy.emphasis}</span>
+              {copy.suffix}
             </span>
           </span>
         </span>
@@ -524,7 +589,7 @@ export function BillboardTicker() {
           <div className="flex flex-col gap-1.5 px-3 py-2 sm:px-4 sm:py-2.5">
             <div className="flex items-center gap-2">
               {/* Broadcast chrome: inverted-monochrome label + live dot,
-                  reading ANNOUNCEMENT or SPONSOR per the active item. */}
+                  reading CROWN, PODIUM, or SPONSOR per the active item. */}
               <div className="billboard-label flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5">
                 <span aria-hidden className="billboard-live-dot shrink-0" />
                 <span className="text-[9px] font-semibold tracking-[0.3em]">{chrome.label}</span>
