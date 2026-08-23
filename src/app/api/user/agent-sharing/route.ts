@@ -98,6 +98,7 @@ export async function PUT(request: NextRequest) {
         {
           user_id: session.userId,
           leaderboard_enabled: parsed.data.enabled,
+          consent_version: 2,
           enabled_at: parsed.data.enabled ? now : null,
           updated_at: now
         },

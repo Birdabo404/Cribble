@@ -16,6 +16,14 @@ interface AgentKeySummary {
   createdAt: string
   lastUsedAt: string | null
   revokedAt: string | null
+  expiresAt: string
+  clients: Array<{
+    id: string
+    machineName: string
+    timezone: string | null
+    lastSeenAt: string
+    schemaVersion: number
+  }>
 }
 
 interface CreatedAgentKey {
@@ -24,6 +32,7 @@ interface CreatedAgentKey {
   prefix: string
   label: string
   createdAt: string
+  expiresAt: string
 }
 
 type AgentKeysState =
@@ -52,6 +61,15 @@ function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === 'string'
 }
 
+function formatExpiry(iso: string): string {
+  const remaining = Date.parse(iso) - Date.now()
+  if (remaining <= 0) return 'expired'
+  const days = Math.ceil(remaining / 86_400_000)
+  if (days >= 2) return `in ${days} days`
+  const hours = Math.max(1, Math.ceil(remaining / 3_600_000))
+  return `in ${hours} hour${hours === 1 ? '' : 's'}`
+}
+
 function isAgentKeySummary(value: unknown): value is AgentKeySummary {
   if (typeof value !== 'object' || value === null) return false
 
@@ -67,7 +85,26 @@ function isAgentKeySummary(value: unknown): value is AgentKeySummary {
     'lastUsedAt' in value &&
     isNullableString(value.lastUsedAt) &&
     'revokedAt' in value &&
-    isNullableString(value.revokedAt)
+    isNullableString(value.revokedAt) &&
+    'expiresAt' in value &&
+    typeof value.expiresAt === 'string' &&
+    'clients' in value &&
+    Array.isArray(value.clients) &&
+    value.clients.every(
+      (client) =>
+        typeof client === 'object' &&
+        client !== null &&
+        'id' in client &&
+        typeof client.id === 'string' &&
+        'machineName' in client &&
+        typeof client.machineName === 'string' &&
+        'timezone' in client &&
+        isNullableString(client.timezone) &&
+        'lastSeenAt' in client &&
+        typeof client.lastSeenAt === 'string' &&
+        'schemaVersion' in client &&
+        typeof client.schemaVersion === 'number'
+    )
   )
 }
 
@@ -97,7 +134,9 @@ function parseCreatedKey(data: unknown): CreatedAgentKey | null {
     !('label' in data) ||
     typeof data.label !== 'string' ||
     !('createdAt' in data) ||
-    typeof data.createdAt !== 'string'
+    typeof data.createdAt !== 'string' ||
+    !('expiresAt' in data) ||
+    typeof data.expiresAt !== 'string'
   ) {
     return null
   }
@@ -107,7 +146,8 @@ function parseCreatedKey(data: unknown): CreatedAgentKey | null {
     key: data.key,
     prefix: data.prefix,
     label: data.label,
-    createdAt: data.createdAt
+    createdAt: data.createdAt,
+    expiresAt: data.expiresAt
   }
 }
 
@@ -185,7 +225,9 @@ export function AgentCliSection() {
 
   const activeKeyCount =
     keysState.phase === 'ready'
-      ? keysState.keys.filter((key) => key.revokedAt === null).length
+      ? keysState.keys.filter(
+          (key) => key.revokedAt === null && Date.parse(key.expiresAt) > Date.now()
+        ).length
       : 0
 
   const createKey = useCallback(async () => {
@@ -220,7 +262,9 @@ export function AgentCliSection() {
                   label: next.label,
                   createdAt: next.createdAt,
                   lastUsedAt: null,
-                  revokedAt: null
+                  revokedAt: null,
+                  expiresAt: next.expiresAt,
+                  clients: []
                 },
                 ...current.keys
               ]
@@ -254,7 +298,7 @@ export function AgentCliSection() {
       if (
         enabled &&
         !window.confirm(
-          'Join the public Burn Board? Cribble will publish your username, aggregate token totals, and estimated cost. Raw daily usage stays private, and you can leave at any time.'
+          'Join the public Burn Board? Cribble will publish your username, aggregate token totals, estimated cost, and agent/model breakdowns. Raw usage and machine details stay private, and you can leave at any time.'
         )
       ) {
         return
@@ -338,7 +382,7 @@ export function AgentCliSection() {
         label="Join the Burn Board"
         description={
           sharingState.phase === 'ready' && sharingState.enabled
-            ? 'Your public profile, aggregate token totals, and estimated cost are ranked. Raw daily usage stays private.'
+            ? 'Your public profile, aggregate token totals, estimated cost, and agent/model breakdowns are ranked. Raw usage and machine details stay private.'
             : 'Opt in to the public token leaderboard. Sharing is off by default and does not affect your season score.'
         }
       >
@@ -464,12 +508,23 @@ export function AgentCliSection() {
                 <span className="font-data">{key.prefix}</span>
                 {' · '}Created {formatRelative(key.createdAt)}
                 {' · '}Last used {key.lastUsedAt ? formatRelative(key.lastUsedAt) : 'never'}
+                {' · '}Expires {formatExpiry(key.expiresAt)}
+                {key.clients.length > 0 && (
+                  <>
+                    {' · '}Machine{key.clients.length > 1 ? 's' : ''}:{' '}
+                    {key.clients.map((client) => client.machineName).join(', ')}
+                  </>
+                )}
               </>
             }
           >
             {key.revokedAt ? (
               <span className="text-[13px] leading-5 text-[color:var(--st-text-faint)]">
                 Revoked {formatRelative(key.revokedAt)}
+              </span>
+            ) : Date.parse(key.expiresAt) <= Date.now() ? (
+              <span className="text-[13px] leading-5 text-[color:var(--st-text-faint)]">
+                Expired
               </span>
             ) : (
               <SettingsButton

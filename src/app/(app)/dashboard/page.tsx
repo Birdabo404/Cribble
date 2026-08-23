@@ -10,6 +10,7 @@ import { ErrorScreen } from '@/components/dashboard-v2/ErrorScreen'
 import { LoadingScreen } from '@/components/dashboard-v2/LoadingScreen'
 import { ActivityCard } from '@/components/dashboard-v3/ActivityCard'
 import { AsteroidShower } from '@/components/dashboard-v3/AsteroidShower'
+import { DashboardTabs } from '@/components/dashboard-v3/DashboardTabs'
 import { ExtensionNudge } from '@/components/dashboard-v3/ExtensionNudge'
 import { HeroCard } from '@/components/dashboard-v3/HeroCard'
 import { KpiStrip } from '@/components/dashboard-v3/KpiStrip'
@@ -131,6 +132,8 @@ export default function DashboardV3() {
       <div className="page-zoom-out dash-reveal-root dash-duotone relative max-w-6xl mx-auto px-6 pt-6 pb-10">
         <AsciiBanner username={user.twitter_username} />
 
+        <DashboardTabs className="mt-6" />
+
         <main className="mt-8 grid grid-cols-12 gap-5">
           <ExtensionNudge user={user} activeDevice={activeDevice} phase={phase} />
           <HeroCard
@@ -169,7 +172,7 @@ export default function DashboardV3() {
       </div>
 
       <style jsx global>{`
-        /* First-paint cascade — DASHBOARD banner → cards → footer.
+        /* First-paint cascade — DASHBOARD banner → tabs → cards → footer.
            Uses "backwards" fill (not "both") so the finished animation
            releases the transform, letting the liquid-glass hover lift work.
 
@@ -177,6 +180,7 @@ export default function DashboardV3() {
            variable lets elements INSIDE a card stagger relative to their
            card's entrance (see the .anim-* utilities in globals.css). */
         .dash-reveal-root > section,
+        .dash-reveal-root > nav,
         .dash-reveal-root > main > *,
         .dash-reveal-root > footer {
           animation: dash-reveal-in 760ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
@@ -185,6 +189,10 @@ export default function DashboardV3() {
         /* AsciiBanner — the "DASHBOARD" wordmark, where the cascade originates */
         .dash-reveal-root > section {
           --ad-base: 0ms;
+        }
+        /* DashboardTabs — the CONSOLE / TOKENS strip under the banner */
+        .dash-reveal-root > nav {
+          --ad-base: 60ms;
         }
         .dash-reveal-root > main > *:nth-child(1) {
           --ad-base: 100ms;
@@ -217,6 +225,7 @@ export default function DashboardV3() {
 
         @media (prefers-reduced-motion: reduce) {
           .dash-reveal-root > section,
+          .dash-reveal-root > nav,
           .dash-reveal-root > main > *,
           .dash-reveal-root > footer {
             animation: none;

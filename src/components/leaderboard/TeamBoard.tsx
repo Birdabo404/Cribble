@@ -35,6 +35,7 @@ import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { fetchMe } from '@/lib/client/fetchMe'
 import { isProTier } from '@/lib/entitlements'
 import { prefersReducedMotion } from '@/lib/motion'
+import { usdDisplayParts } from '@/lib/tokenLeaderboard'
 import type {
   TeamBoardMember,
   TeamBoardRow,
@@ -42,7 +43,7 @@ import type {
 } from '@/lib/teamLeaderboard'
 
 const ROW_GRID =
-  'grid grid-cols-[3.6rem_minmax(0,1fr)_auto_1rem] md:grid-cols-[4.2rem_minmax(0,1fr)_6.5rem_10.5rem_1rem] items-center gap-3 px-4 md:px-5'
+  'grid grid-cols-[3.6rem_minmax(0,1fr)_auto_1rem] md:grid-cols-[4.2rem_minmax(0,1fr)_6.5rem_7rem_10.5rem_1rem] items-center gap-3 px-4 md:px-5'
 
 // Roster rows keep the team grid's gutters — col 1 stays an empty rank
 // gutter so member identity sits exactly under the team identity, and the
@@ -248,6 +249,7 @@ export function TeamBoard() {
             <div>RANK</div>
             <div>TEAM</div>
             <div className="hidden text-right md:block">MEMBERS</div>
+            <div className="hidden text-right md:block">BURN</div>
             <div className="text-right text-zinc-300">SCORE</div>
             <div aria-hidden />
           </div>
@@ -303,6 +305,9 @@ export function TeamBoard() {
 
         <p className="mt-3 text-center text-[9px] tracking-[0.3em] text-zinc-600">
           RANKED BY THE COMBINED SEASON SCORE OF ACTIVE AFFILIATES
+        </p>
+        <p className="mt-1 text-center text-[9px] tracking-[0.22em] text-zinc-700">
+          BURN = OPT-IN AGENT ESTIMATES · NOT A COMPANY BILL
         </p>
 
         {/* ---------- sticky YOUR TEAM bar ---------- */}
@@ -387,6 +392,21 @@ function StatCell({
         <div className="mt-1 max-w-full truncate text-[9px] tracking-[0.2em] text-zinc-600">{hint}</div>
       )}
     </div>
+  )
+}
+
+/* ================= burn read-out ================= */
+
+/** Same USD markup the Burn Board uses: optional "<" for sub-cent
+ *  values, green dollar mark, exact-decimal display parts. */
+function BurnValue({ value }: { value: string }) {
+  const display = usdDisplayParts(value)
+  return (
+    <>
+      {display.tiny ? '<' : null}
+      <span className="text-[#39ff88]">$</span>
+      {display.number}
+    </>
   )
 }
 
@@ -479,6 +499,24 @@ function TeamRow({
         {/* members */}
         <div className="hidden text-right text-[11px] tabular-nums text-zinc-400 md:block">
           {formatNumber(team.memberCount)}
+        </div>
+
+        {/* opt-in USD burn — display-only, never a rank input */}
+        <div
+          className="hidden text-right text-[11px] tabular-nums text-zinc-400 md:block"
+          title={
+            team.burnPilots > 0
+              ? `Estimated agent spend of ${team.burnPilots} opted-in member${
+                  team.burnPilots === 1 ? '' : 's'
+                } — not a company bill`
+              : 'No members sharing token usage'
+          }
+        >
+          {team.burnPilots > 0 ? (
+            <BurnValue value={team.burnUsd} />
+          ) : (
+            <span className="text-zinc-700">—</span>
+          )}
         </div>
 
         {/* SCORE — the main thing */}
@@ -643,6 +681,7 @@ function SkeletonRow({ index }: { index: number }) {
           <span className="h-3 w-32 rounded bg-[rgb(var(--lb-panel-edge)/0.05)]" />
         </span>
         <span className="hidden h-3 w-8 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:block" />
+        <span className="hidden h-3 w-12 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:block" />
         <span className="h-3.5 w-24 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.06)]" />
         <span className="h-3 w-3 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.04)]" />
       </div>

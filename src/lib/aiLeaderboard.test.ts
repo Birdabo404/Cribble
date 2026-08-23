@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
+  assembleAiBoards,
   buildAiBoard,
   buildAiToolDomainMap,
+  burnByToolName,
   scoreAiTotals,
+  type AgentBurnRpcRow,
   type AiToolTotalsRow
 } from './aiLeaderboard'
 import { listTrackedAiDomains } from './aiDomains'
+import type { SeasonState } from './season'
 
 const row = (
   tool: string | null,
@@ -146,5 +150,168 @@ describe('buildAiBoard', () => {
 
     expect(board.tools).toEqual([])
     expect(board.totals).toEqual({ score: 0, active_ms: 0, visits: 0, pilots: 0 })
+  })
+})
+
+const burnRow = (agent: string, cost: string): AgentBurnRpcRow => ({
+  agent,
+  cost_usd: cost,
+  pilots: 1
+})
+
+describe('burnByToolName', () => {
+  it('folds agent ids onto the AI board tool names', () => {
+    const burn = burnByToolName([
+      burnRow('cursor', '10'),
+      burnRow('copilot', '1'),
+      burnRow('github-copilot', '2'),
+      burnRow('gemini-cli', '4')
+    ])
+
+    expect(burn.get('Cursor')).toBe('10')
+    expect(burn.get('GitHub Copilot')).toBe('3')
+    expect(burn.get('Gemini')).toBe('4')
+  })
+
+  it('sums sibling agents of one tool with exact decimals', () => {
+    const burn = burnByToolName([
+      burnRow('claude', '0.1'),
+      burnRow('claude-code', '0.2')
+    ])
+
+    expect(burn.get('Claude')).toBe('0.3')
+  })
+
+  it('drops agents with no AI-board tool instead of inventing rows', () => {
+    const burn = burnByToolName([
+      burnRow('codex', '500'),
+      burnRow('opencode', '500'),
+      burnRow('some-unknown-agent', '500'),
+      { agent: null, cost_usd: '500', pilots: 1 }
+    ])
+
+    expect(burn.size).toBe(0)
+  })
+})
+
+describe('buildAiBoard burn column', () => {
+  it('attaches burn as a column without letting it touch the sort', () => {
+    const board = buildAiBoard(
+      [
+        row(null, 3_000_000, 0, 2),
+        row('Claude', 2_000_000, 0, 1),
+        row('Cursor', 1_000_000, 0, 1)
+      ],
+      [],
+      // Cursor burned 1000x Claude — still ranked by score alone.
+      new Map([
+        ['Cursor', '5000'],
+        ['Claude', '5']
+      ])
+    )
+
+    expect(board.tools.map((t) => t.name)).toEqual(['Claude', 'Cursor'])
+    expect(board.tools[0].burnUsd).toBe('5')
+    expect(board.tools[1].burnUsd).toBe('5000')
+  })
+
+  it('never mints a tool row from burn and defaults absent burn to 0', () => {
+    const board = buildAiBoard(
+      [row(null, 2_000_000, 0, 1), row('Claude', 2_000_000, 0, 1)],
+      [],
+      new Map([
+        ['Claude', '7.25'],
+        // No 'GitHub Copilot' usage row on this board — its spend drops.
+        ['GitHub Copilot', '900']
+      ])
+    )
+
+    expect(board.tools.map((t) => t.name)).toEqual(['Claude'])
+    expect(board.tools[0].burnUsd).toBe('7.25')
+  })
+})
+
+describe('assembleAiBoards', () => {
+  const calendar = (phase: 'active' | 'intermission'): SeasonState => ({
+    phase,
+    current: {
+      id: 4,
+      number: 4,
+      name: 'Season 4',
+      startsAt: '2026-08-01T00:00:00.000Z',
+      endsAt: '2026-09-01T00:00:00.000Z',
+      status: phase === 'active' ? 'active' : 'complete'
+    },
+    next: null
+  })
+  const noCalendar: SeasonState = { phase: 'intermission', current: null, next: null }
+
+  // Claude dominates all-time; Cursor dominates the current season.
+  const allTimeRows = [
+    row(null, 10_000_000, 0, 3),
+    row('Claude', 8_000_000, 0, 2),
+    row('Cursor', 2_000_000, 0, 2)
+  ]
+  const seasonRows = [
+    row(null, 4_000_000, 0, 3),
+    row('Claude', 1_000_000, 0, 2),
+    row('Cursor', 3_000_000, 0, 2)
+  ]
+
+  it('ranks the season board by season score while all-time stays put', () => {
+    const boards = assembleAiBoards({
+      seasonState: calendar('active'),
+      allTimeRows,
+      seasonRows
+    })
+
+    expect(boards.alltime.tools.map((t) => t.name)).toEqual(['Claude', 'Cursor'])
+    expect(boards.season!.tools.map((t) => t.name)).toEqual(['Cursor', 'Claude'])
+    expect(boards.season!.tools.map((t) => t.rank)).toEqual([1, 2])
+  })
+
+  it('recomputes percent per window over that window’s score sum', () => {
+    const boards = assembleAiBoards({
+      seasonState: calendar('active'),
+      allTimeRows,
+      seasonRows
+    })
+
+    const alltimeClaude = boards.alltime.tools.find((t) => t.name === 'Claude')!
+    const seasonClaude = boards.season!.tools.find((t) => t.name === 'Claude')!
+    expect(alltimeClaude.percent).toBe(80)
+    expect(seasonClaude.percent).toBe(25)
+  })
+
+  it('keeps each window’s burn on its own board', () => {
+    const boards = assembleAiBoards({
+      seasonState: calendar('active'),
+      allTimeRows,
+      seasonRows,
+      allTimeBurnRows: [burnRow('claude', '100'), burnRow('cursor', '40')],
+      seasonBurnRows: [burnRow('claude', '2.5')]
+    })
+
+    expect(boards.alltime.tools.find((t) => t.name === 'Claude')!.burnUsd).toBe('100')
+    expect(boards.alltime.tools.find((t) => t.name === 'Cursor')!.burnUsd).toBe('40')
+    expect(boards.season!.tools.find((t) => t.name === 'Claude')!.burnUsd).toBe('2.5')
+    expect(boards.season!.tools.find((t) => t.name === 'Cursor')!.burnUsd).toBe('0')
+  })
+
+  it('serves no season board during intermission or without a calendar', () => {
+    const intermission = assembleAiBoards({
+      seasonState: calendar('intermission'),
+      allTimeRows,
+      seasonRows
+    })
+    expect(intermission.season).toBeNull()
+    expect(intermission.alltime.tools).toHaveLength(2)
+
+    const fresh = assembleAiBoards({
+      seasonState: noCalendar,
+      allTimeRows,
+      seasonRows: null
+    })
+    expect(fresh.season).toBeNull()
   })
 })

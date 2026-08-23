@@ -11,7 +11,7 @@
 // dressed as a sponsor.
 // Mounted once inside .app-nav-inset in AppShell and self-gating: it
 // never starts a show off the two allowed routes, and a localStorage
-// timestamp caps appearances to one per 20 minutes per visitor.
+// timestamp caps appearances to one per 10 minutes per visitor.
 // Visitors parked on an allowed route aren't stranded: while the banner
 // is hidden there, a retry tick re-attempts the show every RETRY_TICK_MS,
 // so a lapsing cooldown or a newly activated ad surfaces the banner
@@ -65,7 +65,6 @@ import type { CSSProperties, TransitionEvent } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Avatar } from '@/components/leaderboard/Avatar'
 import {
   BILLBOARD_AD_HOLD_MS,
   billboardChrome,
@@ -75,11 +74,12 @@ import {
 } from '@/lib/billboard'
 import type { BillboardItem } from '@/lib/billboard'
 import { BillboardCard } from './BillboardCard'
+import { HypeAnnouncement } from './HypeAnnouncement'
 
 const TICKER_PATHS = ['/dashboard', '/leaderboard']
 /** Per-visitor frequency gate — epoch ms of when the last show ended. */
 const LAST_SHOWN_KEY = 'cribble:billboard-last-shown'
-const SHOW_EVERY_MS = 20 * 60_000
+const SHOW_EVERY_MS = 10 * 60_000
 /** While hidden on an allowed route, how often the retry tick re-attempts. */
 const RETRY_TICK_MS = 60_000
 /** How long retry ticks skip fetching after an empty (or failed) fetch. */
@@ -452,51 +452,11 @@ export function BillboardTicker() {
         aria-hidden={leaving || undefined}
         className={linkCls}
       >
-        {/* Hype rides a fixed gold accent — same two-line strip anatomy
-            as the ad card (avatar seated where the lg logo sits, name
-            as the title line, strip/line classes mirrored 1:1 from
-            BillboardCard) so the flip reads as one continuous surface. */}
-        <span
-          className={`relative flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/80 px-3 py-2 sm:px-4 sm:py-2.5 ${hoverCls}`}
-        >
-          <span
-            aria-hidden
-            className="pointer-events-none absolute inset-0"
-            style={{ background: 'rgb(var(--lb-gold) / 0.08)' }}
-          />
-          <span
-            aria-hidden
-            className="absolute inset-y-0 left-0 w-[3px]"
-            style={{ background: 'rgb(var(--lb-gold))' }}
-          />
-          <span
-            className="relative shrink-0 rounded-full"
-            style={{ boxShadow: '0 0 0 1px rgb(var(--lb-gold) / 0.5)' }}
-          >
-            <Avatar
-              src={item.avatarUrl}
-              char={(item.displayName || item.username).charAt(0).toUpperCase() || '?'}
-              imgClassName="block h-8 w-8 rounded-full object-cover sm:h-10 sm:w-10"
-              fallbackClassName="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-800 text-xs text-zinc-400 sm:h-10 sm:w-10"
-            />
-          </span>
-          <span className="relative flex min-w-0 flex-1 flex-col justify-center gap-0.5">
-            <span
-              className={`truncate text-[11px] font-semibold uppercase leading-4 tracking-[0.2em] text-zinc-50 ${
-                animate ? 'billboard-build-title' : ''
-              }`}
-            >
-              {item.displayName || item.username}
-            </span>
-            <span
-              className={`truncate text-sm leading-5 text-zinc-200 ${
-                animate ? 'billboard-build-text' : ''
-              }`}
-            >
-              just entered the <span style={{ color: 'rgb(var(--lb-gold))' }}>TOP 3</span>
-            </span>
-          </span>
-        </span>
+        {/* Hype rides its own broadcast staging (HypeAnnouncement) on the
+            same strip anatomy as the ad card, so the flip reads as one
+            continuous surface. The leaving copy's animate=false renders
+            it resolved — no sting replay while it slides out. */}
+        <HypeAnnouncement item={item} animate={animate} paused={paused} className={hoverCls} />
       </Link>
     )
   }
@@ -509,7 +469,7 @@ export function BillboardTicker() {
       <div className="billboard-slot-inner">
         <aside
           aria-label={chrome.ariaLabel}
-          className="billboard-shell"
+          className="billboard-shell relative"
           style={
             {
               '--billboard-hold-ms': `${billboardHoldMs(activeItem, multi)}ms`
@@ -530,29 +490,15 @@ export function BillboardTicker() {
                 <span className="text-[9px] font-semibold tracking-[0.3em]">{chrome.label}</span>
               </div>
 
-              {/* Monochrome counter + countdown. The counter is dropped on
-                  phones (it steals card width) and meaningless for a solo
-                  show (hidden), but the bar stays and sweeps at the active
-                  item's hold, so a solo ad's periodic re-key never reads
-                  as a random stutter. Reduced motion drops the bar in both
-                  modes; solo + reduced motion renders neither. */}
-              {(multi || !reducedMotion) && (
-                <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-                  {multi && (
-                    <span className="hidden shrink-0 text-[10px] tabular-nums tracking-[0.2em] text-zinc-500 sm:inline">
-                      {flip.active + 1} / {items.length}
-                    </span>
-                  )}
-                  {!reducedMotion && (
-                    <span className="billboard-progress-track block h-0.5 w-full max-w-[7rem] overflow-hidden rounded-full sm:w-14">
-                      <span
-                        key={`${flip.active}-r${replay}`}
-                        className={`billboard-progress-fill block h-full w-full ${
-                          activeItem.kind === 'hype' ? 'billboard-progress-fill-hype' : ''
-                        } ${phase === 'looping' ? 'billboard-progress-run' : ''}`}
-                      />
-                    </span>
-                  )}
+              {/* Monochrome counter — dropped on phones (it steals card
+                  width) and meaningless for a solo show. The countdown
+                  moved out of this row to the full-bleed hairline at the
+                  shell's bottom edge. */}
+              {multi && (
+                <div className="flex min-w-0 flex-1 items-center justify-end">
+                  <span className="hidden shrink-0 text-[10px] tabular-nums tracking-[0.2em] text-zinc-500 sm:inline">
+                    {flip.active + 1} / {items.length}
+                  </span>
                 </div>
               )}
             </div>
@@ -564,6 +510,28 @@ export function BillboardTicker() {
               {renderLayer(activeItem, false)}
             </div>
           </div>
+
+          {/* Per-item countdown as a full-bleed hairline on the banner's
+              floor — reads as a broadcast timer across the whole width.
+              Same contract as when it lived in the chrome row: the sweep
+              duration comes from --billboard-hold-ms, keyed remounts
+              restart it per item (or per solo replay), the -run class
+              only lands while looping, and the .billboard-shell:hover
+              rule pauses it alongside the banked rotation hold. Reduced
+              motion drops it entirely. */}
+          {!reducedMotion && (
+            <span
+              aria-hidden
+              className="billboard-progress-track absolute inset-x-0 bottom-0 block h-px overflow-hidden"
+            >
+              <span
+                key={`${flip.active}-r${replay}`}
+                className={`billboard-progress-fill block h-full w-full ${
+                  activeItem.kind === 'hype' ? 'billboard-progress-fill-hype' : ''
+                } ${phase === 'looping' ? 'billboard-progress-run' : ''}`}
+              />
+            </span>
+          )}
         </aside>
       </div>
     </div>

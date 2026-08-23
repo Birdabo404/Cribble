@@ -190,3 +190,66 @@ describe('buildTeamBoard', () => {
     expect(board.totals).toEqual({ teams: 0, members: 0, topScore: 0 })
   })
 })
+
+describe('buildTeamBoard burn column', () => {
+  it('never lets burn overtake score — the higher-score team stays #1', () => {
+    const { rows } = buildTeamBoard(
+      [team(1, 'grinders'), team(2, 'spenders')],
+      [member(1, 11, 500), member(2, 21, 100)],
+      noCalendar,
+      new Map([
+        [11, '1'],
+        [21, '9999.99']
+      ])
+    )
+
+    expect(rows.map((r) => r.username)).toEqual(['grinders', 'spenders'])
+    expect(rows[0]).toMatchObject({ rank: 1, burnUsd: '1' })
+    expect(rows[1]).toMatchObject({ rank: 2, burnUsd: '9999.99' })
+  })
+
+  it('sums burn only over opted-in (mapped) active members', () => {
+    const { rows } = buildTeamBoard(
+      [team(1)],
+      [member(1, 11, 100), member(1, 12, 100), member(1, 13, 100)],
+      noCalendar,
+      // user 13 never opted into token sharing — no map entry, no burn.
+      new Map([
+        [11, '10.5'],
+        [12, '2'],
+        [99, '500']
+      ])
+    )
+
+    expect(rows[0].burnUsd).toBe('12.5')
+    expect(rows[0].burnPilots).toBe(2)
+  })
+
+  it('sums exact decimals — 0.1 + 0.2 is 0.3, not 0.30000000000000004', () => {
+    const { rows } = buildTeamBoard(
+      [team(1)],
+      [member(1, 11, 10), member(1, 12, 10)],
+      noCalendar,
+      new Map([
+        [11, '0.1'],
+        [12, '0.2']
+      ])
+    )
+
+    expect(rows[0].burnUsd).toBe('0.3')
+    expect(rows[0].burnPilots).toBe(2)
+  })
+
+  it('defaults to zero burn and zero pilots when the map is empty or absent', () => {
+    const withEmptyMap = buildTeamBoard(
+      [team(1)],
+      [member(1, 11, 100)],
+      noCalendar,
+      new Map()
+    )
+    expect(withEmptyMap.rows[0]).toMatchObject({ burnUsd: '0', burnPilots: 0 })
+
+    const withoutMap = buildTeamBoard([team(1)], [member(1, 11, 100)], noCalendar)
+    expect(withoutMap.rows[0]).toMatchObject({ burnUsd: '0', burnPilots: 0 })
+  })
+})
