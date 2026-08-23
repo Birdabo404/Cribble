@@ -5,17 +5,18 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import AnimatedCounter from '@/components/AnimatedCounter'
 import { formatCompact, formatNumber } from '@/components/dashboard-v2/format'
 import { Avatar } from '@/components/leaderboard/Avatar'
+import { TokenAgentIcon } from '@/components/leaderboard/TokenAgentIcon'
+import { TokenPlayerCard } from '@/components/leaderboard/TokenPlayerCard'
 import {
   IconCrown,
   IconFlame,
   IconRefresh,
   IconTrophy,
-  IconUsers,
-  ToolIcon
+  IconUsers
 } from '@/components/leaderboard/icons'
 import { medalA, medalFor, medalGlow } from '@/components/leaderboard/types'
 import { fetchMe as requestMe } from '@/lib/client/fetchMe'
-import { tokenAgentLabel } from '@/lib/tokenLeaderboard'
+import { tokenAgentLabel, tokenModelLabel } from '@/lib/tokenLeaderboard'
 import type {
   TokenBoardRow,
   TokenBoardTotals,
@@ -78,6 +79,7 @@ export function TokenBoard() {
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
   const [failed, setFailed] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null)
   const fetchSeq = useRef(0)
 
   const load = useCallback(async (requestedWindow: TokenBoardWindowId = windowId) => {
@@ -133,6 +135,7 @@ export function TokenBoard() {
 
   const loading = rows === null && !failed
   const leader = rows?.[0] ?? null
+  const selectedRow = rows?.find((row) => row.userId === selectedUserId) ?? null
 
   return (
     <>
@@ -170,8 +173,8 @@ export function TokenBoard() {
             label="EST. BURN"
             hint="not a billing receipt"
             valueStyle={{
-              color: 'rgb(251 146 60)',
-              textShadow: '0 0 14px rgb(249 115 22 / calc(0.35 * var(--lb-glow, 1)))'
+              color: 'rgb(var(--lb-up))',
+              textShadow: '0 0 14px rgb(var(--lb-up) / calc(0.38 * var(--lb-glow, 1)))'
             }}
           >
             <AnimatedCounter
@@ -196,30 +199,7 @@ export function TokenBoard() {
         </div>
       </section>
 
-      {leader && (
-        <aside
-          className="lbt-reveal flex flex-col gap-2 border border-orange-400/20 bg-orange-400/[0.045] px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-          style={{ ['--rv' as string]: '80ms' }}
-        >
-          <div className="min-w-0">
-            <span className="text-[9px] font-semibold tracking-[0.35em] text-orange-400">
-              BURN NOTICE
-            </span>
-            <p className="mt-1 truncate text-[12px] text-zinc-300">
-              @{leader.username} leads with {formatUsd(leader.burnUsd)} across{' '}
-              {formatNumber(leader.totalTokens)} self-reported tokens.
-            </p>
-          </div>
-          <span
-            className="w-fit shrink-0 border px-2 py-1 text-[8px] font-semibold tracking-[0.2em]"
-            style={personaStyle(leader.persona.tone)}
-          >
-            {leader.persona.label}
-          </span>
-        </aside>
-      )}
-
-      <section className="lbt-reveal relative" style={{ ['--rv' as string]: '140ms' }}>
+      <section className="lbt-reveal relative" style={{ ['--rv' as string]: '80ms' }}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-baseline gap-3">
             <h2 className="font-display text-[11px] font-semibold tracking-[0.45em] text-zinc-300">
@@ -345,6 +325,7 @@ export function TokenBoard() {
                   row={row}
                   index={index}
                   isMe={row.userId === currentUserId}
+                  onSelect={() => setSelectedUserId(row.userId)}
                 />
               ))}
           </ul>
@@ -354,6 +335,16 @@ export function TokenBoard() {
           RANKED BY ESTIMATED USD BURN · OPT-IN · SELF-REPORTED · NOT A BILLING RECEIPT
         </p>
       </section>
+
+      {selectedRow && (
+        <TokenPlayerCard
+          key={`${windowId}-${selectedRow.userId}`}
+          row={selectedRow}
+          isYou={selectedRow.userId === currentUserId}
+          windowLabel={windowMeta?.label ?? WINDOWS.find((item) => item.id === windowId)?.label ?? 'TOKENS'}
+          onClose={() => setSelectedUserId(null)}
+        />
+      )}
 
       <style jsx global>{`
         .lbt-reveal {
@@ -379,11 +370,22 @@ export function TokenBoard() {
   )
 }
 
-function TokenRow({ row, index, isMe }: { row: TokenBoardRow; index: number; isMe: boolean }) {
+function TokenRow({
+  row,
+  index,
+  isMe,
+  onSelect
+}: {
+  row: TokenBoardRow
+  index: number
+  isMe: boolean
+  onSelect: () => void
+}) {
   const medal = medalFor(row.rank)
   const agentLabel = tokenAgentLabel(row.topAgent)
+  const modelLabel = tokenModelLabel(row.topModel)
   const agentTitle = agentLabel
-    ? `${agentLabel} appeared on ${row.topAgentDays} of ${row.activeDays} synced day${row.activeDays === 1 ? '' : 's'}`
+    ? `${agentLabel} is the primary agent${modelLabel ? ` · ${modelLabel} is the primary model` : ''}`
     : row.agents.length > 1
       ? `No clear top agent reported (${row.agents.map((agent) => tokenAgentLabel(agent)).filter(Boolean).join(', ')})`
       : 'Agent not reported'
@@ -415,9 +417,11 @@ function TokenRow({ row, index, isMe }: { row: TokenBoardRow; index: number; isM
         )}
       </div>
 
-      <Link
-        href={`/u/${encodeURIComponent(row.username)}`}
-        className="group flex min-w-0 items-center gap-3"
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-label={`Open token profile for ${row.displayName}`}
+        className="group flex min-w-0 items-center gap-3 text-left"
       >
         <span className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full border border-zinc-800 bg-zinc-900">
           <Avatar
@@ -451,22 +455,16 @@ function TokenRow({ row, index, isMe }: { row: TokenBoardRow; index: number; isM
             )}
           </span>
         </span>
-      </Link>
+      </button>
 
       <div className="hidden min-w-0 items-center gap-2.5 md:flex" title={agentTitle}>
-        <span className="lb-inset inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-300">
-          {agentLabel ? (
-            <ToolIcon name={agentLabel} size={16} />
-          ) : (
-            <span className="text-[10px] text-zinc-600">?</span>
-          )}
-        </span>
+        <TokenAgentIcon agent={row.topAgent} size={18} />
         <span className="min-w-0">
           <span className="block truncate text-[10px] font-medium text-zinc-300">
             {agentLabel ?? (row.agents.length > 1 ? 'Mixed' : 'Unknown')}
           </span>
-          <span className="mt-0.5 block text-[7px] tracking-[0.14em] text-zinc-600">
-            {row.agents.length > 1 ? `${row.agents.length} AGENTS` : 'MOST USED'}
+          <span className="mt-0.5 block truncate text-[8px] text-zinc-600">
+            {modelLabel ?? 'Model not reported'}
           </span>
         </span>
       </div>
@@ -488,18 +486,28 @@ function TokenRow({ row, index, isMe }: { row: TokenBoardRow; index: number; isM
         </div>
       </div>
       <div className="text-right">
-        <div className="text-[15px] leading-none tabular-nums text-orange-300 [font-family:var(--font-pixel)] md:text-[12px] md:text-zinc-300">
+        <div className="text-[15px] leading-none tabular-nums text-orange-300 [font-family:var(--font-pixel)] md:text-[12px]">
           <span className="md:hidden">{formatCompact(row.totalTokens)}</span>
-          <span className="hidden md:inline">{formatUsd(row.burnUsd)}</span>
+          <span
+            className="hidden md:inline"
+            style={{
+              color: 'rgb(var(--lb-up))',
+              textShadow: '0 0 10px rgb(var(--lb-up) / calc(0.32 * var(--lb-glow, 1)))'
+            }}
+          >
+            {formatUsd(row.burnUsd)}
+          </span>
         </div>
         <div className="mt-1 flex items-center justify-end gap-1.5 text-[7px] tracking-[0.1em] text-zinc-600">
-          <span className="md:hidden" title={agentTitle}>
-            {agentLabel ? <ToolIcon name={agentLabel} size={10} className="inline-block" /> : null}
+          <span className="md:hidden" title={agentTitle} aria-hidden>
+            {agentLabel ? <TokenAgentIcon agent={row.topAgent} size={10} className="!h-5 !w-5 !rounded-md" /> : null}
           </span>
-          {agentLabel ? (
-            <span className="max-w-12 truncate md:hidden">{agentLabel.toUpperCase()}</span>
-          ) : null}
-          <span className="md:hidden">{formatUsd(row.burnUsd)} EST.</span>
+          <span className="max-w-20 truncate normal-case tracking-normal text-zinc-500 md:hidden">
+            {modelLabel ?? agentLabel ?? 'Unknown'}
+          </span>
+          <span className="md:hidden" style={{ color: 'rgb(var(--lb-up))' }}>
+            {formatUsd(row.burnUsd)} EST.
+          </span>
           <span className="hidden md:inline">ESTIMATE</span>
         </div>
       </div>

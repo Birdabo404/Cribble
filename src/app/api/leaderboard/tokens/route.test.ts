@@ -62,7 +62,9 @@ describe('GET /api/leaderboard/tokens', () => {
           models: ['opus'],
           last_synced_at: '2026-08-22T01:00:00.000Z',
           top_agent: 'claude-code',
-          top_agent_days: '5'
+          top_agent_days: '5',
+          top_model: 'claude-opus-4-1',
+          top_model_days: '4'
         }
       ],
       error: null
@@ -88,6 +90,8 @@ describe('GET /api/leaderboard/tokens', () => {
           username: 'spender',
           topAgent: 'claude-code',
           topAgentDays: 5,
+          topModel: 'claude-opus-4-1',
+          topModelDays: 4,
           persona: { id: 'whale' }
         }
       ]

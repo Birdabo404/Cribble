@@ -6,6 +6,7 @@ import {
   resolveTokenBoardWindow,
   tokenPersona,
   tokenAgentLabel,
+  tokenModelLabel,
   type TokenLeaderboardRpcRow
 } from './tokenLeaderboard'
 
@@ -41,6 +42,8 @@ function usage(overrides: Partial<TokenLeaderboardRpcRow> = {}): TokenLeaderboar
     last_synced_at: '2026-08-22T01:00:00.000Z',
     top_agent: 'claude-code',
     top_agent_days: 4,
+    top_model: 'claude-opus-4-1',
+    top_model_days: 3,
     ...overrides
   }
 }
@@ -133,6 +136,16 @@ describe('token agent labels', () => {
   })
 })
 
+describe('token model labels', () => {
+  it('keeps model IDs recognizable without pretending they are prose', () => {
+    expect(tokenModelLabel('gpt_5.4')).toBe('GPT-5.4')
+    expect(tokenModelLabel('gpt-5.6-sol')).toBe('GPT-5.6 Sol')
+    expect(tokenModelLabel('claude-opus-4-1')).toBe('Claude Opus 4.1')
+    expect(tokenModelLabel('gemini_2.5_pro')).toBe('Gemini 2.5 Pro')
+    expect(tokenModelLabel(null)).toBeNull()
+  })
+})
+
 describe('buildTokenBoard', () => {
   it('normalizes database numerics, ranks by burn, and computes honest totals', () => {
     const board = buildTokenBoard([
@@ -151,7 +164,9 @@ describe('buildTokenBoard', () => {
         agents: ['cursor', 'cursor', ' claude-code '],
         models: ['sonnet', 'sonnet'],
         top_agent: 'cursor',
-        top_agent_days: '2'
+        top_agent_days: '2',
+        top_model: 'sonnet',
+        top_model_days: '2'
       }),
       usage({
         user_id: 1,
@@ -174,7 +189,9 @@ describe('buildTokenBoard', () => {
       provisional: false,
       persona: { id: 'output-demon' },
       topAgent: 'claude-code',
-      topAgentDays: 4
+      topAgentDays: 4,
+      topModel: 'claude-opus-4-1',
+      topModelDays: 3
     })
     expect(board.rows[1]).toMatchObject({
       rank: 2,
@@ -187,7 +204,9 @@ describe('buildTokenBoard', () => {
       models: ['sonnet'],
       persona: { id: 'cache-goblin' },
       topAgent: 'cursor',
-      topAgentDays: 2
+      topAgentDays: 2,
+      topModel: 'sonnet',
+      topModelDays: 2
     })
     expect(board.totals).toEqual({
       pilots: 2,
@@ -203,14 +222,20 @@ describe('buildTokenBoard', () => {
       usage({
         agents: ['claude-code', 'cursor'],
         top_agent: null,
-        top_agent_days: null
+        top_agent_days: null,
+        top_model: null,
+        top_model_days: null,
+        models: ['opus', 'sonnet']
       })
     ])
 
     expect(board.rows[0]).toMatchObject({
       topAgent: null,
       topAgentDays: 0,
-      agents: ['claude-code', 'cursor']
+      agents: ['claude-code', 'cursor'],
+      topModel: null,
+      topModelDays: 0,
+      models: ['opus', 'sonnet']
     })
   })
 

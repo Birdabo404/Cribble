@@ -27,6 +27,8 @@ export interface TokenLeaderboardRpcRow {
   last_synced_at: string | null
   top_agent?: string | null
   top_agent_days?: number | string | null
+  top_model?: string | null
+  top_model_days?: number | string | null
 }
 
 export type TokenPersonaTone = 'danger' | 'hot' | 'cache' | 'output' | 'neutral'
@@ -67,6 +69,8 @@ export interface TokenBoardRow {
   lastSyncedAt: string | null
   topAgent: string | null
   topAgentDays: number
+  topModel: string | null
+  topModelDays: number
   provisional: boolean
   persona: TokenPersona
 }
@@ -170,6 +174,33 @@ export function tokenAgentLabel(value: string | null): string | null {
   )
 }
 
+export function tokenModelLabel(value: string | null): string | null {
+  if (!value) return null
+  const model = value.trim().toLowerCase().replace(/_/g, '-')
+  if (!model) return null
+
+  const words = (suffix: string) =>
+    suffix
+      .split('-')
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ')
+
+  const gpt = model.match(/^(gpt-\d+(?:\.\d+)?)(?:-(.+))?$/)
+  if (gpt) return `${gpt[1].toUpperCase()}${gpt[2] ? ` ${words(gpt[2])}` : ''}`
+
+  const claude = model.match(/^claude-(opus|sonnet|haiku)(?:-(\d+))?(?:-(\d+))?(?:-\d{8})?$/)
+  if (claude) {
+    const version = claude[2] ? ` ${claude[2]}${claude[3] ? `.${claude[3]}` : ''}` : ''
+    return `Claude ${words(claude[1])}${version}`
+  }
+
+  const gemini = model.match(/^gemini-(\d+(?:\.\d+)?)(?:-(.+))?$/)
+  if (gemini) return `Gemini ${gemini[1]}${gemini[2] ? ` ${words(gemini[2])}` : ''}`
+
+  return words(model)
+}
+
 export function tokenPersona(input: {
   burnUsd: number
   totalTokens: number
@@ -229,6 +260,16 @@ export function buildTokenBoard(source: TokenLeaderboardRpcRow[]): TokenBoard {
       : topAgent
         ? activeDays
         : 0
+    const reportedTopModel = item.top_model?.trim() || null
+    // Keep the UI useful while the migration rolls out: a one-model mix is
+    // unambiguous, but a multi-model mix remains unknown until the RPC says
+    // which model appeared on the most active days.
+    const topModel = reportedTopModel ?? (models.length === 1 ? models[0] : null)
+    const topModelDays = reportedTopModel
+      ? Math.min(activeDays, Math.round(finiteNumber(item.top_model_days ?? null)))
+      : topModel
+        ? activeDays
+        : 0
     const cachePercent =
       totalTokens > 0 ? Math.max(0, Math.min(100, Math.round((cacheTokens / totalTokens) * 100))) : 0
     const username = item.username?.trim() || `User${userId}`
@@ -253,6 +294,8 @@ export function buildTokenBoard(source: TokenLeaderboardRpcRow[]): TokenBoard {
       lastSyncedAt: item.last_synced_at,
       topAgent,
       topAgentDays,
+      topModel,
+      topModelDays,
       provisional: activeDays < 3,
       persona: tokenPersona({
         burnUsd,
