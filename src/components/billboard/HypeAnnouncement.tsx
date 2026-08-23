@@ -6,9 +6,10 @@
 // a full-bleed bed (outline marquee + WebGL gold caustic) with the
 // content zones aligned mx-auto max-w-6xl over it, so the card lines up
 // with the board below instead of floating in unclaimed width. Below sm
-// it collapses to the original two-line strip — the bed and the extra
-// zones are desktop furniture, and phones never spend a WebGL context
-// on them.
+// it collapses to a two-line strip that keeps the climb payload (the
+// downward rank reel and the delta chip) but none of the bed — the
+// marquee and shader are desktop furniture, and phones never spend a
+// WebGL context on them.
 //
 // Preserved anatomy: same strip padding, 3px gold left stripe and
 // avatar seat as BillboardCard's lg shape, so ad-to-hype flips hinge on
@@ -254,7 +255,8 @@ export function HypeAnnouncement({
           fragment below is an aria-hidden rendering of it. */}
       <span className="sr-only">{billboardHypeSentence(item)}</span>
 
-      {/* Below sm: the original two-line strip, unchanged. */}
+      {/* Below sm: the compact two-line strip, now carrying the climb
+          payload — same reel state machine as the desktop stage, no bed. */}
       <span aria-hidden className="relative flex w-full min-w-0 items-center gap-2.5 sm:hidden">
         <span
           className="relative shrink-0 rounded-full"
@@ -276,12 +278,32 @@ export function HypeAnnouncement({
             {name}
           </span>
           <span
-            className={`truncate text-sm leading-5 text-zinc-200 ${
+            className={`flex items-center gap-1.5 text-sm leading-5 text-zinc-200 ${
               animate ? 'billboard-build-text' : ''
             }`}
           >
-            just entered the <span style={{ color: 'rgb(var(--lb-gold))' }}>TOP 3</span>
+            <span>climbed</span>
+            <span className="tabular-nums text-zinc-500">#{climb.from}</span>
+            <span className="text-zinc-600">→</span>
+            <span
+              className={`inline-flex items-center font-semibold tabular-nums ${
+                playing && landed ? 'billboard-rank-land' : ''
+              }`}
+              style={{ color: 'rgb(var(--lb-gold))' }}
+            >
+              #<RankReel ladder={ladder} engaged={engaged} animating={playing} />
+            </span>
           </span>
+        </span>
+        <span
+          className="shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums"
+          style={{
+            color: 'rgb(var(--lb-up))',
+            borderColor: 'rgb(var(--lb-up) / 0.35)',
+            background: 'rgb(var(--lb-up) / 0.08)'
+          }}
+        >
+          ▲{climb.places}
         </span>
       </span>
 
