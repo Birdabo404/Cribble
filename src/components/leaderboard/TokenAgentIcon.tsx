@@ -50,8 +50,7 @@ export function TokenAgentIcon({
         height: box,
         color: accent?.color ?? 'rgb(var(--z500))',
         border: `1px solid ${accent?.edge ?? 'rgb(var(--lb-panel-edge) / 0.12)'}`,
-        background: accent?.surface ?? 'rgb(var(--lb-panel-edge) / 0.035)',
-        boxShadow: accent ? `inset 0 1px 0 rgb(255 255 255 / 0.035), 0 0 18px ${accent.edge}` : undefined
+        background: accent?.surface ?? 'rgb(var(--lb-panel-edge) / 0.035)'
       }}
       title={label ?? 'Agent not reported'}
       aria-label={label ?? 'Agent not reported'}

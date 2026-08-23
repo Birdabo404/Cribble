@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { SeasonState } from '@/lib/season'
 import {
+  AGENT_AI_TOOL_NAMES,
   buildTokenBoard,
+  exactInteger,
+  normalizeAgentId,
   parseTokenBoardWindow,
   resolveTokenBoardWindow,
   tokenPersona,
@@ -9,6 +12,7 @@ import {
   tokenModelLabel,
   type TokenLeaderboardRpcRow
 } from './tokenLeaderboard'
+import { resolveToolName } from './toolNames'
 
 const ACTIVE_SEASON: SeasonState = {
   phase: 'active',
@@ -44,6 +48,13 @@ function usage(overrides: Partial<TokenLeaderboardRpcRow> = {}): TokenLeaderboar
     top_agent_days: 4,
     top_model: 'claude-opus-4-1',
     top_model_days: 3,
+    top_agent_tokens: '7000000',
+    top_model_tokens: '6000000',
+    agent_breakdown: [{ name: 'claude-code', totalTokens: '7000000' }],
+    model_breakdown: [{ name: 'claude-opus-4-1', totalTokens: '6000000' }],
+    agent_breakdown_complete: false,
+    model_breakdown_complete: false,
+    timezone_complete: true,
     ...overrides
   }
 }
@@ -63,19 +74,22 @@ describe('token leaderboard windows', () => {
       id: 'season',
       label: 'SEASON 4',
       since: '2026-08-01',
-      until: '2026-08-31'
+      until: '2026-08-31',
+      timezone: 'UTC'
     })
     expect(resolveTokenBoardWindow('7d', ACTIVE_SEASON, Date.parse('2026-08-22T23:59:59Z'))).toEqual({
       id: '7d',
       label: 'LAST 7 DAYS',
       since: '2026-08-16',
-      until: '2026-08-22'
+      until: '2026-08-22',
+      timezone: 'UTC'
     })
     expect(resolveTokenBoardWindow('all', ACTIVE_SEASON)).toEqual({
       id: 'all',
       label: 'ALL TIME',
       since: null,
-      until: null
+      until: null,
+      timezone: 'UTC'
     })
   })
 
@@ -86,7 +100,8 @@ describe('token leaderboard windows', () => {
       id: 'season',
       label: 'NO SEASON YET',
       since: '9999-12-31',
-      until: '9999-12-31'
+      until: '9999-12-31',
+      timezone: 'UTC'
     })
   })
 })
@@ -133,6 +148,31 @@ describe('token agent labels', () => {
     expect(tokenAgentLabel('gemini-cli')).toBe('Gemini CLI')
     expect(tokenAgentLabel('my-new-agent')).toBe('My New Agent')
     expect(tokenAgentLabel(null)).toBeNull()
+  })
+})
+
+describe('agent → AI-board tool names', () => {
+  it('maps each collector id to the AI board tool name resolveToolName produces', () => {
+    // Values must equal resolveToolName() for each tool's canonical
+    // domain — the AI board's rows are keyed by those exact strings.
+    expect(AGENT_AI_TOOL_NAMES['cursor']).toBe(resolveToolName('cursor.com'))
+    expect(AGENT_AI_TOOL_NAMES['copilot']).toBe(resolveToolName('github.com'))
+    expect(AGENT_AI_TOOL_NAMES['github-copilot']).toBe(resolveToolName('github.com'))
+    expect(AGENT_AI_TOOL_NAMES['claude']).toBe(resolveToolName('claude.ai'))
+    expect(AGENT_AI_TOOL_NAMES['claude-code']).toBe(resolveToolName('claude.ai'))
+    expect(AGENT_AI_TOOL_NAMES['gemini']).toBe(resolveToolName('gemini.google.com'))
+    expect(AGENT_AI_TOOL_NAMES['gemini-cli']).toBe(resolveToolName('gemini.google.com'))
+  })
+
+  it('deliberately drops agents without an AI-board tool', () => {
+    expect(AGENT_AI_TOOL_NAMES['codex']).toBeUndefined()
+    expect(AGENT_AI_TOOL_NAMES['openai-codex']).toBeUndefined()
+    expect(AGENT_AI_TOOL_NAMES['opencode']).toBeUndefined()
+  })
+
+  it('normalizes collector ids the same way tokenAgentLabel does', () => {
+    expect(normalizeAgentId(' Claude_Code ')).toBe('claude-code')
+    expect(normalizeAgentId('GEMINI CLI')).toBe('gemini-cli')
   })
 })
 
@@ -184,20 +224,26 @@ describe('buildTokenBoard', () => {
     expect(board.rows[0]).toMatchObject({
       rank: 1,
       username: 'birdabo',
-      burnUsd: 42.75,
+      burnUsd: '42.75',
+      // Identity extras stay null here — hydration is the route's job.
+      tier: null,
+      team: null,
       cachePercent: 10,
       provisional: false,
       persona: { id: 'output-demon' },
       topAgent: 'claude-code',
       topAgentDays: 4,
       topModel: 'claude-opus-4-1',
-      topModelDays: 3
+      topModelDays: 3,
+      topAgentTokens: '7000000',
+      topModelTokens: '6000000',
+      timezoneComplete: true
     })
     expect(board.rows[1]).toMatchObject({
       rank: 2,
       username: 'cachelord',
       displayName: 'cachelord',
-      burnUsd: 9.5,
+      burnUsd: '9.5',
       cachePercent: 90,
       provisional: true,
       agents: ['claude-code', 'cursor'],
@@ -210,10 +256,10 @@ describe('buildTokenBoard', () => {
     })
     expect(board.totals).toEqual({
       pilots: 2,
-      totalTokens: 20_000_000,
-      burnUsd: 52.25,
+      totalTokens: '20000000',
+      burnUsd: '52.25',
       cachePercent: 50,
-      topBurnUsd: 42.75
+      topBurnUsd: '42.75'
     })
   })
 
@@ -239,6 +285,30 @@ describe('buildTokenBoard', () => {
     })
   })
 
+  it('keeps a reported primary model when the stored legacy mix has several models', () => {
+    const board = buildTokenBoard([
+      usage({
+        agents: ['codex'],
+        models: ['gpt-5.5', 'gpt-5.6-sol', 'gpt-5.6-terra'],
+        top_agent: 'codex',
+        top_model: 'gpt-5.6-sol',
+        top_model_days: 4,
+        top_model_tokens: '0',
+        model_breakdown: [],
+        model_breakdown_complete: false
+      })
+    ])
+
+    expect(board.rows[0]).toMatchObject({
+      topAgent: 'codex',
+      topModel: 'gpt-5.6-sol',
+      topModelDays: 4,
+      topModelTokens: '0',
+      models: ['gpt-5.5', 'gpt-5.6-sol', 'gpt-5.6-terra'],
+      modelBreakdownComplete: false
+    })
+  })
+
   it('uses tokens and output as deterministic tie-breakers', () => {
     const board = buildTokenBoard([
       usage({ user_id: 3, username: 'third', cost_usd: 5, total_tokens: 10, output_tokens: 2 }),
@@ -247,5 +317,23 @@ describe('buildTokenBoard', () => {
     ])
 
     expect(board.rows.map((row) => row.userId)).toEqual([1, 2, 3])
+  })
+
+  it('accepts whole numeric strings with trailing zeros from PostgREST', () => {
+    expect(exactInteger('123.0')).toBe('123')
+    expect(exactInteger('123.000000')).toBe('123')
+    expect(exactInteger('0.0')).toBe('0')
+    expect(exactInteger('12.5')).toBe('0')
+    expect(exactInteger('123')).toBe('123')
+  })
+
+  it('sorts and totals bigint-sized token strings without Number precision loss', () => {
+    const board = buildTokenBoard([
+      usage({ user_id: 1, username: 'smaller', cost_usd: '1', total_tokens: '9007199254740992' }),
+      usage({ user_id: 2, username: 'larger', cost_usd: '1', total_tokens: '9007199254740993' })
+    ])
+
+    expect(board.rows.map((row) => row.username)).toEqual(['larger', 'smaller'])
+    expect(board.totals.totalTokens).toBe('18014398509481985')
   })
 })

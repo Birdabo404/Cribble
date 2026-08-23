@@ -4,13 +4,24 @@ import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import AnimatedCounter from '@/components/AnimatedCounter'
-import { formatCompact, formatNumber } from '@/components/dashboard-v2/format'
+import { formatNumber } from '@/components/dashboard-v2/format'
 import { TeamBadge } from '@/components/premium/TeamBadge'
 import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { isProTier } from '@/lib/entitlements'
 import { prefersReducedMotion } from '@/lib/motion'
-import { tokenAgentLabel, tokenModelLabel, type TokenBoardRow } from '@/lib/tokenLeaderboard'
+import {
+  decimalToApproxNumber,
+  exactDecimal,
+  exactIntegerToSafeNumber,
+  exactRatioPercent,
+  formatCompactTokenCount,
+  formatExactInteger,
+  tokenAgentLabel,
+  tokenModelLabel,
+  usdDisplayParts,
+  type TokenBoardRow
+} from '@/lib/tokenLeaderboard'
 import { Avatar, SafeBannerImg } from './Avatar'
 import { IconClose, IconCrown, IconExpand, IconFlame } from './icons'
 import { TokenAgentIcon } from './TokenAgentIcon'
@@ -18,18 +29,20 @@ import { medalA, medalFor, type PlayerProfile } from './types'
 
 const CLOSE_MS = 200
 
-function formatUsd(value: number): string {
-  if (value > 0 && value < 0.01) return '<$0.01'
-  return value.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: value >= 1_000 ? 0 : 2,
-    maximumFractionDigits: value >= 1_000 ? 0 : 2
-  })
+function UsdValue({ value }: { value: string }) {
+  const display = usdDisplayParts(value)
+
+  return (
+    <>
+      {display.tiny ? '<' : null}
+      <span className="text-[#39ff88]">$</span>
+      {display.number}
+    </>
+  )
 }
 
-function percent(value: number, total: number): number {
-  return total > 0 ? Math.max(0, Math.min(100, (value / total) * 100)) : 0
+function percent(value: string, total: string): number {
+  return exactRatioPercent(value, total)
 }
 
 export function TokenPlayerCard({
@@ -51,7 +64,16 @@ export function TokenPlayerCard({
   const medal = medalFor(row.rank)
   const topAgent = tokenAgentLabel(row.topAgent)
   const topModel = tokenModelLabel(row.topModel)
-  const burnPerDay = row.activeDays > 0 ? row.burnUsd / row.activeDays : 0
+  const burnPerDay = exactDecimal(
+    row.activeDays > 0 ? decimalToApproxNumber(row.burnUsd) / row.activeDays : 0
+  )
+  const safeTotalTokens = exactIntegerToSafeNumber(row.totalTokens)
+  const primaryTokenShare = Math.round(
+    Math.max(
+      exactRatioPercent(row.topAgentTokens, row.totalTokens),
+      exactRatioPercent(row.topModelTokens, row.totalTokens)
+    )
+  )
   const tokenParts = [
     { label: 'INPUT', value: row.inputTokens, color: 'rgb(96 165 250)' },
     { label: 'OUTPUT', value: row.outputTokens, color: 'rgb(192 132 252)' },
@@ -267,24 +289,24 @@ export function TokenPlayerCard({
                 color: 'rgb(251 146 60)',
                 textShadow: '0 0 22px rgb(249 115 22 / calc(0.42 * var(--lb-glow, 1)))'
               }}
-              title={`${formatNumber(row.totalTokens)} tokens`}
+              title={`${formatExactInteger(row.totalTokens)} tokens`}
             >
-              <AnimatedCounter
-                value={row.totalTokens}
-                duration={900}
-                formatter={(value) => formatCompact(Math.round(value))}
-              />
+              {safeTotalTokens === null ? (
+                formatCompactTokenCount(row.totalTokens)
+              ) : (
+                <AnimatedCounter
+                  value={safeTotalTokens}
+                  duration={900}
+                  formatter={(value) => formatCompactTokenCount(String(Math.round(value)))}
+                />
+              )}
             </div>
             <div className="mt-3 flex items-baseline justify-center gap-2">
               <span className="text-[9px] tracking-[0.24em] text-zinc-600">EST. COST</span>
               <span
-                className="text-[17px] tabular-nums [font-family:var(--font-pixel)]"
-                style={{
-                  color: 'rgb(var(--lb-up))',
-                  textShadow: '0 0 15px rgb(var(--lb-up) / calc(0.4 * var(--lb-glow, 1)))'
-                }}
+                className="text-[17px] text-zinc-100 tabular-nums [font-family:var(--font-pixel)]"
               >
-                {formatUsd(row.burnUsd)}
+                <UsdValue value={row.burnUsd} />
               </span>
             </div>
           </div>
@@ -296,7 +318,7 @@ export function TokenPlayerCard({
                 className={`min-w-0 px-3 py-3.5 text-center ${index > 0 ? 'border-l border-[rgb(var(--lb-panel-edge)/0.08)]' : ''}`}
               >
                 <div className="truncate text-[11px] tabular-nums text-zinc-200 [font-family:var(--font-pixel)]">
-                  {formatCompact(part.value)}
+                  {formatCompactTokenCount(part.value)}
                 </div>
                 <div className="mt-1 text-[8px] tracking-[0.2em] text-zinc-600">{part.label}</div>
                 <div className="mx-auto mt-2 h-0.5 max-w-16 overflow-hidden rounded-full bg-[rgb(var(--lb-panel-edge)/0.07)]">
@@ -323,17 +345,38 @@ export function TokenPlayerCard({
               </div>
               <div className="shrink-0 text-right">
                 <div className="text-[10px] tabular-nums text-zinc-300 [font-family:var(--font-pixel)]">
-                  {Math.max(row.topAgentDays, row.topModelDays)}
+                  {primaryTokenShare}%
                 </div>
-                <div className="mt-1 text-[7px] tracking-[0.16em] text-zinc-600">SYNC DAYS</div>
+                <div className="mt-1 text-[7px] tracking-[0.16em] text-zinc-600">TOKEN SHARE</div>
               </div>
             </div>
 
             <div className="mt-3 grid grid-cols-3 gap-2">
               <Metric label="ACTIVE DAYS" value={formatNumber(row.activeDays)} />
               <Metric label="DEVICES" value={formatNumber(row.clientCount)} />
-              <Metric label="BURN / DAY" value={formatUsd(burnPerDay)} green />
+              <Metric label="BURN / DAY" value={burnPerDay} usd />
             </div>
+
+            {(row.agentBreakdown.length > 0 || row.modelBreakdown.length > 0) && (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <Breakdown
+                  label="AGENTS BY TOKENS"
+                  items={row.agentBreakdown.map((item) => ({
+                    label: tokenAgentLabel(item.name) ?? item.name,
+                    percent: exactRatioPercent(item.totalTokens, row.totalTokens)
+                  }))}
+                  complete={row.agentBreakdownComplete}
+                />
+                <Breakdown
+                  label="MODELS BY TOKENS"
+                  items={row.modelBreakdown.map((item) => ({
+                    label: tokenModelLabel(item.name) ?? item.name,
+                    percent: exactRatioPercent(item.totalTokens, row.totalTokens)
+                  }))}
+                  complete={row.modelBreakdownComplete}
+                />
+              </div>
+            )}
 
             {(row.models.length > 1 || row.agents.length > 1) && (
               <div className="mt-4 flex flex-wrap gap-1.5">
@@ -380,16 +423,50 @@ export function TokenPlayerCard({
   )
 }
 
-function Metric({ label, value, green = false }: { label: string; value: string; green?: boolean }) {
+function Metric({
+  label,
+  value,
+  usd = false
+}: {
+  label: string
+  value: string
+  usd?: boolean
+}) {
   return (
     <div className="min-w-0 rounded-lg border border-[rgb(var(--lb-panel-edge)/0.08)] px-2 py-2.5 text-center">
-      <div
-        className={`truncate text-[10px] tabular-nums [font-family:var(--font-pixel)] ${green ? '' : 'text-zinc-300'}`}
-        style={green ? { color: 'rgb(var(--lb-up))' } : undefined}
-      >
-        {value}
+      <div className="truncate text-[10px] text-zinc-300 tabular-nums [font-family:var(--font-pixel)]">
+        {usd ? <UsdValue value={value} /> : value}
       </div>
       <div className="mt-1 truncate text-[7px] tracking-[0.14em] text-zinc-600">{label}</div>
+    </div>
+  )
+}
+
+function Breakdown({
+  label,
+  items,
+  complete
+}: {
+  label: string
+  items: Array<{ label: string; percent: number }>
+  complete: boolean
+}) {
+  return (
+    <div className="rounded-lg border border-[rgb(var(--lb-panel-edge)/0.08)] p-3">
+      <div className="text-[7px] tracking-[0.16em] text-zinc-600">{label}</div>
+      <div className="mt-2 space-y-1.5">
+        {items.slice(0, 4).map((item) => (
+          <div key={item.label} className="flex items-center justify-between gap-2 text-[9px]">
+            <span className="truncate text-zinc-400">{item.label}</span>
+            <span className="shrink-0 tabular-nums text-zinc-300 [font-family:var(--font-pixel)]">
+              {Math.round(item.percent)}%
+            </span>
+          </div>
+        ))}
+      </div>
+      {!complete && (
+        <div className="mt-2 text-[7px] leading-3 text-zinc-700">PARTIAL · LEGACY DAYS OMITTED</div>
+      )}
     </div>
   )
 }

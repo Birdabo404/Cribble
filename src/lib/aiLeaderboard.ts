@@ -10,6 +10,13 @@
 
 import { listTrackedAiDomains } from '@/lib/aiDomains'
 import { SCORE_POLICY } from '@/lib/scoring'
+import type { SeasonState } from '@/lib/season'
+import {
+  AGENT_AI_TOOL_NAMES,
+  addExactDecimals,
+  exactDecimal,
+  normalizeAgentId
+} from '@/lib/tokenLeaderboard'
 import { resolveToolName } from '@/lib/toolNames'
 
 /** Row shape returned by the ai_tool_totals RPC. The `tool: null` row
@@ -19,6 +26,14 @@ export interface AiToolTotalsRow {
   tool: string | null
   active_ms: number | string | null
   visits: number | string | null
+  pilots: number | string | null
+}
+
+/** Row shape returned by the agent_burn_by_agent RPC (migration 048).
+ *  Numerics arrive as strings — cost_usd must stay exact-decimal. */
+export interface AgentBurnRpcRow {
+  agent: string | null
+  cost_usd: number | string | null
   pilots: number | string | null
 }
 
@@ -35,6 +50,9 @@ export interface AiToolRow {
   pilots: number
   /** Share of the summed tool scores (0–100). */
   percent: number
+  /** Opt-in estimated USD attributed to this tool's agents — exact
+   *  decimal, '0' when none. Display-only: the sort never reads it. */
+  burnUsd: string
 }
 
 export interface AiBoardTotals {
@@ -78,13 +96,34 @@ export function scoreAiTotals(activeMs: number, visits: number): number {
 }
 
 /**
- * Fold the RPC's all-time and trailing-week rows into the ranked board.
- * Week rows only decorate (weekScore); ranking is all-time, tiebroken
- * by pilots then name so equal scores never flip-flop between reads.
+ * Fold agent_burn_by_agent rows into tool-name → exact-decimal USD.
+ * Only agents in AGENT_AI_TOOL_NAMES survive; everything else (codex,
+ * opencode, unknown strings) is dropped — agent spend must never mint
+ * a tool row the usage aggregate didn't earn. Sibling agents of one
+ * tool (claude + claude-code) sum with addExactDecimals.
+ */
+export function burnByToolName(rows: AgentBurnRpcRow[]): Map<string, string> {
+  const burn = new Map<string, string>()
+  for (const row of rows) {
+    if (!row.agent) continue
+    const tool = AGENT_AI_TOOL_NAMES[normalizeAgentId(row.agent)]
+    if (!tool) continue
+    burn.set(tool, addExactDecimals(burn.get(tool) ?? '0', exactDecimal(row.cost_usd)))
+  }
+  return burn
+}
+
+/**
+ * Fold one window's RPC rows into a ranked board. Week rows only
+ * decorate (weekScore); ranking is that window's score, tiebroken by
+ * pilots then name so equal scores never flip-flop between reads.
+ * burnByTool only attaches to tools already on the board — burn is a
+ * column, never a sort key, and never invents a row.
  */
 export function buildAiBoard(
-  allTimeRows: AiToolTotalsRow[],
-  weekRows: AiToolTotalsRow[] = []
+  windowRows: AiToolTotalsRow[],
+  weekRows: AiToolTotalsRow[] = [],
+  burnByTool: ReadonlyMap<string, string> = new Map()
 ): AiBoard {
   const weekScoreByTool = new Map<string, number>()
   for (const row of weekRows) {
@@ -98,7 +137,7 @@ export function buildAiBoard(
   let totals: AiBoardTotals = { score: 0, active_ms: 0, visits: 0, pilots: 0 }
 
   const scored: Omit<AiToolRow, 'rank' | 'percent'>[] = []
-  for (const row of allTimeRows) {
+  for (const row of windowRows) {
     const active_ms = toCount(row.active_ms)
     const visits = toCount(row.visits)
     const score = scoreAiTotals(active_ms, visits)
@@ -112,7 +151,8 @@ export function buildAiBoard(
       weekScore: weekScoreByTool.get(row.tool) ?? 0,
       active_ms,
       visits,
-      pilots: toCount(row.pilots)
+      pilots: toCount(row.pilots),
+      burnUsd: burnByTool.get(row.tool) ?? '0'
     })
   }
 
@@ -127,8 +167,55 @@ export function buildAiBoard(
     tools: scored.map((tool, idx) => ({
       ...tool,
       rank: idx + 1,
+      // Percent is recomputed per window over THIS window's score sum.
       percent: scoreSum > 0 ? Math.round((tool.score / scoreSum) * 100) : 0
     })),
     totals
+  }
+}
+
+/** Both windows of the AI board, as embedded in the /api/leaderboard/ai
+ *  payload. `season` is null during intermission or with no calendar —
+ *  ai_tool_totals has no upper bound, so a closed season window cannot
+ *  be computed and ALL-TIME becomes the default view. */
+export interface AiBoards {
+  alltime: AiBoard
+  season: AiBoard | null
+}
+
+/**
+ * Assemble both windows from raw RPC rows. The season board exists only
+ * while the season is genuinely rankable (phase active + a current
+ * season); each window prices, ranks and percents its own rows, and
+ * each carries its own burn map so season burn never leaks into the
+ * lifetime column.
+ */
+export function assembleAiBoards(input: {
+  seasonState: SeasonState
+  allTimeRows: AiToolTotalsRow[]
+  seasonRows?: AiToolTotalsRow[] | null
+  weekRows?: AiToolTotalsRow[]
+  allTimeBurnRows?: AgentBurnRpcRow[]
+  seasonBurnRows?: AgentBurnRpcRow[]
+}): AiBoards {
+  const weekRows = input.weekRows ?? []
+  const seasonRankable =
+    input.seasonState.phase === 'active' &&
+    input.seasonState.current !== null &&
+    Array.isArray(input.seasonRows)
+
+  return {
+    alltime: buildAiBoard(
+      input.allTimeRows,
+      weekRows,
+      burnByToolName(input.allTimeBurnRows ?? [])
+    ),
+    season: seasonRankable
+      ? buildAiBoard(
+          input.seasonRows!,
+          weekRows,
+          burnByToolName(input.seasonBurnRows ?? [])
+        )
+      : null
   }
 }

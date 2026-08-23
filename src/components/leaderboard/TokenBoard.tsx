@@ -15,8 +15,19 @@ import {
   IconUsers
 } from '@/components/leaderboard/icons'
 import { medalA, medalFor, medalGlow } from '@/components/leaderboard/types'
+import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
+import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { fetchMe as requestMe } from '@/lib/client/fetchMe'
-import { tokenAgentLabel, tokenModelLabel } from '@/lib/tokenLeaderboard'
+import { isProTier } from '@/lib/entitlements'
+import {
+  decimalToApproxNumber,
+  exactIntegerToSafeNumber,
+  formatCompactTokenCount,
+  formatExactInteger,
+  tokenAgentLabel,
+  tokenModelLabel,
+  usdDisplayParts
+} from '@/lib/tokenLeaderboard'
 import type {
   TokenBoardRow,
   TokenBoardTotals,
@@ -43,15 +54,48 @@ interface TokenApiResponse {
   generatedAt?: string
 }
 
-function formatUsd(value: number): string {
-  if (value > 0 && value < 0.01) return '<$0.01'
-  if (value >= 100_000) return `$${formatCompact(value)}`
+function formatUsd(value: string): string {
+  const display = usdDisplayParts(value)
+  return `${display.tiny ? '<' : ''}$${display.number}`
+}
+
+function formatUsdNumber(value: number): string {
+  if (value >= 100_000) return formatCompact(value)
   return value.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
     minimumFractionDigits: value >= 1_000 ? 0 : 2,
     maximumFractionDigits: value >= 1_000 ? 0 : 2
   })
+}
+
+function UsdValue({ value, animated = false }: { value: string; animated?: boolean }) {
+  const display = usdDisplayParts(value)
+  const approximate = decimalToApproxNumber(display.tiny ? '0.01' : value)
+  const canAnimate = animated && approximate <= Number.MAX_SAFE_INTEGER
+
+  return (
+    <>
+      {display.tiny ? '<' : null}
+      <span className="text-[#39ff88]">$</span>
+      {canAnimate ? (
+        <AnimatedCounter value={approximate} duration={1100} formatter={formatUsdNumber} />
+      ) : (
+        display.number
+      )}
+    </>
+  )
+}
+
+function TokenValue({ value, animated = false }: { value: string; animated?: boolean }) {
+  const safeValue = exactIntegerToSafeNumber(value)
+  return animated && safeValue !== null ? (
+    <AnimatedCounter
+      value={safeValue}
+      duration={1100}
+      formatter={(next) => formatCompactTokenCount(String(Math.round(next)))}
+    />
+  ) : (
+    <>{formatCompactTokenCount(value)}</>
+  )
 }
 
 function personaStyle(tone: TokenPersonaTone): React.CSSProperties {
@@ -85,7 +129,9 @@ export function TokenBoard() {
   const load = useCallback(async (requestedWindow: TokenBoardWindowId = windowId) => {
     const seq = ++fetchSeq.current
     try {
-      const response = await fetch(`/api/leaderboard/tokens?window=${requestedWindow}`, {
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+      const query = new URLSearchParams({ window: requestedWindow, timezone })
+      const response = await fetch(`/api/leaderboard/tokens?${query}`, {
         cache: 'no-store'
       })
       const data: TokenApiResponse | null = await response.json().catch(() => null)
@@ -160,11 +206,7 @@ export function TokenBoard() {
             label="TOKENS TORCHED"
             hint={windowMeta?.label.toLowerCase()}
           >
-            <AnimatedCounter
-              value={totals?.totalTokens ?? 0}
-              duration={1100}
-              formatter={(value) => formatCompact(Math.round(value))}
-            />
+            <TokenValue value={totals?.totalTokens ?? '0'} animated />
           </StatCell>
 
           <StatCell
@@ -172,16 +214,8 @@ export function TokenBoard() {
             icon={<IconTrophy size={11} className="text-orange-400" />}
             label="EST. BURN"
             hint="not a billing receipt"
-            valueStyle={{
-              color: 'rgb(var(--lb-up))',
-              textShadow: '0 0 14px rgb(var(--lb-up) / calc(0.38 * var(--lb-glow, 1)))'
-            }}
           >
-            <AnimatedCounter
-              value={totals?.burnUsd ?? 0}
-              duration={1100}
-              formatter={formatUsd}
-            />
+            <UsdValue value={totals?.burnUsd ?? '0'} animated />
           </StatCell>
 
           <StatCell
@@ -436,6 +470,8 @@ function TokenRow({
             <span className="truncate font-display text-[13px] font-medium tracking-tight text-zinc-100 transition-colors group-hover:text-orange-300">
               {row.displayName}
             </span>
+            {isProTier(row.tier) && <VerifiedBadge size={14} />}
+            {row.team && <TeamMiniLogo team={row.team} size={14} />}
             {isMe && <span className="text-[8px] tracking-[0.16em] text-orange-400">YOU</span>}
           </span>
           <span className="mt-1 flex min-w-0 items-center gap-1.5">
@@ -469,7 +505,7 @@ function TokenRow({
         </span>
       </div>
 
-      <div className="hidden text-right md:block" title={`${formatNumber(row.totalTokens)} tokens`}>
+      <div className="hidden text-right md:block" title={`${formatExactInteger(row.totalTokens)} tokens`}>
         <div
           className="text-[15px] leading-none tabular-nums [font-family:var(--font-pixel)]"
           style={{
@@ -479,23 +515,17 @@ function TokenRow({
               : '0 0 9px rgb(249 115 22 / calc(0.2 * var(--lb-glow, 1)))'
           }}
         >
-          {formatCompact(row.totalTokens)}
+          {formatCompactTokenCount(row.totalTokens)}
         </div>
         <div className="mt-1 text-[7px] tracking-[0.16em] text-orange-400/45">
           TOKENS
         </div>
       </div>
       <div className="text-right">
-        <div className="text-[15px] leading-none tabular-nums text-orange-300 [font-family:var(--font-pixel)] md:text-[12px]">
-          <span className="md:hidden">{formatCompact(row.totalTokens)}</span>
-          <span
-            className="hidden md:inline"
-            style={{
-              color: 'rgb(var(--lb-up))',
-              textShadow: '0 0 10px rgb(var(--lb-up) / calc(0.32 * var(--lb-glow, 1)))'
-            }}
-          >
-            {formatUsd(row.burnUsd)}
+        <div className="text-[15px] leading-none tabular-nums text-orange-300 [font-family:var(--font-pixel)]">
+          <span className="md:hidden">{formatCompactTokenCount(row.totalTokens)}</span>
+          <span className="hidden text-zinc-200 md:inline">
+            <UsdValue value={row.burnUsd} />
           </span>
         </div>
         <div className="mt-1 flex items-center justify-end gap-1.5 text-[7px] tracking-[0.1em] text-zinc-600">
@@ -505,8 +535,8 @@ function TokenRow({
           <span className="max-w-20 truncate normal-case tracking-normal text-zinc-500 md:hidden">
             {modelLabel ?? agentLabel ?? 'Unknown'}
           </span>
-          <span className="md:hidden" style={{ color: 'rgb(var(--lb-up))' }}>
-            {formatUsd(row.burnUsd)} EST.
+          <span className="text-zinc-500 md:hidden">
+            <UsdValue value={row.burnUsd} /> EST.
           </span>
           <span className="hidden md:inline">ESTIMATE</span>
         </div>

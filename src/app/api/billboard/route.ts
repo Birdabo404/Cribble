@@ -134,17 +134,20 @@ const loadBillboardItems = unstable_cache(
     }
 
     // Contract order (lib/billboard.ts): hype first, then live ads by
-    // starts_at ascending.
+    // starts_at ascending. The prev_rank check is TS narrowing only —
+    // the query's .gt() already guarantees non-null at runtime.
     const items: BillboardItem[] = []
     for (const row of hypeRanks) {
       const user = usersById.get(Number(row.user_id))
-      if (!user || !row.rank_moved_at) continue
+      if (!user || !row.rank_moved_at || row.prev_rank === null) continue
       items.push({
         kind: 'hype',
         userId: Number(row.user_id),
         username: user.twitter_username || `User${user.id}`,
         displayName: user.twitter_name || null,
         avatarUrl: user.twitter_profile_image || null,
+        rank: Number(row.rank),
+        prevRank: Number(row.prev_rank),
         movedAt: row.rank_moved_at
       })
     }
@@ -165,9 +168,10 @@ const loadBillboardItems = unstable_cache(
     }
     return items
   },
-  // v2: ad items gained companyName/linkHost (migration 034) — new key
-  // so a persisted pre-034 payload shape can't outlive the deploy.
-  ['billboard-items-v2'],
+  // v3: hype items gained rank/prevRank for the announcement takeover —
+  // new key so a persisted pre-takeover payload shape can't outlive the
+  // deploy (v2 was the companyName/linkHost shape change).
+  ['billboard-items-v3'],
   { revalidate: REVALIDATE_SECONDS }
 )
 

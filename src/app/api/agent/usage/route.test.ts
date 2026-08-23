@@ -7,6 +7,7 @@ interface KeyRow {
   user_id: number
   key_hash: string
   revoked_at: string | null
+  expires_at: string | null
   users: { status: string | null } | null
 }
 
@@ -29,10 +30,22 @@ interface UsageRow {
   ingested_at: string
 }
 
-const { state, rateLimitMock, supabaseMock } = vi.hoisted(() => {
+interface EventRow {
+  user_id: number
+  client_id: string
+  event_id: string
+  occurred_at: string
+  generated_at: string
+  agent: string
+  model: string
+  total_tokens: number
+}
+
+const { state, rateLimitMock, distributedLimitMock, supabaseMock } = vi.hoisted(() => {
   const state = {
     keys: [] as KeyRow[],
     usageRows: [] as UsageRow[],
+    eventRows: [] as EventRow[],
     keyTouches: [] as Array<{
       values: Record<string, unknown>
       filters: Array<[string, unknown]>
@@ -149,8 +162,118 @@ const { state, rateLimitMock, supabaseMock } = vi.hoisted(() => {
     return builder
   }
 
+  async function rpc(name: string, args: Record<string, unknown>) {
+    if (name !== 'ingest_agent_usage') {
+      return { data: null, error: { message: `Unexpected RPC: ${name}` } }
+    }
+
+    const userId = Number(args.p_user_id)
+    const clientId = String(args.p_client_id)
+    const generatedAt = String(args.p_generated_at)
+    const records = args.p_records as Array<Record<string, unknown>>
+    const clients = new Set(
+      state.usageRows.filter((row) => row.user_id === userId).map((row) => row.client_id)
+    )
+    if (!clients.has(clientId) && clients.size >= 10) {
+      return { data: null, error: { message: 'agent_client_limit' } }
+    }
+
+    if (Number(args.p_schema_version) === 2) {
+      let inserted = 0
+      let replaced = 0
+      let stale = 0
+      for (const record of records) {
+        const eventId = String(record.event_id)
+        const existing = state.eventRows.find(
+          (row) =>
+            row.user_id === userId &&
+            row.client_id === clientId &&
+            row.event_id === eventId
+        )
+        if (existing && Date.parse(existing.generated_at) >= Date.parse(generatedAt)) {
+          stale += 1
+          continue
+        }
+        const incoming: EventRow = {
+          user_id: userId,
+          client_id: clientId,
+          event_id: eventId,
+          occurred_at: String(record.occurred_at),
+          generated_at: generatedAt,
+          agent: String(record.agent),
+          model: String(record.model),
+          total_tokens: Number(record.total_tokens)
+        }
+        if (existing) {
+          replaced += 1
+          Object.assign(existing, incoming)
+        } else {
+          inserted += 1
+          state.eventRows.push(incoming)
+        }
+      }
+      state.usageRows = state.usageRows.filter(
+        (row) => row.user_id !== userId || row.client_id !== clientId
+      )
+      return { data: [{ inserted, replaced, stale }], error: null }
+    }
+
+    let inserted = 0
+    let replaced = 0
+    let stale = 0
+    const accepted: UsageRow[] = []
+    for (const record of records) {
+      const date = String(record.date)
+      const existing = state.usageRows.find(
+        (row) =>
+          row.user_id === userId && row.client_id === clientId && row.date === date
+      )
+      if (existing && Date.parse(existing.generated_at) >= Date.parse(generatedAt)) {
+        stale += 1
+        continue
+      }
+
+      const incoming: UsageRow = {
+        user_id: userId,
+        client_id: clientId,
+        date,
+        generated_at: generatedAt,
+        input_tokens: Number(record.input_tokens),
+        output_tokens: Number(record.output_tokens),
+        cache_creation_tokens: Number(record.cache_creation_tokens),
+        cache_read_tokens: Number(record.cache_read_tokens),
+        total_tokens: Number(record.total_tokens),
+        cost_usd: Number(record.cost_usd),
+        agents: record.agents as string[],
+        models: record.models as string[],
+        timezone: (args.p_timezone as string | null) ?? null,
+        source: String(args.p_source),
+        cli_version: String(args.p_cli_version),
+        ingested_at: generatedAt
+      }
+      if (existing) {
+        replaced += 1
+        Object.assign(existing, incoming)
+      } else {
+        inserted += 1
+        state.usageRows.push(incoming)
+      }
+      accepted.push(incoming)
+    }
+    if (accepted.length > 0) state.upsertBatches.push(accepted)
+    state.keyTouches.push({
+      values: { last_used_at: generatedAt },
+      filters: [
+        ['id', Number(args.p_key_id)],
+        ['user_id', userId]
+      ]
+    })
+    return { data: [{ inserted, replaced, stale }], error: null }
+  }
+
   const rateLimitMock = vi.fn()
-  return { state, rateLimitMock, supabaseMock: { from } }
+  const distributedLimitMock = vi.fn()
+  return { state, rateLimitMock, distributedLimitMock, supabaseMock: { from, rpc } }
 })
 
 vi.mock('@/lib/supabaseServer', () => ({
@@ -159,6 +282,7 @@ vi.mock('@/lib/supabaseServer', () => ({
 
 vi.mock('@/lib/rateLimit', () => ({
   checkRateLimit: rateLimitMock,
+  checkDistributedRateLimit: distributedLimitMock,
   createRateLimitResponse: () => new Headers()
 }))
 
@@ -187,6 +311,7 @@ function addKey(
     userId?: number
     revokedAt?: string | null
     status?: string | null
+    expiresAt?: string | null
   } = {}
 ) {
   state.keys.push({
@@ -194,6 +319,7 @@ function addKey(
     user_id: options.userId ?? USER_A,
     key_hash: hashAgentApiKey(plaintext),
     revoked_at: options.revokedAt ?? null,
+    expires_at: options.expiresAt ?? '2099-01-01T00:00:00.000Z',
     users: { status: options.status ?? 'active' }
   })
 }
@@ -249,6 +375,32 @@ function payload(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function eventPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    schemaVersion: 2,
+    generatedAt: GENERATED_AT,
+    clientId: CLIENT_A,
+    machineName: 'Studio Mac',
+    timezone: 'Asia/Manila',
+    provenance: { source: 'ccusage', cliVersion: '2.0.0' },
+    events: [
+      {
+        eventId: 'message:abc-123',
+        occurredAt: '2026-08-21T23:30:00.000Z',
+        agent: 'codex',
+        model: 'gpt-5.6-sol',
+        inputTokens: 10,
+        outputTokens: 20,
+        cacheCreationTokens: 30,
+        cacheReadTokens: 40,
+        totalTokens: 999,
+        costUsd: 0.123456
+      }
+    ],
+    ...overrides
+  }
+}
+
 function request(body: unknown, key: string | null = KEY_A) {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (key !== null) headers.authorization = `Bearer ${key}`
@@ -262,11 +414,14 @@ function request(body: unknown, key: string | null = KEY_A) {
 beforeEach(() => {
   state.keys = []
   state.usageRows = []
+  state.eventRows = []
   state.keyTouches = []
   state.upsertBatches = []
   state.touchError = null
   rateLimitMock.mockReset()
   rateLimitMock.mockReturnValue(successLimit())
+  distributedLimitMock.mockReset()
+  distributedLimitMock.mockResolvedValue(successLimit())
 })
 
 describe('POST /api/agent/usage — storage and staleness', () => {
@@ -298,8 +453,7 @@ describe('POST /api/agent/usage — storage and staleness', () => {
       ['id', 7],
       ['user_id', USER_A]
     ])
-    expect(rateLimitMock).toHaveBeenNthCalledWith(
-      2,
+    expect(distributedLimitMock).toHaveBeenCalledWith(
       expect.any(NextRequest),
       expect.objectContaining({ maxRequests: 20 }),
       'agent-usage:key:7'
@@ -345,6 +499,25 @@ describe('POST /api/agent/usage — storage and staleness', () => {
     expect(state.upsertBatches).toHaveLength(0)
     expect(state.usageRows[0].input_tokens).toBe(77)
   })
+
+  it('stores schema-v2 events with exact timestamps and weighted dimensions', async () => {
+    addKey()
+
+    const response = await POST(request(eventPayload()))
+
+    expect(response.status).toBe(200)
+    expect(state.eventRows).toEqual([
+      expect.objectContaining({
+        user_id: USER_A,
+        client_id: CLIENT_A,
+        event_id: 'message:abc-123',
+        occurred_at: '2026-08-21T23:30:00.000Z',
+        agent: 'codex',
+        model: 'gpt-5.6-sol',
+        total_tokens: 100
+      })
+    ])
+  })
 })
 
 describe('POST /api/agent/usage — authentication and tenant isolation', () => {
@@ -359,6 +532,15 @@ describe('POST /api/agent/usage — authentication and tenant isolation', () => 
     expect(revoked.status).toBe(401)
     expect(banned.status).toBe(401)
     expect(state.usageRows).toHaveLength(0)
+  })
+
+  it('rejects an expired key before rate limiting or ingest', async () => {
+    addKey(KEY_A, { expiresAt: '2026-08-20T00:00:00.000Z' })
+
+    const response = await POST(request(payload()))
+
+    expect(response.status).toBe(401)
+    expect(distributedLimitMock).not.toHaveBeenCalled()
   })
 
   it('rejects missing and unknown bearer credentials', async () => {
@@ -387,24 +569,18 @@ describe('POST /api/agent/usage — authentication and tenant isolation', () => 
 
   it('applies the second rate limit using the resolved key id', async () => {
     addKey(KEY_A, { id: 123 })
-    rateLimitMock.mockImplementation(
-      (_request: unknown, _config: unknown, identifier?: string) =>
-        identifier
-          ? {
-              success: false,
-              limit: 20,
-              remaining: 0,
-              resetTime: Date.now() + 60_000,
-              retryAfter: 60
-            }
-          : successLimit()
-    )
+    distributedLimitMock.mockResolvedValue({
+      success: false,
+      limit: 20,
+      remaining: 0,
+      resetTime: Date.now() + 60_000,
+      retryAfter: 60
+    })
 
     const response = await POST(request(payload()))
 
     expect(response.status).toBe(429)
-    expect(rateLimitMock).toHaveBeenNthCalledWith(
-      2,
+    expect(distributedLimitMock).toHaveBeenCalledWith(
       expect.any(NextRequest),
       expect.objectContaining({ maxRequests: 20 }),
       'agent-usage:key:123'
@@ -511,6 +687,17 @@ describe('POST /api/agent/usage — strict validation', () => {
 
     expect(response.status).toBe(400)
     expect(state.upsertBatches).toHaveLength(0)
+  })
+
+  it('rejects unknown IANA zones and calendar dates outside the snapshot window', async () => {
+    addKey()
+    const badZone = await POST(request(payload({ timezone: 'Mars/Olympus_Mons' })))
+    const distant = payload()
+    ;(distant.daily as Array<Record<string, unknown>>)[0].date = '2020-01-01'
+    const badDate = await POST(request(distant))
+
+    expect(badZone.status).toBe(400)
+    expect(badDate.status).toBe(400)
   })
 
   it('continues when the best-effort last-used update fails', async () => {

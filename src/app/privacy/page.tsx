@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 }
 
 const CONTACT_EMAIL = 'hello@cribble.dev'
-const LAST_UPDATED = 'August 17, 2026'
+const LAST_UPDATED = 'August 23, 2026'
 
 export default function PrivacyPage() {
   return (
@@ -97,6 +97,7 @@ export default function PrivacyPage() {
               <CollectedItem text="Records linking your browser extension to your account" />
               <CollectedItem text="If you submit a sponsor ad: the ad content you submit and the billing email you provide for it" />
               <CollectedItem text="Your browser's timezone and a two-letter country code, used as coarse context for aggregate trends" />
+              <CollectedItem text="If you enable Cribble Agent: machine name, IANA timezone, coding-agent/model identifiers, event timestamps, token counts, and estimated cost (never prompts, responses, files, or message content)" />
             </ul>
             <p className="mt-5">
               The timezone is reported by your browser. The country code is
@@ -134,6 +135,12 @@ export default function PrivacyPage() {
               If Cribble is ever acquired or merged into another company,
               your data transfers with it under the same commitments in this
               policy.
+            </p>
+            <p className="mt-4">
+              Cribble Agent token facts stay private unless you explicitly
+              join the Burn Board. The public board receives only your public
+              profile and aggregated totals and breakdowns; it never exposes
+              event rows, client UUIDs, machine names, or API-key details.
             </p>
           </Section>
 

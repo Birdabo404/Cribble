@@ -108,7 +108,13 @@ describe('DELETE /api/user/delete — agent data', () => {
     expect(response.status).toBe(200)
     expect(body.success).toBe(true)
 
-    for (const table of ['agent_api_keys', 'agent_usage_daily', 'agent_usage_sharing']) {
+    for (const table of [
+      'agent_api_keys',
+      'agent_usage_daily',
+      'agent_usage_events',
+      'agent_usage_clients',
+      'agent_usage_sharing'
+    ]) {
       const operations = state.operations.filter((operation) => operation.table === table)
       expect(operations).toEqual([
         expect.objectContaining({

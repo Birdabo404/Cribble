@@ -11,6 +11,14 @@ interface AgentKeyRow {
   created_at: string
   last_used_at: string | null
   revoked_at: string | null
+  expires_at: string
+  agent_usage_clients: Array<{
+    client_id: string
+    machine_name: string
+    timezone: string | null
+    last_seen_at: string
+    schema_version: number
+  }>
 }
 
 const { state, rateLimitMock, sessionMock, supabaseMock } = vi.hoisted(() => {
@@ -43,12 +51,19 @@ const { state, rateLimitMock, sessionMock, supabaseMock } = vi.hoisted(() => {
 
   const project = (row: AgentKeyRow, columns?: string) => {
     if (!columns || columns === '*') return { ...row }
-    return Object.fromEntries(
-      columns.split(',').map((column) => {
+    const nestedClients = columns.includes('agent_usage_clients!')
+    const scalarColumns = columns.replace(
+      /, agent_usage_clients![^(]+\([^)]*\)/,
+      ''
+    )
+    const projected = Object.fromEntries(
+      scalarColumns.split(',').map((column) => {
         const key = column.trim() as keyof AgentKeyRow
         return [key, row[key]]
       })
     )
+    if (nestedClients) projected.agent_usage_clients = row.agent_usage_clients
+    return projected
   }
 
   function resolveQuery(ctx: QueryContext) {
@@ -67,7 +82,9 @@ const { state, rateLimitMock, sessionMock, supabaseMock } = vi.hoisted(() => {
         label: String(values.label),
         created_at: '2026-08-22T01:00:00.000Z',
         last_used_at: null,
-        revoked_at: null
+        revoked_at: null,
+        expires_at: String(values.expires_at ?? '2099-01-01T00:00:00.000Z'),
+        agent_usage_clients: []
       }
       state.rows.push(row)
       return { data: project(row, ctx.columns), error: null }
@@ -140,9 +157,46 @@ const { state, rateLimitMock, sessionMock, supabaseMock } = vi.hoisted(() => {
     return builder
   }
 
+  async function rpc(name: string, args: Record<string, unknown>) {
+    if (name !== 'create_agent_api_key') {
+      return { data: null, error: { message: `Unexpected RPC: ${name}` } }
+    }
+    const active = state.rows.filter(
+      (row) =>
+        row.user_id === Number(args.p_user_id) &&
+        row.revoked_at === null &&
+        Date.parse(row.expires_at) > Date.now()
+    )
+    if (active.length >= 5) {
+      return { data: null, error: { message: 'agent_key_limit' } }
+    }
+
+    const values = {
+      user_id: Number(args.p_user_id),
+      key_hash: String(args.p_key_hash),
+      key_prefix: String(args.p_key_prefix),
+      label: String(args.p_label),
+      expires_at: String(args.p_expires_at)
+    }
+    state.insertedValues.push(values)
+    const row: AgentKeyRow = {
+      id: state.nextId++,
+      ...values,
+      created_at: '2026-08-22T01:00:00.000Z',
+      last_used_at: null,
+      revoked_at: null,
+      agent_usage_clients: []
+    }
+    state.rows.push(row)
+    return {
+      data: [{ id: row.id, created_at: row.created_at, expires_at: row.expires_at }],
+      error: null
+    }
+  }
+
   const sessionMock = vi.fn()
   const rateLimitMock = vi.fn()
-  const supabaseMock = { from }
+  const supabaseMock = { from, rpc }
   return { state, rateLimitMock, sessionMock, supabaseMock }
 })
 
@@ -164,6 +218,7 @@ import { DELETE, GET, POST } from './route'
 
 const USER_ID = 42
 const OTHER_USER_ID = 99
+const CLIENT_ID = '5b0d4a52-7f6e-4c2a-9a1c-3f9e8d7c6b5a'
 
 function addKey(
   userId = USER_ID,
@@ -180,6 +235,8 @@ function addKey(
     created_at: `2026-08-22T00:00:${String(id).padStart(2, '0')}.000Z`,
     last_used_at: null,
     revoked_at: null,
+    expires_at: '2099-01-01T00:00:00.000Z',
+    agent_usage_clients: [],
     ...overrides
   }
   state.rows.push(row)
@@ -226,14 +283,16 @@ describe('POST /api/user/agent-keys', () => {
       prefix: expect.stringMatching(/^crib_ag_[0-9a-f]{4}$/),
       label: 'Studio Mac',
       id: 1,
-      createdAt: '2026-08-22T01:00:00.000Z'
+      createdAt: '2026-08-22T01:00:00.000Z',
+      expiresAt: expect.any(String)
     })
     expect(state.insertedValues).toHaveLength(1)
     expect(state.insertedValues[0]).toEqual({
       user_id: USER_ID,
       key_hash: hashAgentApiKey(body.key),
       key_prefix: body.prefix,
-      label: 'Studio Mac'
+      label: 'Studio Mac',
+      expires_at: body.expiresAt
     })
     expect(state.insertedValues[0]).not.toHaveProperty('key')
   })
@@ -248,6 +307,31 @@ describe('POST /api/user/agent-keys', () => {
     expect(response.status).toBe(409)
     expect(body.success).toBe(false)
     expect(state.insertedValues).toHaveLength(0)
+  })
+
+  it('enforces the five-key cap across concurrent creation attempts', async () => {
+    const responses = await Promise.all(
+      Array.from({ length: 6 }, (_, index) =>
+        POST(request('POST', { label: `Concurrent ${index + 1}` }))
+      )
+    )
+
+    expect(responses.filter((response) => response.status === 201)).toHaveLength(5)
+    expect(responses.filter((response) => response.status === 409)).toHaveLength(1)
+    expect(state.rows).toHaveLength(5)
+  })
+
+  it('creates mandatory expirations and accepts a bounded requested lifetime', async () => {
+    const before = Date.now()
+    const response = await POST(
+      request('POST', { label: 'Short-lived laptop', expiresInDays: 30 })
+    )
+    const body = await response.json()
+    const lifetime = Date.parse(body.expiresAt) - before
+
+    expect(response.status).toBe(201)
+    expect(lifetime).toBeGreaterThanOrEqual(30 * 86_400_000 - 1000)
+    expect(lifetime).toBeLessThanOrEqual(30 * 86_400_000 + 1000)
   })
 
   it('strictly rejects unknown fields and labels empty after cleaning', async () => {
@@ -266,7 +350,16 @@ describe('GET /api/user/agent-keys', () => {
   it('lists only the current user and never leaks a hash or plaintext', async () => {
     const own = addKey(USER_ID, {
       label: 'Studio Mac',
-      last_used_at: '2026-08-22T02:00:00.000Z'
+      last_used_at: '2026-08-22T02:00:00.000Z',
+      agent_usage_clients: [
+        {
+          client_id: CLIENT_ID,
+          machine_name: 'Studio Mac',
+          timezone: 'Asia/Manila',
+          last_seen_at: '2026-08-22T02:00:00.000Z',
+          schema_version: 2
+        }
+      ]
     })
     addKey(OTHER_USER_ID, { label: 'Someone else' })
 
@@ -284,7 +377,17 @@ describe('GET /api/user/agent-keys', () => {
           label: 'Studio Mac',
           createdAt: own.created_at,
           lastUsedAt: '2026-08-22T02:00:00.000Z',
-          revokedAt: null
+          revokedAt: null,
+          expiresAt: own.expires_at,
+          clients: [
+            {
+              id: CLIENT_ID,
+              machineName: 'Studio Mac',
+              timezone: 'Asia/Manila',
+              lastSeenAt: '2026-08-22T02:00:00.000Z',
+              schemaVersion: 2
+            }
+          ]
         }
       ]
     })
