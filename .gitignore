@@ -56,5 +56,6 @@ Desktop.ini
 
 # Local visual-check screenshots and smoke captures. Never commit these.
 .shots/
+.uishots/
 .smoke/
 scripts/shots-*/

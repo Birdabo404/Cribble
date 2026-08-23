@@ -97,7 +97,9 @@ describe('middleware site lock', () => {
     // once a pilot is in — they enforce real auth themselves.
     expect(middleware(request('/api/user/settings')).status).toBe(200)
     expect(middleware(request('/api/user/agent-keys')).status).toBe(200)
+    expect(middleware(request('/api/user/agent-sharing')).status).toBe(200)
     expect(middleware(request('/api/user/delete')).status).toBe(200)
+    expect(middleware(request('/api/user/agent-sharing-extra')).status).toBe(404)
   })
 
   it('opens only the exact agent usage API while locked', () => {

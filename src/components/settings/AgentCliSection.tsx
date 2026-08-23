@@ -7,6 +7,7 @@ import { TextField } from './Field'
 import { SettingsRow } from './SettingsRow'
 import { SettingsSection } from './SettingsSection'
 import { SkeletonRow } from './Skeleton'
+import { Switch } from './Switch'
 
 interface AgentKeySummary {
   id: number
@@ -29,6 +30,11 @@ type AgentKeysState =
   | { phase: 'loading' }
   | { phase: 'error' }
   | { phase: 'ready'; keys: AgentKeySummary[] }
+
+type AgentSharingState =
+  | { phase: 'loading' }
+  | { phase: 'error' }
+  | { phase: 'ready'; enabled: boolean; enabledAt: string | null }
 
 function responseError(data: unknown, fallback: string): string {
   if (
@@ -105,13 +111,31 @@ function parseCreatedKey(data: unknown): CreatedAgentKey | null {
   }
 }
 
+function parseSharing(data: unknown): { enabled: boolean; enabledAt: string | null } | null {
+  if (
+    typeof data !== 'object' ||
+    data === null ||
+    !('enabled' in data) ||
+    typeof data.enabled !== 'boolean' ||
+    !('enabledAt' in data) ||
+    !isNullableString(data.enabledAt)
+  ) {
+    return null
+  }
+
+  return { enabled: data.enabled, enabledAt: data.enabledAt }
+}
+
 export function AgentCliSection() {
   const [keysState, setKeysState] = useState<AgentKeysState>({ phase: 'loading' })
+  const [sharingState, setSharingState] = useState<AgentSharingState>({ phase: 'loading' })
   const [label, setLabel] = useState('')
   const [createdKey, setCreatedKey] = useState<CreatedAgentKey | null>(null)
   const [creating, setCreating] = useState(false)
   const [revokingId, setRevokingId] = useState<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [sharingError, setSharingError] = useState<string | null>(null)
+  const [updatingSharing, setUpdatingSharing] = useState(false)
   const [copied, setCopied] = useState(false)
 
   const loadKeys = useCallback(async () => {
@@ -132,9 +156,32 @@ export function AgentCliSection() {
     }
   }, [])
 
+  const loadSharing = useCallback(async () => {
+    setSharingState({ phase: 'loading' })
+    setSharingError(null)
+    try {
+      const response = await fetch('/api/user/agent-sharing', {
+        credentials: 'include',
+        cache: 'no-store'
+      })
+      const data: unknown = await response.json().catch(() => null)
+      const sharing = parseSharing(data)
+      if (!response.ok || sharing === null) {
+        throw new Error(responseError(data, 'Could not load Burn Board sharing'))
+      }
+      setSharingState({ phase: 'ready', ...sharing })
+    } catch (error) {
+      setSharingState({ phase: 'error' })
+      setSharingError(
+        error instanceof Error ? error.message : 'Could not load Burn Board sharing'
+      )
+    }
+  }, [])
+
   useEffect(() => {
     void loadKeys()
-  }, [loadKeys])
+    void loadSharing()
+  }, [loadKeys, loadSharing])
 
   const activeKeyCount =
     keysState.phase === 'ready'
@@ -201,6 +248,44 @@ export function AgentCliSection() {
     }
   }, [createdKey])
 
+  const updateSharing = useCallback(
+    async (enabled: boolean) => {
+      if (sharingState.phase !== 'ready' || updatingSharing) return
+      if (
+        enabled &&
+        !window.confirm(
+          'Join the public Burn Board? Cribble will publish your username, aggregate token totals, and estimated cost. Raw daily usage stays private, and you can leave at any time.'
+        )
+      ) {
+        return
+      }
+
+      setUpdatingSharing(true)
+      setSharingError(null)
+      try {
+        const response = await fetch('/api/user/agent-sharing', {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled })
+        })
+        const data: unknown = await response.json().catch(() => null)
+        const sharing = parseSharing(data)
+        if (!response.ok || sharing === null) {
+          throw new Error(responseError(data, 'Could not update Burn Board sharing'))
+        }
+        setSharingState({ phase: 'ready', ...sharing })
+      } catch (error) {
+        setSharingError(
+          error instanceof Error ? error.message : 'Could not update Burn Board sharing'
+        )
+      } finally {
+        setUpdatingSharing(false)
+      }
+    },
+    [sharingState, updatingSharing]
+  )
+
   const revokeKey = useCallback(
     async (key: AgentKeySummary) => {
       if (key.revokedAt || revokingId !== null) return
@@ -249,6 +334,36 @@ export function AgentCliSection() {
       title="Token tracker CLI"
       description="Create a key so Cribble Agent can send local coding-agent token totals to this account. This is separate from browser activity."
     >
+      <SettingsRow
+        label="Join the Burn Board"
+        description={
+          sharingState.phase === 'ready' && sharingState.enabled
+            ? 'Your public profile, aggregate token totals, and estimated cost are ranked. Raw daily usage stays private.'
+            : 'Opt in to the public token leaderboard. Sharing is off by default and does not affect your season score.'
+        }
+      >
+        {sharingState.phase === 'error' ? (
+          <SettingsButton variant="ghost" onClick={() => void loadSharing()}>
+            Try again
+          </SettingsButton>
+        ) : (
+          <Switch
+            checked={sharingState.phase === 'ready' && sharingState.enabled}
+            disabled={sharingState.phase !== 'ready' || updatingSharing}
+            onChange={(enabled) => void updateSharing(enabled)}
+            aria-label="Share aggregate token usage on the Burn Board"
+          />
+        )}
+      </SettingsRow>
+
+      {sharingError && (
+        <div className="px-4 py-3 sm:px-5">
+          <p role="alert" className="text-[13px] leading-5 text-[color:var(--st-danger)]">
+            {sharingError}
+          </p>
+        </div>
+      )}
+
       <SettingsRow
         label="Create a key"
         description="Name this computer so you can recognize and revoke its access later."

@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import {
-  EXTENSION_INSTALL_URL,
-  isExtensionCapableBrowser,
+  currentExtensionInstallUrl,
   isExtensionUnlinked
 } from '@/lib/extensionInstall'
 import { animDelay } from './anim'
@@ -34,12 +33,12 @@ function phaseShowsNudge(phase: ExtensionLinkPhase): boolean {
 
 /**
  * Slim dismissible banner shown above the hero for users who have never
- * linked the extension, pointing them at the store listing. Hidden until
- * the listing is live (EXTENSION_INSTALL_URL set), forever once dismissed
- * (persisted in localStorage per user), and on browsers that can't
- * install the extension — the INSTALL link points at a desktop-Chromium
- * store listing that's dead everywhere else; phone users get the
- * one-time MobileExtensionModal instead.
+ * linked the extension, pointing them at this browser's store listing
+ * (Chrome Web Store or Firefox Add-ons). Hidden while that listing isn't
+ * live (its store URL unset), forever once dismissed (persisted in
+ * localStorage per user), and on browsers that can't install the
+ * extension — the INSTALL link would be a dead end there; phone users
+ * get the one-time MobileExtensionModal instead.
  */
 export function ExtensionNudge({
   user,
@@ -57,13 +56,15 @@ export function ExtensionNudge({
   // window guard is needed on the initial state.
   const [dismissed, setDismissed] = useState(true)
 
-  // Same start-hidden shape for capability: isExtensionCapableBrowser
-  // reads navigator, so it must resolve in an effect — deciding during
-  // render would make the first client render disagree with the server's.
-  const [capableBrowser, setCapableBrowser] = useState(false)
+  // Same start-hidden shape for capability: the matching store URL doubles
+  // as the capability signal — non-null only on a desktop browser whose
+  // listing is live. It reads navigator, so it must resolve in an effect —
+  // deciding during render would make the first client render disagree
+  // with the server's.
+  const [installUrl, setInstallUrl] = useState<string | null>(null)
 
   useEffect(() => {
-    setCapableBrowser(isExtensionCapableBrowser())
+    setInstallUrl(currentExtensionInstallUrl())
   }, [])
 
   useEffect(() => {
@@ -87,8 +88,7 @@ export function ExtensionNudge({
   }
 
   if (
-    !EXTENSION_INSTALL_URL ||
-    !capableBrowser ||
+    installUrl === null ||
     !isExtensionUnlinked(user, activeDevice) ||
     !phaseShowsNudge(phase) ||
     dismissed
@@ -117,7 +117,7 @@ export function ExtensionNudge({
 
         <div className="anim-rise flex items-center gap-2" style={animDelay(220)}>
           <a
-            href={EXTENSION_INSTALL_URL}
+            href={installUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center rounded border border-ember/40 px-3 py-1.5 font-data text-[10px] tracking-[0.3em] text-ember transition-colors hover:bg-ember hover:text-black"
