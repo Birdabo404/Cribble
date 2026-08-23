@@ -92,7 +92,7 @@ export function AiBoard() {
             />
           </StatCell>
 
-          <StatCell divider={1} icon={<IconUsers size={11} className="text-zinc-600" />} label="PILOTS TRACKED">
+          <StatCell divider={1} icon={<IconUsers size={11} className="text-zinc-600" />} label="PLAYERS TRACKED">
             <AnimatedCounter
               value={totals?.pilots ?? 0}
               duration={1100}
@@ -108,7 +108,7 @@ export function AiBoard() {
               color: 'rgb(var(--lb-score))',
               textShadow: '0 0 14px rgb(var(--lb-score) / calc(0.4 * var(--lb-glow, 1)))'
             }}
-            hint="every pilot, every tool"
+            hint="every player, every tool"
           >
             <AnimatedCounter
               value={totals?.score ?? 0}
@@ -124,7 +124,7 @@ export function AiBoard() {
             hint={apex ? `${apex.percent}% of the board` : undefined}
           >
             {apex ? (
-              <span className="flex items-center gap-2">
+              <span className="flex items-center justify-center gap-2">
                 <ToolIcon name={apex.name} size={14} className="shrink-0 text-zinc-300" />
                 <span className="truncate">{apex.name.toUpperCase()}</span>
               </span>
@@ -157,7 +157,7 @@ export function AiBoard() {
           >
             <div>RANK</div>
             <div>TOOL</div>
-            <div className="hidden text-right md:block">PILOTS</div>
+            <div className="hidden text-right md:block">PLAYERS</div>
             <div className="hidden text-right md:block">TIME</div>
             <div className="hidden text-right md:block">7D</div>
             <div className="text-right text-zinc-300">SCORE</div>
@@ -189,7 +189,7 @@ export function AiBoard() {
 
             {!loading && !failed && (tools?.length ?? 0) === 0 && (
               <li className="py-14 text-center text-xs tracking-[0.15em] text-zinc-500">
-                The machines await their first pilots.
+                The machines await their first players.
               </li>
             )}
 
@@ -202,7 +202,7 @@ export function AiBoard() {
         </div>
 
         <p className="mt-3 text-center text-[9px] tracking-[0.3em] text-zinc-600">
-          RANKED BY EVERY PILOT&apos;S COMBINED LIFETIME SCORE
+          RANKED BY EVERY PLAYER&apos;S COMBINED LIFETIME SCORE
         </p>
       </section>
 
@@ -264,19 +264,19 @@ function StatCell({
   })()
 
   return (
-    <div className={`px-4 py-4 ${divCls}`}>
-      <div className="flex items-center gap-1.5 text-[9px] tracking-[0.35em] text-zinc-500">
+    <div className={`flex min-w-0 flex-col items-center overflow-hidden px-4 py-4 text-center ${divCls}`}>
+      <div className="flex flex-wrap items-center justify-center gap-1.5 text-[9px] tracking-[0.16em] sm:tracking-[0.28em] text-zinc-500">
         {icon}
         {label}
       </div>
       <div
-        className="mt-2.5 text-sm text-zinc-50 tabular-nums [font-family:var(--font-pixel)] md:text-base"
+        className="mt-2.5 max-w-full text-[clamp(11px,2.6vw,16px)] text-zinc-50 tabular-nums [font-family:var(--font-pixel)]"
         style={valueStyle}
       >
         {children}
       </div>
       {hint && (
-        <div className="mt-1 truncate text-[9px] tracking-[0.2em] text-zinc-600">{hint}</div>
+        <div className="mt-1 max-w-full truncate text-[9px] tracking-[0.2em] text-zinc-600">{hint}</div>
       )}
     </div>
   )

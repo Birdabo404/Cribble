@@ -9,15 +9,22 @@ import { ROLE_ICONS } from '@/components/roleIcons'
 import { ROLE_OPTIONS } from '@/lib/roles'
 import {
   EXTENSION_INSTALL_URL,
+  FIREFOX_EXTENSION_INSTALL_URL,
   evaluateExtensionGate,
-  isExtensionCapableBrowser
+  extensionBrowserFamily,
+  installableBrowserNames,
+  isExtensionCapableBrowser,
+  isExtensionInstallEnabled,
+  type ExtensionBrowserFamily
 } from '@/lib/extensionInstall'
 import { TEAM_TERMS, type BillingTerm } from '@/lib/planTerms'
 import { useExtensionDetection } from '@/hooks/useExtensionDetection'
 import {
+  BrandChrome,
   BrandClaude,
   BrandCopilot,
   BrandCursor,
+  BrandFirefox,
   BrandGemini,
   BrandMidjourney,
   BrandOpenAI,
@@ -31,7 +38,6 @@ import {
   IconGrid,
   IconMicroscope,
   IconOrbit,
-  IconPuzzle,
   IconShieldCheck,
   IconSolo,
   IconSparkles,
@@ -52,10 +58,10 @@ type Stage =
   | 'tools'
   | 'extension'
 
-// EXTENSION_INSTALL_URL is a build-time env constant, so the solo step list
-// can be fixed once at module level: no store listing → no extension step,
-// and the wizard behaves exactly as it did before that step existed.
-const EXTENSION_STEP_ENABLED = EXTENSION_INSTALL_URL !== null
+// The store URLs are build-time env constants, so the solo step list can
+// be fixed once at module level: no listing in any store → no extension
+// step, and the wizard behaves exactly as it did before that step existed.
+const EXTENSION_STEP_ENABLED = isExtensionInstallEnabled()
 
 // ?next= comes from the ExtensionGate bounce and restores where the user
 // was headed once the gate passes. Only same-origin paths may ride it:
@@ -93,6 +99,43 @@ const STEP_META: Record<
 const GOLD = 'var(--lb-gold)'
 
 type IconComponent = (p: IconProps) => JSX.Element
+
+type ExtensionStore = {
+  family: ExtensionBrowserFamily
+  storeName: string
+  cta: string
+  icon: IconComponent
+  url: string
+}
+
+// One card per live store listing — no empty slot for a store that isn't
+// live. Today that's Chrome alone; the Firefox card appears the moment
+// NEXT_PUBLIC_FIREFOX_EXTENSION_STORE_URL ships, the same switch that
+// turns on the Firefox gate and nudge.
+const EXTENSION_STORES: ExtensionStore[] = [
+  ...(EXTENSION_INSTALL_URL !== null
+    ? [
+        {
+          family: 'chromium' as const,
+          storeName: 'Chrome Web Store',
+          cta: 'Add to Chrome',
+          icon: BrandChrome,
+          url: EXTENSION_INSTALL_URL
+        }
+      ]
+    : []),
+  ...(FIREFOX_EXTENSION_INSTALL_URL !== null
+    ? [
+        {
+          family: 'firefox' as const,
+          storeName: 'Firefox Add-ons',
+          cta: 'Add to Firefox',
+          icon: BrandFirefox,
+          url: FIREFOX_EXTENSION_INSTALL_URL
+        }
+      ]
+    : [])
+]
 
 // Shared vocabulary (src/lib/roles.ts) + glyphs — the same list the
 // profile editor offers, so a role picked here can always be changed later.
@@ -159,6 +202,9 @@ export default function WelcomePage() {
   // UA sniffing must wait for the client — SSR only ever renders the
   // intro, which doesn't read this.
   const [capableBrowser, setCapableBrowser] = useState(false)
+  // Which store card the extension stage highlights; null highlights none.
+  const [browserFamily, setBrowserFamily] =
+    useState<ExtensionBrowserFamily | null>(null)
   const [devMode, setDevMode] = useState(false)
   const devRequestedRef = useRef(false)
   const nextPathRef = useRef<string | null>(null)
@@ -219,6 +265,7 @@ export default function WelcomePage() {
     devRequestedRef.current = params.has('dev')
     nextPathRef.current = sanitizeNextPath(params.get('next'))
     setCapableBrowser(isExtensionCapableBrowser())
+    setBrowserFamily(extensionBrowserFamily(navigator.userAgent))
   }, [])
 
   useEffect(() => {
@@ -524,6 +571,7 @@ export default function WelcomePage() {
                 <ExtensionStage
                   detected={detected}
                   capableBrowser={capableBrowser}
+                  browserFamily={browserFamily}
                   canEnter={verdict === 'allow'}
                   onDone={finish}
                 />
@@ -1225,11 +1273,15 @@ function ToolsStage({
 function ExtensionStage({
   detected,
   capableBrowser,
+  browserFamily,
   canEnter,
   onDone
 }: {
   detected: boolean
   capableBrowser: boolean
+  /** Store card to highlight — null (Safari, mobile, SSR) highlights
+   *  none. Cosmetic only: every card stays a plain link either way. */
+  browserFamily: ExtensionBrowserFamily | null
   /** Gate verdict for the current inputs — the CTA stays locked until it
    *  passes. Detection landing mid-stage unlocks it by itself, since the
    *  page-level hook keeps polling. */
@@ -1252,66 +1304,56 @@ function ExtensionStage({
       subtitle="Cribble cannot count anything until this is on. It measures which tools you open and for how long. Not what you type."
     >
       <div
-        className="card-enter glass-lite mt-9 rounded-2xl p-6"
+        className={`mt-9 grid grid-cols-1 gap-3 ${
+          EXTENSION_STORES.length > 1 ? 'md:grid-cols-2' : ''
+        }`}
+      >
+        {EXTENSION_STORES.map((store, i) => (
+          <StoreCard
+            key={store.family}
+            store={store}
+            highlighted={store.family === browserFamily}
+            index={i}
+          />
+        ))}
+      </div>
+
+      <div
+        className="card-enter glass-lite mt-3 rounded-2xl px-6 py-5"
         style={{
-          ['--wd' as string]: '0ms',
+          ['--wd' as string]: `${EXTENSION_STORES.length * 45}ms`,
           borderColor: detected ? 'rgb(var(--accent-rgb) / 0.5)' : undefined
         }}
       >
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-4">
-            <CardIcon icon={IconPuzzle} selected={detected} />
-            <div>
-              <div className="text-sm font-semibold text-zinc-100">
-                cribble-engine
-              </div>
-              <div className="mt-0.5 text-xs text-zinc-500">
-                counts your minutes on AI tools, never reads a word
-              </div>
-            </div>
+        {detected ? (
+          <div className="flex items-center gap-3">
+            <span className="check-pop inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-black">
+              <IconCheck size={11} />
+            </span>
+            <span className="font-mono text-[10px] tracking-[0.3em] text-accent">
+              EXTENSION DETECTED
+            </span>
           </div>
-          <a
-            href={EXTENSION_INSTALL_URL ?? undefined}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="press-scale inline-flex items-center justify-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-full border border-zinc-700 text-zinc-100 hover:border-zinc-500 transition-all duration-300"
-          >
-            Install cribble-engine
-            <IconArrowRight size={14} />
-          </a>
-        </div>
-
-        <div className="mt-6 border-t border-zinc-800/80 pt-4">
-          {detected ? (
+        ) : capableBrowser ? (
+          <div>
             <div className="flex items-center gap-3">
-              <span className="check-pop inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-black">
-                <IconCheck size={11} />
+              <span className="inline-flex h-5 w-5 items-center justify-center">
+                <span className="h-1.5 w-1.5 rounded-full bg-zinc-600 animate-pulse" />
               </span>
-              <span className="font-mono text-[10px] tracking-[0.3em] text-accent">
-                EXTENSION DETECTED
+              <span className="font-mono text-[10px] tracking-[0.3em] text-zinc-500">
+                WAITING FOR INSTALL…
               </span>
             </div>
-          ) : capableBrowser ? (
-            <div>
-              <div className="flex items-center gap-3">
-                <span className="inline-flex h-5 w-5 items-center justify-center">
-                  <span className="h-1.5 w-1.5 rounded-full bg-zinc-600 animate-pulse" />
-                </span>
-                <span className="font-mono text-[10px] tracking-[0.3em] text-zinc-500">
-                  WAITING FOR INSTALL…
-                </span>
-              </div>
-              <p className="mt-2 pl-8 text-xs leading-relaxed text-zinc-600">
-                Installed? Reload this page.
-              </p>
-            </div>
-          ) : (
-            <p className="text-xs leading-relaxed text-zinc-500">
-              This browser can&apos;t run the extension. Open Cribble on
-              desktop Chrome to install.
+            <p className="mt-2 pl-8 text-xs leading-relaxed text-zinc-600">
+              Installed? Reload this page.
             </p>
-          )}
-        </div>
+          </div>
+        ) : (
+          <p className="text-xs leading-relaxed text-zinc-500">
+            This browser can&apos;t run the extension. Open Cribble on
+            desktop {installableBrowserNames()} to install.
+          </p>
+        )}
       </div>
 
       <StageActions>
@@ -1320,6 +1362,49 @@ function ExtensionStage({
         </PrimaryButton>
       </StageActions>
     </StageShell>
+  )
+}
+
+/** Store link card — a plain external link, never a radio: installing is
+ *  proven by the detection handshake, not by clicking. The highlight marks
+ *  the card matching the running browser. */
+function StoreCard({
+  store,
+  highlighted,
+  index
+}: {
+  store: ExtensionStore
+  highlighted: boolean
+  index: number
+}) {
+  return (
+    <a
+      href={store.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`card-enter press-scale relative block rounded-2xl border p-5 backdrop-blur-sm transition-all duration-300 ${
+        highlighted
+          ? 'border-accent/50 bg-accent/[0.05]'
+          : 'border-zinc-800 bg-zinc-950/70 hover:border-zinc-600'
+      }`}
+      style={{ ['--wd' as string]: `${index * 45}ms` }}
+    >
+      {highlighted && (
+        <span className="absolute top-3 right-3 rounded-full border border-accent/40 bg-accent/10 px-2 py-1 font-mono text-[9px] tracking-[0.25em] text-accent">
+          THIS BROWSER
+        </span>
+      )}
+      <div className="flex items-center gap-4">
+        <CardIcon icon={store.icon} selected={highlighted} />
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
+            {store.cta}
+            <IconArrowRight size={13} className="text-zinc-500" />
+          </div>
+          <div className="mt-0.5 text-xs text-zinc-500">{store.storeName}</div>
+        </div>
+      </div>
+    </a>
   )
 }
 

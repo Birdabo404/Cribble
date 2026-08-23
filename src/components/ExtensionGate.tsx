@@ -6,15 +6,16 @@ import { MobileExtensionModal } from '@/components/extension/MobileExtensionModa
 import { fetchMe } from '@/lib/client/fetchMe'
 import { requestExtensionIdentity } from '@/lib/extensionBridge'
 import {
-  EXTENSION_INSTALL_URL,
   evaluateExtensionGate,
   isExtensionCapableBrowser,
+  isExtensionInstallEnabled,
   shouldShowMobileExtensionNotice,
   type ExtensionGateInput
 } from '@/lib/extensionInstall'
 
-// Mirrors EXTENSION_STEP_ENABLED on /welcome: no store listing → no gate.
-const GATE_ENABLED = EXTENSION_INSTALL_URL !== null
+// Mirrors EXTENSION_STEP_ENABLED on /welcome: no listing in any store →
+// no gate.
+const GATE_ENABLED = isExtensionInstallEnabled()
 
 // Cover fade-out on release. Short enough that the happy path reads as a
 // beat, not a loading screen.

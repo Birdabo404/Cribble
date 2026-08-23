@@ -144,6 +144,9 @@ export async function DELETE(request: NextRequest) {
       table: string
       run: () => PromiseLike<{ error: { code?: string; message?: string } | null }>
     }[] = [
+      { table: 'agent_api_keys', run: () => supabase.from('agent_api_keys').delete().eq('user_id', userId) },
+      { table: 'agent_usage_daily', run: () => supabase.from('agent_usage_daily').delete().eq('user_id', userId) },
+      { table: 'agent_usage_sharing', run: () => supabase.from('agent_usage_sharing').delete().eq('user_id', userId) },
       { table: 'user_devices', run: () => supabase.from('user_devices').delete().eq('user_id', userId) },
       { table: 'extension_user_mappings', run: () => supabase.from('extension_user_mappings').delete().eq('twitter_user_id', userId) },
       { table: 'notifications', run: () => supabase.from('notifications').delete().eq('user_id', userId) },

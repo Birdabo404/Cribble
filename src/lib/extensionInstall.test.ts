@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   evaluateExtensionGate,
+  extensionBrowserFamily,
   isExtensionCapableBrowser,
   shouldShowMobileExtensionNotice,
+  type ExtensionBrowserFamily,
   type ExtensionGateInput,
   type ExtensionGateVerdict,
   type MobileExtensionNoticeInput
@@ -77,10 +79,11 @@ describe('evaluateExtensionGate', () => {
       input: { accountType: 'team', enabled: false },
       expected: 'allow'
     },
-    // Non-capable browsers (Safari/Firefox/mobile) can never install —
-    // the store is desktop-Chromium only — so gating them would demand
-    // the impossible. They always pass, linked or not; phone users get
-    // the one-time desktop-only notice (pinned below) instead.
+    // Non-capable browsers can never install — capable means a desktop
+    // browser whose store listing is live (Chrome today, Firefox once its
+    // AMO URL ships), so gating anyone else would demand the impossible.
+    // They always pass, linked or not; phone users get the one-time
+    // desktop-only notice (pinned below) instead.
     {
       name: 'non-capable browser with a linked account passes',
       input: { capableBrowser: false, linked: true },
@@ -105,6 +108,72 @@ describe('evaluateExtensionGate', () => {
   }
 })
 
+// UA classification is pure so it can be pinned without stubbing navigator
+// or the build env. Capability layers on top: a family is capable only
+// while its store URL is set (a build-time constant), so "desktop Firefox
+// becomes capable only when the Firefox listing ships" reduces to the UA
+// mapping to 'firefox' here — the URL flips the rest at deploy time.
+describe('extensionBrowserFamily', () => {
+  const cases: {
+    name: string
+    ua: string
+    family: ExtensionBrowserFamily | null
+  }[] = [
+    {
+      name: 'desktop Chrome',
+      ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      family: 'chromium'
+    },
+    {
+      name: 'desktop Edge (Chromium)',
+      ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0',
+      family: 'chromium'
+    },
+    {
+      // "like Gecko" boilerplate (present in Chrome and Safari UAs alike)
+      // must never read as Firefox — only the "Firefox/" token counts.
+      name: 'desktop Safari (no extension engine)',
+      ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
+      family: null
+    },
+    {
+      name: 'desktop Firefox',
+      ua: 'Mozilla/5.0 (X11; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0',
+      family: 'firefox'
+    },
+    {
+      name: 'Android Chrome (mobile)',
+      ua: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
+      family: null
+    },
+    {
+      name: 'iOS Chrome (WebKit shell, CriOS)',
+      ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.6478.54 Mobile/15E148 Safari/604.1',
+      family: null
+    },
+    {
+      name: 'Android Firefox (mobile)',
+      ua: 'Mozilla/5.0 (Android 14; Mobile; rv:126.0) Gecko/126.0 Firefox/126.0',
+      family: null
+    },
+    {
+      name: 'iOS Firefox (WebKit shell, FxiOS)',
+      ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/126.0 Mobile/15E148 Safari/605.1.15',
+      family: null
+    }
+  ]
+
+  for (const c of cases) {
+    it(`classifies ${c.name} as ${c.family ?? 'no family'}`, () => {
+      expect(extensionBrowserFamily(c.ua)).toBe(c.family)
+    })
+  }
+})
+
+// The wrapper only adds environment reads on top of the pure classifier
+// above: navigator for the UA, the build-time store URLs for liveness.
+// The URL half can't be exercised here (module-level constants, unset in
+// the test env), so SSR is the one case worth pinning directly.
 describe('isExtensionCapableBrowser', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -114,46 +183,6 @@ describe('isExtensionCapableBrowser', () => {
     vi.stubGlobal('navigator', undefined)
     expect(isExtensionCapableBrowser()).toBe(false)
   })
-
-  const cases: { name: string; ua: string; capable: boolean }[] = [
-    {
-      name: 'desktop Chrome',
-      ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-      capable: true
-    },
-    {
-      name: 'desktop Edge (Chromium)',
-      ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0',
-      capable: true
-    },
-    {
-      name: 'desktop Safari (no Chromium engine)',
-      ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
-      capable: false
-    },
-    {
-      name: 'desktop Firefox',
-      ua: 'Mozilla/5.0 (X11; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0',
-      capable: false
-    },
-    {
-      name: 'Android Chrome (mobile)',
-      ua: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
-      capable: false
-    },
-    {
-      name: 'iOS Chrome (WebKit shell, CriOS)',
-      ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.6478.54 Mobile/15E148 Safari/604.1',
-      capable: false
-    }
-  ]
-
-  for (const c of cases) {
-    it(`${c.capable ? 'accepts' : 'rejects'} ${c.name}`, () => {
-      vi.stubGlobal('navigator', { userAgent: c.ua })
-      expect(isExtensionCapableBrowser()).toBe(c.capable)
-    })
-  }
 })
 
 // The phone notice is informational-only, so the failure mode isn't a
@@ -196,7 +225,7 @@ describe('shouldShowMobileExtensionNotice', () => {
       expected: false
     },
     {
-      name: 'non-capable desktop (Safari/Firefox, fine pointer) skips it',
+      name: 'non-capable desktop (e.g. Safari, fine pointer) skips it',
       input: { mobileViewport: false },
       expected: false
     },

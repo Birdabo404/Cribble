@@ -17,7 +17,11 @@ import {
   TextField
 } from '@/components/settings'
 import { fetchMe } from '@/lib/client/fetchMe'
-import { EXTENSION_INSTALL_URL, isExtensionUnlinked } from '@/lib/extensionInstall'
+import {
+  EXTENSION_INSTALL_URL,
+  FIREFOX_EXTENSION_INSTALL_URL,
+  isExtensionUnlinked
+} from '@/lib/extensionInstall'
 import type { ActiveDevice, MeUser, Tier } from '@/types/dashboard'
 import { AgentCliSection } from '@/components/settings/AgentCliSection'
 
@@ -58,6 +62,17 @@ function tierLabel(tier: Tier): string {
 /** Anchor styled like the solid SettingsButton (external store link). */
 const installLinkCls =
   'inline-flex h-11 shrink-0 items-center justify-center rounded-lg border border-transparent bg-[color:var(--st-accent)] px-3 text-[13px] font-medium leading-none text-[color:var(--st-accent-contrast)] transition-colors duration-150 hover:opacity-90 md:h-8'
+
+// One install link per live store listing. Settings can't know which
+// browser the user will install in, so every live store gets a link.
+const INSTALL_LINKS: { label: string; url: string }[] = [
+  ...(EXTENSION_INSTALL_URL !== null
+    ? [{ label: 'Install for Chrome', url: EXTENSION_INSTALL_URL }]
+    : []),
+  ...(FIREFOX_EXTENSION_INSTALL_URL !== null
+    ? [{ label: 'Install for Firefox', url: FIREFOX_EXTENSION_INSTALL_URL }]
+    : [])
+]
 
 /**
  * Link-state row. Three states, matching isExtensionUnlinked semantics:
@@ -119,15 +134,20 @@ function DeviceRow({
       description="Install the browser extension to link this device and start counting your AI activity."
       stack
     >
-      {EXTENSION_INSTALL_URL ? (
-        <a
-          href={EXTENSION_INSTALL_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={installLinkCls}
-        >
-          Install cribble-engine
-        </a>
+      {INSTALL_LINKS.length > 0 ? (
+        <span className="flex flex-wrap items-center gap-2">
+          {INSTALL_LINKS.map((link) => (
+            <a
+              key={link.url}
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={installLinkCls}
+            >
+              {link.label}
+            </a>
+          ))}
+        </span>
       ) : undefined}
     </SettingsRow>
   )

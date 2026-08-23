@@ -56,6 +56,9 @@ describe('resolveToolTaxonomy', () => {
     expect(resolveToolTaxonomy('www.kimi.com')).toEqual(
       TOOL_TAXONOMY['kimi.com']
     )
+    expect(resolveToolTaxonomy('www.kimi.ai')).toEqual(
+      TOOL_TAXONOMY['kimi.ai']
+    )
     expect(resolveToolTaxonomy('chat.z.ai')).toEqual(TOOL_TAXONOMY['z.ai'])
   })
 

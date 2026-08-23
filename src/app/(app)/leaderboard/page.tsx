@@ -50,6 +50,7 @@ import { PlayerCard, type ChaseInfo } from '@/components/leaderboard/PlayerCard'
 import { Podium } from '@/components/leaderboard/Podium'
 import { RankAvatar } from '@/components/leaderboard/RankRegalia'
 import { TeamBoard } from '@/components/leaderboard/TeamBoard'
+import { TokenBoard } from '@/components/leaderboard/TokenBoard'
 import { VisitorTicker } from '@/components/leaderboard/VisitorTicker'
 import { medalA, medalFor, medalGlow, type LeaderRow } from '@/components/leaderboard/types'
 import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
@@ -61,21 +62,30 @@ const PAGE_SIZE = 25
 const POLL_MS = 15_000
 const FLASH_MS = 2_400
 
-/** Which board is on stage: the season race, lifetime standings, the
- *  machines (ai), or the companies (teams). */
-type BoardView = 'season' | 'alltime' | 'ai' | 'teams'
+/** Which board is on stage: the season race, lifetime standings, voluntary
+ *  token burn, the machines (ai), or the companies (teams). */
+type BoardView = 'season' | 'alltime' | 'tokens' | 'ai' | 'teams'
+
+/** The two standings windows nested under the SEASON top tab. */
+type StandingsWindow = Extract<BoardView, 'season' | 'alltime'>
 
 const BOARD_TABS: { id: BoardView; label: string }[] = [
   { id: 'season', label: 'SEASON' },
-  { id: 'alltime', label: 'ALL-TIME' },
+  { id: 'tokens', label: 'TOKENS' },
   { id: 'ai', label: 'AI' },
   { id: 'teams', label: 'TEAMS' }
 ]
 
+const STANDINGS_WINDOWS: { id: StandingsWindow; label: string }[] = [
+  { id: 'season', label: 'SEASON' },
+  { id: 'alltime', label: 'ALL-TIME' }
+]
+
 /** The two pilot standings views — the only ones that own the pilot
- *  chrome (stat bar, podium, standings table) and the 15s poll. AI and
- *  TEAMS render self-fetching boards instead. */
-const isStandingsView = (v: BoardView) => v === 'season' || v === 'alltime'
+ *  chrome (stat bar, podium, standings table) and the 15s poll. TOKENS,
+ *  AI, and TEAMS render self-fetching boards instead. */
+const isStandingsView = (v: BoardView): v is StandingsWindow =>
+  v === 'season' || v === 'alltime'
 
 /** One score-gain pop: the points gained between two polls, a per-pop tilt
  *  so repeat pops don't stamp identically, and a stamp that remounts the
@@ -98,6 +108,10 @@ export default function LeaderboardArena() {
   // mount effect below never has to re-subscribe on view flips.
   const viewRef = useRef<BoardView>(view)
   viewRef.current = view
+
+  // Whichever standings window was live last, so the top SEASON tab
+  // returns to it after a detour through TOKENS / AI / TEAMS.
+  const lastStandingsView = useRef<StandingsWindow>('season')
 
   // Pilot chrome (stat bar, podium, standings, refresh) only exists on
   // the standings views — AI and TEAMS hide all of it.
@@ -192,6 +206,7 @@ export default function LeaderboardArena() {
   const handleViewChange = useCallback(
     (next: BoardView) => {
       const prev = viewRef.current
+      if (isStandingsView(next)) lastStandingsView.current = next
       setView((current) => (current === next ? current : next))
       if (isStandingsView(next) && prev !== next) {
         // The two standings boards rank by different scores — a board
@@ -340,9 +355,11 @@ export default function LeaderboardArena() {
                 ? 'THE AI'
                 : view === 'teams'
                   ? 'THE TEAMS'
-                  : view === 'alltime'
-                    ? 'ALL-TIME'
-                    : 'SEASON'}
+                  : view === 'tokens'
+                    ? 'THE BURN'
+                    : view === 'alltime'
+                      ? 'ALL-TIME'
+                      : 'SEASON'}
             </span>
             <IconCrown size={13} className="-scale-x-100" />
             <span className="h-px w-8 bg-gradient-to-l from-transparent to-[rgb(var(--lb-gold)/0.6)]" />
@@ -381,14 +398,20 @@ export default function LeaderboardArena() {
               aria-label="Leaderboard view"
             >
               {BOARD_TABS.map((tab) => {
-                const active = view === tab.id
+                // The SEASON top tab fronts both standings windows; the
+                // nested pills on the standings toolbar pick between them.
+                const active = tab.id === 'season' ? isStandings : view === tab.id
                 return (
                   <button
                     key={tab.id}
                     type="button"
                     role="tab"
                     aria-selected={active}
-                    onClick={() => handleViewChange(tab.id)}
+                    onClick={() =>
+                      handleViewChange(
+                        tab.id === 'season' ? lastStandingsView.current : tab.id
+                      )
+                    }
                     className={`shrink-0 rounded-md px-2.5 py-2 sm:px-3 sm:py-1 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] transition-colors ${
                       active ? '' : 'text-zinc-500 hover:text-zinc-100'
                     }`}
@@ -425,8 +448,9 @@ export default function LeaderboardArena() {
                   onClick={() => setShowPodium((v) => !v)}
                   className="lb-inset flex items-center gap-2 rounded-lg px-3 py-2 sm:py-1.5 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100"
                   aria-expanded={showPodium}
+                  aria-label={showPodium ? 'Hide podium' : 'Show podium'}
                 >
-                  PODIUM
+                  {showPodium ? 'HIDE' : 'UNHIDE'}
                   <IconChevronDown
                     size={11}
                     className={`transition-transform duration-300 ${showPodium ? '' : '-rotate-90'}`}
@@ -441,6 +465,9 @@ export default function LeaderboardArena() {
 
           {/* ---------- THE TEAMS BOARD ---------- */}
           {view === 'teams' && <TeamBoard />}
+
+          {/* ---------- THE TOKEN BURN BOARD ---------- */}
+          {view === 'tokens' && <TokenBoard />}
 
           {/* ---------- intermission: standings locked ---------- */}
           {view === 'season' && seasonMeta?.phase === 'intermission' && (
@@ -490,7 +517,41 @@ export default function LeaderboardArena() {
                   </span>
                 )}
               </div>
-              <SearchBar value={query} onChange={setQuery} />
+              <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-1">
+                <div
+                  className="lb-inset flex items-center gap-0.5 rounded-lg p-0.5"
+                  role="tablist"
+                  aria-label="Standings window"
+                >
+                  {STANDINGS_WINDOWS.map((item) => {
+                    const active = view === item.id
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => handleViewChange(item.id)}
+                        className={`rounded-md px-2.5 py-1.5 text-[9px] tracking-[0.2em] transition-colors ${
+                          active ? '' : 'text-zinc-600 hover:text-zinc-300'
+                        }`}
+                        style={
+                          active
+                            ? {
+                                border: '1px solid rgb(var(--lb-gold) / 0.5)',
+                                color: 'rgb(var(--lb-gold))',
+                                background: 'rgb(var(--lb-gold) / 0.07)'
+                              }
+                            : { border: '1px solid transparent' }
+                        }
+                      >
+                        {item.label}
+                      </button>
+                    )
+                  })}
+                </div>
+                <SearchBar value={query} onChange={setQuery} />
+              </div>
             </div>
 
             <div className="lb-panel relative overflow-hidden">
@@ -501,8 +562,8 @@ export default function LeaderboardArena() {
                 {!loading && filtered.length === 0 && (
                   <li className="py-14 text-center text-xs tracking-[0.15em] text-zinc-500">
                     {query
-                      ? 'No pilots match that callsign.'
-                      : 'Standings appear once pilots start syncing.'}
+                      ? 'No players match that callsign.'
+                      : 'Standings appear once players start syncing.'}
                   </li>
                 )}
                 {!loading &&
@@ -959,20 +1020,20 @@ function SeasonCountdown({ state }: { state: SeasonState | null }) {
 
   return (
     <>
-      <div className="flex items-center gap-1.5 text-[9px] tracking-[0.28em] sm:tracking-[0.35em] text-zinc-500">
+      <div className="flex flex-wrap items-center justify-center gap-1.5 text-[9px] tracking-[0.16em] sm:tracking-[0.28em] text-zinc-500">
         <IconHourglass size={11} className="text-zinc-600" />
         {label}
       </div>
       {!state || !target ? (
-        <div className="mt-2.5 text-sm text-rose-400 [font-family:var(--font-pixel)] md:text-base">
+        <div className="mt-2.5 max-w-full text-[clamp(11px,2.6vw,16px)] text-rose-400 [font-family:var(--font-pixel)]">
           {state ? 'ENDED' : '——'}
         </div>
       ) : countdown?.ended ? (
-        <div className="mt-2.5 text-sm text-amber-300 [font-family:var(--font-pixel)] md:text-base">
+        <div className="mt-2.5 max-w-full text-[clamp(11px,2.6vw,16px)] text-amber-300 [font-family:var(--font-pixel)]">
           {state.phase === 'active' ? 'CLOSING' : 'LAUNCHING'}
         </div>
       ) : countdown ? (
-        <div className="mt-2.5 flex items-baseline text-xs text-zinc-50 tabular-nums [font-family:var(--font-pixel)] md:text-sm">
+        <div className="mt-2.5 flex max-w-full flex-wrap items-baseline justify-center text-xs text-zinc-50 tabular-nums [font-family:var(--font-pixel)]">
           {(
             [
               { v: countdown.d, sfx: 'D' },
@@ -1070,36 +1131,36 @@ function StatBar({
   return (
     <div className="lb-panel grid grid-cols-2 overflow-hidden md:grid-cols-4">
       {/* players */}
-      <div className={`px-3.5 py-3.5 sm:px-4 sm:py-4 ${divCls(0)}`}>
-        <div className="flex items-center gap-1.5 text-[9px] tracking-[0.28em] sm:tracking-[0.35em] text-zinc-500">
+      <div className={`flex min-w-0 flex-col items-center overflow-hidden px-3.5 py-3.5 text-center sm:px-4 sm:py-4 ${divCls(0)}`}>
+        <div className="flex flex-wrap items-center justify-center gap-1.5 text-[9px] tracking-[0.16em] sm:tracking-[0.28em] text-zinc-500">
           <IconUsers size={11} className="text-zinc-600" />
           PLAYERS
         </div>
-        <div className="mt-2.5 text-sm text-zinc-50 tabular-nums [font-family:var(--font-pixel)] md:text-base">
+        <div className="mt-2.5 max-w-full text-[clamp(11px,2.6vw,16px)] text-zinc-50 tabular-nums [font-family:var(--font-pixel)]">
           <AnimatedCounter value={totalPlayers} duration={1100} formatter={(v) => formatNumber(Math.round(v))} />
         </div>
       </div>
 
       {/* online */}
-      <div className={`px-3.5 py-3.5 sm:px-4 sm:py-4 ${divCls(1)}`}>
-        <div className="flex items-center gap-1.5 text-[9px] tracking-[0.28em] sm:tracking-[0.35em] text-zinc-500">
+      <div className={`flex min-w-0 flex-col items-center overflow-hidden px-3.5 py-3.5 text-center sm:px-4 sm:py-4 ${divCls(1)}`}>
+        <div className="flex flex-wrap items-center justify-center gap-1.5 text-[9px] tracking-[0.16em] sm:tracking-[0.28em] text-zinc-500">
           <IconPulse size={11} className="text-zinc-600" />
           ONLINE NOW
         </div>
-        <div className="mt-2.5 flex items-center gap-2 text-sm text-zinc-50 tabular-nums [font-family:var(--font-pixel)] md:text-base">
+        <div className="mt-2.5 flex max-w-full items-center justify-center gap-2 text-[clamp(11px,2.6vw,16px)] text-zinc-50 tabular-nums [font-family:var(--font-pixel)]">
           <AnimatedCounter value={activePlayers} duration={1100} formatter={(v) => formatNumber(Math.round(v))} />
           <span className="lb4-live-dot h-1.5 w-1.5 rounded-full" />
         </div>
       </div>
 
       {/* top score — gold, with the holder's callsign */}
-      <div className={`px-3.5 py-3.5 sm:px-4 sm:py-4 ${divCls(2)}`}>
-        <div className="flex items-center gap-1.5 text-[9px] tracking-[0.28em] sm:tracking-[0.35em] text-zinc-500">
+      <div className={`flex min-w-0 flex-col items-center overflow-hidden px-3.5 py-3.5 text-center sm:px-4 sm:py-4 ${divCls(2)}`}>
+        <div className="flex flex-wrap items-center justify-center gap-1.5 text-[9px] tracking-[0.16em] sm:tracking-[0.28em] text-zinc-500">
           <IconTrophy size={11} className="text-[rgb(var(--lb-gold)/0.8)]" />
           TOP SCORE
         </div>
         <div
-          className="mt-2.5 text-sm tabular-nums [font-family:var(--font-pixel)] md:text-base"
+          className="mt-2.5 max-w-full text-[clamp(11px,2.6vw,16px)] tabular-nums [font-family:var(--font-pixel)]"
           style={{
             color: 'rgb(var(--lb-score))',
             textShadow: '0 0 14px rgb(var(--lb-score) / calc(0.4 * var(--lb-glow, 1)))'
@@ -1108,14 +1169,14 @@ function StatBar({
           <AnimatedCounter value={topScore} duration={1100} formatter={(v) => formatCompact(Math.round(v))} />
         </div>
         {leaderName && (
-          <div className="mt-1 truncate text-[9px] tracking-[0.2em] text-zinc-600">
+          <div className="mt-1 max-w-full truncate text-[9px] tracking-[0.2em] text-zinc-600">
             held by <span className="text-zinc-400">@{leaderName}</span>
           </div>
         )}
       </div>
 
       {/* season countdown — self-ticking */}
-      <div className={`px-3.5 py-3.5 sm:px-4 sm:py-4 ${divCls(3)}`}>
+      <div className={`flex min-w-0 flex-col items-center overflow-hidden px-3.5 py-3.5 text-center sm:px-4 sm:py-4 ${divCls(3)}`}>
         <SeasonCountdown state={season} />
       </div>
     </div>
@@ -1133,7 +1194,7 @@ function HeaderRow() {
       className={`${ROW_GRID} border-b border-[rgb(var(--lb-panel-edge)/0.08)] py-3 text-[10px] md:text-[9px] tracking-[0.35em] text-zinc-500`}
     >
       <div>RANK</div>
-      <div>PILOT</div>
+      <div>PLAYER</div>
       <div className="hidden md:block">TOP TOOL</div>
       <div className="hidden text-right md:block">24H</div>
       <div className="text-right text-zinc-300">SCORE</div>
@@ -1626,7 +1687,7 @@ function SearchBar({ value, onChange }: { value: string; onChange: (v: string) =
       </span>
       <input
         type="text"
-        placeholder="hunt a pilot…"
+        placeholder="hunt a player…"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="flex-1 bg-transparent px-2 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none"

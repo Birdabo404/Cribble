@@ -3,12 +3,17 @@
 // One-time "tracking is desktop-only" notice for phone users, mounted by
 // ExtensionGate. Purely informational — evaluateExtensionGate already lets
 // non-capable browsers straight through — so there is deliberately no
-// Chrome Web Store CTA here (it would be a dead link on this device), just
-// an acknowledgement. Same portal/glass shell as PremiumWelcomeModal;
+// store CTA here (it would be a dead link on this device), just an
+// acknowledgement. Same portal/glass shell as PremiumWelcomeModal;
 // under `sm` it docks to the bottom edge as a safe-area-padded sheet.
 
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { installableBrowserNames } from '@/lib/extensionInstall'
+
+// "Chrome" today, "Chrome or Firefox" once the AMO listing ships — the
+// URLs are build-time constants, so module scope is safe.
+const BROWSER_NAMES = installableBrowserNames()
 
 export function MobileExtensionModal({ onClose }: { onClose: () => void }) {
   useEffect(() => {
@@ -27,7 +32,7 @@ export function MobileExtensionModal({ onClose }: { onClose: () => void }) {
       className="fixed inset-0 z-[80] flex items-end justify-center font-mono sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
-      aria-label="The tracking extension runs on desktop Chrome only"
+      aria-label={`The tracking extension runs on desktop ${BROWSER_NAMES} only`}
     >
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} aria-hidden />
       <div
@@ -59,13 +64,13 @@ export function MobileExtensionModal({ onClose }: { onClose: () => void }) {
 
         <div className="px-5 pt-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <h2 className="text-sm leading-snug text-zinc-100">
-            Tracking runs on desktop Chrome only.
+            Tracking runs on desktop {BROWSER_NAMES} only.
           </h2>
           <p className="mt-2.5 text-xs leading-relaxed text-zinc-400">
             The cribble-engine extension can&apos;t install on this device. Your
             stats, the leaderboard, the store, and your profile all work right
             here. Tracking picks back up the next time you open Cribble on
-            desktop Chrome.
+            desktop {BROWSER_NAMES}.
           </p>
           <button
             onClick={onClose}

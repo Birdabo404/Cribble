@@ -76,12 +76,30 @@ describe('sendWaitlistInviteEmail', () => {
     expect(payload.from).toBe('Cribble <invites@cribble.dev>')
     // A single string recipient — never a list.
     expect(payload.to).toBe('first@waitlist.dev')
-    expect(payload.subject).toBe('Your Cribble beta invite')
+    expect(payload.subject).toBe('your rank is unclaimed')
     for (const body of [payload.html, payload.text]) {
       expect(body).toContain('https://cribble.dev/join/CRIB-ABCD-2345')
       expect(body).toContain('CRIB-ABCD-2345')
     }
     expect(options).toEqual({ idempotencyKey: `waitlist-invite/${WAITLIST_ID}` })
+  })
+
+  it('renders the unclaimed-rank story: preheader, eyebrow, empty slot and CTA', async () => {
+    sendMock.mockResolvedValue({ data: { id: 'msg_123' }, error: null })
+
+    await sendWaitlistInviteEmail(invite())
+
+    const [payload] = sendMock.mock.calls[0]
+    // Gmail preview line: hidden preheader, before any visible copy.
+    expect(payload.html).toContain('the one email we promised. thirty days.')
+    expect(payload.html).toContain('SEAT OPEN')
+    // The empty scoreboard slot — rank glyph is the &mdash; entity in html.
+    expect(payload.html).toContain('# &mdash;')
+    expect(payload.html).toContain('unranked')
+    for (const body of [payload.html, payload.text]) {
+      expect(body).toContain('your rank is unclaimed.')
+      expect(body).toContain('claim your rank')
+    }
   })
 
   it('maps a provider error object to a sanitized ok:false result', async () => {

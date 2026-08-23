@@ -372,19 +372,19 @@ function StatCell({
   children: React.ReactNode
 }) {
   return (
-    <div className={`px-4 py-4 ${className}`}>
-      <div className="flex items-center gap-1.5 text-[9px] tracking-[0.35em] text-zinc-500">
+    <div className={`flex min-w-0 flex-col items-center overflow-hidden px-4 py-4 text-center ${className}`}>
+      <div className="flex flex-wrap items-center justify-center gap-1.5 text-[9px] tracking-[0.16em] sm:tracking-[0.28em] text-zinc-500">
         {icon}
         {label}
       </div>
       <div
-        className="mt-2.5 text-sm text-zinc-50 tabular-nums [font-family:var(--font-pixel)] md:text-base"
+        className="mt-2.5 max-w-full text-[clamp(11px,2.6vw,16px)] text-zinc-50 tabular-nums [font-family:var(--font-pixel)]"
         style={valueStyle}
       >
         {children}
       </div>
       {hint && (
-        <div className="mt-1 truncate text-[9px] tracking-[0.2em] text-zinc-600">{hint}</div>
+        <div className="mt-1 max-w-full truncate text-[9px] tracking-[0.2em] text-zinc-600">{hint}</div>
       )}
     </div>
   )

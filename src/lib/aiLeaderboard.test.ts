@@ -32,6 +32,12 @@ describe('buildAiToolDomainMap', () => {
     expect(map['chat.openai.com']).toBe('ChatGPT')
     expect(map['chatgpt.com']).toBe('ChatGPT')
     expect(map['sora.com']).toBe(map['sora.chatgpt.com'])
+    expect(map['kimi.ai']).toBe('Kimi')
+    expect(map['kimi.com']).toBe(map['kimi.ai'])
+    expect(map['platform.claude.com']).toBe(map['console.anthropic.com'])
+    expect(map['notebook.google.com']).toBe(map['notebooklm.google.com'])
+    expect(map['copilot.com']).toBe(map['copilot.microsoft.com'])
+    expect(map['app.lumalabs.ai']).toBe(map['lumalabs.ai'])
   })
 })
 
