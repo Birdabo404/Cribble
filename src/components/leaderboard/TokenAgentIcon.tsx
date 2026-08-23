@@ -32,15 +32,30 @@ const AGENT_ACCENTS: Record<string, { color: string; edge: string; surface: stri
 export function TokenAgentIcon({
   agent,
   size = 18,
-  className = ''
+  className = '',
+  bare = false
 }: {
   agent: string | null
   size?: number
   className?: string
+  /** Render only the brand-tinted glyph, without the boxed chrome — for inline text lines. */
+  bare?: boolean
 }) {
   const label = tokenAgentLabel(agent)
   const accent = label ? AGENT_ACCENTS[label] : null
   const box = Math.max(30, size + 16)
+
+  if (bare) {
+    return (
+      <span
+        className={`inline-flex shrink-0 items-center justify-center ${className}`}
+        style={{ color: accent?.color ?? 'rgb(var(--z500))' }}
+        aria-hidden
+      >
+        {label ? <ToolIcon name={label} size={size} /> : <span style={{ fontSize: size }}>?</span>}
+      </span>
+    )
+  }
 
   return (
     <span

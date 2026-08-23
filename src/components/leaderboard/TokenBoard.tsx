@@ -42,8 +42,11 @@ const WINDOWS: { id: TokenBoardWindowId; label: string }[] = [
   { id: 'all', label: 'ALL' }
 ]
 
+// Mobile is a two-zone layout — identity left, burn metrics right — so the
+// rank gutter shrinks to the medal box and the metrics column hugs its
+// right-aligned content. The md+ grid is the untouched desktop table.
 const ROW_GRID =
-  'grid grid-cols-[3.25rem_minmax(0,1fr)_7.4rem] md:grid-cols-[4.2rem_minmax(0,1fr)_8.5rem_8.5rem_7.5rem] items-center gap-3 px-4 md:px-5'
+  'grid grid-cols-[2.5rem_minmax(0,1fr)_auto] md:grid-cols-[4.2rem_minmax(0,1fr)_8.5rem_8.5rem_7.5rem] items-center gap-2.5 px-3.5 md:gap-3 md:px-5'
 
 interface TokenApiResponse {
   success: boolean
@@ -301,7 +304,10 @@ export function TokenBoard() {
           <div
             className={`${ROW_GRID} border-b border-[rgb(var(--lb-panel-edge)/0.08)] py-3 text-[9px] tracking-[0.3em] text-zinc-500`}
           >
-            <div>RANK</div>
+            <div>
+              <span className="md:hidden">#</span>
+              <span className="hidden md:inline">RANK</span>
+            </div>
             <div>PLAYER</div>
             <div className="hidden md:block">TOP AGENT</div>
             <div className="hidden text-right text-orange-300 md:block">TOKENS BURNED</div>
@@ -455,9 +461,9 @@ function TokenRow({
         type="button"
         onClick={onSelect}
         aria-label={`Open token profile for ${row.displayName}`}
-        className="group flex min-w-0 items-center gap-3 text-left"
+        className="group flex min-w-0 items-center gap-2.5 text-left md:gap-3"
       >
-        <span className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full border border-zinc-800 bg-zinc-900">
+        <span className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full border border-zinc-800 bg-zinc-900 md:h-9 md:w-9">
           <Avatar
             src={row.profileImage}
             char={(row.displayName || row.username).charAt(0).toUpperCase()}
@@ -474,7 +480,25 @@ function TokenRow({
             {row.team && <TeamMiniLogo team={row.team} size={14} />}
             {isMe && <span className="text-[8px] tracking-[0.16em] text-orange-400">YOU</span>}
           </span>
-          <span className="mt-1 flex min-w-0 items-center gap-1.5">
+          {/* Mobile tool line — the persona chip trades down to a toned dot so
+              the agent identity gets the space instead. Full persona still
+              shows in the tap-through player card. */}
+          <span className="mt-1 flex min-w-0 items-center gap-1.5 md:hidden" title={agentTitle}>
+            <span
+              className="h-[5px] w-[5px] shrink-0 rounded-full"
+              style={{ background: personaStyle(row.persona.tone).color }}
+              role="img"
+              aria-label={row.persona.label}
+            />
+            <TokenAgentIcon agent={row.topAgent} size={12} bare />
+            <span className="min-w-0 truncate text-[10px] leading-none text-zinc-300">
+              <span className="font-medium">
+                {agentLabel ?? (row.agents.length > 1 ? 'Mixed' : 'Unknown')}
+              </span>
+              {modelLabel && <span className="text-zinc-600"> · {modelLabel}</span>}
+            </span>
+          </span>
+          <span className="mt-1 hidden min-w-0 items-center gap-1.5 md:flex">
             <span
               className="shrink-0 border px-1.5 py-0.5 text-[7px] font-semibold tracking-[0.14em]"
               style={personaStyle(row.persona.tone)}
@@ -521,22 +545,33 @@ function TokenRow({
           TOKENS
         </div>
       </div>
+      {/* On mobile this cell is the whole money story: glowing token count on
+          top, est. cost beneath. Tool identity lives on the player cell now. */}
       <div className="text-right">
         <div className="text-[15px] leading-none tabular-nums text-orange-300 [font-family:var(--font-pixel)]">
-          <span className="md:hidden">{formatCompactTokenCount(row.totalTokens)}</span>
+          <span
+            className="md:hidden"
+            style={{
+              textShadow: medal
+                ? '0 0 12px rgb(249 115 22 / calc(0.42 * var(--lb-glow, 1)))'
+                : '0 0 9px rgb(249 115 22 / calc(0.2 * var(--lb-glow, 1)))'
+            }}
+          >
+            {formatCompactTokenCount(row.totalTokens)}
+          </span>
           <span className="hidden text-zinc-200 md:inline">
             <UsdValue value={row.burnUsd} />
           </span>
         </div>
         <div className="mt-1 flex items-center justify-end gap-1.5 text-[7px] tracking-[0.1em] text-zinc-600">
-          <span className="md:hidden" title={agentTitle} aria-hidden>
-            {agentLabel ? <TokenAgentIcon agent={row.topAgent} size={10} className="!h-5 !w-5 !rounded-md" /> : null}
-          </span>
-          <span className="max-w-20 truncate normal-case tracking-normal text-zinc-500 md:hidden">
-            {modelLabel ?? agentLabel ?? 'Unknown'}
-          </span>
-          <span className="text-zinc-500 md:hidden">
-            <UsdValue value={row.burnUsd} /> EST.
+          <span className="text-[10px] leading-none tabular-nums tracking-normal text-zinc-400 md:hidden">
+            <UsdValue value={row.burnUsd} />
+            <span
+              className="ml-1 text-[7px] tracking-[0.1em] text-zinc-600"
+              title={row.provisional ? 'Estimate · fewer than 3 active sync days' : undefined}
+            >
+              EST.{row.provisional ? '*' : ''}
+            </span>
           </span>
           <span className="hidden md:inline">ESTIMATE</span>
         </div>
@@ -579,13 +614,19 @@ function SkeletonRow({ index }: { index: number }) {
     >
       <div className={`${ROW_GRID} animate-pulse py-4`}>
         <span className="h-8 w-8 bg-[rgb(var(--lb-panel-edge)/0.05)]" />
-        <span className="flex items-center gap-3">
-          <span className="h-9 w-9 rounded-full bg-[rgb(var(--lb-panel-edge)/0.05)]" />
-          <span className="h-3 w-28 rounded bg-[rgb(var(--lb-panel-edge)/0.05)]" />
+        <span className="flex items-center gap-2.5 md:gap-3">
+          <span className="h-8 w-8 shrink-0 rounded-full bg-[rgb(var(--lb-panel-edge)/0.05)] md:h-9 md:w-9" />
+          <span className="flex min-w-0 flex-col gap-1.5">
+            <span className="h-3 w-28 rounded bg-[rgb(var(--lb-panel-edge)/0.05)]" />
+            <span className="h-2.5 w-24 rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:hidden" />
+          </span>
         </span>
         <span className="hidden h-8 w-24 rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:block" />
         <span className="hidden h-4 w-20 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.06)] md:block" />
-        <span className="h-4 w-24 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.06)]" />
+        <span className="flex flex-col items-end gap-1.5 justify-self-end">
+          <span className="h-4 w-16 rounded bg-[rgb(var(--lb-panel-edge)/0.06)] md:w-24" />
+          <span className="h-2.5 w-20 rounded bg-[rgb(var(--lb-panel-edge)/0.05)] md:hidden" />
+        </span>
       </div>
     </li>
   )
