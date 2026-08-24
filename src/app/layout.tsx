@@ -2,9 +2,14 @@ import type { Metadata, Viewport } from 'next'
 import { IBM_Plex_Mono, Instrument_Serif, Inter, Noto_Sans_Arabic, Noto_Sans_JP, Noto_Sans_KR, Noto_Sans_SC, Press_Start_2P, Roboto, Space_Grotesk } from 'next/font/google'
 import Script from 'next/script'
 import { Analytics } from '@vercel/analytics/react'
+import { VisitorPulse } from '@/components/analytics/VisitorPulse'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import { NAV_BOOT_SCRIPT } from '@/components/nav/navBoot'
 import { resolveShareOrigin } from '@/lib/appUrl'
+import {
+  GOATCOUNTER_SCRIPT_SRC,
+  goatcounterEndpoint
+} from '@/lib/goatcounterPublic'
 import './globals.css'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -140,10 +145,10 @@ export default function RootLayout({
         <ThemeProvider>
           {children}
           <Analytics />
+          <VisitorPulse />
           <Script
-            src="https://datafa.st/js/script.js"
-            data-website-id="dfid_QvFpyEIFkv80oNmVghPTx"
-            data-domain="cribble.dev"
+            src={GOATCOUNTER_SCRIPT_SRC}
+            data-goatcounter={goatcounterEndpoint()}
             strategy="afterInteractive"
           />
         </ThemeProvider>
