@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 }
 
 const CONTACT_EMAIL = 'hello@cribble.dev'
-const LAST_UPDATED = 'August 23, 2026'
+const LAST_UPDATED = 'August 24, 2026'
 
 export default function PrivacyPage() {
   return (
@@ -106,7 +106,26 @@ export default function PrivacyPage() {
             </p>
           </Section>
 
-          <Section index={4} title="How your data is used">
+          <Section index={4} title="What the website counts">
+            <p>
+              cribble.dev itself keeps two small counts, separate from
+              the extension and your account:
+            </p>
+            <ul className="mt-5 space-y-3">
+              <CollectedItem text="Pageviews, via Vercel Analytics — no cookies, no personal identifiers" />
+              <CollectedItem text="Public traffic stats, via GoatCounter — cookie-free pageviews, referrers, and countries anyone can open from the leaderboard ticker" />
+              <CollectedItem text="How many people are on the site right now, and how many in the last 12 hours, shown on the leaderboard ticker" />
+            </ul>
+            <p className="mt-5">
+              GoatCounter never stores IP addresses or cookies. The live
+              ticker hashes a request fingerprint and stores only that
+              hash — never the IP, never a cookie, never a page path.
+              Hashes older than 12 hours are deleted. None of this is
+              tied to accounts, used to target ads, or sold.
+            </p>
+          </Section>
+
+          <Section index={5} title="How your data is used">
             <p>
               Usage data exists first to compute your scores, streaks, and
               leaderboard positions. Leaderboards and profiles are visible
@@ -144,7 +163,7 @@ export default function PrivacyPage() {
             </p>
           </Section>
 
-          <Section index={5} title="Retention and deletion">
+          <Section index={6} title="Retention and deletion">
             <p>
               Your data is retained while your account is active. You can
               delete your account at any time from the in-app settings; this
@@ -153,7 +172,7 @@ export default function PrivacyPage() {
             </p>
             <p className="mt-4">
               One carve-out: anonymized aggregates already computed under
-              Section 4 persist after deletion. They hold totals across many
+              Section 5 persist after deletion. They hold totals across many
               users, no individual rows, and nothing that can be traced back
               to you.
             </p>
@@ -163,7 +182,7 @@ export default function PrivacyPage() {
             </p>
           </Section>
 
-          <Section index={6} title="Contact">
+          <Section index={7} title="Contact">
             <p>
               Questions about this policy or your data? Reach us at{' '}
               <a

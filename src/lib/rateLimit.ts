@@ -178,6 +178,13 @@ export const rateLimitConfigs = {
     maxRequests: 1000 // 1000 requests per minute
   },
 
+  // First-party visitor heartbeat. The client pings every 30s while
+  // the tab is visible; a little headroom covers navigation bursts.
+  visitorHit: {
+    windowMs: 60 * 1000, // 1 minute
+    maxRequests: 8
+  },
+
   // Device verification polling (extension reconcile + setup wizard).
   // Must comfortably allow the extension's periodic reconcile without
   // permitting high-rate UUID enumeration.
