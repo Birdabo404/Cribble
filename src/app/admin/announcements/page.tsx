@@ -22,7 +22,7 @@ import {
   BILLBOARD_ANNOUNCE_HEADLINE_MAX
 } from '@/lib/billboard'
 
-// Ticker announcements (migration 050) — freeform ANNOUNCEMENT copy on
+// Ticker announcements (migration 051) — freeform ANNOUNCEMENT copy on
 // the dashboard/leaderboard Billboard, distinct from paid ads (the
 // sponsorship queue) and the automatic top-3 hype. One live at a time:
 // a push auto-archives the previous copy server-side. There is no

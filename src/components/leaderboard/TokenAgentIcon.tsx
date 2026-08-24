@@ -32,15 +32,30 @@ const AGENT_ACCENTS: Record<string, { color: string; edge: string; surface: stri
 export function TokenAgentIcon({
   agent,
   size = 18,
-  className = ''
+  className = '',
+  bare = false
 }: {
   agent: string | null
   size?: number
   className?: string
+  /** Render only the brand-tinted glyph, without the boxed chrome — for inline text lines. */
+  bare?: boolean
 }) {
   const label = tokenAgentLabel(agent)
   const accent = label ? AGENT_ACCENTS[label] : null
   const box = Math.max(30, size + 16)
+
+  if (bare) {
+    return (
+      <span
+        className={`inline-flex shrink-0 items-center justify-center ${className}`}
+        style={{ color: accent?.color ?? 'rgb(var(--z500))' }}
+        aria-hidden
+      >
+        {label ? <ToolIcon name={label} size={size} /> : <span style={{ fontSize: size }}>?</span>}
+      </span>
+    )
+  }
 
   return (
     <span
@@ -50,8 +65,7 @@ export function TokenAgentIcon({
         height: box,
         color: accent?.color ?? 'rgb(var(--z500))',
         border: `1px solid ${accent?.edge ?? 'rgb(var(--lb-panel-edge) / 0.12)'}`,
-        background: accent?.surface ?? 'rgb(var(--lb-panel-edge) / 0.035)',
-        boxShadow: accent ? `inset 0 1px 0 rgb(255 255 255 / 0.035), 0 0 18px ${accent.edge}` : undefined
+        background: accent?.surface ?? 'rgb(var(--lb-panel-edge) / 0.035)'
       }}
       title={label ?? 'Agent not reported'}
       aria-label={label ?? 'Agent not reported'}

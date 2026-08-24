@@ -1,5 +1,5 @@
 -- ============================================================
--- Migration 050: Billboard announcements
+-- Migration 051: Billboard announcements
 -- ============================================================
 -- Owner-pushed ANNOUNCEMENT copy for the sideways-scrolling
 -- Billboard train on the dashboard + leaderboard. Freeform hype the

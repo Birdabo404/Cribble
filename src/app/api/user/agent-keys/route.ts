@@ -12,7 +12,7 @@ import { createServiceClient } from '@/lib/supabaseServer'
 export const dynamic = 'force-dynamic'
 
 const supabase = createServiceClient()
-const MAX_ACTIVE_KEYS = 5
+const DEFAULT_KEY_LIFETIME_DAYS = 90
 
 function cleanLabel(value: string): string {
   return value
@@ -30,7 +30,8 @@ const createKeySchema = z
       .transform(cleanLabel)
       .refine((label) => [...label].length >= 1 && [...label].length <= 40, {
         message: 'Label must be 1-40 characters'
-      })
+      }),
+    expiresInDays: z.number().int().min(7).max(365).optional()
   })
   .strict()
 
@@ -54,7 +55,9 @@ export async function GET(request: NextRequest) {
     // one-time plaintext belongs in a list response.
     const { data, error } = await supabase
       .from('agent_api_keys')
-      .select('id, key_prefix, label, created_at, last_used_at, revoked_at')
+      .select(
+        'id, key_prefix, label, created_at, last_used_at, revoked_at, expires_at, agent_usage_clients!agent_usage_clients_last_key_id_fkey(client_id, machine_name, timezone, last_seen_at, schema_version)'
+      )
       .eq('user_id', session.userId)
       .order('created_at', { ascending: false })
 
@@ -66,14 +69,36 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const keys = (data ?? []).map((row) => ({
-      id: Number(row.id),
-      prefix: row.key_prefix,
-      label: row.label,
-      createdAt: row.created_at,
-      lastUsedAt: row.last_used_at,
-      revokedAt: row.revoked_at
-    }))
+    const keys = (data ?? []).map((row) => {
+      const clients = (
+        (row as unknown as {
+          agent_usage_clients?: Array<{
+            client_id: string
+            machine_name: string
+            timezone: string | null
+            last_seen_at: string
+            schema_version: number
+          }>
+        }).agent_usage_clients ?? []
+      ).map((client) => ({
+        id: client.client_id,
+        machineName: client.machine_name,
+        timezone: client.timezone,
+        lastSeenAt: client.last_seen_at,
+        schemaVersion: Number(client.schema_version)
+      }))
+
+      return {
+        id: Number(row.id),
+        prefix: row.key_prefix,
+        label: row.label,
+        createdAt: row.created_at,
+        lastUsedAt: row.last_used_at,
+        revokedAt: row.revoked_at,
+        expiresAt: row.expires_at,
+        clients
+      }
+    })
 
     return NextResponse.json({ success: true, keys })
   } catch (error) {
@@ -121,40 +146,31 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { count, error: countError } = await supabase
-      .from('agent_api_keys')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', session.userId)
-      .is('revoked_at', null)
-
-    if (countError) {
-      console.error('[AgentKeys] Active-key count failed:', countError)
-      return NextResponse.json(
-        { success: false, error: 'Failed to create agent key' },
-        { status: 500 }
-      )
-    }
-    if ((count ?? 0) >= MAX_ACTIVE_KEYS) {
-      return NextResponse.json(
-        { success: false, error: 'Maximum of 5 active agent keys reached' },
-        { status: 409 }
-      )
-    }
-
     const key = generateAgentApiKey()
     const prefix = getAgentApiKeyPrefix(key)
-    const { data: created, error: insertError } = await supabase
-      .from('agent_api_keys')
-      .insert({
-        user_id: session.userId,
-        key_hash: hashAgentApiKey(key),
-        key_prefix: prefix,
-        label: parsed.data.label
-      })
-      .select('id, created_at')
-      .single()
+    const expiresInDays = parsed.data.expiresInDays ?? DEFAULT_KEY_LIFETIME_DAYS
+    const expiresAt = new Date(Date.now() + expiresInDays * 86_400_000).toISOString()
+    const { data: createData, error: insertError } = await supabase.rpc(
+      'create_agent_api_key',
+      {
+        p_user_id: session.userId,
+        p_key_hash: hashAgentApiKey(key),
+        p_key_prefix: prefix,
+        p_label: parsed.data.label,
+        p_expires_at: expiresAt
+      }
+    )
+    const created = (Array.isArray(createData) ? createData[0] : createData) as
+      | { id: number | string; created_at: string; expires_at: string }
+      | null
 
     if (insertError || !created) {
+      if (insertError?.message?.includes('agent_key_limit')) {
+        return NextResponse.json(
+          { success: false, error: 'Maximum of 5 active agent keys reached' },
+          { status: 409 }
+        )
+      }
       console.error('[AgentKeys] Create failed:', insertError)
       return NextResponse.json(
         { success: false, error: 'Failed to create agent key' },
@@ -169,7 +185,8 @@ export async function POST(request: NextRequest) {
         prefix,
         label: parsed.data.label,
         id: Number(created.id),
-        createdAt: created.created_at
+        createdAt: created.created_at,
+        expiresAt: created.expires_at
       },
       { status: 201 }
     )

@@ -81,12 +81,12 @@ const loadBillboardItems = unstable_cache(
     // Live flipper ads (migration 030's definition: APPROVED + paid +
     // now inside the window; rail ads ride their own feed since
     // migration 035), fresh top-3 breakthroughs and live operator
-    // announcements (migration 050's definition: LIVE + started + not
+    // announcements (migration 051's definition: LIVE + started + not
     // yet ended), side by side. The ads read is the paid product — it
     // throws; the hype and announcement reads degrade to empty lists,
     // the same stance /api/leaderboard takes on movement tracking when
     // migration 012 is missing — the announcements table in particular
-    // may not exist yet in environments behind on migration 050.
+    // may not exist yet in environments behind on migration 051.
     const [adsRes, ranksRes, announceRes] = await Promise.all([
       supabase
         .from('billboard_ads')
@@ -163,7 +163,9 @@ const loadBillboardItems = unstable_cache(
     }
 
     // Contract order (lib/billboard.ts): operator announcements first,
-    // then hype, then live ads by starts_at ascending.
+    // then hype, then live ads by starts_at ascending. The prev_rank
+    // check is TS narrowing only — the query's .gt() already
+    // guarantees non-null at runtime.
     const items: BillboardItem[] = []
     for (const row of announcements) {
       items.push({
@@ -176,13 +178,15 @@ const loadBillboardItems = unstable_cache(
     }
     for (const row of hypeRanks) {
       const user = usersById.get(Number(row.user_id))
-      if (!user || !row.rank_moved_at) continue
+      if (!user || !row.rank_moved_at || row.prev_rank === null) continue
       items.push({
         kind: 'hype',
         userId: Number(row.user_id),
         username: user.twitter_username || `User${user.id}`,
         displayName: user.twitter_name || null,
         avatarUrl: user.twitter_profile_image || null,
+        rank: Number(row.rank),
+        prevRank: Number(row.prev_rank),
         movedAt: row.rank_moved_at
       })
     }
@@ -205,8 +209,9 @@ const loadBillboardItems = unstable_cache(
   },
   // Each payload-shape change burns a new key so a persisted older
   // train can't outlive the deploy. v2: ad items gained
-  // companyName/linkHost (migration 034). v4: the announce kind joined
-  // the train (migration 050).
+  // companyName/linkHost (migration 034). v3: hype items gained
+  // rank/prevRank for the announcement takeover. v4: the announce kind
+  // joined the train (migration 051).
   ['billboard-items-v4'],
   { revalidate: REVALIDATE_SECONDS }
 )

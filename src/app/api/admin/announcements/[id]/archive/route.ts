@@ -4,7 +4,7 @@ import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib
 import { cleanReason, getStaffUser } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
-// Clear one ticker announcement (migration 050) — owner only, same
+// Clear one ticker announcement (migration 051) — owner only, same
 // structure as the seasons/billboard admin routes (rate limit, staff
 // gate, audit-first, status-guarded update). Archiving is the manual
 // takedown for pinned (ends_at NULL) or still-running copy; a

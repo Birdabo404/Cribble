@@ -7,7 +7,8 @@
 // cards, no search, no pagination — the score IS the show. The payload
 // is identical for every viewer and refreshes server-side every 5
 // minutes, so there is no 15s poll either: fetch on mount and when the
-// tab regains focus.
+// tab regains focus. It embeds BOTH ranking windows (current season +
+// all-time); the SEASON/ALL-TIME pills toggle locally with no refetch.
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import AnimatedCounter from '@/components/AnimatedCounter'
@@ -26,16 +27,30 @@ import {
   ToolIcon
 } from '@/components/leaderboard/icons'
 import { medalA, medalFor, medalGlow } from '@/components/leaderboard/types'
-import type { AiBoardTotals, AiToolRow } from '@/lib/aiLeaderboard'
+import type { AiBoards, AiToolRow } from '@/lib/aiLeaderboard'
+import { usdDisplayParts } from '@/lib/tokenLeaderboard'
 
 const ROW_GRID =
-  'grid grid-cols-[3.6rem_minmax(0,1fr)_auto] md:grid-cols-[4.2rem_minmax(0,1fr)_6.5rem_6.5rem_5.5rem_10.5rem] items-center gap-3 px-4 md:px-5'
+  'grid grid-cols-[3.6rem_minmax(0,1fr)_auto] md:grid-cols-[4.2rem_minmax(0,1fr)_6.5rem_6.5rem_5.5rem_6.5rem_10.5rem] items-center gap-3 px-4 md:px-5'
+
+/** The two embedded ranking windows. SEASON only exists while a season
+ *  is live — the API sends boards.season: null otherwise. */
+type AiWindowId = 'season' | 'alltime'
+
+const AI_WINDOWS: { id: AiWindowId; label: string }[] = [
+  { id: 'season', label: 'SEASON' },
+  { id: 'alltime', label: 'ALL-TIME' }
+]
 
 export function AiBoard() {
-  const [tools, setTools] = useState<AiToolRow[] | null>(null)
-  const [totals, setTotals] = useState<AiBoardTotals | null>(null)
+  const [boards, setBoards] = useState<AiBoards | null>(null)
+  const [windowId, setWindowId] = useState<AiWindowId>('season')
   const [generatedAt, setGeneratedAt] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
+
+  // Once the player picks a window, focus-refetches must not yank the
+  // toggle back to the default.
+  const userPicked = useRef(false)
 
   // Monotonic guard, same as the global board: a slow response must
   // never overwrite a newer one.
@@ -47,12 +62,19 @@ export function AiBoard() {
       const res = await fetch('/api/leaderboard/ai', { cache: 'no-store' })
       const data = await res.json().catch(() => null)
       if (seq !== fetchSeq.current) return
-      if (!res.ok || !data?.success) {
+      if (!res.ok || !data?.success || !data.boards?.alltime) {
         setFailed(true)
         return
       }
-      setTools(Array.isArray(data.data) ? (data.data as AiToolRow[]) : [])
-      setTotals((data.totals as AiBoardTotals) ?? null)
+      const nextBoards = data.boards as AiBoards
+      setBoards(nextBoards)
+      // SEASON is the default only while a live season board exists;
+      // during intermission (or before a calendar) it disappears and
+      // ALL-TIME fronts the page.
+      setWindowId((current) => {
+        if (!nextBoards.season) return 'alltime'
+        return userPicked.current ? current : 'season'
+      })
       setGeneratedAt(
         typeof data.generatedAt === 'string' ? data.generatedAt : null
       )
@@ -75,7 +97,20 @@ export function AiBoard() {
     }
   }, [load])
 
-  const loading = tools === null && !failed
+  // The active window's board. A stale 'season' pick after the season
+  // board vanished falls back to all-time.
+  const board =
+    boards === null
+      ? null
+      : windowId === 'season' && boards.season
+        ? boards.season
+        : boards.alltime
+  const activeWindow: AiWindowId =
+    windowId === 'season' && boards?.season ? 'season' : 'alltime'
+  const tools = board?.tools ?? null
+  const totals = board?.totals ?? null
+
+  const loading = boards === null && !failed
   const apex = tools?.[0] ?? null
   const topScore = apex?.score ?? 0
 
@@ -148,7 +183,49 @@ export function AiBoard() {
               </span>
             )}
           </div>
-          <UpdatedStamp generatedAt={generatedAt} />
+          <div className="flex flex-wrap items-center gap-2">
+            {/* SEASON / ALL-TIME — same nested-pill dialect as the
+                standings-window pills; toggles the embedded boards
+                locally, no refetch. Hidden while no season is live. */}
+            {boards?.season && (
+              <div
+                className="lb-inset flex items-center gap-0.5 rounded-lg p-0.5"
+                role="tablist"
+                aria-label="AI leaderboard window"
+              >
+                {AI_WINDOWS.map((item) => {
+                  const active = activeWindow === item.id
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => {
+                        userPicked.current = true
+                        setWindowId(item.id)
+                      }}
+                      className={`rounded-md px-2.5 py-1.5 text-[9px] tracking-[0.2em] transition-colors ${
+                        active ? '' : 'text-zinc-600 hover:text-zinc-300'
+                      }`}
+                      style={
+                        active
+                          ? {
+                              border: '1px solid rgb(var(--lb-gold) / 0.5)',
+                              color: 'rgb(var(--lb-gold))',
+                              background: 'rgb(var(--lb-gold) / 0.07)'
+                            }
+                          : { border: '1px solid transparent' }
+                      }
+                    >
+                      {item.label}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+            <UpdatedStamp generatedAt={generatedAt} />
+          </div>
         </div>
 
         <div className="lb-panel relative overflow-hidden">
@@ -160,6 +237,7 @@ export function AiBoard() {
             <div className="hidden text-right md:block">PLAYERS</div>
             <div className="hidden text-right md:block">TIME</div>
             <div className="hidden text-right md:block">7D</div>
+            <div className="hidden text-right md:block">BURN</div>
             <div className="text-right text-zinc-300">SCORE</div>
           </div>
 
@@ -176,7 +254,7 @@ export function AiBoard() {
                   type="button"
                   onClick={() => {
                     setFailed(false)
-                    setTools(null)
+                    setBoards(null)
                     void load()
                   }}
                   className="lb-inset flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100"
@@ -202,7 +280,12 @@ export function AiBoard() {
         </div>
 
         <p className="mt-3 text-center text-[9px] tracking-[0.3em] text-zinc-600">
-          RANKED BY EVERY PLAYER&apos;S COMBINED LIFETIME SCORE
+          {activeWindow === 'season'
+            ? 'RANKED BY EVERY PLAYER’S COMBINED CURRENT-SEASON SCORE'
+            : 'RANKED BY EVERY PLAYER’S COMBINED LIFETIME SCORE'}
+        </p>
+        <p className="mt-1 text-center text-[9px] tracking-[0.22em] text-zinc-700">
+          BURN = OPT-IN AGENT ESTIMATES · NEVER RANKS A MACHINE
         </p>
       </section>
 
@@ -279,6 +362,21 @@ function StatCell({
         <div className="mt-1 max-w-full truncate text-[9px] tracking-[0.2em] text-zinc-600">{hint}</div>
       )}
     </div>
+  )
+}
+
+/* ================= burn read-out ================= */
+
+/** Same USD markup the Burn Board uses: optional "<" for sub-cent
+ *  values, green dollar mark, exact-decimal display parts. */
+function BurnValue({ value }: { value: string }) {
+  const display = usdDisplayParts(value)
+  return (
+    <>
+      {display.tiny ? '<' : null}
+      <span className="text-[#39ff88]">$</span>
+      {display.number}
+    </>
   )
 }
 
@@ -359,6 +457,18 @@ function ToolRow({
         )}
       </div>
 
+      {/* opt-in USD burn — display-only, never a rank input */}
+      <div
+        className="hidden text-right text-[11px] tabular-nums text-zinc-400 md:block"
+        title="Estimated agent spend from opted-in players — display only"
+      >
+        {tool.burnUsd !== '0' ? (
+          <BurnValue value={tool.burnUsd} />
+        ) : (
+          <span className="text-zinc-700">—</span>
+        )}
+      </div>
+
       {/* SCORE — the main thing */}
       <div className="text-right">
         <div
@@ -405,6 +515,7 @@ function SkeletonRow({ index }: { index: number }) {
         <span className="hidden h-3 w-10 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:block" />
         <span className="hidden h-3 w-12 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:block" />
         <span className="hidden h-3 w-10 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:block" />
+        <span className="hidden h-3 w-12 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:block" />
         <span className="h-3.5 w-20 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.06)]" />
       </div>
     </li>

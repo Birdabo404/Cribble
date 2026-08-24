@@ -5,6 +5,7 @@
 // unit-testable without a database; the API route owns the queries.
 
 import type { SeasonState } from '@/lib/season'
+import { addExactDecimals, exactDecimal } from '@/lib/tokenLeaderboard'
 
 /** One roster member inside an expanded team row. */
 export interface TeamBoardMember {
@@ -32,6 +33,13 @@ export interface TeamBoardRow {
   /** Combined season score of all active members. */
   score: number
   memberCount: number
+  /** Display-only exact-decimal USD burn summed over active members who
+   *  opted into token sharing ('0' when none). NEVER a sort key — the
+   *  rank stays score-only. */
+  burnUsd: string
+  /** How many active members contributed to burnUsd (had opted-in usage
+   *  in the burn map). 0 renders as an em dash, not $0. */
+  burnPilots: number
   /** Active members, season score desc. Seat-limited (≤10), always
    *  embedded so expanding a row never fetches. */
   members: TeamBoardMember[]
@@ -116,11 +124,16 @@ export function largestRemainderShares(scores: number[]): number[] {
  * Team score = sum of member scores (empty rosters stay listed at 0);
  * ties break by memberCount, then username, so equal teams never
  * flip-flop between reads. Members sort score desc inside their team.
+ *
+ * burnByUser (userId -> exact-decimal USD from the consent-gated token
+ * RPC) only decorates: each team's burnUsd sums the ACTIVE members
+ * present in the map with addExactDecimals. It never touches the sort.
  */
 export function buildTeamBoard(
   teams: TeamBoardTeamInput[],
   members: TeamBoardMemberInput[],
-  seasonState: SeasonState
+  seasonState: SeasonState,
+  burnByUser: ReadonlyMap<number, string> = new Map()
 ): { rows: TeamBoardRow[]; totals: TeamBoardTotals } {
   const membersByTeam = new Map<number, TeamBoardMemberInput[]>()
   for (const member of members) {
@@ -151,6 +164,15 @@ export function buildTeamBoard(
     const shares = largestRemainderShares(roster.map((member) => member.score))
     const username = team.twitter_username || `User${team.id}`
 
+    let burnUsd = '0'
+    let burnPilots = 0
+    for (const member of roster) {
+      const memberBurn = burnByUser.get(member.userId)
+      if (memberBurn === undefined) continue
+      burnUsd = addExactDecimals(burnUsd, exactDecimal(memberBurn))
+      burnPilots += 1
+    }
+
     return {
       userId: team.id,
       username,
@@ -158,6 +180,8 @@ export function buildTeamBoard(
       profile_image: team.twitter_profile_image,
       score: roster.reduce((sum, member) => sum + member.score, 0),
       memberCount: roster.length,
+      burnUsd,
+      burnPilots,
       members: roster.map((member, idx): TeamBoardMember => ({
         ...member,
         share: shares[idx]

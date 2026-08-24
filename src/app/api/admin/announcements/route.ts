@@ -8,7 +8,7 @@ import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib
 import { cleanReason, getStaffUser } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
-// Owner-pushed ticker announcements (migration 050) — the freeform
+// Owner-pushed ticker announcements (migration 051) — the freeform
 // ANNOUNCEMENT copy on the dashboard/leaderboard Billboard, distinct
 // from paid ads (review queue) and the automatic top-3 hype. GET lists
 // recent pushes for the console; POST publishes new copy. At most one

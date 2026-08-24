@@ -23,8 +23,8 @@ export interface RateLimitResult {
   retryAfter?: number
 }
 
-// Process-local prefilter and fallback. Privileged staff requests also use
-// the cross-instance Postgres counter in checkDistributedRateLimit.
+// Process-local prefilter and fallback. Authenticated staff and Agent ingest
+// requests also use the cross-instance counter in checkDistributedRateLimit.
 const rateLimitStore = new Map<string, RateLimitEntry>()
 const supabase = createServiceClient()
 
@@ -104,9 +104,9 @@ interface DistributedRateLimitRow {
 
 /**
  * Atomic, cross-instance rate limit backed by Supabase Postgres
- * (migration 020). This is used after staff authentication and keyed by
- * staff user id + read/write scope, so neither IP rotation, route hopping,
- * nor serverless instance fan-out multiplies a stolen session's allowance.
+ * (migration 020). Callers invoke it after authentication and supply a
+ * hashed staff/user/key scope, so serverless instance fan-out cannot
+ * multiply the allowance.
  *
  * If the RPC is temporarily unavailable, retain the existing in-memory
  * limiter as a compatibility fallback. Staff actions already depend on
@@ -204,4 +204,4 @@ export function createRateLimitResponse(result: RateLimitResult) {
   }
   
   return headers
-} 
+}

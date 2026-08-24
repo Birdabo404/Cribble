@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-// The admin announcement routes (migration 050): staff gating surfaces
+// The admin announcement routes (migration 051): staff gating surfaces
 // getStaffUser's verdict untouched (the owner-only floor for
 // announcement.manage itself is staffAuth.test.ts's job), every
 // mutation demands an auditable reason before touching the table,

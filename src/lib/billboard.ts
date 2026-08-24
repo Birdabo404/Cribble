@@ -49,7 +49,7 @@ export const BILLBOARD_TEXT_MAX = 80
 /** Cap on the company/brand title line (migration 034), counted in
  *  code points like BILLBOARD_TEXT_MAX. */
 export const BILLBOARD_COMPANY_MAX = 40
-/** Caps on operator-announcement copy (migration 050), counted in code
+/** Caps on operator-announcement copy (migration 051), counted in code
  *  points like BILLBOARD_COMPANY_MAX / BILLBOARD_TEXT_MAX: the headline
  *  is the strip's title line, the body its text line. */
 export const BILLBOARD_ANNOUNCE_HEADLINE_MAX = 40
@@ -156,11 +156,18 @@ export type BillboardItem =
       username: string
       displayName: string | null
       avatarUrl: string | null
+      /** Where the player landed (1..HYPE_TOP_RANK) and where they
+       *  climbed from — prev_rank in leaderboard_ranks, which the API's
+       *  .gt() filter guarantees is outside the top ranks. The
+       *  announcement's reel, delta chip and sr sentence all derive
+       *  from this pair via the climb helpers below. */
+      rank: number
+      prevRank: number
       movedAt: string
     }
   | {
       /** An operator-pushed site announcement from
-       *  billboard_announcements (migration 050). Free copy like hype —
+       *  billboard_announcements (migration 051). Free copy like hype —
        *  it rides the announcement cadence and chrome, never dressed as
        *  SPONSOR. */
       kind: 'announce'
@@ -174,6 +181,10 @@ export type BillboardItem =
        *  route is for paid ads only. */
       linkUrl: string | null
     }
+
+/** The hype variant of BillboardItem — the announcement component and
+ *  the climb helpers below take this narrowed shape. */
+export type BillboardHypeItem = Extract<BillboardItem, { kind: 'hype' }>
 
 /** One live rail ad, as served by GET /api/billboard/rails. Field
  *  semantics match BillboardItem's ad variant; slot is where the card
@@ -244,7 +255,7 @@ export const BILLBOARD_AD_HOLD_MS = 8_000
 /** Per-appearance hold for a top-3 announcement — a longer beat than
  *  an ad's rotation so the moment reads, affordable because hype only
  *  ever airs once per show. */
-export const BILLBOARD_HYPE_HOLD_MS = 10_000
+export const BILLBOARD_HYPE_HOLD_MS = 30_000
 /** A train that is a single paid ad re-keys its build-in at this
  *  cadence instead of flipping. */
 export const BILLBOARD_AD_SOLO_REPLAY_MS = 24_000
@@ -253,11 +264,11 @@ export const BILLBOARD_AD_SHOW_FOR_MS = 180_000
 /** Wall-clock cap on announcement-only shows. They normally end
  *  themselves after one pass (billboardShouldCloseAfterHold); this
  *  backstops that, e.g. against hover-pausing the rotation forever.
- *  Sized to fit a full pass of the API's max three hype items; a live
- *  operator announcement riding with all three overflows it, and the
+ *  Sized to fit a full pass of the API's max three hype items; live
+ *  operator announcements riding along can overflow it, and the
  *  backstop trims that pass short — acceptable for a cap that exists
  *  to bound free airtime. */
-export const BILLBOARD_HYPE_SHOW_FOR_MS = 30_000
+export const BILLBOARD_HYPE_SHOW_FOR_MS = 90_000
 
 /** True when the fetched train carries no paid ads — only free copy
  *  (top-3 hype, operator announcements). An empty train is nobody's
@@ -323,4 +334,53 @@ export function billboardShouldCloseAfterHold(
   activeIndex: number
 ): boolean {
   return isAnnouncementOnly(items) && activeIndex === items.length - 1
+}
+
+/* ------------------------------------------------------------------ *
+ * Hype climb derivation — the announcement's rank story, kept pure so
+ * the reel/chip/sentence math is unit-testable without mounting.
+ * ------------------------------------------------------------------ */
+
+/** Ceiling on reel rungs: a freak jump (rank 120 -> 2) compresses to
+ *  this many steps instead of spinning through a hundred numbers. */
+export const HYPE_LADDER_MAX_RUNGS = 8
+
+/** The climb a hype item announces, derived once so the reel, the
+ *  delta chip and the sr sentence can't disagree. `places` is clamped
+ *  at zero: prev_rank <= rank is impossible through the API's filter,
+ *  but a stale payload shouldn't render a negative climb. */
+export function billboardRankClimb(item: BillboardHypeItem): {
+  from: number
+  to: number
+  places: number
+} {
+  return {
+    from: item.prevRank,
+    to: item.rank,
+    places: Math.max(0, item.prevRank - item.rank)
+  }
+}
+
+/** The descending sequence the announcement reel rolls through, `from`
+ *  first and `to` last. Short climbs step every rank (7 -> 2 is
+ *  [7,6,5,4,3,2]); longer ones keep the endpoints exact and space the
+ *  interior evenly across HYPE_LADDER_MAX_RUNGS — compression only
+ *  kicks in when the spacing exceeds 1, so rounding can't produce
+ *  duplicate rungs. A non-climb resolves straight to the landing. */
+export function hypeRankLadder(from: number, to: number): number[] {
+  if (from <= to) return [to]
+  const span = from - to
+  if (span < HYPE_LADDER_MAX_RUNGS) {
+    return Array.from({ length: span + 1 }, (_, i) => from - i)
+  }
+  return Array.from({ length: HYPE_LADDER_MAX_RUNGS }, (_, i) =>
+    Math.round(from - (span * i) / (HYPE_LADDER_MAX_RUNGS - 1))
+  )
+}
+
+/** The single screen-reader sentence for a hype announcement — every
+ *  animated visual fragment is aria-hidden behind it. */
+export function billboardHypeSentence(item: BillboardHypeItem): string {
+  const name = item.displayName || item.username
+  return `${name} climbed from rank ${item.prevRank} to rank ${item.rank}`
 }

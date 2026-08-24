@@ -1,12 +1,15 @@
 import { unstable_cache } from 'next/cache'
 import { NextResponse } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { fetchSeasonState } from '@/lib/seasonServer'
+import type { SeasonState } from '@/lib/season'
 import { createServiceClient } from '@/lib/supabaseServer'
 import {
   buildTeamBoard,
   type TeamBoardMemberInput,
   type TeamBoardTeamInput
 } from '@/lib/teamLeaderboard'
+import { exactDecimal, resolveTokenBoardWindow } from '@/lib/tokenLeaderboard'
 
 // THE TEAMS BOARD is the same payload for every viewer (no session, no
 // cookies), so like the AI board it caches hard: the handler stays
@@ -44,6 +47,60 @@ interface RosterJoinRow {
   } | null
 }
 
+// Same known-compatibility signal the tokens route checks: PostgREST
+// resolves functions by argument names, so a not-yet-deployed migration
+// 047 answers PGRST202/42883 to the five-argument call.
+function missingLeaderboardFunction(error: { code?: string; message?: string }): boolean {
+  return error.code === 'PGRST202' || error.code === '42883'
+}
+
+/**
+ * Opt-in USD burn per user from the consent-gated agent_token_leaderboard
+ * RPC (leaderboard_enabled AND consent_version >= 2 is enforced inside
+ * the function). Season window matches the tokens route: calendar dates
+ * bound leftover v1 daily rows, absolute timestamps bound v2 events.
+ * No season calendar means both bounds are null (all-time burn). Any
+ * failure — including the migration-pending PGRST202/42883 — degrades
+ * to an empty map: burn is display-only and must never sink the board.
+ */
+async function fetchBurnByUser(
+  supabase: SupabaseClient,
+  seasonState: SeasonState
+): Promise<Map<number, string>> {
+  const burnByUser = new Map<number, string>()
+  try {
+    const seasonWindow = seasonState.current
+      ? resolveTokenBoardWindow('season', seasonState, Date.now(), 'UTC')
+      : null
+    const { data, error } = await supabase.rpc('agent_token_leaderboard', {
+      p_since: seasonWindow?.since ?? null,
+      p_until: seasonWindow?.until ?? null,
+      p_timezone: 'UTC',
+      p_since_at: seasonState.current?.startsAt ?? null,
+      p_until_at: seasonState.current?.endsAt ?? null
+    })
+
+    if (error) {
+      if (missingLeaderboardFunction(error)) {
+        console.warn('[Team Leaderboard] Burn RPC not deployed yet:', error.message)
+      } else {
+        console.warn('[Team Leaderboard] Burn aggregate failed:', error.message)
+      }
+      return burnByUser
+    }
+
+    for (const row of (data ?? []) as {
+      user_id: number | string
+      cost_usd: number | string | null
+    }[]) {
+      burnByUser.set(Math.round(Number(row.user_id)), exactDecimal(row.cost_usd))
+    }
+  } catch (err) {
+    console.warn('[Team Leaderboard] Burn aggregate unavailable:', err)
+  }
+  return burnByUser
+}
+
 const loadTeamBoard = unstable_cache(
   async () => {
     const supabase = createServiceClient()
@@ -52,6 +109,10 @@ const loadTeamBoard = unstable_cache(
     // raw season_score (intermission / no calendar). Fetched inside the
     // cache window — a rollover is picked up within the minute.
     const seasonState = await fetchSeasonState(supabase)
+
+    // Display-only burn column: opted-in members' USD over the season
+    // window. Fetched alongside the roster queries below; never ranks.
+    const burnByUserPromise = fetchBurnByUser(supabase, seasonState)
 
     // Eligible teams: the isApprovedTeam gate as a query — tier TEAM
     // (the DB CHECK stores exactly 'TEAM') + past review + not
@@ -118,7 +179,8 @@ const loadTeamBoard = unstable_cache(
       }
     }
 
-    const { rows, totals } = buildTeamBoard(teams, members, seasonState)
+    const burnByUser = await burnByUserPromise
+    const { rows, totals } = buildTeamBoard(teams, members, seasonState, burnByUser)
 
     return {
       rows,
@@ -127,7 +189,7 @@ const loadTeamBoard = unstable_cache(
       generatedAt: new Date().toISOString()
     }
   },
-  ['team-leaderboard'],
+  ['team-leaderboard-v2'],
   { revalidate: REVALIDATE_SECONDS }
 )
 

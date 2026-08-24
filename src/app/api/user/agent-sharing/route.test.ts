@@ -154,7 +154,8 @@ describe('PUT /api/user/agent-sharing', () => {
     expect(state.upserts).toHaveLength(1)
     expect(state.upserts[0]).toMatchObject({
       user_id: USER_ID,
-      leaderboard_enabled: true
+      leaderboard_enabled: true,
+      consent_version: 2
     })
     expect(state.upserts[0]).not.toHaveProperty('userId')
   })
