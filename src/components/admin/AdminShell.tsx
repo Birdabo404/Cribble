@@ -120,6 +120,14 @@ const ICON_SPONSORSHIP = (
   </IconBase>
 )
 
+const ICON_ANNOUNCEMENTS = (
+  <IconBase>
+    <circle cx="8" cy="8" r="1.4" />
+    <path d="M10.6 5.4a4 4 0 0 1 0 5.2M5.4 10.6a4 4 0 0 1 0-5.2" />
+    <path d="M12.75 3.25a7 7 0 0 1 0 9.5M3.25 12.75a7 7 0 0 1 0-9.5" />
+  </IconBase>
+)
+
 const ICON_SEASONS = (
   <IconBase>
     <rect x="1.75" y="3.25" width="12.5" height="11" rx="1.5" />
@@ -175,6 +183,12 @@ const NAV_GROUPS: readonly AdminNavGroup[] = [
     label: 'Product',
     items: [
       { href: '/admin/sponsorship', label: 'Sponsorship', icon: ICON_SPONSORSHIP, ownerOnly: true },
+      {
+        href: '/admin/announcements',
+        label: 'Announcements',
+        icon: ICON_ANNOUNCEMENTS,
+        ownerOnly: true
+      },
       { href: '/admin/seasons', label: 'Seasons', icon: ICON_SEASONS, ownerOnly: true },
       { href: '/admin/trends', label: 'Trends', icon: ICON_TRENDS }
     ]

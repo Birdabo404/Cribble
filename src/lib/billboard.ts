@@ -1,15 +1,16 @@
 // Shared contract for the Billboard ad-spot system (migration 030):
 // the horizontally-scrolling train of paid ads + free top-3 hype items
-// shown under the navbar on the dashboard and leaderboard. The API
-// routes, admin queue, buyer page and ticker all build against the
-// shapes and helpers here. Pure and isomorphic — safe to import from
-// 'use client' components. URL validation (cleanBillboardUrl) needs
-// node builtins and lives in @/lib/billboardServer.
+// + operator-pushed announcements shown under the navbar on the
+// dashboard and leaderboard. The API routes, admin queue, buyer page
+// and ticker all build against the shapes and helpers here. Pure and
+// isomorphic — safe to import from 'use client' components. URL
+// validation (cleanBillboardUrl) needs node builtins and lives in
+// @/lib/billboardServer.
 //
 // Public API contract:
 //   GET /api/billboard -> { items: BillboardItem[] }
-//     Hype items first, then live flipper ads ordered by starts_at
-//     ascending.
+//     Live operator announcements first, then hype items, then live
+//     flipper ads ordered by starts_at ascending.
 //   GET /api/billboard/rails -> { items: RailItem[] }
 //     Live rail ads (placement 'rail'), in RAIL_SLOTS order.
 //   GET /api/billboard/slots -> SlotBoard
@@ -48,6 +49,11 @@ export const BILLBOARD_TEXT_MAX = 80
 /** Cap on the company/brand title line (migration 034), counted in
  *  code points like BILLBOARD_TEXT_MAX. */
 export const BILLBOARD_COMPANY_MAX = 40
+/** Caps on operator-announcement copy (migration 050), counted in code
+ *  points like BILLBOARD_COMPANY_MAX / BILLBOARD_TEXT_MAX: the headline
+ *  is the strip's title line, the body its text line. */
+export const BILLBOARD_ANNOUNCE_HEADLINE_MAX = 40
+export const BILLBOARD_ANNOUNCE_BODY_MAX = 80
 /** $200 per flipper slot per rolling 7 days; payment is manual in v1. */
 export const BILLBOARD_PRICE_CENTS = 20000
 /** Weekly rail price per slot: a scarcity ladder by row — the top row
@@ -152,6 +158,22 @@ export type BillboardItem =
       avatarUrl: string | null
       movedAt: string
     }
+  | {
+      /** An operator-pushed site announcement from
+       *  billboard_announcements (migration 050). Free copy like hype —
+       *  it rides the announcement cadence and chrome, never dressed as
+       *  SPONSOR. */
+      kind: 'announce'
+      id: number
+      /** Title line, <= BILLBOARD_ANNOUNCE_HEADLINE_MAX code points. */
+      headline: string
+      /** Text line, <= BILLBOARD_ANNOUNCE_BODY_MAX code points. */
+      body: string
+      /** Operator-supplied link; NULL renders a non-interactive card.
+       *  Operator-trusted, so cards link it directly — the click-redirect
+       *  route is for paid ads only. */
+      linkUrl: string | null
+    }
 
 /** One live rail ad, as served by GET /api/billboard/rails. Field
  *  semantics match BillboardItem's ad variant; slot is where the card
@@ -207,13 +229,14 @@ export function isLiveAd(
 
 /* ------------------------------------------------------------------ *
  * Flipper cadence + chrome — the ticker's per-kind timing contract.
- * Paid ads are the product and keep the long exposure. Top-3 hype
- * announcements are a free courtesy: each gets one unhurried hold,
- * but announcement-only trains play a single pass and retract instead
- * of looping for the full sponsored show — that one-pass close, not
- * the hold length, is what keeps free hype short of a sponsor's
- * airtime. Pure so BillboardTicker's scheduling stays unit-testable
- * without mounting the component.
+ * Paid ads are the product and keep the long exposure. Top-3 hype and
+ * operator announcements (kind 'announce') are free copy on identical
+ * cadence: each gets one unhurried hold, but announcement-only trains
+ * play a single pass and retract instead of looping for the full
+ * sponsored show — that one-pass close, not the hold length, is what
+ * keeps free copy short of a sponsor's airtime. Pure so
+ * BillboardTicker's scheduling stays unit-testable without mounting
+ * the component.
  * ------------------------------------------------------------------ */
 
 /** Per-rotation hold for a paid ad on a multi-item show. */
@@ -230,22 +253,39 @@ export const BILLBOARD_AD_SHOW_FOR_MS = 180_000
 /** Wall-clock cap on announcement-only shows. They normally end
  *  themselves after one pass (billboardShouldCloseAfterHold); this
  *  backstops that, e.g. against hover-pausing the rotation forever.
- *  Sized to fit a full pass of the API's max three hype items. */
+ *  Sized to fit a full pass of the API's max three hype items; a live
+ *  operator announcement riding with all three overflows it, and the
+ *  backstop trims that pass short — acceptable for a cap that exists
+ *  to bound free airtime. */
 export const BILLBOARD_HYPE_SHOW_FOR_MS = 30_000
 
-/** True when the fetched train carries no paid ads — only top-3
- *  announcements. An empty train is nobody's announcement. */
+/** True when the fetched train carries no paid ads — only free copy
+ *  (top-3 hype, operator announcements). An empty train is nobody's
+ *  announcement. */
 export function isAnnouncementOnly(items: BillboardItem[]): boolean {
-  return items.length > 0 && items.every((item) => item.kind === 'hype')
+  return (
+    items.length > 0 &&
+    items.every((item) => item.kind === 'hype' || item.kind === 'announce')
+  )
 }
 
 /** How long the given item holds on screen before the ticker advances.
  *  `multi` = more than one item in the train: a solo ad's "hold" is the
- *  replay cadence of its build-in; a hype item never earns the solo
- *  replay treatment — its hold is one announcement beat either way. */
+ *  replay cadence of its build-in; hype and operator announcements
+ *  never earn the solo replay treatment — their hold is one
+ *  announcement beat either way. */
 export function billboardHoldMs(item: BillboardItem, multi: boolean): number {
-  if (item.kind === 'hype') return BILLBOARD_HYPE_HOLD_MS
-  return multi ? BILLBOARD_AD_HOLD_MS : BILLBOARD_AD_SOLO_REPLAY_MS
+  switch (item.kind) {
+    case 'hype':
+    case 'announce':
+      return BILLBOARD_HYPE_HOLD_MS
+    case 'ad':
+      return multi ? BILLBOARD_AD_HOLD_MS : BILLBOARD_AD_SOLO_REPLAY_MS
+    default: {
+      const exhaustive: never = item
+      return exhaustive
+    }
+  }
 }
 
 /** Wall-clock show length for a fetched train: any paid ad buys the
@@ -257,13 +297,15 @@ export function billboardShowForMs(items: BillboardItem[]): number {
 }
 
 /** Broadcast chrome for the active item: the inverted-mono label block
- *  and the banner's aria-label. Hype is an announcement, not an ad —
- *  mislabeling it SPONSOR is the bug this exists to prevent. */
+ *  and the banner's aria-label. Hype and operator announcements are
+ *  announcements, not ads — mislabeling either as SPONSOR is the bug
+ *  this exists to prevent. */
 export function billboardChrome(item: BillboardItem): { label: string; ariaLabel: string } {
   switch (item.kind) {
     case 'ad':
       return { label: 'SPONSOR', ariaLabel: 'Sponsorship' }
     case 'hype':
+    case 'announce':
       return { label: 'ANNOUNCEMENT', ariaLabel: 'Announcement' }
     default: {
       const exhaustive: never = item
@@ -273,9 +315,9 @@ export function billboardChrome(item: BillboardItem): { label: string; ariaLabel
 }
 
 /** Announcement-only trains end after the last item's hold instead of
- *  wrapping (or, solo, replaying): true exactly when every item is hype
- *  and `activeIndex` is the final one. Always false once an ad is
- *  aboard — mixed trains keep the sponsored loop. */
+ *  wrapping (or, solo, replaying): true exactly when every item is free
+ *  copy (hype or announce) and `activeIndex` is the final one. Always
+ *  false once an ad is aboard — mixed trains keep the sponsored loop. */
 export function billboardShouldCloseAfterHold(
   items: BillboardItem[],
   activeIndex: number

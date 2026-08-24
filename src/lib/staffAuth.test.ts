@@ -79,6 +79,7 @@ describe('minRoleFor', () => {
       'invite.manage',
       'team.review',
       'billboard.review',
+      'announcement.manage',
       'debug.manage'
     ]
     for (const action of ownerActions) {

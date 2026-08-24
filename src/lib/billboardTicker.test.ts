@@ -32,12 +32,30 @@ const ad = (id: number): BillboardItem => ({
   accentColor: null
 })
 
+const announce = (id: number): BillboardItem => ({
+  kind: 'announce',
+  id,
+  headline: 'Season two is live',
+  body: 'Fresh board, fresh ranks — the climb starts now.',
+  linkUrl: null
+})
+
 describe('isAnnouncementOnly', () => {
   it('is true only when every item is hype', () => {
     expect(isAnnouncementOnly([hype(1)])).toBe(true)
     expect(isAnnouncementOnly([hype(1), hype(2), hype(3)])).toBe(true)
     expect(isAnnouncementOnly([hype(1), ad(10)])).toBe(false)
     expect(isAnnouncementOnly([ad(10)])).toBe(false)
+  })
+
+  it('counts operator announcements as announcements, alone or mixed with hype', () => {
+    expect(isAnnouncementOnly([announce(1)])).toBe(true)
+    expect(isAnnouncementOnly([announce(1), hype(2), hype(3)])).toBe(true)
+  })
+
+  it('is false once an ad boards an announce train', () => {
+    expect(isAnnouncementOnly([announce(1), ad(10)])).toBe(false)
+    expect(isAnnouncementOnly([announce(1), hype(2), ad(10)])).toBe(false)
   })
 
   it('is false for an empty train', () => {
@@ -56,6 +74,11 @@ describe('billboardHoldMs', () => {
     expect(billboardHoldMs(ad(10), true)).toBe(BILLBOARD_AD_HOLD_MS)
     expect(billboardHoldMs(ad(10), false)).toBe(BILLBOARD_AD_SOLO_REPLAY_MS)
   })
+
+  it('gives an operator announcement the hype beat, solo or not', () => {
+    expect(billboardHoldMs(announce(1), true)).toBe(BILLBOARD_HYPE_HOLD_MS)
+    expect(billboardHoldMs(announce(1), false)).toBe(BILLBOARD_HYPE_HOLD_MS)
+  })
 })
 
 describe('billboardShowForMs', () => {
@@ -69,6 +92,12 @@ describe('billboardShowForMs', () => {
     expect(billboardShowForMs([hype(1)])).toBe(BILLBOARD_HYPE_HOLD_MS)
     expect(billboardShowForMs([hype(1), hype(2)])).toBe(2 * BILLBOARD_HYPE_HOLD_MS)
     expect(billboardShowForMs([hype(1), hype(2), hype(3)])).toBe(3 * BILLBOARD_HYPE_HOLD_MS)
+  })
+
+  it('operator announcements ride the same free-copy math — an ad aboard still buys the loop', () => {
+    expect(billboardShowForMs([announce(1)])).toBe(BILLBOARD_HYPE_HOLD_MS)
+    expect(billboardShowForMs([announce(1), hype(2)])).toBe(2 * BILLBOARD_HYPE_HOLD_MS)
+    expect(billboardShowForMs([announce(1), ad(10)])).toBe(BILLBOARD_AD_SHOW_FOR_MS)
   })
 
   it('caps announcement-only shows at the hype ceiling', () => {
@@ -93,6 +122,13 @@ describe('billboardChrome', () => {
   it('keeps the sponsor chrome for paid ads', () => {
     expect(billboardChrome(ad(10))).toEqual({ label: 'SPONSOR', ariaLabel: 'Sponsorship' })
   })
+
+  it('labels an operator announcement as an announcement, never a sponsor', () => {
+    expect(billboardChrome(announce(1))).toEqual({
+      label: 'ANNOUNCEMENT',
+      ariaLabel: 'Announcement'
+    })
+  })
 })
 
 describe('billboardShouldCloseAfterHold', () => {
@@ -106,10 +142,18 @@ describe('billboardShouldCloseAfterHold', () => {
     expect(billboardShouldCloseAfterHold([hype(1), hype(2), hype(3)], 1)).toBe(false)
   })
 
+  it('closes announce-only and mixed announce+hype trains after one pass, like hype', () => {
+    expect(billboardShouldCloseAfterHold([announce(1)], 0)).toBe(true)
+    expect(billboardShouldCloseAfterHold([announce(1), hype(2), hype(3)], 2)).toBe(true)
+    expect(billboardShouldCloseAfterHold([announce(1), hype(2), hype(3)], 0)).toBe(false)
+    expect(billboardShouldCloseAfterHold([announce(1), hype(2), hype(3)], 1)).toBe(false)
+  })
+
   it('never closes a train carrying a paid ad — the sponsored loop owns the clock', () => {
     expect(billboardShouldCloseAfterHold([ad(10)], 0)).toBe(false)
     expect(billboardShouldCloseAfterHold([hype(1), ad(10)], 0)).toBe(false)
     expect(billboardShouldCloseAfterHold([hype(1), ad(10)], 1)).toBe(false)
     expect(billboardShouldCloseAfterHold([ad(10), ad(11)], 1)).toBe(false)
+    expect(billboardShouldCloseAfterHold([announce(1), ad(10)], 1)).toBe(false)
   })
 })
