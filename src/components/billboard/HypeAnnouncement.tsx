@@ -1,17 +1,24 @@
 'use client'
 
-// The takeover body of BillboardTicker's hype layer. The ticker keeps
-// every bit of scheduling (phases, holds, flip mechanics, the Link
-// wrapper and layer keys); this component owns the broadcast staging:
-// a full-bleed bed (outline marquee + WebGL gold caustic) with the
+// The takeover body of BillboardTicker's hype layer, shared by rank
+// hype events (throne / top3 / top10) and score-milestone clubs. The
+// ticker keeps every bit of scheduling (phases, holds, flip mechanics,
+// the Link wrapper and layer keys); this component owns the broadcast
+// staging: a full-bleed bed (outline marquee + WebGL caustic) with the
 // content zones aligned mx-auto max-w-6xl over it, so the card lines up
 // with the board below instead of floating in unclaimed width. Below sm
-// it collapses to a two-line strip that keeps the climb payload (the
-// downward rank reel and the delta chip) but none of the bed — the
-// marquee and shader are desktop furniture, and phones never spend a
-// WebGL context on them.
+// it collapses to a two-line strip that keeps the payload (the downward
+// rank reel and delta chip, or the club label) but none of the bed —
+// the marquee and shader are desktop furniture, and phones never spend
+// a WebGL context on them.
 //
-// Preserved anatomy: same strip padding, 3px gold left stripe and
+// Everything tier-flavored — marquee copy, kinetic words, the landing
+// word, the accent — comes from billboardStageTheme, and the accent
+// lands as ONE --hype-accent variable on the root: the inline styles
+// here, the hype classes in globals.css and the shader bed (via the
+// accentVar prop) all read it, so a tier can't half-recolor the card.
+//
+// Preserved anatomy: same strip padding, 3px accent left stripe and
 // avatar seat as BillboardCard's lg shape, so ad-to-hype flips hinge on
 // consistent geometry.
 //
@@ -21,7 +28,10 @@
 // through the intermediate ranks from 500ms, and the land beat at
 // ~1100ms — overshoot bloom on the number plus the shader bed's
 // one-shot shockwave (the `burst` counter increments exactly once per
-// flip-in mount).
+// flip-in mount). Club items have no rank story, so their center
+// payload is the club label plate instead of the reel/track — but it
+// lands on the same beat: the bloom class and the shockwave fire at
+// LAND_MS either way.
 //
 // `animate` is the ticker's arm signal (open && !leaving). False renders
 // the resolved state — the leaving copy and pre-open mounts both land
@@ -34,8 +44,14 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { formatRelative } from '@/components/dashboard-v2/format'
 import { Avatar } from '@/components/leaderboard/Avatar'
-import { billboardHypeSentence, billboardRankClimb, hypeRankLadder } from '@/lib/billboard'
-import type { BillboardHypeItem } from '@/lib/billboard'
+import {
+  billboardClubSentence,
+  billboardHypeSentence,
+  billboardRankClimb,
+  billboardStageTheme,
+  hypeRankLadder
+} from '@/lib/billboard'
+import type { BillboardClubItem, BillboardHypeItem } from '@/lib/billboard'
 import { prefersReducedMotion } from '@/lib/motion'
 import { useDecode } from '@/lib/useDecode'
 
@@ -60,13 +76,11 @@ const REEL_EASING = 'cubic-bezier(0.16, 1, 0.3, 1)'
  *  measured — roughly where the anchor sits on a desktop banner. */
 const ORIGIN_FALLBACK = 0.08
 
-/** Sentence words for the kinetic build; the gold "TOP 3" lands last. */
-const KIN_WORDS = ['just', 'entered', 'the']
-
-/** One marquee copy — repeated wide enough that the seamless -50% wrap
- *  never shows a hole on wide desktop banners. NBSPs so the trailing
- *  separator's spacing survives HTML whitespace collapsing. */
-const MARQUEE_COPY = 'TOP 3\u00A0·\u00A0'.repeat(14)
+/** How many times the theme's one marquee copy unit repeats — wide
+ *  enough that the seamless -50% wrap never shows a hole on wide
+ *  desktop banners. NBSPs so the trailing separator's spacing survives
+ *  HTML whitespace collapsing. */
+const MARQUEE_REPEATS = 14
 
 /** OS media query plus the in-app Appearance toggle — the JS-driven
  *  motion here (decode interval, reel timers, shader) honors both, like
@@ -127,7 +141,7 @@ export function HypeAnnouncement({
   paused,
   className = ''
 }: {
-  item: BillboardHypeItem
+  item: BillboardHypeItem | BillboardClubItem
   /** The ticker's arm signal (open && !leaving) — false renders resolved. */
   animate: boolean
   /** The ticker's hover-pause state, passed through to the shader bed. */
@@ -135,15 +149,31 @@ export function HypeAnnouncement({
   className?: string
 }) {
   const name = item.displayName || item.username
-  const climb = billboardRankClimb(item)
-  const ladder = hypeRankLadder(climb.from, climb.to)
+  const theme = billboardStageTheme(item)
+  // The landing word can't wrap mid-phrase ("THE THRONE", "100K CLUB").
+  const accentWord = theme.accentWord.replace(/ /g, '\u00A0')
+  const marqueeCopy = `${theme.marquee}\u00A0·\u00A0`.repeat(MARQUEE_REPEATS)
+  const sentence =
+    item.kind === 'hype' ? billboardHypeSentence(item) : billboardClubSentence(item)
+  const freshAt = item.kind === 'hype' ? item.movedAt : item.reachedAt
+
+  // The rank story exists only on hype items — club renders the label
+  // plate where these drive the reel and climb track.
+  const climb = item.kind === 'hype' ? billboardRankClimb(item) : null
+  const ladder = climb ? hypeRankLadder(climb.from, climb.to) : null
+  const victim = item.kind === 'hype' ? (item.victim ?? null) : null
+  const victimName = victim ? victim.displayName || victim.username : null
   // Climb track domain: old rank at the left edge, rank 1 at the right —
   // the marker lands short of the summit, so the remaining gap reads as
   // the distance still to climb. Clamped like billboardRankClimb's
   // places: a stale non-climb payload parks the marker at the left edge
   // instead of scaling the trail negative.
   const climbTo =
-    climb.from > 1 ? Math.min(1, Math.max(0, (climb.from - climb.to) / (climb.from - 1))) : 1
+    climb === null
+      ? 0
+      : climb.from > 1
+        ? Math.min(1, Math.max(0, (climb.from - climb.to) / (climb.from - 1)))
+        : 1
 
   // Snapshot per mount, like the ticker's own reducedMotion state. The
   // banner only ever renders client-side (the ticker mounts nothing until
@@ -220,19 +250,31 @@ export function HypeAnnouncement({
     <span
       ref={stripRef}
       className={`relative flex w-full min-w-0 items-center overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/80 px-3 py-2 sm:px-4 sm:py-2.5 ${className}`}
+      style={
+        // The one accent seat: the tier's --lb-* variable (a bare rgb
+        // triplet) feeds every inline style below, the hype classes in
+        // globals.css and — resolved via the accentVar prop — the bed.
+        { '--hype-accent': `var(${theme.accentVar})` } as CSSProperties
+      }
     >
-      {/* Bed, back to front: the gold wash (hype's fixed accent, where an
+      {/* Bed, back to front: the accent wash (the tier's hue, where an
           ad gets its extracted tint), the WebGL caustic, the outline
           marquee. All decoration — the sr sentence below carries the
           announcement. */}
       <span
         aria-hidden
         className="pointer-events-none absolute inset-0"
-        style={{ background: 'rgb(var(--lb-gold) / 0.08)' }}
+        style={{ background: 'rgb(var(--hype-accent) / 0.08)' }}
       />
       {smUp && !reduced && animate && (
         <span aria-hidden className="pointer-events-none absolute inset-0 hidden sm:block">
-          <HypeShaderBed origin={origin} burst={burst} paused={paused} className="h-full w-full" />
+          <HypeShaderBed
+            origin={origin}
+            burst={burst}
+            paused={paused}
+            accentVar={theme.accentVar}
+            className="h-full w-full"
+          />
         </span>
       )}
       <span
@@ -240,27 +282,28 @@ export function HypeAnnouncement({
         className="billboard-hype-marquee pointer-events-none absolute inset-0 hidden items-center sm:flex"
       >
         <span className="billboard-hype-marquee-track">
-          <span className="billboard-hype-marquee-copy">{MARQUEE_COPY}</span>
-          <span className="billboard-hype-marquee-copy">{MARQUEE_COPY}</span>
+          <span className="billboard-hype-marquee-copy">{marqueeCopy}</span>
+          <span className="billboard-hype-marquee-copy">{marqueeCopy}</span>
         </span>
       </span>
       {/* Preserved anatomy: the 3px stripe in the ad card's accent seat. */}
       <span
         aria-hidden
         className="absolute inset-y-0 left-0 w-[3px]"
-        style={{ background: 'rgb(var(--lb-gold))' }}
+        style={{ background: 'rgb(var(--hype-accent))' }}
       />
 
       {/* One coherent sentence for screen readers; every animated visual
           fragment below is an aria-hidden rendering of it. */}
-      <span className="sr-only">{billboardHypeSentence(item)}</span>
+      <span className="sr-only">{sentence}</span>
 
-      {/* Below sm: the compact two-line strip, now carrying the climb
-          payload — same reel state machine as the desktop stage, no bed. */}
+      {/* Below sm: the compact two-line strip — same reel state machine
+          as the desktop stage for rank tiers, the landing club label for
+          clubs, no bed and no victim register either way. */}
       <span aria-hidden className="relative flex w-full min-w-0 items-center gap-2.5 sm:hidden">
         <span
           className="relative shrink-0 rounded-full"
-          style={{ boxShadow: '0 0 0 1px rgb(var(--lb-gold) / 0.5)' }}
+          style={{ boxShadow: '0 0 0 1px rgb(var(--hype-accent) / 0.5)' }}
         >
           <Avatar
             src={item.avatarUrl}
@@ -277,39 +320,59 @@ export function HypeAnnouncement({
           >
             {name}
           </span>
-          <span
-            className={`flex items-center gap-1.5 text-sm leading-5 text-zinc-200 ${
-              animate ? 'billboard-build-text' : ''
-            }`}
-          >
-            <span>climbed</span>
-            <span className="tabular-nums text-zinc-500">#{climb.from}</span>
-            <span className="text-zinc-600">→</span>
+          {climb && ladder ? (
             <span
-              className={`inline-flex items-center font-semibold tabular-nums ${
-                playing && landed ? 'billboard-rank-land' : ''
+              className={`flex items-center gap-1.5 text-sm leading-5 text-zinc-200 ${
+                animate ? 'billboard-build-text' : ''
               }`}
-              style={{ color: 'rgb(var(--lb-gold))' }}
             >
-              #<RankReel ladder={ladder} engaged={engaged} animating={playing} />
+              <span>climbed</span>
+              <span className="tabular-nums text-zinc-500">#{climb.from}</span>
+              <span className="text-zinc-600">→</span>
+              <span
+                className={`inline-flex items-center font-semibold tabular-nums ${
+                  playing && landed ? 'billboard-rank-land' : ''
+                }`}
+                style={{ color: 'rgb(var(--hype-accent))' }}
+              >
+                #<RankReel ladder={ladder} engaged={engaged} animating={playing} />
+              </span>
             </span>
+          ) : (
+            <span
+              className={`flex min-w-0 items-center gap-1.5 text-sm leading-5 text-zinc-200 ${
+                animate ? 'billboard-build-text' : ''
+              }`}
+            >
+              <span>joined the</span>
+              <span
+                className={`truncate font-semibold ${
+                  playing && landed ? 'billboard-rank-land' : ''
+                }`}
+                style={{ color: 'rgb(var(--hype-accent))' }}
+              >
+                {accentWord}
+              </span>
+            </span>
+          )}
+        </span>
+        {climb && (
+          <span
+            className="shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums"
+            style={{
+              color: 'rgb(var(--lb-up))',
+              borderColor: 'rgb(var(--lb-up) / 0.35)',
+              background: 'rgb(var(--lb-up) / 0.08)'
+            }}
+          >
+            ▲{climb.places}
           </span>
-        </span>
-        <span
-          className="shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums"
-          style={{
-            color: 'rgb(var(--lb-up))',
-            borderColor: 'rgb(var(--lb-up) / 0.35)',
-            background: 'rgb(var(--lb-up) / 0.08)'
-          }}
-        >
-          ▲{climb.places}
-        </span>
+        )}
       </span>
 
       {/* sm and up: the broadcast stage — three content zones aligned to
           the board's max-w-6xl over the full-bleed bed. Left and right
-          flex evenly so the rank zone sits truly centered. */}
+          flex evenly so the center payload sits truly centered. */}
       <span
         aria-hidden
         className="relative mx-auto hidden w-full min-w-0 max-w-6xl items-center gap-4 sm:flex"
@@ -319,7 +382,7 @@ export function HypeAnnouncement({
           <span
             ref={anchorRef}
             className="relative shrink-0 rounded-full"
-            style={{ boxShadow: '0 0 0 1px rgb(var(--lb-gold) / 0.5)' }}
+            style={{ boxShadow: '0 0 0 1px rgb(var(--hype-accent) / 0.5)' }}
           >
             <Avatar
               src={item.avatarUrl}
@@ -331,12 +394,12 @@ export function HypeAnnouncement({
           <span className="flex min-w-0 flex-col justify-center gap-0.5">
             <span
               className="truncate text-[11px] font-semibold uppercase leading-4 tracking-[0.2em] text-zinc-50"
-              style={decoding ? { color: 'rgb(var(--lb-gold) / 0.9)' } : undefined}
+              style={decoding ? { color: 'rgb(var(--hype-accent) / 0.9)' } : undefined}
             >
               {decodedName}
             </span>
             <span className="truncate text-sm leading-5 text-zinc-200">
-              {KIN_WORDS.map((word, i) => (
+              {theme.kineticWords.map((word, i) => (
                 <Fragment key={word}>
                   {i > 0 && ' '}
                   <span
@@ -357,93 +420,161 @@ export function HypeAnnouncement({
                 className={playing ? 'billboard-kin-word' : undefined}
                 style={
                   {
-                    color: 'rgb(var(--lb-gold))',
+                    color: 'rgb(var(--hype-accent))',
                     ...(playing
-                      ? { '--kin-d': `${KIN_BASE_MS + KIN_WORDS.length * KIN_STAGGER_MS}ms` }
+                      ? {
+                          '--kin-d': `${
+                            KIN_BASE_MS + theme.kineticWords.length * KIN_STAGGER_MS
+                          }ms`
+                        }
                       : null)
                   } as CSSProperties
                 }
               >
-                TOP&nbsp;3
+                {accentWord}
               </span>
             </span>
           </span>
         </span>
 
-        {/* CENTER — the payload: the downward rank reel over the climb
-            track. Fades in after the flip lands (billboard-hype-extra). */}
-        <span
-          className={`flex shrink-0 flex-col items-center justify-center gap-1 ${
-            playing ? 'billboard-hype-extra' : ''
-          }`}
-        >
-          <span className="flex items-center gap-2">
-            <span className="text-[9px] tracking-[0.3em] text-zinc-500">RANK</span>
-            <span
-              className={`font-display inline-flex items-center text-[22px] font-semibold leading-none tabular-nums text-zinc-50 ${
-                playing && landed ? 'billboard-rank-land' : ''
-              }`}
-              style={!playing ? { color: 'rgb(var(--lb-gold))' } : undefined}
-            >
-              <span className="text-zinc-500">#</span>
-              <RankReel ladder={ladder} engaged={engaged} animating={playing} />
-            </span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="billboard-progress-track relative block h-0.5 w-28 rounded-full">
-              {/* Gold trail from the old rank's seat to the landing… */}
+        {/* CENTER — the payload. Rank tiers: the downward rank reel over
+            the climb track. Clubs: the label plate, resting until the
+            same land beat blooms it (the shockwave fires there too).
+            Either way it fades in after the flip lands
+            (billboard-hype-extra). */}
+        {climb && ladder ? (
+          <span
+            className={`flex shrink-0 flex-col items-center justify-center gap-1 ${
+              playing ? 'billboard-hype-extra' : ''
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <span className="text-[9px] tracking-[0.3em] text-zinc-500">RANK</span>
               <span
-                className="absolute inset-0 rounded-full"
-                style={{
-                  background:
-                    'linear-gradient(90deg, rgb(var(--lb-gold) / 0.25), rgb(var(--lb-gold)))',
-                  transform: `scaleX(${rolledOut ? climbTo : 0})`,
-                  transformOrigin: 'left',
-                  transition: rollTransition
-                }}
-              />
-              {/* …with the marker riding a full-width arm, so the travel
-                  stays a pure transform (translateX % is of the arm =
-                  track width, not the dot). */}
-              <span
-                className="absolute inset-0"
-                style={{
-                  transform: `translateX(${(rolledOut ? climbTo : 0) * 100}%)`,
-                  transition: rollTransition
-                }}
+                className={`font-display inline-flex items-center text-[22px] font-semibold leading-none tabular-nums text-zinc-50 ${
+                  playing && landed ? 'billboard-rank-land' : ''
+                }`}
+                style={!playing ? { color: 'rgb(var(--hype-accent))' } : undefined}
               >
+                <span className="text-zinc-500">#</span>
+                <RankReel ladder={ladder} engaged={engaged} animating={playing} />
+              </span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="billboard-progress-track relative block h-0.5 w-28 rounded-full">
+                {/* Accent trail from the old rank's seat to the landing… */}
                 <span
-                  className="absolute -left-[3px] top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full"
+                  className="absolute inset-0 rounded-full"
                   style={{
-                    background: 'rgb(var(--lb-gold))',
-                    boxShadow: '0 0 8px rgb(var(--lb-gold) / 0.8)'
+                    background:
+                      'linear-gradient(90deg, rgb(var(--hype-accent) / 0.25), rgb(var(--hype-accent)))',
+                    transform: `scaleX(${rolledOut ? climbTo : 0})`,
+                    transformOrigin: 'left',
+                    transition: rollTransition
                   }}
                 />
+                {/* …with the marker riding a full-width arm, so the travel
+                    stays a pure transform (translateX % is of the arm =
+                    track width, not the dot). */}
+                <span
+                  className="absolute inset-0"
+                  style={{
+                    transform: `translateX(${(rolledOut ? climbTo : 0) * 100}%)`,
+                    transition: rollTransition
+                  }}
+                >
+                  <span
+                    className="absolute -left-[3px] top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full"
+                    style={{
+                      background: 'rgb(var(--hype-accent))',
+                      boxShadow: '0 0 8px rgb(var(--hype-accent) / 0.8)'
+                    }}
+                  />
+                </span>
               </span>
+              <span className="text-[8px] tabular-nums tracking-[0.15em] text-zinc-600">#1</span>
             </span>
-            <span className="text-[8px] tabular-nums tracking-[0.15em] text-zinc-600">#1</span>
           </span>
-        </span>
+        ) : (
+          <span
+            className={`flex shrink-0 items-center justify-center ${
+              playing ? 'billboard-hype-extra' : ''
+            }`}
+          >
+            <span
+              className={`font-display whitespace-nowrap rounded border px-2.5 py-1.5 text-[15px] font-semibold leading-none tracking-[0.14em] text-zinc-50 ${
+                playing && landed ? 'billboard-rank-land' : ''
+              }`}
+              style={{
+                borderColor: 'rgb(var(--hype-accent) / 0.35)',
+                background: 'rgb(var(--hype-accent) / 0.08)',
+                ...(!playing ? { color: 'rgb(var(--hype-accent))' } : null)
+              }}
+            >
+              {accentWord}
+            </span>
+          </span>
+        )}
 
-        {/* RIGHT — the register: delta chip, freshness, affordance. */}
+        {/* RIGHT — the register: the derank callout when a rank tier
+            carries a victim, then delta chip + freshness (rank tiers) or
+            freshness in the chip's seat (clubs), then the affordance. */}
         <span
-          className={`flex flex-1 items-center justify-end gap-2.5 ${
+          className={`flex min-w-0 flex-1 items-center justify-end gap-2.5 ${
             playing ? 'billboard-hype-extra' : ''
           }`}
         >
-          <span
-            className="rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums"
-            style={{
-              color: 'rgb(var(--lb-up))',
-              borderColor: 'rgb(var(--lb-up) / 0.35)',
-              background: 'rgb(var(--lb-up) / 0.08)'
-            }}
-          >
-            ▲{climb.places}
-          </span>
-          <span className="hidden whitespace-nowrap text-[10px] tabular-nums tracking-[0.12em] text-zinc-500 md:inline">
-            {formatRelative(item.movedAt)}
-          </span>
+          {victim && victimName && (
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="shrink-0 text-[9px] uppercase tracking-[0.25em] text-zinc-500">
+                deranked
+              </span>
+              <span className="shrink-0">
+                <Avatar
+                  src={victim.avatarUrl}
+                  char={victimName.charAt(0).toUpperCase() || '?'}
+                  imgClassName="block h-5 w-5 rounded-full object-cover"
+                  fallbackClassName="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-800 text-[9px] text-zinc-400"
+                />
+              </span>
+              <span className="truncate text-[11px] font-semibold text-zinc-300">
+                {victimName}
+              </span>
+              <span
+                className="shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-none"
+                style={{
+                  color: 'rgb(var(--lb-down))',
+                  borderColor: 'rgb(var(--lb-down) / 0.35)',
+                  background: 'rgb(var(--lb-down) / 0.08)'
+                }}
+              >
+                ▼
+              </span>
+            </span>
+          )}
+          {climb ? (
+            <>
+              <span
+                className="shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums"
+                style={{
+                  color: 'rgb(var(--lb-up))',
+                  borderColor: 'rgb(var(--lb-up) / 0.35)',
+                  background: 'rgb(var(--lb-up) / 0.08)'
+                }}
+              >
+                ▲{climb.places}
+              </span>
+              <span className="hidden whitespace-nowrap text-[10px] tabular-nums tracking-[0.12em] text-zinc-500 md:inline">
+                {formatRelative(freshAt)}
+              </span>
+            </>
+          ) : (
+            // No rank delta on a club — freshness takes the chip's seat,
+            // so it shows from sm instead of hiding until md.
+            <span className="whitespace-nowrap text-[10px] tabular-nums tracking-[0.12em] text-zinc-500">
+              {formatRelative(freshAt)}
+            </span>
+          )}
           <span className="text-sm text-zinc-500 transition-transform duration-150 group-hover:translate-x-0.5">
             →
           </span>

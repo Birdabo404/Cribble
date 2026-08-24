@@ -11,6 +11,7 @@
 // readRankMovements, to decorate rows with climb/drop/NEW state.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { deriveHypeEvents, recordHypeEvents } from './hypeEvents'
 import {
   diffStandings,
   MOVEMENT_WINDOW_MS,
@@ -165,6 +166,14 @@ export async function refreshLeaderboardSnapshot(
     if (demotions.length > 0) {
       await evaluateDemotionNotifications(supabase, demotions, now)
     }
+
+    // Hype pass, same signal: this updates array is the only place a
+    // climb and the fall it caused exist side by side, so the one-shot
+    // billboard events (throne / top3 / top10, victim attached) are
+    // derived and recorded here, before the pairing is lost to the
+    // persisted rows. recordHypeEvents never throws — hype must not
+    // break the sync, same as this whole function.
+    await recordHypeEvents(supabase, deriveHypeEvents(updates, now))
   } catch (err) {
     console.warn('[Leaderboard] Snapshot refresh unavailable:', err)
   }

@@ -6,6 +6,7 @@
 // re-evaluate milestones on every sync without spamming the feed.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { buildClubHypeEvent, recordHypeEvents } from './hypeEvents'
 import type { NotificationType } from '@/types/notifications'
 
 export interface NotificationInput {
@@ -182,6 +183,15 @@ export async function evaluateScoreNotifications(
         data: { threshold: milestone, totalScore },
         dedupeKey: `score_${milestone}`
       })
+
+      // The big clubs also air publicly on the billboard (migration
+      // 052). buildClubHypeEvent owns the 100K floor, and the
+      // forever-once dedupe key makes this per-sync re-evaluation land
+      // on the unique index instead of airing twice.
+      const clubEvent = buildClubHypeEvent(userId, milestone)
+      if (clubEvent !== null) {
+        await recordHypeEvents(supabase, [clubEvent])
+      }
     }
 
     await insertMissingNotifications(supabase, userId, candidates)

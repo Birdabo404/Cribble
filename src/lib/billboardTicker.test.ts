@@ -6,19 +6,32 @@ import {
   BILLBOARD_HYPE_HOLD_MS,
   BILLBOARD_HYPE_SHOW_FOR_MS,
   HYPE_LADDER_MAX_RUNGS,
+  HYPE_TIER_THEME,
   billboardChrome,
+  billboardClubSentence,
   billboardHoldMs,
   billboardHypeSentence,
   billboardRankClimb,
   billboardShouldCloseAfterHold,
   billboardShowForMs,
+  billboardStageTheme,
   hypeRankLadder,
   isAnnouncementOnly
 } from './billboard'
-import type { BillboardHypeItem, BillboardItem } from './billboard'
+import type {
+  BillboardClubItem,
+  BillboardHypeItem,
+  BillboardHypeVictim,
+  BillboardItem
+} from './billboard'
 
+// Tier falls out of the landing rank, so a fixture can't tell a
+// mismatched rank/tier story: rank 1 is a throne take, 2-3 a TOP 3
+// breakthrough, anything deeper TOP 10.
 const hype = (userId: number, rank = 2, prevRank = 7): BillboardHypeItem => ({
   kind: 'hype',
+  id: userId,
+  tier: rank === 1 ? 'throne' : rank <= 3 ? 'top3' : 'top10',
   userId,
   username: `pilot${userId}`,
   displayName: null,
@@ -26,6 +39,23 @@ const hype = (userId: number, rank = 2, prevRank = 7): BillboardHypeItem => ({
   rank,
   prevRank,
   movedAt: '2026-08-21T00:00:00.000Z'
+})
+
+const victim = (username: string): BillboardHypeVictim => ({
+  username,
+  displayName: null,
+  avatarUrl: null
+})
+
+const club = (userId: number, threshold = 100_000): BillboardClubItem => ({
+  kind: 'club',
+  id: 100 + userId,
+  userId,
+  username: `pilot${userId}`,
+  displayName: null,
+  avatarUrl: null,
+  threshold,
+  reachedAt: '2026-08-21T00:00:00.000Z'
 })
 
 const ad = (id: number): BillboardItem => ({
@@ -59,9 +89,16 @@ describe('isAnnouncementOnly', () => {
     expect(isAnnouncementOnly([announce(1), hype(2), hype(3)])).toBe(true)
   })
 
+  it('counts club events as announcements, alone or mixed with hype and announce', () => {
+    expect(isAnnouncementOnly([club(1)])).toBe(true)
+    expect(isAnnouncementOnly([club(1), hype(2)])).toBe(true)
+    expect(isAnnouncementOnly([announce(1), hype(2), club(3)])).toBe(true)
+  })
+
   it('is false once an ad boards an announce train', () => {
     expect(isAnnouncementOnly([announce(1), ad(10)])).toBe(false)
     expect(isAnnouncementOnly([announce(1), hype(2), ad(10)])).toBe(false)
+    expect(isAnnouncementOnly([club(1), ad(10)])).toBe(false)
   })
 
   it('is false for an empty train', () => {
@@ -91,6 +128,12 @@ describe('billboardHoldMs', () => {
     expect(billboardHoldMs(announce(1), true)).toBe(BILLBOARD_HYPE_HOLD_MS)
     expect(billboardHoldMs(announce(1), false)).toBe(BILLBOARD_HYPE_HOLD_MS)
   })
+
+  it('gives a club event the hype beat, solo or not — never the solo-ad replay cadence', () => {
+    expect(billboardHoldMs(club(1), true)).toBe(BILLBOARD_HYPE_HOLD_MS)
+    expect(billboardHoldMs(club(1), false)).toBe(BILLBOARD_HYPE_HOLD_MS)
+    expect(billboardHoldMs(club(1), false)).not.toBe(BILLBOARD_AD_SOLO_REPLAY_MS)
+  })
 })
 
 describe('billboardShowForMs', () => {
@@ -110,6 +153,12 @@ describe('billboardShowForMs', () => {
     expect(billboardShowForMs([announce(1)])).toBe(BILLBOARD_HYPE_HOLD_MS)
     expect(billboardShowForMs([announce(1), hype(2)])).toBe(2 * BILLBOARD_HYPE_HOLD_MS)
     expect(billboardShowForMs([announce(1), ad(10)])).toBe(BILLBOARD_AD_SHOW_FOR_MS)
+  })
+
+  it('club events ride the same free-copy math — an ad aboard still buys the loop', () => {
+    expect(billboardShowForMs([club(1)])).toBe(BILLBOARD_HYPE_HOLD_MS)
+    expect(billboardShowForMs([club(1), hype(2), announce(3)])).toBe(3 * BILLBOARD_HYPE_HOLD_MS)
+    expect(billboardShowForMs([club(1), ad(10)])).toBe(BILLBOARD_AD_SHOW_FOR_MS)
   })
 
   it('caps announcement-only shows at the hype ceiling', () => {
@@ -137,6 +186,13 @@ describe('billboardChrome', () => {
 
   it('labels an operator announcement as an announcement, never a sponsor', () => {
     expect(billboardChrome(announce(1))).toEqual({
+      label: 'ANNOUNCEMENT',
+      ariaLabel: 'Announcement'
+    })
+  })
+
+  it('labels a club event as an announcement, never a sponsor', () => {
+    expect(billboardChrome(club(1))).toEqual({
       label: 'ANNOUNCEMENT',
       ariaLabel: 'Announcement'
     })
@@ -200,6 +256,70 @@ describe('billboardHypeSentence', () => {
   it('falls back to the username', () => {
     expect(billboardHypeSentence(hype(1, 3, 9))).toBe('pilot1 climbed from rank 9 to rank 3')
   })
+
+  it('tells a throne take as taking rank 1, not a climb', () => {
+    expect(billboardHypeSentence(hype(1, 1, 4))).toBe('pilot1 took rank 1')
+    expect(billboardHypeSentence(hype(1, 1, 50))).toBe('pilot1 took rank 1')
+  })
+
+  it('names the dethroned on a throne take exactly when a victim rides along', () => {
+    expect(billboardHypeSentence({ ...hype(1, 1, 4), victim: victim('oldking') })).toBe(
+      'pilot1 took rank 1 from oldking'
+    )
+    expect(billboardHypeSentence({ ...hype(1, 1, 4), victim: null })).toBe('pilot1 took rank 1')
+  })
+
+  it('appends the derank callout on top3 and top10 climbs carrying a victim', () => {
+    expect(billboardHypeSentence({ ...hype(1, 3, 9), victim: victim('fallen') })).toBe(
+      'pilot1 climbed from rank 9 to rank 3, deranking fallen'
+    )
+    expect(billboardHypeSentence({ ...hype(1, 8, 14), victim: victim('fallen') })).toBe(
+      'pilot1 climbed from rank 14 to rank 8, deranking fallen'
+    )
+  })
+
+  it("prefers the victim's display name like the climber's", () => {
+    expect(
+      billboardHypeSentence({
+        ...hype(1, 1, 4),
+        victim: { ...victim('oldking'), displayName: 'The Old King' }
+      })
+    ).toBe('pilot1 took rank 1 from The Old King')
+  })
+})
+
+describe('billboardClubSentence', () => {
+  it('names the milestone with its compact label', () => {
+    expect(billboardClubSentence(club(1, 100_000))).toBe('pilot1 joined the 100K club')
+    expect(billboardClubSentence(club(1, 250_000))).toBe('pilot1 joined the 250K club')
+    expect(billboardClubSentence(club(1, 1_000_000))).toBe('pilot1 joined the 1M club')
+  })
+
+  it('prefers the display name', () => {
+    expect(billboardClubSentence({ ...club(1), displayName: 'SUI' })).toBe(
+      'SUI joined the 100K club'
+    )
+  })
+})
+
+describe('billboardStageTheme', () => {
+  it('dispatches each rank tier to its theme: throne on the hot gold, top10 on silver', () => {
+    expect(billboardStageTheme(hype(1, 1, 4))).toBe(HYPE_TIER_THEME.throne)
+    expect(billboardStageTheme(hype(1, 1, 4)).accentVar).toBe('--lb-gold-hi')
+    expect(billboardStageTheme(hype(1, 2, 7))).toBe(HYPE_TIER_THEME.top3)
+    expect(billboardStageTheme(hype(1, 2, 7)).accentVar).toBe('--lb-gold')
+    expect(billboardStageTheme(hype(1, 8, 14))).toBe(HYPE_TIER_THEME.top10)
+    expect(billboardStageTheme(hype(1, 8, 14)).accentVar).toBe('--lb-silver')
+  })
+
+  it('builds club themes from the threshold, on the score lime', () => {
+    const theme = billboardStageTheme(club(1, 100_000))
+    expect(theme.accentVar).toBe('--lb-score')
+    expect(theme.marquee).toBe('100K CLUB')
+    expect(theme.accentWord).toBe('100K CLUB')
+    expect(theme.kineticWords).toEqual(['just', 'joined', 'the'])
+    expect(billboardStageTheme(club(1, 1_000_000)).marquee).toBe('1M CLUB')
+  })
 })
 
 describe('billboardShouldCloseAfterHold', () => {
@@ -220,11 +340,19 @@ describe('billboardShouldCloseAfterHold', () => {
     expect(billboardShouldCloseAfterHold([announce(1), hype(2), hype(3)], 1)).toBe(false)
   })
 
+  it('closes club-only and mixed club trains after one pass, like hype', () => {
+    expect(billboardShouldCloseAfterHold([club(1)], 0)).toBe(true)
+    expect(billboardShouldCloseAfterHold([hype(1), club(2), announce(3)], 2)).toBe(true)
+    expect(billboardShouldCloseAfterHold([hype(1), club(2), announce(3)], 0)).toBe(false)
+    expect(billboardShouldCloseAfterHold([hype(1), club(2), announce(3)], 1)).toBe(false)
+  })
+
   it('never closes a train carrying a paid ad — the sponsored loop owns the clock', () => {
     expect(billboardShouldCloseAfterHold([ad(10)], 0)).toBe(false)
     expect(billboardShouldCloseAfterHold([hype(1), ad(10)], 0)).toBe(false)
     expect(billboardShouldCloseAfterHold([hype(1), ad(10)], 1)).toBe(false)
     expect(billboardShouldCloseAfterHold([ad(10), ad(11)], 1)).toBe(false)
     expect(billboardShouldCloseAfterHold([announce(1), ad(10)], 1)).toBe(false)
+    expect(billboardShouldCloseAfterHold([club(1), ad(10)], 1)).toBe(false)
   })
 })

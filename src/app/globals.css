@@ -1786,13 +1786,14 @@ html.light .billboard-progress-fill {
   background: #18181b;
 }
 
-/* Announcement (top-3 hype) cycles sweep the countdown in the
-   leaderboard gold; paid ads keep the monochrome fill. --lb-gold is
-   themed per mode, and the html.light selector outranks the light
-   mono fill above. */
+/* Hype/club cycles sweep the countdown in the tier's accent —
+   --hype-accent, set by BillboardTicker's shell from the staging theme,
+   falling back to the leaderboard gold; paid ads keep the monochrome
+   fill. The accent variables are themed per mode, and the html.light
+   selector outranks the light mono fill above. */
 .billboard-progress-fill-hype,
 html.light .billboard-progress-fill-hype {
-  background: rgb(var(--lb-gold));
+  background: rgb(var(--hype-accent, var(--lb-gold)));
 }
 
 .billboard-progress-run {
@@ -1853,9 +1854,10 @@ html.light .billboard-progress-fill-hype {
   animation: billboard-hype-extra 300ms var(--nav-ease) 450ms backwards;
 }
 
-/* The rank-land beat: overshoot + gold bloom when the reel settles on
-   the destination — the payload lands last. The component adds this
-   class at the same moment it fires the shader bed's shockwave. */
+/* The land beat: overshoot + accent bloom when the reel settles on the
+   destination (or the club plate lands) — the payload lands last. The
+   component adds this class at the same moment it fires the shader
+   bed's shockwave; --hype-accent comes from its root, gold fallback. */
 @keyframes billboard-rank-land {
   0% {
     transform: scale(1);
@@ -1863,26 +1865,27 @@ html.light .billboard-progress-fill-hype {
   30% {
     transform: scale(1.22);
     text-shadow:
-      0 0 16px rgb(var(--lb-gold) / 0.9),
-      0 0 40px rgb(var(--lb-gold) / 0.45);
+      0 0 16px rgb(var(--hype-accent, var(--lb-gold)) / 0.9),
+      0 0 40px rgb(var(--hype-accent, var(--lb-gold)) / 0.45);
   }
   100% {
     transform: scale(1);
-    text-shadow: 0 0 10px rgb(var(--lb-gold) / 0.3);
+    text-shadow: 0 0 10px rgb(var(--hype-accent, var(--lb-gold)) / 0.3);
   }
 }
 
 .billboard-rank-land {
-  color: rgb(var(--lb-gold));
+  color: rgb(var(--hype-accent, var(--lb-gold)));
   animation: billboard-rank-land 600ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
 /* Full-bleed outline marquee behind the content zones. The text stroke
-   needs a solid-ish color, so the gold rides at 0.35 alpha and the ~4%
-   overall subtlety lives in the container's opacity (0.12 × 0.35 ≈ 4%) —
-   light theme's darker gold inherits both automatically. Pure-transform
-   drift over duplicated copies for the seamless -50% wrap; the mask
-   fades both edges so the loop never hits a hard cut. */
+   needs a solid-ish color, so the tier accent (gold fallback) rides at
+   0.35 alpha and the ~4% overall subtlety lives in the container's
+   opacity (0.12 × 0.35 ≈ 4%) — light theme's darker hues inherit both
+   automatically. Pure-transform drift over duplicated copies for the
+   seamless -50% wrap; the mask fades both edges so the loop never hits
+   a hard cut. */
 .billboard-hype-marquee {
   opacity: 0.12;
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
@@ -1911,7 +1914,7 @@ html.light .billboard-progress-fill-hype {
   letter-spacing: 0.18em;
   line-height: 1;
   color: transparent;
-  -webkit-text-stroke: 1px rgb(var(--lb-gold) / 0.35);
+  -webkit-text-stroke: 1px rgb(var(--hype-accent, var(--lb-gold)) / 0.35);
 }
 
 /* Hovering idles the drift together with the countdown hairline — the

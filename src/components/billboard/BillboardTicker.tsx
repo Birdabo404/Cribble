@@ -1,18 +1,22 @@
 'use client'
 
-// The Billboard banner — paid ads + free copy (top-3 hype, operator
-// announcements) shown one at a time, news-flipper style, in a
+// The Billboard banner — paid ads + free copy (rank/club hype events,
+// operator announcements) shown one at a time, news-flipper style, in a
 // content-height block that expands in-flow under the nav on the
 // dashboard and leaderboard, pushing page content down. Two stacked
 // rows: a broadcast-chrome row (kind-aware label + live dot, counter,
 // countdown) above a full-width card stage, so phones give the whole
 // banner width to the card. The chrome follows the active item's kind
 // (lib/billboard's billboardChrome): SPONSOR for paid ads,
-// ANNOUNCEMENT for hype and operator announcements — free copy is
-// never dressed as a sponsor.
+// ANNOUNCEMENT for hype, club and operator announcements — free copy
+// is never dressed as a sponsor.
 // Mounted once inside .app-nav-inset in AppShell and self-gating: it
 // never starts a show off the two allowed routes, and a localStorage
-// timestamp caps appearances to one per 10 minutes per visitor.
+// timestamp caps appearances to one per 10 minutes per visitor. Hype
+// and club events additionally air once per visitor, ever: a second
+// localStorage map records each event when it displays, and recorded
+// events are filtered from later fetches (ads and operator
+// announcements always ride).
 // Visitors parked on an allowed route aren't stranded: while the banner
 // is hidden there, a retry tick re-attempts the show every RETRY_TICK_MS,
 // so a lapsing cooldown or a newly activated ad surfaces the banner
@@ -38,7 +42,8 @@
 // route mid-show triggers the animated collapse; every way a show ends
 // records the cooldown timestamp. Navigating between the two allowed
 // routes keeps the show running (the mount survives client navigation).
-// An empty (or failed) /api/billboard fetch records no cooldown, but
+// An empty (or failed) /api/billboard fetch — including a train the
+// seen-once gate filters down to nothing — records no cooldown, but
 // arms a fetch backoff: retry ticks skip fetching for EMPTY_RETRY_MS
 // afterwards. Route changes clear the backoff, so a genuine landing
 // always fetches. Exactly one fetched ad: no flips and no counter,
@@ -71,9 +76,10 @@ import {
   billboardChrome,
   billboardHoldMs,
   billboardShouldCloseAfterHold,
-  billboardShowForMs
+  billboardShowForMs,
+  billboardStageTheme
 } from '@/lib/billboard'
-import type { BillboardItem } from '@/lib/billboard'
+import type { BillboardClubItem, BillboardHypeItem, BillboardItem } from '@/lib/billboard'
 import { BillboardCard } from './BillboardCard'
 import { HypeAnnouncement } from './HypeAnnouncement'
 
@@ -128,6 +134,79 @@ function recordShown() {
   } catch {
     // Best effort — the session fallback above still enforces the cap.
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * Seen-once gate for hype/club events: each airs once per visitor,
+ * ever — the fix for "you reached 3rd place" replaying every cooldown
+ * lapse for two days. A localStorage map of event key -> epoch ms of
+ * when it displayed; entries older than the TTL are pruned on every
+ * read and write (the API stops serving an event after 48h, so ~7 days
+ * is pure headroom — the map stays a handful of entries). Ads and
+ * operator announcements are never subject to this gate.
+ * ------------------------------------------------------------------ */
+
+const HYPE_SEEN_KEY = 'cribble:billboard-hype-seen'
+const HYPE_SEEN_TTL_MS = 7 * 24 * 60 * 60_000
+
+/** One seen-map key per event — kind-qualified so a hype row and a club
+ *  row sharing a numeric id can't shadow each other. */
+function hypeSeenKey(item: BillboardHypeItem | BillboardClubItem): string {
+  return `${item.kind}:${item.id}`
+}
+
+// In-memory mirror of the seen map, same stance as lastShownSessionMs:
+// if storage writes throw (Safari private-mode quota), marks still hold
+// for the tab's lifetime, so one session can't re-air an event on every
+// cooldown lapse.
+let hypeSeenSession: Record<string, number> = {}
+
+/** The live (TTL-pruned) seen map: storage merged over the session
+ *  mirror. Unreadable or corrupt storage degrades to the mirror alone —
+ *  worst case an event re-airs, never a crash (canShowNow's stance). */
+function readHypeSeen(now: number): Record<string, number> {
+  const seen: Record<string, number> = {}
+  for (const [key, at] of Object.entries(hypeSeenSession)) {
+    if (now - at < HYPE_SEEN_TTL_MS) seen[key] = at
+  }
+  try {
+    const raw = window.localStorage.getItem(HYPE_SEEN_KEY)
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw)
+      if (parsed !== null && typeof parsed === 'object') {
+        for (const [key, at] of Object.entries(parsed as Record<string, unknown>)) {
+          if (typeof at === 'number' && Number.isFinite(at) && now - at < HYPE_SEEN_TTL_MS) {
+            seen[key] = at
+          }
+        }
+      }
+    }
+  } catch {
+    // Fall through with the session mirror alone.
+  }
+  return seen
+}
+
+function recordHypeSeen(key: string) {
+  const now = Date.now()
+  const seen = readHypeSeen(now)
+  seen[key] = now
+  hypeSeenSession = seen
+  try {
+    window.localStorage.setItem(HYPE_SEEN_KEY, JSON.stringify(seen))
+  } catch {
+    // Best effort — the session mirror above still gates this tab.
+  }
+}
+
+/** The fetched train minus already-seen hype/club events. Ads and
+ *  operator announcements always pass. */
+function dropSeenHype(items: BillboardItem[]): BillboardItem[] {
+  const seen = readHypeSeen(Date.now())
+  return items.filter((item) => {
+    if (item.kind !== 'hype' && item.kind !== 'club') return true
+    return !(hypeSeenKey(item) in seen)
+  })
 }
 
 export function BillboardTicker() {
@@ -200,17 +279,22 @@ export function BillboardTicker() {
       .then((res) => (res.ok ? res.json() : null))
       .then((data: { items?: BillboardItem[] } | null) => {
         const fetched = data && Array.isArray(data.items) ? data.items : []
-        if (fetched.length === 0) {
-          // Covers non-ok responses too (data === null). Armed even when
-          // this run was cancelled — an empty feed is a fresh fact about
-          // the API no matter which effect run learned it.
+        // Seen-once gate: hype/club events this visitor already watched
+        // are dropped BEFORE the show decision, so a train of nothing
+        // but re-runs never opens the banner or burns the cooldown.
+        const fresh = dropSeenHype(fetched)
+        if (fresh.length === 0) {
+          // Covers non-ok responses (data === null) and fully-seen
+          // trains alike. Armed even when this run was cancelled — an
+          // empty feed is a fresh fact about the API no matter which
+          // effect run learned it.
           lastEmptyFetchAtRef.current = Date.now()
           return
         }
         if (cancelled) return
         lastEmptyFetchAtRef.current = 0
         setReducedMotion(window.matchMedia('(prefers-reduced-motion: reduce)').matches)
-        setItems(fetched)
+        setItems(fresh)
         setPhase('entering')
       })
       .catch(() => {
@@ -349,6 +433,15 @@ export function BillboardTicker() {
     if (holdCycleRef.current !== cycle) {
       holdCycleRef.current = cycle
       holdRemainingRef.current = billboardHoldMs(item, !solo)
+      // Seen-once mark, on display rather than hold completion: the
+      // new-cycle branch is the one existing hook that fires exactly
+      // once per item appearance (pause/resume re-runs keep the cycle),
+      // and marking here means a show cut short mid-hold — route exit,
+      // wall clock — still counts as aired. The visitor saw the sting;
+      // it shouldn't replay on their next landing.
+      if (item.kind === 'hype' || item.kind === 'club') {
+        recordHypeSeen(hypeSeenKey(item))
+      }
     }
     holdStartedAtRef.current = Date.now()
     const timer = window.setTimeout(advance, holdRemainingRef.current)
@@ -400,6 +493,14 @@ export function BillboardTicker() {
   // Broadcast chrome tracks the ACTIVE item's kind — SPONSOR for paid
   // ads, ANNOUNCEMENT for free copy — as does the banner's aria-label.
   const chrome = billboardChrome(activeItem)
+  // The active hype/club item's tier accent, set on the shell so the
+  // progress hairline sweeps in the same hue as the staging (which sets
+  // its own copy of --hype-accent on its root, overriding the shell for
+  // its subtree — a leaving layer keeps its old accent that way).
+  const accentVar =
+    activeItem.kind === 'hype' || activeItem.kind === 'club'
+      ? billboardStageTheme(activeItem).accentVar
+      : null
 
   // One sub-banner as a full-width layer — the layer itself is the whole
   // click target. Ads go through the click-redirect route, never straight
@@ -497,14 +598,15 @@ export function BillboardTicker() {
 
     return (
       <Link
-        key={`hype-${item.userId}-${leaving ? 'out' : 'in'}-r${replay}`}
+        key={`${item.kind}-${item.id}-${leaving ? 'out' : 'in'}-r${replay}`}
         href={`/u/${item.username}`}
         tabIndex={leaving ? -1 : undefined}
         aria-hidden={leaving || undefined}
         className={linkCls}
       >
-        {/* Hype rides its own broadcast staging (HypeAnnouncement) on the
-            same strip anatomy as the ad card, so the flip reads as one
+        {/* Hype and club events ride one broadcast staging
+            (HypeAnnouncement, themed per tier/threshold) on the same
+            strip anatomy as the ad card, so the flip reads as one
             continuous surface. The leaving copy's animate=false renders
             it resolved — no sting replay while it slides out. */}
         <HypeAnnouncement item={item} animate={animate} paused={paused} className={hoverCls} />
@@ -523,7 +625,8 @@ export function BillboardTicker() {
           className="billboard-shell relative"
           style={
             {
-              '--billboard-hold-ms': `${billboardHoldMs(activeItem, multi)}ms`
+              '--billboard-hold-ms': `${billboardHoldMs(activeItem, multi)}ms`,
+              ...(accentVar !== null ? { '--hype-accent': `var(${accentVar})` } : null)
             } as CSSProperties
           }
           onMouseEnter={pauseRotation}
@@ -578,7 +681,7 @@ export function BillboardTicker() {
               <span
                 key={`${flip.active}-r${replay}`}
                 className={`billboard-progress-fill block h-full w-full ${
-                  activeItem.kind === 'hype' ? 'billboard-progress-fill-hype' : ''
+                  accentVar !== null ? 'billboard-progress-fill-hype' : ''
                 } ${phase === 'looping' ? 'billboard-progress-run' : ''}`}
               />
             </span>

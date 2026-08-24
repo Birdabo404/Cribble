@@ -1,6 +1,7 @@
 import { unstable_cache } from 'next/cache'
 import { NextResponse } from 'next/server'
 import { BILLBOARD_MAX_LIVE, type BillboardItem } from '@/lib/billboard'
+import { HYPE_KIND_PRIORITY, type HypeEventKind } from '@/lib/hypeEvents'
 import { createServiceClient } from '@/lib/supabaseServer'
 
 // THE BILLBOARD TRAIN is the same payload for every viewer (no session,
@@ -13,16 +14,17 @@ export const dynamic = 'force-dynamic'
 
 const REVALIDATE_SECONDS = 60
 
-// Hype = players who just broke into the top 3: current rank <= 3,
-// previous rank outside it (prev_rank in leaderboard_ranks is the rank
-// held immediately before the most recent movement — NULL on entries
-// that never moved, which SQL comparison excludes for free), and the
-// movement inside the last 48h. The window mirrors MOVEMENT_WINDOW_MS
-// in leaderboardEngine — the same freshness the board's climb arrows
-// use.
-const HYPE_TOP_RANK = 3
+// Hype = one-shot events from billboard_hype_events (migration 052):
+// throne takes, TOP 3 / TOP 10 breakthroughs and 100K+ score clubs,
+// written at the moment they happened by the leaderboard snapshot diff
+// pass and the score-notification flow. The read takes the recent
+// window — mirroring MOVEMENT_WINDOW_MS in leaderboardEngine, the same
+// freshness the board's climb arrows use — newest first, overshooting
+// the airing cap so the in-code pick (tightest kind first, one event
+// per user, inactive celebrants dropped) still fills the train.
 const HYPE_WINDOW_MS = 48 * 3_600_000
 const HYPE_MAX = 3
+const HYPE_FETCH_MAX = 12
 
 // The admin announcements API keeps at most one row live at a time —
 // this cap is defensive, against hand-edited rows or a broken invariant.
@@ -50,11 +52,18 @@ function linkHostOf(linkUrl: string): string {
   }
 }
 
-interface HypeRankRow {
+interface HypeEventRow {
+  id: number
+  /** Trusted from the table's CHECK constraint. */
+  kind: HypeEventKind
   user_id: number
-  rank: number
+  /** The rank pair is NOT NULL on rank kinds, NULL on clubs. */
+  rank: number | null
   prev_rank: number | null
-  rank_moved_at: string | null
+  victim_user_id: number | null
+  /** NULL on rank kinds, NOT NULL on clubs. */
+  threshold: number | null
+  created_at: string
 }
 
 interface AnnounceRow {
@@ -71,6 +80,65 @@ interface TickerUserRow {
   twitter_profile_image: string | null
 }
 
+// The train item an event row airs as, or null when a rank kind is
+// missing its rank pair / a club its threshold — impossible through
+// the producers, armor against hand-edited rows. The victim lookup
+// rides the same active-filtered users read as the celebrant: a
+// banned or deleted victim degrades the card to victimless — the
+// celebration survives, the callout doesn't.
+function hypeEventItemOf(
+  row: HypeEventRow,
+  celebrant: TickerUserRow,
+  usersById: Map<number, TickerUserRow>
+): BillboardItem | null {
+  const base = {
+    id: Number(row.id),
+    userId: Number(row.user_id),
+    username: celebrant.twitter_username || `User${celebrant.id}`,
+    displayName: celebrant.twitter_name || null,
+    avatarUrl: celebrant.twitter_profile_image || null
+  }
+  switch (row.kind) {
+    case 'throne':
+    case 'top3':
+    case 'top10': {
+      if (row.rank === null || row.prev_rank === null) return null
+      const victim =
+        row.victim_user_id !== null
+          ? usersById.get(Number(row.victim_user_id))
+          : undefined
+      return {
+        kind: 'hype',
+        ...base,
+        tier: row.kind,
+        rank: Number(row.rank),
+        prevRank: Number(row.prev_rank),
+        movedAt: row.created_at,
+        victim: victim
+          ? {
+              username: victim.twitter_username || `User${victim.id}`,
+              displayName: victim.twitter_name || null,
+              avatarUrl: victim.twitter_profile_image || null
+            }
+          : null
+      }
+    }
+    case 'club': {
+      if (row.threshold === null) return null
+      return {
+        kind: 'club',
+        ...base,
+        threshold: Number(row.threshold),
+        reachedAt: row.created_at
+      }
+    }
+    default: {
+      const exhaustive: never = row.kind
+      return exhaustive
+    }
+  }
+}
+
 const loadBillboardItems = unstable_cache(
   async (): Promise<BillboardItem[]> => {
     const supabase = createServiceClient()
@@ -80,14 +148,14 @@ const loadBillboardItems = unstable_cache(
 
     // Live flipper ads (migration 030's definition: APPROVED + paid +
     // now inside the window; rail ads ride their own feed since
-    // migration 035), fresh top-3 breakthroughs and live operator
+    // migration 035), recent one-shot hype events and live operator
     // announcements (migration 051's definition: LIVE + started + not
     // yet ended), side by side. The ads read is the paid product — it
     // throws; the hype and announcement reads degrade to empty lists,
     // the same stance /api/leaderboard takes on movement tracking when
-    // migration 012 is missing — the announcements table in particular
-    // may not exist yet in environments behind on migration 051.
-    const [adsRes, ranksRes, announceRes] = await Promise.all([
+    // migration 012 is missing — either table may not exist yet in
+    // environments behind on migrations 051/052.
+    const [adsRes, hypeRes, announceRes] = await Promise.all([
       supabase
         .from('billboard_ads')
         .select('id, text, company_name, link_url, logo_url, accent_color, owner_user_id')
@@ -99,13 +167,11 @@ const loadBillboardItems = unstable_cache(
         .order('starts_at', { ascending: true })
         .limit(BILLBOARD_MAX_LIVE),
       supabase
-        .from('leaderboard_ranks')
-        .select('user_id, rank, prev_rank, rank_moved_at')
-        .lte('rank', HYPE_TOP_RANK)
-        .gt('prev_rank', HYPE_TOP_RANK)
-        .gte('rank_moved_at', hypeCutoffIso)
-        .order('rank', { ascending: true })
-        .limit(HYPE_MAX),
+        .from('billboard_hype_events')
+        .select('id, kind, user_id, rank, prev_rank, victim_user_id, threshold, created_at')
+        .gte('created_at', hypeCutoffIso)
+        .order('created_at', { ascending: false })
+        .limit(HYPE_FETCH_MAX),
       supabase
         .from('billboard_announcements')
         .select('id, headline, body, link_url')
@@ -121,12 +187,12 @@ const loadBillboardItems = unstable_cache(
     }
     const ads = (adsRes.data || []) as unknown as LiveAdRow[]
 
-    if (ranksRes.error) {
-      console.warn('[Billboard] Hype read failed:', ranksRes.error.message)
+    if (hypeRes.error) {
+      console.warn('[Billboard] Hype read failed:', hypeRes.error.message)
     }
-    const hypeRanks = ranksRes.error
+    const hypeRows = hypeRes.error
       ? []
-      : ((ranksRes.data || []) as unknown as HypeRankRow[])
+      : ((hypeRes.data || []) as unknown as HypeEventRow[])
 
     if (announceRes.error) {
       console.warn('[Billboard] Announcements read failed:', announceRes.error.message)
@@ -135,16 +201,42 @@ const loadBillboardItems = unstable_cache(
       ? []
       : ((announceRes.data || []) as unknown as AnnounceRow[])
 
-    // One users read serves both sides: hype needs name/avatar, and an
-    // ad without a logo falls back to its owner's avatar (migration
-    // 030). The active-status filter mirrors the leaderboard query so a
-    // banned or suspended player never gets hyped.
+    // Pick what airs: tightest kind first (throne > top3 > top10 >
+    // club), newest first within a kind, one event per user — a same-
+    // window throne and club for the same player collapse to the
+    // throne card. The HYPE_MAX cap lands during assembly, after the
+    // active-user gate, so a dropped celebrant's slot backfills from
+    // the overshoot instead of shorting the train.
+    const seenHypeUsers = new Set<number>()
+    const hypeCandidates = [...hypeRows]
+      .sort(
+        (a, b) =>
+          HYPE_KIND_PRIORITY[a.kind] - HYPE_KIND_PRIORITY[b.kind] ||
+          Date.parse(b.created_at) - Date.parse(a.created_at)
+      )
+      .filter((row) => {
+        const userId = Number(row.user_id)
+        if (seenHypeUsers.has(userId)) return false
+        seenHypeUsers.add(userId)
+        return true
+      })
+
+    // One users read serves every side: hype needs the celebrant's and
+    // victim's name/avatar, and an ad without a logo falls back to its
+    // owner's avatar (migration 030). The active-status filter mirrors
+    // the leaderboard query so a banned or suspended player never gets
+    // hyped — dropping out of this map is exactly how an inactive
+    // celebrant kills their event and an inactive victim mutes the
+    // callout.
     const fallbackOwnerIds = ads
       .filter((ad) => !ad.logo_url && ad.owner_user_id !== null)
       .map((ad) => Number(ad.owner_user_id))
-    const userIds = [
-      ...new Set([...hypeRanks.map((row) => Number(row.user_id)), ...fallbackOwnerIds])
-    ]
+    const hypeParticipantIds = hypeCandidates.flatMap((row) =>
+      row.victim_user_id !== null
+        ? [Number(row.user_id), Number(row.victim_user_id)]
+        : [Number(row.user_id)]
+    )
+    const userIds = [...new Set([...hypeParticipantIds, ...fallbackOwnerIds])]
 
     const usersById = new Map<number, TickerUserRow>()
     if (userIds.length > 0) {
@@ -163,9 +255,7 @@ const loadBillboardItems = unstable_cache(
     }
 
     // Contract order (lib/billboard.ts): operator announcements first,
-    // then hype, then live ads by starts_at ascending. The prev_rank
-    // check is TS narrowing only — the query's .gt() already
-    // guarantees non-null at runtime.
+    // then hype/club events, then live ads by starts_at ascending.
     const items: BillboardItem[] = []
     for (const row of announcements) {
       items.push({
@@ -176,19 +266,15 @@ const loadBillboardItems = unstable_cache(
         linkUrl: row.link_url || null
       })
     }
-    for (const row of hypeRanks) {
-      const user = usersById.get(Number(row.user_id))
-      if (!user || !row.rank_moved_at || row.prev_rank === null) continue
-      items.push({
-        kind: 'hype',
-        userId: Number(row.user_id),
-        username: user.twitter_username || `User${user.id}`,
-        displayName: user.twitter_name || null,
-        avatarUrl: user.twitter_profile_image || null,
-        rank: Number(row.rank),
-        prevRank: Number(row.prev_rank),
-        movedAt: row.rank_moved_at
-      })
+    let hypeAired = 0
+    for (const row of hypeCandidates) {
+      if (hypeAired >= HYPE_MAX) break
+      const celebrant = usersById.get(Number(row.user_id))
+      if (!celebrant) continue
+      const item = hypeEventItemOf(row, celebrant, usersById)
+      if (item === null) continue
+      items.push(item)
+      hypeAired++
     }
     for (const ad of ads) {
       const ownerAvatar =
@@ -211,8 +297,10 @@ const loadBillboardItems = unstable_cache(
   // train can't outlive the deploy. v2: ad items gained
   // companyName/linkHost (migration 034). v3: hype items gained
   // rank/prevRank for the announcement takeover. v4: the announce kind
-  // joined the train (migration 051).
-  ['billboard-items-v4'],
+  // joined the train (migration 051). v5: hype went event-driven off
+  // billboard_hype_events (migration 052) — hype items gained
+  // id/tier/victim and the club kind joined the train.
+  ['billboard-items-v5'],
   { revalidate: REVALIDATE_SECONDS }
 )
 

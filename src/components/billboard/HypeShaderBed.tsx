@@ -1,8 +1,9 @@
 'use client'
 
-// The WebGL bed behind the hype announcement: an ambient gold caustic
-// radiating from the celebrated player's avatar seat, plus a one-shot
-// shockwave that sweeps the full banner width when the rank lands.
+// The WebGL bed behind the hype announcement: an ambient caustic in the
+// tier's accent (gold by default) radiating from the celebrated
+// player's avatar seat, plus a one-shot shockwave that sweeps the full
+// banner width when the rank lands.
 // This is scenery behind legible text, so the energy budget is tiny —
 // the caustic peaks around 0.18 alpha and mostly sits under 0.08 — and
 // the renderer is sized to match: one fullscreen quad, no antialiasing,
@@ -17,6 +18,10 @@
 //   browsers render null and the banner simply has no bed.
 // - `origin` is the avatar's x within the bed as 0..1 — a live uniform
 //   that follows layout changes without re-initialising the renderer.
+// - `accentVar` names the CSS variable (a bare rgb triplet, e.g. the
+//   staging theme's --lb-silver) resolved into the uGold uniform — the
+//   bed's caustic/shockwave hue. Defaults to --lb-gold, the historical
+//   fixed accent the uniform is named after.
 // - `burst` is a counter, not a flag: every increment fires one
 //   shockwave (uBurst animates 0 → 1 over ~700ms, then rests at 0).
 //   Mounting with burst > 0 fires once too, so a "rank lands" beat
@@ -43,6 +48,9 @@ export type HypeShaderBedProps = {
   burst: number
   /** Freeze the loop (hover pause); all state survives across it. */
   paused: boolean
+  /** CSS variable holding the bed's accent as a bare rgb triplet
+   *  (the staging theme's accentVar). Resolved into uGold. */
+  accentVar?: string
   className?: string
 }
 
@@ -194,6 +202,7 @@ export default function HypeShaderBed({
   origin,
   burst,
   paused,
+  accentVar = '--lb-gold',
   className = ''
 }: HypeShaderBedProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -211,10 +220,20 @@ export default function HypeShaderBed({
   const burstPendingRef = useRef(burst > 0)
   // Restarts the loop after paused/hidden; owned by the init effect.
   const wakeRef = useRef<(() => void) | null>(null)
+  /** The var name the init effect resolves, plus a live handle onto the
+   *  mounted uGold so a later accent change retints in place — prop
+   *  changes never rebuild the renderer (the refs pattern above). */
+  const accentVarRef = useRef(accentVar)
+  const accentUniformRef = useRef<{ value: THREE.Vector3 } | null>(null)
 
   useEffect(() => {
     originRef.current = clampOrigin(origin)
   }, [origin])
+
+  useEffect(() => {
+    accentVarRef.current = accentVar
+    accentUniformRef.current?.value.copy(readAccent(accentVar))
+  }, [accentVar])
 
   useEffect(() => {
     if (burst > lastBurstRef.current) burstPendingRef.current = true
@@ -244,9 +263,10 @@ export default function HypeShaderBed({
       uHeat: { value: AMBIENT_HEAT },
       uOrigin: { value: originRef.current },
       uBurst: { value: 0 },
-      uGold: { value: readGold() },
+      uGold: { value: readAccent(accentVarRef.current) },
       uResolution: { value: new THREE.Vector2(1, 1) }
     }
+    accentUniformRef.current = uniforms.uGold
 
     const scene = new THREE.Scene()
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
@@ -359,6 +379,7 @@ export default function HypeShaderBed({
     return () => {
       disposed = true
       wakeRef.current = null
+      accentUniformRef.current = null
       window.cancelAnimationFrame(frame)
       document.removeEventListener('visibilitychange', onVisibilityChange)
       resizeObserver.disconnect()
@@ -390,13 +411,14 @@ function clampOrigin(value: number): number {
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0.5
 }
 
-// --lb-gold is a space-separated RGB triplet ("255 214 68"; light theme
-// "202 138 4"), themed per mode. Read once at renderer init — a theme
-// flip mid-show keeps the mounted gold, which beats rebuilding a
-// renderer for scenery this faint.
-function readGold(): THREE.Vector3 {
+// The accent variables are space-separated RGB triplets ("255 214 68";
+// light theme "202 138 4"), themed per mode. Resolved at renderer init
+// and on accentVar changes only — a theme flip mid-show keeps the
+// mounted color, which beats rebuilding a renderer for scenery this
+// faint. An unparseable variable falls back to the dark-theme gold.
+function readAccent(cssVar: string): THREE.Vector3 {
   const raw = getComputedStyle(document.documentElement)
-    .getPropertyValue('--lb-gold')
+    .getPropertyValue(cssVar)
     .trim()
   const channels = raw.split(/\s+/).map(Number)
   if (channels.length === 3 && channels.every((c) => Number.isFinite(c))) {

@@ -1,5 +1,6 @@
 // Shared contract for the Billboard ad-spot system (migration 030):
-// the horizontally-scrolling train of paid ads + free top-3 hype items
+// the horizontally-scrolling train of paid ads + free hype events
+// (rank breakthroughs and score-milestone clubs, migration 052)
 // + operator-pushed announcements shown under the navbar on the
 // dashboard and leaderboard. The API routes, admin queue, buyer page
 // and ticker all build against the shapes and helpers here. Pure and
@@ -135,6 +136,19 @@ export type BillboardAd = {
   updated_at: string
 }
 
+/** The rank tiers a hype event can announce, tightest first. A climb
+ *  lands in exactly one — a 12 -> 1 jump is one throne event, not
+ *  three. Score-milestone clubs are their own BillboardItem kind, not
+ *  a tier here: they carry no rank story. */
+export type BillboardHypeTier = 'throne' | 'top3' | 'top10'
+
+/** The displaced player a rank hype event optionally calls out. */
+export type BillboardHypeVictim = {
+  username: string
+  displayName: string | null
+  avatarUrl: string | null
+}
+
 /** One card in the train, as served by GET /api/billboard. */
 export type BillboardItem =
   | {
@@ -151,19 +165,46 @@ export type BillboardItem =
       accentColor: string | null
     }
   | {
+      /** A one-shot rank hype event from billboard_hype_events
+       *  (migration 052), recorded by the leaderboard snapshot diff
+       *  pass at the moment of the climb. */
       kind: 'hype'
+      /** Event row id — the ticker's per-visitor seen-once gate keys
+       *  on it. */
+      id: number
+      /** The tightest tier the climb reached; drives the staging's
+       *  copy and accent via the theme config below. */
+      tier: BillboardHypeTier
       userId: number
       username: string
       displayName: string | null
       avatarUrl: string | null
-      /** Where the player landed (1..HYPE_TOP_RANK) and where they
-       *  climbed from — prev_rank in leaderboard_ranks, which the API's
-       *  .gt() filter guarantees is outside the top ranks. The
-       *  announcement's reel, delta chip and sr sentence all derive
-       *  from this pair via the climb helpers below. */
+      /** Where the player landed and where they climbed from —
+       *  captured into the event row at write time. The announcement's
+       *  reel, delta chip and sr sentence all derive from this pair
+       *  via the climb helpers below. */
       rank: number
       prevRank: number
       movedAt: string
+      /** The player this climb displaced. Absent/null when nobody fell
+       *  out of the tier or the victim is banned/deleted — the
+       *  celebration survives, the callout doesn't. */
+      victim?: BillboardHypeVictim | null
+    }
+  | {
+      /** A score-milestone club event (100K+) from
+       *  billboard_hype_events — free copy like hype, riding the same
+       *  announcement cadence and chrome. No rank story: the staging
+       *  lands the club label where hype rolls the rank reel. */
+      kind: 'club'
+      id: number
+      userId: number
+      username: string
+      displayName: string | null
+      avatarUrl: string | null
+      /** The lifetime-score milestone crossed, in points. */
+      threshold: number
+      reachedAt: string
     }
   | {
       /** An operator-pushed site announcement from
@@ -185,6 +226,10 @@ export type BillboardItem =
 /** The hype variant of BillboardItem — the announcement component and
  *  the climb helpers below take this narrowed shape. */
 export type BillboardHypeItem = Extract<BillboardItem, { kind: 'hype' }>
+
+/** The club variant of BillboardItem — the announcement component's
+ *  club payload and the sentence helper below take this. */
+export type BillboardClubItem = Extract<BillboardItem, { kind: 'club' }>
 
 /** One live rail ad, as served by GET /api/billboard/rails. Field
  *  semantics match BillboardItem's ad variant; slot is where the card
@@ -240,21 +285,21 @@ export function isLiveAd(
 
 /* ------------------------------------------------------------------ *
  * Flipper cadence + chrome — the ticker's per-kind timing contract.
- * Paid ads are the product and keep the long exposure. Top-3 hype and
- * operator announcements (kind 'announce') are free copy on identical
- * cadence: each gets one unhurried hold, but announcement-only trains
- * play a single pass and retract instead of looping for the full
- * sponsored show — that one-pass close, not the hold length, is what
- * keeps free copy short of a sponsor's airtime. Pure so
- * BillboardTicker's scheduling stays unit-testable without mounting
- * the component.
+ * Paid ads are the product and keep the long exposure. Hype events,
+ * club events and operator announcements (kind 'announce') are free
+ * copy on identical cadence: each gets one unhurried hold, but
+ * announcement-only trains play a single pass and retract instead of
+ * looping for the full sponsored show — that one-pass close, not the
+ * hold length, is what keeps free copy short of a sponsor's airtime.
+ * Pure so BillboardTicker's scheduling stays unit-testable without
+ * mounting the component.
  * ------------------------------------------------------------------ */
 
 /** Per-rotation hold for a paid ad on a multi-item show. */
 export const BILLBOARD_AD_HOLD_MS = 8_000
-/** Per-appearance hold for a top-3 announcement — a longer beat than
- *  an ad's rotation so the moment reads, affordable because hype only
- *  ever airs once per show. */
+/** Per-appearance hold for a hype/club announcement — a longer beat
+ *  than an ad's rotation so the moment reads, affordable because each
+ *  event only ever airs once per show. */
 export const BILLBOARD_HYPE_HOLD_MS = 30_000
 /** A train that is a single paid ad re-keys its build-in at this
  *  cadence instead of flipping. */
@@ -271,23 +316,26 @@ export const BILLBOARD_AD_SHOW_FOR_MS = 180_000
 export const BILLBOARD_HYPE_SHOW_FOR_MS = 90_000
 
 /** True when the fetched train carries no paid ads — only free copy
- *  (top-3 hype, operator announcements). An empty train is nobody's
- *  announcement. */
+ *  (hype events, club events, operator announcements). An empty train
+ *  is nobody's announcement. */
 export function isAnnouncementOnly(items: BillboardItem[]): boolean {
   return (
     items.length > 0 &&
-    items.every((item) => item.kind === 'hype' || item.kind === 'announce')
+    items.every(
+      (item) => item.kind === 'hype' || item.kind === 'club' || item.kind === 'announce'
+    )
   )
 }
 
 /** How long the given item holds on screen before the ticker advances.
  *  `multi` = more than one item in the train: a solo ad's "hold" is the
- *  replay cadence of its build-in; hype and operator announcements
- *  never earn the solo replay treatment — their hold is one
- *  announcement beat either way. */
+ *  replay cadence of its build-in; hype, club and operator
+ *  announcements never earn the solo replay treatment — their hold is
+ *  one announcement beat either way. */
 export function billboardHoldMs(item: BillboardItem, multi: boolean): number {
   switch (item.kind) {
     case 'hype':
+    case 'club':
     case 'announce':
       return BILLBOARD_HYPE_HOLD_MS
     case 'ad':
@@ -308,14 +356,15 @@ export function billboardShowForMs(items: BillboardItem[]): number {
 }
 
 /** Broadcast chrome for the active item: the inverted-mono label block
- *  and the banner's aria-label. Hype and operator announcements are
- *  announcements, not ads — mislabeling either as SPONSOR is the bug
- *  this exists to prevent. */
+ *  and the banner's aria-label. Hype, club and operator announcements
+ *  are announcements, not ads — mislabeling any of them as SPONSOR is
+ *  the bug this exists to prevent. */
 export function billboardChrome(item: BillboardItem): { label: string; ariaLabel: string } {
   switch (item.kind) {
     case 'ad':
       return { label: 'SPONSOR', ariaLabel: 'Sponsorship' }
     case 'hype':
+    case 'club':
     case 'announce':
       return { label: 'ANNOUNCEMENT', ariaLabel: 'Announcement' }
     default: {
@@ -327,8 +376,9 @@ export function billboardChrome(item: BillboardItem): { label: string; ariaLabel
 
 /** Announcement-only trains end after the last item's hold instead of
  *  wrapping (or, solo, replaying): true exactly when every item is free
- *  copy (hype or announce) and `activeIndex` is the final one. Always
- *  false once an ad is aboard — mixed trains keep the sponsored loop. */
+ *  copy (hype, club or announce) and `activeIndex` is the final one.
+ *  Always false once an ad is aboard — mixed trains keep the sponsored
+ *  loop. */
 export function billboardShouldCloseAfterHold(
   items: BillboardItem[],
   activeIndex: number
@@ -379,8 +429,118 @@ export function hypeRankLadder(from: number, to: number): number[] {
 }
 
 /** The single screen-reader sentence for a hype announcement — every
- *  animated visual fragment is aria-hidden behind it. */
+ *  animated visual fragment is aria-hidden behind it. Mentions the
+ *  displaced player exactly when the card's victim register shows one,
+ *  so sr users hear the same story sighted users see. */
 export function billboardHypeSentence(item: BillboardHypeItem): string {
   const name = item.displayName || item.username
-  return `${name} climbed from rank ${item.prevRank} to rank ${item.rank}`
+  const victim = item.victim ? item.victim.displayName || item.victim.username : null
+  switch (item.tier) {
+    case 'throne':
+      return victim ? `${name} took rank 1 from ${victim}` : `${name} took rank 1`
+    case 'top3':
+    case 'top10': {
+      const climb = `${name} climbed from rank ${item.prevRank} to rank ${item.rank}`
+      return victim ? `${climb}, deranking ${victim}` : climb
+    }
+    default: {
+      const exhaustive: never = item.tier
+      return exhaustive
+    }
+  }
+}
+
+/** The screen-reader sentence for a club announcement, same aria role
+ *  as billboardHypeSentence. */
+export function billboardClubSentence(item: BillboardClubItem): string {
+  const name = item.displayName || item.username
+  return `${name} joined the ${billboardClubLabel(item.threshold)} club`
+}
+
+/* ------------------------------------------------------------------ *
+ * Per-tier staging copy — one theme drives the announcement's marquee,
+ * kinetic line and accent so a tier can't half-change. The staging
+ * sets the theme's accentVar into --hype-accent on its root; the hype
+ * CSS and shader bed read that instead of hardcoded gold.
+ * ------------------------------------------------------------------ */
+
+/** The --lb-* variables a tier's accent may point at. They hold bare
+ *  rgb triplets in globals.css (`255 214 68`), so consumers compose
+ *  colors as `rgb(var(--hype-accent) / a)`, never use the value raw. */
+export type BillboardAccentVar = '--lb-gold-hi' | '--lb-gold' | '--lb-silver' | '--lb-score'
+
+export type BillboardStageTheme = {
+  /** One marquee copy unit ('TOP 3') — the component appends the
+   *  NBSP-padded '·' separator and repeats it across the bed. */
+  marquee: string
+  /** The kinetic build words, in order, before the accent word. */
+  kineticWords: readonly string[]
+  /** The landing word of the kinetic line, rendered in the accent. */
+  accentWord: string
+  /** Which --lb-* variable feeds --hype-accent for this tier. */
+  accentVar: BillboardAccentVar
+}
+
+/** Static staging copy for the rank tiers: "just took THE THRONE" on
+ *  the hot gold, the classic "just entered the TOP 3" on leaderboard
+ *  gold, TOP 10 on silver. */
+export const HYPE_TIER_THEME: Record<BillboardHypeTier, BillboardStageTheme> = {
+  throne: {
+    marquee: '#1',
+    kineticWords: ['just', 'took'],
+    accentWord: 'THE THRONE',
+    accentVar: '--lb-gold-hi'
+  },
+  top3: {
+    marquee: 'TOP 3',
+    kineticWords: ['just', 'entered', 'the'],
+    accentWord: 'TOP 3',
+    accentVar: '--lb-gold'
+  },
+  top10: {
+    marquee: 'TOP 10',
+    kineticWords: ['just', 'entered', 'the'],
+    accentWord: 'TOP 10',
+    accentVar: '--lb-silver'
+  }
+}
+
+/** Compact milestone label (100_000 -> '100K', 1_000_000 -> '1M').
+ *  Local mirror of notifications' formatMilestoneLabel — that module
+ *  is server-only and this one must stay importable from 'use client'
+ *  components. */
+export function billboardClubLabel(threshold: number): string {
+  if (threshold >= 1_000_000) return `${threshold / 1_000_000}M`
+  if (threshold >= 1_000) return `${threshold / 1_000}K`
+  return String(threshold)
+}
+
+/** Club staging copy is threshold-dependent, so it's built rather than
+ *  looked up: "just joined the 100K CLUB" on the score lime. */
+export function billboardClubTheme(threshold: number): BillboardStageTheme {
+  const label = `${billboardClubLabel(threshold)} CLUB`
+  return {
+    marquee: label,
+    kineticWords: ['just', 'joined', 'the'],
+    accentWord: label,
+    accentVar: '--lb-score'
+  }
+}
+
+/** The one theme dispatch for everything the hype staging renders —
+ *  components take either item kind and can't pick a mismatched
+ *  tier/copy pair. */
+export function billboardStageTheme(
+  item: BillboardHypeItem | BillboardClubItem
+): BillboardStageTheme {
+  switch (item.kind) {
+    case 'hype':
+      return HYPE_TIER_THEME[item.tier]
+    case 'club':
+      return billboardClubTheme(item.threshold)
+    default: {
+      const exhaustive: never = item
+      return exhaustive
+    }
+  }
 }
