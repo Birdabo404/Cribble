@@ -1,14 +1,15 @@
 'use client'
 
-// The Billboard banner — paid ads + free top-3 hype items shown one at
-// a time, news-flipper style, in a content-height block that expands
-// in-flow under the nav on the dashboard and leaderboard, pushing page
-// content down. Two stacked rows: a broadcast-chrome row (kind-aware
-// label + live dot, counter, countdown) above a full-width card stage,
-// so phones give the whole banner width to the card. The chrome follows
-// the active item's kind (lib/billboard's billboardChrome): SPONSOR for
-// paid ads, ANNOUNCEMENT for hype — a top-3 breakthrough is never
-// dressed as a sponsor.
+// The Billboard banner — paid ads + free copy (top-3 hype, operator
+// announcements) shown one at a time, news-flipper style, in a
+// content-height block that expands in-flow under the nav on the
+// dashboard and leaderboard, pushing page content down. Two stacked
+// rows: a broadcast-chrome row (kind-aware label + live dot, counter,
+// countdown) above a full-width card stage, so phones give the whole
+// banner width to the card. The chrome follows the active item's kind
+// (lib/billboard's billboardChrome): SPONSOR for paid ads,
+// ANNOUNCEMENT for hype and operator announcements — free copy is
+// never dressed as a sponsor.
 // Mounted once inside .app-nav-inset in AppShell and self-gating: it
 // never starts a show off the two allowed routes, and a localStorage
 // timestamp caps appearances to one per 10 minutes per visitor.
@@ -397,7 +398,7 @@ export function BillboardTicker() {
   const activeItem = items[flip.active]
   const leavingItem = flip.leaving === null ? null : items[flip.leaving]
   // Broadcast chrome tracks the ACTIVE item's kind — SPONSOR for paid
-  // ads, ANNOUNCEMENT for top-3 hype — as does the banner's aria-label.
+  // ads, ANNOUNCEMENT for free copy — as does the banner's aria-label.
   const chrome = billboardChrome(activeItem)
 
   // One sub-banner as a full-width layer — the layer itself is the whole
@@ -441,6 +442,56 @@ export function BillboardTicker() {
             className={hoverCls}
           />
         </a>
+      )
+    }
+
+    // Operator announcements reuse the ad strip geometry (headline as
+    // the title line, body under it, no logo, neutral accent, no AD
+    // glyph — the chrome row already says ANNOUNCEMENT, and free copy
+    // is never dressed as sponsorship) so announce<->ad flips read as
+    // one continuous surface. The link, when present, is
+    // operator-trusted copy pushed from /admin, so it goes straight out
+    // instead of through the click-redirect route — that route exists
+    // to count clicks on untrusted buyer URLs.
+    if (item.kind === 'announce') {
+      const card = (
+        <BillboardCard
+          text={item.body}
+          title={item.headline}
+          logoUrl={null}
+          accentColor={null}
+          size="lg"
+          animateIn={animate}
+          adTag={false}
+          className={item.linkUrl !== null ? hoverCls : ''}
+        />
+      )
+      if (item.linkUrl !== null) {
+        return (
+          <a
+            key={`announce-${item.id}-${leaving ? 'out' : 'in'}-r${replay}`}
+            href={item.linkUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            tabIndex={leaving ? -1 : undefined}
+            aria-hidden={leaving || undefined}
+            className={linkCls}
+          >
+            {card}
+          </a>
+        )
+      }
+      // No link: an inert layer — same stage positioning as the link
+      // variant, none of its hover/focus affordances (nothing here is
+      // clickable, so nothing should invite a click).
+      return (
+        <div
+          key={`announce-${item.id}-${leaving ? 'out' : 'in'}-r${replay}`}
+          aria-hidden={leaving || undefined}
+          className={`block w-full min-w-0 rounded-lg ${layerCls}`}
+        >
+          {card}
+        </div>
       )
     }
 

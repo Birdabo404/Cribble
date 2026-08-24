@@ -24,6 +24,10 @@ const HYPE_TOP_RANK = 3
 const HYPE_WINDOW_MS = 48 * 3_600_000
 const HYPE_MAX = 3
 
+// The admin announcements API keeps at most one row live at a time —
+// this cap is defensive, against hand-edited rows or a broken invariant.
+const ANNOUNCE_MAX = 3
+
 interface LiveAdRow {
   id: number
   text: string
@@ -53,6 +57,13 @@ interface HypeRankRow {
   rank_moved_at: string | null
 }
 
+interface AnnounceRow {
+  id: number
+  headline: string
+  body: string
+  link_url: string | null
+}
+
 interface TickerUserRow {
   id: number
   twitter_username: string | null
@@ -69,11 +80,14 @@ const loadBillboardItems = unstable_cache(
 
     // Live flipper ads (migration 030's definition: APPROVED + paid +
     // now inside the window; rail ads ride their own feed since
-    // migration 035) and fresh top-3 breakthroughs, side by side. The
-    // ads read is the paid product — it throws; the hype read degrades
-    // to an empty list, the same stance /api/leaderboard takes on
-    // movement tracking when migration 012 is missing.
-    const [adsRes, ranksRes] = await Promise.all([
+    // migration 035), fresh top-3 breakthroughs and live operator
+    // announcements (migration 051's definition: LIVE + started + not
+    // yet ended), side by side. The ads read is the paid product — it
+    // throws; the hype and announcement reads degrade to empty lists,
+    // the same stance /api/leaderboard takes on movement tracking when
+    // migration 012 is missing — the announcements table in particular
+    // may not exist yet in environments behind on migration 051.
+    const [adsRes, ranksRes, announceRes] = await Promise.all([
       supabase
         .from('billboard_ads')
         .select('id, text, company_name, link_url, logo_url, accent_color, owner_user_id')
@@ -91,7 +105,15 @@ const loadBillboardItems = unstable_cache(
         .gt('prev_rank', HYPE_TOP_RANK)
         .gte('rank_moved_at', hypeCutoffIso)
         .order('rank', { ascending: true })
-        .limit(HYPE_MAX)
+        .limit(HYPE_MAX),
+      supabase
+        .from('billboard_announcements')
+        .select('id, headline, body, link_url')
+        .eq('status', 'LIVE')
+        .lte('starts_at', nowIso)
+        .or(`ends_at.is.null,ends_at.gte.${nowIso}`)
+        .order('starts_at', { ascending: true })
+        .limit(ANNOUNCE_MAX)
     ])
 
     if (adsRes.error) {
@@ -105,6 +127,13 @@ const loadBillboardItems = unstable_cache(
     const hypeRanks = ranksRes.error
       ? []
       : ((ranksRes.data || []) as unknown as HypeRankRow[])
+
+    if (announceRes.error) {
+      console.warn('[Billboard] Announcements read failed:', announceRes.error.message)
+    }
+    const announcements = announceRes.error
+      ? []
+      : ((announceRes.data || []) as unknown as AnnounceRow[])
 
     // One users read serves both sides: hype needs name/avatar, and an
     // ad without a logo falls back to its owner's avatar (migration
@@ -133,10 +162,20 @@ const loadBillboardItems = unstable_cache(
       }
     }
 
-    // Contract order (lib/billboard.ts): hype first, then live ads by
-    // starts_at ascending. The prev_rank check is TS narrowing only —
-    // the query's .gt() already guarantees non-null at runtime.
+    // Contract order (lib/billboard.ts): operator announcements first,
+    // then hype, then live ads by starts_at ascending. The prev_rank
+    // check is TS narrowing only — the query's .gt() already
+    // guarantees non-null at runtime.
     const items: BillboardItem[] = []
+    for (const row of announcements) {
+      items.push({
+        kind: 'announce',
+        id: Number(row.id),
+        headline: row.headline,
+        body: row.body,
+        linkUrl: row.link_url || null
+      })
+    }
     for (const row of hypeRanks) {
       const user = usersById.get(Number(row.user_id))
       if (!user || !row.rank_moved_at || row.prev_rank === null) continue
@@ -168,10 +207,12 @@ const loadBillboardItems = unstable_cache(
     }
     return items
   },
-  // v3: hype items gained rank/prevRank for the announcement takeover —
-  // new key so a persisted pre-takeover payload shape can't outlive the
-  // deploy (v2 was the companyName/linkHost shape change).
-  ['billboard-items-v3'],
+  // Each payload-shape change burns a new key so a persisted older
+  // train can't outlive the deploy. v2: ad items gained
+  // companyName/linkHost (migration 034). v3: hype items gained
+  // rank/prevRank for the announcement takeover. v4: the announce kind
+  // joined the train (migration 051).
+  ['billboard-items-v4'],
   { revalidate: REVALIDATE_SECONDS }
 )
 

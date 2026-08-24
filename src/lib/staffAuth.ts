@@ -36,6 +36,7 @@ export type StaffAction =
   | 'season.manage'
   | 'team.review'
   | 'billboard.review'
+  | 'announcement.manage'
   | 'debug.manage'
 
 export function minRoleFor(action: StaffAction): StaffRole {
@@ -68,6 +69,9 @@ export function minRoleFor(action: StaffAction): StaffRole {
     // approving copy and flipping paid/live state is an owner call,
     // same as team review (payment is collected manually over X DM).
     case 'billboard.review':
+    // Announcements push site-wide broadcast copy into that same
+    // every-visitor ticker — an owner call, same as billboard.review.
+    case 'announcement.manage':
     case 'debug.manage':
       return 'owner'
     default: {

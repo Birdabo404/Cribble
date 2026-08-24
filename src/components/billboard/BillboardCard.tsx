@@ -21,6 +21,9 @@
 //        the top edge, a 36px logo with the AD tag opposite, the title
 //        line under it and the ad text wrapping up to three clamped
 //        lines. animateIn is a no-op here — the rails never rotate.
+// Every shape carries a corner "AD" glyph by default; adTag={false}
+// drops it for the one non-ad tenant (operator announcements on the
+// ticker's lg strip) — free copy is never dressed as sponsorship.
 // Renders an <a> when given href (the /api/billboard/[id]/click
 // redirect), a <button> for onClick-only surfaces, otherwise an inert
 // <div>. Buyer text is untrusted and always renders as plain text.
@@ -57,6 +60,7 @@ export function BillboardCard({
   onClick,
   size = 'sm',
   animateIn = false,
+  adTag = true,
   className = ''
 }: {
   text: string
@@ -73,6 +77,10 @@ export function BillboardCard({
    *  later). CSS animations restart when the classes land on fresh
    *  DOM — the ticker re-keys the card to replay the build-in. */
   animateIn?: boolean
+  /** The corner "AD" glyph. Paid surfaces keep the default; operator
+   *  announcements riding the lg strip opt out — free copy is never
+   *  dressed as sponsorship (billboardChrome's stance). */
+  adTag?: boolean
   className?: string
 }) {
   const [logoDead, setLogoDead] = useState(false)
@@ -94,7 +102,7 @@ export function BillboardCard({
           />
         )}
         <span className="text-xs text-zinc-200">{title ? `${title} — ${text}` : text}</span>
-        <span className="text-[9px] tracking-[0.3em] text-zinc-500">AD</span>
+        {adTag && <span className="text-[9px] tracking-[0.3em] text-zinc-500">AD</span>}
       </>
     ) : size === 'lg' ? (
       <>
@@ -136,7 +144,9 @@ export function BillboardCard({
             {text}
           </span>
         </span>
-        <span className="relative shrink-0 text-[10px] tracking-[0.3em] text-zinc-500">AD</span>
+        {adTag && (
+          <span className="relative shrink-0 text-[10px] tracking-[0.3em] text-zinc-500">AD</span>
+        )}
       </>
     ) : (
       <>
@@ -171,7 +181,7 @@ export function BillboardCard({
               onError={() => setLogoDead(true)}
             />
           )}
-          <span className="ml-auto text-[9px] tracking-[0.3em] text-zinc-500">AD</span>
+          {adTag && <span className="ml-auto text-[9px] tracking-[0.3em] text-zinc-500">AD</span>}
         </span>
         <span className="relative mt-2.5 flex min-w-0 flex-col gap-1">
           {title && <span className={TITLE_LINE}>{title}</span>}
