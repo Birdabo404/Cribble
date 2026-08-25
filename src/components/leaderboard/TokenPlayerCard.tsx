@@ -27,7 +27,7 @@ import { IconClose, IconCrown, IconExpand, IconFlame } from './icons'
 import { TokenAgentIcon } from './TokenAgentIcon'
 import { medalA, medalFor, type PlayerProfile } from './types'
 
-const CLOSE_MS = 200
+const CLOSE_MS = 220
 
 function UsdValue({ value }: { value: string }) {
   const display = usdDisplayParts(value)
@@ -58,6 +58,7 @@ export function TokenPlayerCard({
 }) {
   const [profile, setProfile] = useState<PlayerProfile | null>(null)
   const [closing, setClosing] = useState(false)
+  const tiltRef = useRef<HTMLDivElement>(null)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
 
@@ -128,6 +129,48 @@ export function TokenPlayerCard({
     }
   }, [requestClose])
 
+  // ---- holographic tilt (same treatment as the season PlayerCard) ----
+  // Writes are coalesced to one per frame (pointermove can fire at 240Hz on
+  // gaming mice), and the tilt is a pure transform — the effect stays on
+  // the compositor.
+  const pointerPos = useRef<{ x: number; y: number } | null>(null)
+  const tiltRaf = useRef(0)
+
+  const onTiltMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== 'mouse') return
+    pointerPos.current = { x: e.clientX, y: e.clientY }
+    if (tiltRaf.current) return
+    tiltRaf.current = requestAnimationFrame(() => {
+      tiltRaf.current = 0
+      const el = tiltRef.current
+      const p = pointerPos.current
+      if (!el || !p || prefersReducedMotion()) return
+      const r = el.getBoundingClientRect()
+      const x = (p.x - r.left) / r.width
+      const y = (p.y - r.top) / r.height
+      el.style.setProperty('--rx', `${((0.5 - y) * 5).toFixed(2)}deg`)
+      el.style.setProperty('--ry', `${((x - 0.5) * 7).toFixed(2)}deg`)
+    })
+  }, [])
+
+  const onTiltLeave = useCallback(() => {
+    if (tiltRaf.current) {
+      cancelAnimationFrame(tiltRaf.current)
+      tiltRaf.current = 0
+    }
+    const el = tiltRef.current
+    if (!el) return
+    el.style.setProperty('--rx', '0deg')
+    el.style.setProperty('--ry', '0deg')
+  }, [])
+
+  useEffect(
+    () => () => {
+      if (tiltRaf.current) cancelAnimationFrame(tiltRaf.current)
+    },
+    []
+  )
+
   if (typeof document === 'undefined') return null
 
   const bannerImage = profile?.banner_image ?? null
@@ -151,14 +194,16 @@ export function TokenPlayerCard({
 
       <div className="tpc-card relative w-full max-w-[440px]">
         <div
-          className="max-h-[calc(100svh-1.5rem)] overflow-y-auto overscroll-contain rounded-[28px]"
+          ref={tiltRef}
+          className="tpc-tilt relative max-h-[calc(100svh-1.5rem)] overflow-y-auto overscroll-contain rounded-3xl"
+          onPointerMove={onTiltMove}
+          onPointerLeave={onTiltLeave}
           style={{
-            background: 'rgb(var(--lb-panel-bg))',
-            border: `1px solid ${medal ? medalA(medal.rgb, 0.42) : 'rgb(var(--lb-panel-edge) / 0.14)'}`,
+            background: `linear-gradient(180deg, rgb(255 255 255 / 0.04), transparent 30%), rgb(var(--lb-panel-bg))`,
+            border: `1px solid ${medal ? medalA(medal.rgb, 0.45) : 'rgb(var(--lb-panel-edge) / 0.14)'}`,
             boxShadow: medal
-              ? `0 32px 100px -35px ${medalA(medal.rgb, 0.42)}, 0 24px 70px -30px rgb(0 0 0 / 0.92)`
-              : '0 32px 90px -32px rgb(0 0 0 / 0.95)',
-            scrollbarWidth: 'none'
+              ? `0 30px 90px -30px ${medalA(medal.rgb, 0.4)}, 0 24px 60px -28px rgb(0 0 0 / 0.9)`
+              : '0 30px 80px -30px rgb(0 0 0 / 0.95)'
           }}
         >
           <div className="relative h-32 overflow-hidden">
@@ -242,25 +287,47 @@ export function TokenPlayerCard({
           <div className="relative -mt-10 flex flex-col items-center px-6">
             <div className="relative">
               {row.rank === 1 && (
-                <IconCrown
-                  size={20}
-                  className="absolute -top-7 left-1/2 -translate-x-1/2 text-[rgb(var(--lb-gold))] [filter:drop-shadow(0_0_7px_rgb(var(--lb-gold)/0.65))]"
-                />
+                <span
+                  aria-hidden
+                  className="tpc-crown absolute -top-7 left-1/2 -translate-x-1/2 text-[rgb(var(--lb-gold))]"
+                >
+                  <IconCrown size={20} />
+                </span>
               )}
-              <div
-                className={`relative h-[82px] w-[82px] ${avatarShape}`}
-                style={{
-                  padding: 3,
-                  background: medal
-                    ? `conic-gradient(from 210deg, ${medalA(medal.rgb, 0.95)}, rgb(249 115 22 / 0.34), ${medalA(medal.rgb, 0.95)})`
-                    : 'linear-gradient(145deg, rgb(249 115 22 / 0.55), rgb(var(--lb-panel-edge) / 0.16))'
-                }}
-              >
+              {/* spinning conic ring for the champion, static ring otherwise —
+                  the static rings keep the burn board's orange in the blend */}
+              <div className="relative h-[82px] w-[82px]">
+                {medal && row.rank === 1 ? (
+                  <span
+                    aria-hidden
+                    className={`tpc-ring-spin absolute -inset-[3px] ${avatarShape}`}
+                    style={{
+                      background: `conic-gradient(from 0deg, transparent 0deg, ${medalA(medal.rgb, 0.9)} 80deg, rgb(var(--lb-gold-hi)) 120deg, transparent 200deg, ${medalA(medal.rgb, 0.55)} 300deg, transparent 360deg)`,
+                      filter: `drop-shadow(0 0 10px ${medalA(medal.rgb, 0.55)})`
+                    }}
+                  />
+                ) : (
+                  <span
+                    aria-hidden
+                    className={`absolute -inset-[3px] ${avatarShape}`}
+                    style={{
+                      background: medal
+                        ? `conic-gradient(from 210deg, ${medalA(medal.rgb, 0.9)}, rgb(249 115 22 / 0.34), ${medalA(medal.rgb, 0.9)})`
+                        : 'linear-gradient(145deg, rgb(249 115 22 / 0.55), rgb(var(--lb-panel-edge) / 0.16))',
+                      boxShadow: medal ? `0 0 18px ${medalA(medal.rgb, 0.3)}` : undefined
+                    }}
+                  />
+                )}
+                <span
+                  aria-hidden
+                  className={`absolute inset-0 ${avatarShape}`}
+                  style={{ boxShadow: `inset 0 0 0 3px rgb(var(--lb-panel-bg))` }}
+                />
                 <Avatar
                   src={row.profileImage}
                   char={(row.displayName || row.username)[0]?.toUpperCase() ?? '?'}
-                  imgClassName={`h-full w-full object-cover ${avatarShape}`}
-                  fallbackClassName={`flex h-full w-full items-center justify-center bg-zinc-900 text-2xl text-zinc-300 font-display ${avatarShape}`}
+                  imgClassName={`absolute inset-[3px] h-[76px] w-[76px] object-cover ${avatarShape}`}
+                  fallbackClassName={`absolute inset-[3px] flex h-[76px] w-[76px] items-center justify-center bg-zinc-900 text-2xl text-zinc-300 font-display ${avatarShape}`}
                 />
               </div>
             </div>
@@ -440,22 +507,110 @@ export function TokenPlayerCard({
 
       <style jsx global>{`
         .tpc-backdrop {
-          background: rgb(0 0 0 / 0.8);
+          background: rgb(0 0 0 / 0.78);
           backdrop-filter: blur(10px);
           -webkit-backdrop-filter: blur(10px);
-          animation: tpc-fade-in 220ms ease backwards;
+          animation: tpc-backdrop-in 260ms ease backwards;
         }
-        html.light .tpc-backdrop { background: rgb(255 255 255 / 0.74); }
-        .tpc-card { animation: tpc-card-in 410ms cubic-bezier(0.22, 1.18, 0.36, 1) backwards; }
-        .tpc-root[data-closing] { pointer-events: none; }
-        .tpc-root[data-closing] .tpc-backdrop { animation: tpc-fade-out ${CLOSE_MS}ms ease forwards; }
-        .tpc-root[data-closing] .tpc-card { animation: tpc-card-out ${CLOSE_MS}ms ease forwards; }
-        @keyframes tpc-fade-in { from { opacity: 0; } }
-        @keyframes tpc-fade-out { to { opacity: 0; } }
-        @keyframes tpc-card-in { from { opacity: 0; transform: translateY(24px) scale(0.94); } }
-        @keyframes tpc-card-out { to { opacity: 0; transform: translateY(16px) scale(0.96); } }
+        html.light .tpc-backdrop {
+          /* white veil — matches the light canvas instead of dimming it */
+          background: rgb(255 255 255 / 0.72);
+        }
+        @keyframes tpc-backdrop-in {
+          from {
+            opacity: 0;
+          }
+        }
+
+        /* zoom-in spring — the card grows out of the row you clicked */
+        .tpc-card {
+          animation: tpc-card-in 440ms cubic-bezier(0.26, 1.35, 0.45, 1) backwards;
+        }
+        @keyframes tpc-card-in {
+          from {
+            opacity: 0;
+            transform: scale(0.82) translateY(30px);
+          }
+        }
+        @media (max-width: 639px) {
+          .tpc-card {
+            animation: tpc-card-in-mobile 420ms cubic-bezier(0.22, 1.1, 0.36, 1) backwards;
+          }
+        }
+        @keyframes tpc-card-in-mobile {
+          from {
+            opacity: 0;
+            transform: translateY(24px) scale(0.98);
+          }
+        }
+
+        /* graceful exit — mirrors the entrance, slightly faster */
+        .tpc-root[data-closing] {
+          pointer-events: none;
+        }
+        .tpc-root[data-closing] .tpc-backdrop {
+          animation: tpc-backdrop-out ${CLOSE_MS}ms ease forwards;
+        }
+        .tpc-root[data-closing] .tpc-card {
+          animation: tpc-card-out ${CLOSE_MS}ms cubic-bezier(0.5, 0, 0.75, 0.4) forwards;
+        }
+        @keyframes tpc-backdrop-out {
+          to {
+            opacity: 0;
+          }
+        }
+        @keyframes tpc-card-out {
+          to {
+            opacity: 0;
+            transform: scale(0.92) translateY(16px);
+          }
+        }
+
+        .tpc-tilt {
+          transform: perspective(1100px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+          transition: transform 220ms ease-out;
+          will-change: transform;
+          scrollbar-width: none;
+        }
+        .tpc-tilt::-webkit-scrollbar {
+          display: none;
+        }
+
+        .tpc-crown {
+          animation: tpc-crown-bob 2.6s ease-in-out infinite;
+          filter: drop-shadow(0 0 8px rgb(var(--lb-gold) / 0.7));
+        }
+        @keyframes tpc-crown-bob {
+          0%,
+          100% {
+            transform: translate(-50%, 0);
+          }
+          50% {
+            transform: translate(-50%, -3px);
+          }
+        }
+
+        .tpc-ring-spin {
+          animation: tpc-ring-rotate 3.2s linear infinite;
+        }
+        @keyframes tpc-ring-rotate {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+
         @media (prefers-reduced-motion: reduce) {
-          .tpc-backdrop, .tpc-card { animation: none; }
+          .tpc-backdrop,
+          .tpc-card,
+          .tpc-crown,
+          .tpc-ring-spin {
+            animation: none;
+          }
+          .tpc-tilt {
+            transform: none;
+            transition: none;
+            will-change: auto;
+          }
         }
       `}</style>
     </div>,
