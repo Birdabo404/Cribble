@@ -1,14 +1,16 @@
 'use client'
 
 // The leaderboard's stats-to-sponsor flip (migration 055's public face):
-// one panel footprint that alternates between the arena's StatBar and
-// the current #1 of the rolling 24h sponsor ranking. Cadence comes from
-// lib/leaderboardSponsor so it can't drift from the product spec —
-// stats hold 8s, a ~450ms flip, the sponsor holds 6s, flip back.
+// one panel footprint that alternates between the live board's stat
+// strip (the arena StatBar on SEASON / ALL-TIME, each other tab's own
+// strip on TOKENS / AI / TEAMS) and the current #1 of the rolling 24h
+// sponsor ranking. Cadence comes from lib/leaderboardSponsor so it
+// can't drift from the product spec — stats hold 8s, a ~450ms flip,
+// the sponsor holds 6s, flip back.
 //
 // Geometry: the stats face (children) renders IN FLOW and is the only
-// thing that sizes the panel — at the 2-col mobile grid and the 4-col
-// desktop grid alike. The sponsor face is an absolute inset-0 overlay
+// thing that sizes the panel — 2-col mobile, 3-col teams desktop, and
+// 4-col desktop alike. The sponsor face is an absolute inset-0 overlay
 // carrying its own .lb-panel chrome, so the two faces sit back-to-back
 // in exactly one footprint and neither face can ever resize the panel
 // (zero layout shift, no JS measuring). The 3D flip is a classic

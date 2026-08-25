@@ -21,6 +21,7 @@ import {
 import AnimatedCounter from '@/components/AnimatedCounter'
 import { formatCompact, formatNumber } from '@/components/dashboard-v2/format'
 import { Avatar } from '@/components/leaderboard/Avatar'
+import { LeaderboardSponsorFlip } from '@/components/leaderboard/LeaderboardSponsorFlip'
 import {
   IconChevronDown,
   IconRefresh,
@@ -175,55 +176,57 @@ export function TeamBoard() {
 
   return (
     <>
-      {/* ---------- stat strip ---------- */}
+      {/* ---------- stat strip / sponsor flip ---------- */}
       <section className="lbt-reveal">
-        <div className="lb-panel grid grid-cols-2 overflow-hidden md:grid-cols-3">
-          <StatCell
-            icon={<IconShieldStar size={11} className="text-zinc-600" />}
-            label="TEAMS"
-          >
-            <AnimatedCounter
-              value={totals?.teams ?? 0}
-              duration={1100}
-              formatter={(v) => formatNumber(Math.round(v))}
-            />
-          </StatCell>
+        <LeaderboardSponsorFlip>
+          <div className="lb-panel grid grid-cols-2 overflow-hidden md:grid-cols-3">
+            <StatCell
+              icon={<IconShieldStar size={11} className="text-zinc-600" />}
+              label="TEAMS"
+            >
+              <AnimatedCounter
+                value={totals?.teams ?? 0}
+                duration={1100}
+                formatter={(v) => formatNumber(Math.round(v))}
+              />
+            </StatCell>
 
-          <StatCell
-            className="border-l border-[rgb(var(--lb-panel-edge)/0.08)]"
-            icon={<IconUsers size={11} className="text-zinc-600" />}
-            label="MEMBERS"
-          >
-            <AnimatedCounter
-              value={totals?.members ?? 0}
-              duration={1100}
-              formatter={(v) => formatNumber(Math.round(v))}
-            />
-          </StatCell>
+            <StatCell
+              className="border-l border-[rgb(var(--lb-panel-edge)/0.08)]"
+              icon={<IconUsers size={11} className="text-zinc-600" />}
+              label="MEMBERS"
+            >
+              <AnimatedCounter
+                value={totals?.members ?? 0}
+                duration={1100}
+                formatter={(v) => formatNumber(Math.round(v))}
+              />
+            </StatCell>
 
-          <StatCell
-            className="col-span-2 border-t border-[rgb(var(--lb-panel-edge)/0.08)] md:col-span-1 md:border-l md:border-t-0"
-            icon={<IconTrophy size={11} className="text-[rgb(var(--lb-gold)/0.8)]" />}
-            label="TOP SCORE"
-            valueStyle={{
-              color: 'rgb(var(--lb-score))',
-              textShadow: '0 0 14px rgb(var(--lb-score) / calc(0.4 * var(--lb-glow, 1)))'
-            }}
-            hint={
-              leader ? (
-                <>
-                  held by <span className="text-zinc-400">@{leader.username}</span>
-                </>
-              ) : undefined
-            }
-          >
-            <AnimatedCounter
-              value={totals?.topScore ?? 0}
-              duration={1100}
-              formatter={(v) => formatCompact(Math.round(v))}
-            />
-          </StatCell>
-        </div>
+            <StatCell
+              className="col-span-2 border-t border-[rgb(var(--lb-panel-edge)/0.08)] md:col-span-1 md:border-l md:border-t-0"
+              icon={<IconTrophy size={11} className="text-[rgb(var(--lb-gold)/0.8)]" />}
+              label="TOP SCORE"
+              valueStyle={{
+                color: 'rgb(var(--lb-score))',
+                textShadow: '0 0 14px rgb(var(--lb-score) / calc(0.4 * var(--lb-glow, 1)))'
+              }}
+              hint={
+                leader ? (
+                  <>
+                    held by <span className="text-zinc-400">@{leader.username}</span>
+                  </>
+                ) : undefined
+              }
+            >
+              <AnimatedCounter
+                value={totals?.topScore ?? 0}
+                duration={1100}
+                formatter={(v) => formatCompact(Math.round(v))}
+              />
+            </StatCell>
+          </div>
+        </LeaderboardSponsorFlip>
       </section>
 
       {/* ---------- team standings ---------- */}

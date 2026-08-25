@@ -18,6 +18,7 @@ import {
   formatNumber,
   formatScore
 } from '@/components/dashboard-v2/format'
+import { LeaderboardSponsorFlip } from '@/components/leaderboard/LeaderboardSponsorFlip'
 import {
   IconCrown,
   IconRefresh,
@@ -116,58 +117,60 @@ export function AiBoard() {
 
   return (
     <>
-      {/* ---------- stat strip ---------- */}
+      {/* ---------- stat strip / sponsor flip ---------- */}
       <section className="lbai-reveal">
-        <div className="lb-panel grid grid-cols-2 overflow-hidden md:grid-cols-4">
-          <StatCell divider={0} icon={<IconSwords size={11} className="text-zinc-600" />} label="TOOLS RANKED">
-            <AnimatedCounter
-              value={tools?.length ?? 0}
-              duration={1100}
-              formatter={(v) => formatNumber(Math.round(v))}
-            />
-          </StatCell>
+        <LeaderboardSponsorFlip>
+          <div className="lb-panel grid grid-cols-2 overflow-hidden md:grid-cols-4">
+            <StatCell divider={0} icon={<IconSwords size={11} className="text-zinc-600" />} label="TOOLS RANKED">
+              <AnimatedCounter
+                value={tools?.length ?? 0}
+                duration={1100}
+                formatter={(v) => formatNumber(Math.round(v))}
+              />
+            </StatCell>
 
-          <StatCell divider={1} icon={<IconUsers size={11} className="text-zinc-600" />} label="PLAYERS TRACKED">
-            <AnimatedCounter
-              value={totals?.pilots ?? 0}
-              duration={1100}
-              formatter={(v) => formatNumber(Math.round(v))}
-            />
-          </StatCell>
+            <StatCell divider={1} icon={<IconUsers size={11} className="text-zinc-600" />} label="PLAYERS TRACKED">
+              <AnimatedCounter
+                value={totals?.pilots ?? 0}
+                duration={1100}
+                formatter={(v) => formatNumber(Math.round(v))}
+              />
+            </StatCell>
 
-          <StatCell
-            divider={2}
-            icon={<IconTrophy size={11} className="text-[rgb(var(--lb-gold)/0.8)]" />}
-            label="COMBINED SCORE"
-            valueStyle={{
-              color: 'rgb(var(--lb-score))',
-              textShadow: '0 0 14px rgb(var(--lb-score) / calc(0.4 * var(--lb-glow, 1)))'
-            }}
-            hint="every player, every tool"
-          >
-            <AnimatedCounter
-              value={totals?.score ?? 0}
-              duration={1100}
-              formatter={(v) => formatCompact(Math.round(v))}
-            />
-          </StatCell>
+            <StatCell
+              divider={2}
+              icon={<IconTrophy size={11} className="text-[rgb(var(--lb-gold)/0.8)]" />}
+              label="COMBINED SCORE"
+              valueStyle={{
+                color: 'rgb(var(--lb-score))',
+                textShadow: '0 0 14px rgb(var(--lb-score) / calc(0.4 * var(--lb-glow, 1)))'
+              }}
+              hint="every player, every tool"
+            >
+              <AnimatedCounter
+                value={totals?.score ?? 0}
+                duration={1100}
+                formatter={(v) => formatCompact(Math.round(v))}
+              />
+            </StatCell>
 
-          <StatCell
-            divider={3}
-            icon={<IconCrown size={11} className="text-[rgb(var(--lb-gold)/0.8)]" />}
-            label="APEX TOOL"
-            hint={apex ? `${apex.percent}% of the board` : undefined}
-          >
-            {apex ? (
-              <span className="flex items-center justify-center gap-2">
-                <ToolIcon name={apex.name} size={14} className="shrink-0 text-zinc-300" />
-                <span className="truncate">{apex.name.toUpperCase()}</span>
-              </span>
-            ) : (
-              <span className="text-zinc-700">—</span>
-            )}
-          </StatCell>
-        </div>
+            <StatCell
+              divider={3}
+              icon={<IconCrown size={11} className="text-[rgb(var(--lb-gold)/0.8)]" />}
+              label="APEX TOOL"
+              hint={apex ? `${apex.percent}% of the board` : undefined}
+            >
+              {apex ? (
+                <span className="flex items-center justify-center gap-2">
+                  <ToolIcon name={apex.name} size={14} className="shrink-0 text-zinc-300" />
+                  <span className="truncate">{apex.name.toUpperCase()}</span>
+                </span>
+              ) : (
+                <span className="text-zinc-700">—</span>
+              )}
+            </StatCell>
+          </div>
+        </LeaderboardSponsorFlip>
       </section>
 
       {/* ---------- tool standings ---------- */}
