@@ -215,7 +215,14 @@ function NeedsAttentionSection() {
         res.ok && Array.isArray(data?.queue)
           ? {
               queue: data.queue.length,
-              awaiting: Array.isArray(data.awaiting) ? data.awaiting.length : 0,
+              // Leaderboard creatives sit in awaiting only while their
+              // self-serve Polar bidding is open — nothing for the
+              // operator to work, so they don't count as attention.
+              awaiting: Array.isArray(data.awaiting)
+                ? data.awaiting.filter(
+                    (ad: { placement?: string }) => ad?.placement !== 'leaderboard'
+                  ).length
+                : 0,
               live: Number(data.liveCount) || 0,
               maxLive: Number(data.maxLive) || 0
             }

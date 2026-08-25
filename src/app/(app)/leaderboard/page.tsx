@@ -48,6 +48,7 @@ import {
 import { PlateLayer } from '@/components/cosmetics/PlateLayer'
 import { AsteroidShower } from '@/components/dashboard-v3/AsteroidShower'
 import { AiBoard } from '@/components/leaderboard/AiBoard'
+import { LeaderboardSponsorFlip } from '@/components/leaderboard/LeaderboardSponsorFlip'
 import { PlayerCard, type ChaseInfo } from '@/components/leaderboard/PlayerCard'
 import { Podium } from '@/components/leaderboard/Podium'
 import { RankAvatar } from '@/components/leaderboard/RankRegalia'
@@ -398,16 +399,22 @@ function LeaderboardArena() {
         </header>
 
         <main className="mt-8 space-y-5">
-          {/* ---------- stat bar ---------- */}
+          {/* ---------- stat bar / sponsor flip ---------- */}
+          {/* The flip wrapper owns the 8s/6s stats-to-sponsor rotation
+              (lib/leaderboardSponsor cadence) around the untouched
+              StatBar; with no sponsor data it renders the stats alone,
+              so this block behaves exactly as before. */}
           {isStandings && (
             <section className="lb4-reveal" style={{ ['--rv' as string]: '90ms' }}>
-              <StatBar
-                totalPlayers={totals.totalPlayers}
-                activePlayers={totals.activePlayers}
-                topScore={topScore}
-                leaderName={leader?.username ?? null}
-                season={seasonMeta}
-              />
+              <LeaderboardSponsorFlip>
+                <StatBar
+                  totalPlayers={totals.totalPlayers}
+                  activePlayers={totals.activePlayers}
+                  topScore={topScore}
+                  leaderName={leader?.username ?? null}
+                  season={seasonMeta}
+                />
+              </LeaderboardSponsorFlip>
             </section>
           )}
 

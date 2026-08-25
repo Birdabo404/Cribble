@@ -5,17 +5,20 @@
 // the buyer sees WHERE the card runs — a mock dashboard (nav bar +
 // flipper strip + countdown hairline) for flipper ads, a mock profile
 // page (rail card + profile silhouette + one vacant opposite slot) for
-// rail ads. The dark well is always dark in both themes because the
-// surfaces it mocks (ticker, rails) are always dark — the one
+// rail ads, a mock leaderboard page (title lockup + the sponsor face on
+// the stat panel's footprint + ghost board rows) for leaderboard ads.
+// The dark well is always dark in both themes because the
+// surfaces it mocks (ticker, rails, the arena) are always dark — the one
 // sanctioned exception to the page's --st-* token rule; the caption,
-// fine print and note render outside it in page tokens. Weekly prices
-// derive from the @/lib/billboard constants here — parents never pass
-// prices.
+// fine print and note render outside it in page tokens. Prices derive
+// from the @/lib/billboard and @/lib/leaderboardSponsor constants here
+// — parents never pass prices.
 //
 // Densities: 'full' is the composer's hero preview (product chrome,
 // caption, fine print); 'compact' is the tracker rows' and embedded
 // edit form's version (card + caption only).
 
+import { useEffect, useState } from 'react'
 import {
   BILLBOARD_DURATION_DAYS,
   BILLBOARD_PRICE_CENTS,
@@ -24,6 +27,14 @@ import {
   type BillboardPlacement,
   type RailSlot
 } from '@/lib/billboard'
+import {
+  LEADERBOARD_FLIP_SPONSOR_HOLD_MS,
+  LEADERBOARD_FLIP_STATS_HOLD_MS,
+  LEADERBOARD_FLIP_TRANSITION_MS,
+  LEADERBOARD_SPONSOR_OPENING_CENTS,
+  formatSponsorUsd,
+  leaderboardMinTargetCents
+} from '@/lib/leaderboardSponsor'
 import { BillboardCard } from '@/components/billboard/BillboardCard'
 
 export interface BillboardPreviewStageProps {
@@ -53,6 +64,22 @@ const FINE_PRINT = 'mt-1 text-[12px] leading-5 text-[color:var(--st-text-faint)]
 // carries it. --lb-gold flips with the theme on its own.
 const GOLD = { color: 'rgb(var(--lb-gold))' } as const
 
+/** Gold for price numbers INSIDE the always-dark well: --lb-gold flips
+ *  to a dark ink on the light theme (right for page surfaces, illegible
+ *  on the #09090b well), so the mock leaderboard chrome carries the
+ *  dark-theme gold literally — same stance as the well's zinc inks. */
+const WELL_GOLD = '#ffd644'
+
+/** One full stats -> sponsor -> stats rotation of the leaderboard flip
+ *  panel, in whole seconds, for the fine-print pitch — derived from the
+ *  cadence constants so a retiming can't leave stale copy here. */
+const LEADERBOARD_FLIP_CYCLE_SECONDS = Math.round(
+  (LEADERBOARD_FLIP_STATS_HOLD_MS +
+    LEADERBOARD_FLIP_SPONSOR_HOLD_MS +
+    2 * LEADERBOARD_FLIP_TRANSITION_MS) /
+    1000
+)
+
 export function BillboardPreviewStage({
   title,
   text,
@@ -71,7 +98,11 @@ export function BillboardPreviewStage({
       <div className={className}>
         <div className={WELL}>
           <div className="flex min-h-[240px] items-center justify-center">
-            <BillboardCard {...card} size={cardSizeFor(placement)} className="max-w-full" />
+            {placement === 'leaderboard' ? (
+              <LeaderboardSponsorFace card={card} />
+            ) : (
+              <BillboardCard {...card} size={cardSizeFor(placement)} className="max-w-full" />
+            )}
           </div>
         </div>
         <Caption placement={placement} slot={slot} />
@@ -97,13 +128,21 @@ export function BillboardPreviewStage({
       <p className={FINE_PRINT}>
         Final accent is sampled from your logo server-side — this preview approximates it.
       </p>
+      {placement === 'leaderboard' && (
+        <p className={FINE_PRINT}>
+          At #1 your card shares the leaderboard{`'`}s stat panel — it holds{' '}
+          {LEADERBOARD_FLIP_SPONSOR_HOLD_MS / 1000}s of every ~{LEADERBOARD_FLIP_CYCLE_SECONDS}s
+          flip cycle, and every rank stays listed on the sponsor board.
+        </p>
+      )}
       {note && <p className={FINE_PRINT}>{note}</p>}
     </div>
   )
 }
 
-/** Which BillboardCard shape a placement airs in. */
-function cardSizeFor(placement: BillboardPlacement): 'lg' | 'rail' {
+/** Which BillboardCard shape a placement airs in. Leaderboard never
+ *  lands here — its face is LeaderboardSponsorFace, not a card size. */
+function cardSizeFor(placement: Exclude<BillboardPlacement, 'leaderboard'>): 'lg' | 'rail' {
   switch (placement) {
     case 'flipper':
       return 'lg'
@@ -131,6 +170,8 @@ function StageViewport({
       return <FlipperViewport card={card} />
     case 'rail':
       return <RailViewport card={card} slot={slot} />
+    case 'leaderboard':
+      return <LeaderboardViewport card={card} />
     default: {
       const exhaustive: never = placement
       throw new Error(`Unhandled placement: ${String(exhaustive)}`)
@@ -247,6 +288,143 @@ function GhostPlate() {
   )
 }
 
+/** A fake leaderboard-page viewport: the arena's title lockup up top,
+ *  the sponsor face exactly where the stat panel sits (the flip mounts
+ *  around StatBar — stats and the #1 sponsor alternate on one
+ *  footprint), and ghost board rows below for context and scale. */
+function LeaderboardViewport({ card }: { card: StageCard }) {
+  return (
+    <div className="flex min-h-[240px] flex-col sm:min-h-[280px]">
+      {/* Title lockup stub — enough of the arena chrome (gold season
+          line + pixel wordmark) to read as "the leaderboard page". */}
+      <div aria-hidden className="flex shrink-0 flex-col items-center gap-1.5 pt-0.5">
+        <div className="flex items-center gap-2" style={{ color: WELL_GOLD }}>
+          <span
+            className="h-px w-6"
+            style={{ background: `linear-gradient(to right, transparent, ${WELL_GOLD}80)` }}
+          />
+          <span className="text-[8px] font-semibold tracking-[0.42em]">SEASON</span>
+          <span
+            className="h-px w-6"
+            style={{ background: `linear-gradient(to left, transparent, ${WELL_GOLD}80)` }}
+          />
+        </div>
+        <div className="text-[13px] leading-none text-zinc-100 [font-family:var(--font-pixel)]">
+          LEADERBOARD
+        </div>
+      </div>
+
+      {/* The sponsor face on the stat panel's footprint. */}
+      <div className="mt-3">
+        <LeaderboardSponsorFace card={card} />
+      </div>
+
+      {/* Ghost board rows — unmistakably stubs, filling the viewport so
+          the face reads as "the panel above the standings". */}
+      <div aria-hidden className="mt-3 flex min-h-[40px] flex-1 flex-col gap-2">
+        <div className="min-h-[16px] flex-1 rounded-lg border border-white/[0.05] bg-white/[0.015]" />
+        <div className="min-h-[16px] flex-1 rounded-lg border border-white/[0.05] bg-white/[0.015]" />
+        <div className="min-h-[16px] flex-1 rounded-lg border border-white/[0.05] bg-white/[0.015]" />
+      </div>
+    </div>
+  )
+}
+
+/** The leaderboard sponsor face, staged at its opening state: the
+ *  buyer's creative wearing #1 with the $6.66 opening total and the
+ *  OUTBID CTA priced by the real increment helper — the same hierarchy
+ *  the flip panel airs (rank, logo, identity lines, clicks, active
+ *  total, CTA). The numbers are illustrative: the stage has no live
+ *  board, so it shows the face a first bid buys. Inert by design —
+ *  nothing here navigates. Same dead-logo stance as BillboardCard: a
+ *  failed load drops the <img> instead of painting the broken glyph. */
+function LeaderboardSponsorFace({ card }: { card: StageCard }) {
+  const { title, text, logoUrl, accentColor } = card
+  const [logoDead, setLogoDead] = useState(false)
+  useEffect(() => setLogoDead(false), [logoUrl])
+
+  return (
+    <div className="relative w-full overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/80 px-3 py-2.5 sm:px-4 sm:py-3">
+      {/* Wash + stripe — the lg-card accent machinery, 0x1A ≈ 10% alpha. */}
+      {accentColor && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{ background: `${accentColor}1a` }}
+        />
+      )}
+      <span
+        aria-hidden
+        className={`absolute inset-y-0 left-0 w-[3px] ${accentColor ? '' : 'bg-zinc-700'}`}
+        style={accentColor ? { background: accentColor } : undefined}
+      />
+
+      <div className="relative flex items-center gap-2.5 sm:gap-3">
+        <span
+          className="shrink-0 text-[14px] leading-none [font-family:var(--font-pixel)]"
+          style={{ color: WELL_GOLD }}
+        >
+          #1
+        </span>
+        {logoUrl && !logoDead && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={logoUrl}
+            alt=""
+            aria-hidden
+            loading="lazy"
+            className="h-8 w-8 shrink-0 rounded object-cover sm:h-10 sm:w-10"
+            style={{
+              boxShadow: `0 0 0 1px ${accentColor ? `${accentColor}80` : 'rgb(255 255 255 / 0.14)'}`
+            }}
+            onError={() => setLogoDead(true)}
+          />
+        )}
+        <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+          <span className="truncate text-[11px] font-semibold uppercase leading-4 tracking-[0.2em] text-zinc-50">
+            {title}
+          </span>
+          <span className="truncate text-sm leading-5 text-zinc-200">{text}</span>
+        </span>
+        <span className="shrink-0 self-start text-[9px] tracking-[0.3em] text-zinc-500">
+          SPONSOR
+        </span>
+      </div>
+
+      {/* The money row: clicks, the active total, and the challenge CTA
+          at the fresh minimum — leaderboardMinTargetCents against the
+          opening, never math re-derived here. */}
+      <div className="relative mt-2.5 flex min-w-0 items-center gap-2 border-t border-white/[0.06] pt-2 text-[11px] leading-4">
+        <span className="tabular-nums text-zinc-500">0 clicks</span>
+        <span aria-hidden className="text-zinc-700">
+          ·
+        </span>
+        <span className="font-data tabular-nums" style={{ color: WELL_GOLD }}>
+          {formatSponsorUsd(LEADERBOARD_SPONSOR_OPENING_CENTS)}
+        </span>
+        <span className="text-zinc-500">active</span>
+        {/* The real face's CTA chrome (gold-bordered, gold ink) — one
+            of the product's own surfaces, so the page's gold rule
+            defers to fidelity inside the well. Inert: a preview never
+            navigates. */}
+        <span
+          className="ml-auto inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-[10px] font-medium tracking-[0.2em]"
+          style={{
+            color: WELL_GOLD,
+            border: `1px solid ${WELL_GOLD}80`,
+            background: `${WELL_GOLD}12`
+          }}
+        >
+          OUTBID ·{' '}
+          <span className="font-data tabular-nums">
+            {formatSponsorUsd(leaderboardMinTargetCents(LEADERBOARD_SPONSOR_OPENING_CENTS))}
+          </span>
+        </span>
+      </div>
+    </div>
+  )
+}
+
 /** The one-line placement + duration + weekly price readout under the
  *  well — page tokens, mono for the numbers, gold for the price. */
 function Caption({ placement, slot }: { placement: BillboardPlacement; slot: RailSlot | null }) {
@@ -282,6 +460,18 @@ function Caption({ placement, slot }: { placement: BillboardPlacement; slot: Rai
               </span>
             </>
           )}
+        </p>
+      )
+    case 'leaderboard':
+      return (
+        <p className="mt-1.5 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+          Leaderboard sponsor board{' · '}
+          <span className="font-data">rolling 24h bids</span>
+          {' · '}
+          from{' '}
+          <span className="font-data" style={GOLD}>
+            {formatSponsorUsd(LEADERBOARD_SPONSOR_OPENING_CENTS)}
+          </span>
         </p>
       )
     default: {

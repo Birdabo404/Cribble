@@ -5,8 +5,10 @@
 // status tracker, as the edit / edit-and-resubmit form for a PENDING or
 // CHANGES_REQUESTED ad (PATCH /api/billboard/[id]). The placement
 // picker chooses which product the card buys — the rotating flipper
-// strip or an always-on profile rail — and ships as `placement` on both
-// create and edit. Picking the rail reveals a slot grid mirroring the
+// strip, an always-on profile rail, or the leaderboard sponsor board
+// (migration 055, bid-priced rather than weekly) — and ships as
+// `placement` on both create and edit. Picking the rail reveals a slot
+// grid mirroring the
 // real rail geometry, fed by /api/billboard/slots (fetched here, not by
 // a parent, because the form mounts in both contexts): the buyer may
 // request a specific slot, shipped as `requested_rail_slot` on create
@@ -18,6 +20,13 @@
 // the composer always shows exactly the card that airs. The accent tint
 // is best-effort client-side (canvas-sampled from the logo); the
 // shipped color is extracted server-side at submit.
+//
+// The logo takes two shapes: a pasted https URL, or an image uploaded
+// through POST /api/billboard/logo — which compresses it in memory and
+// returns a small inline data URI (nothing is kept on any server
+// storage) that this form then carries in the same logo_url value. The
+// two are mutually exclusive: uploading replaces whatever URL was
+// typed, and clearing the upload reopens the URL input.
 //
 // The server owns real validation (required company name, code-point
 // caps, SSRF-safe URL checks, the one-in-flight rule); this form only
@@ -39,13 +48,23 @@
 // leads with a compact stage above the fields — the card is the product
 // hook.
 
-import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode
+} from 'react'
 import Link from 'next/link'
 import { BillboardPreviewStage } from '@/components/billboard/BillboardPreviewStage'
 import { SettingsButton } from '@/components/settings'
 import { toast } from '@/components/Toaster'
 import {
   BILLBOARD_COMPANY_MAX,
+  BILLBOARD_LOGO_UPLOAD_MAX_BYTES,
   BILLBOARD_PRICE_CENTS,
   BILLBOARD_RAIL_PRICE_MIN_CENTS,
   BILLBOARD_TEXT_MAX,
@@ -55,6 +74,10 @@ import {
   type RailSlot,
   type SlotBoard
 } from '@/lib/billboard'
+import {
+  LEADERBOARD_SPONSOR_OPENING_CENTS,
+  formatSponsorUsd
+} from '@/lib/leaderboardSponsor'
 
 export interface AdFormValues {
   company_name: string
@@ -190,10 +213,12 @@ function hslToHex(h: number, s: number, l: number): string {
     .join('')}`
 }
 
-/** The two products a card can buy — prices derive from the shared
- *  constants so a repricing lands here automatically. The rail card
- *  carries the ladder floor ("from $199"); the render overrides it with
- *  the selected slot's exact price once one is picked. */
+/** The three products a card can buy — prices derive from the shared
+ *  constants so a repricing lands here automatically, and each entry
+ *  carries its full price string (the weekly products wear /wk, the
+ *  leaderboard bid doesn't — it's pay-per-bid). The rail card carries
+ *  the ladder floor ("from $199/wk"); the render overrides it with the
+ *  selected slot's exact price once one is picked. */
 const PLACEMENTS: {
   value: BillboardPlacement
   label: string
@@ -203,14 +228,20 @@ const PLACEMENTS: {
   {
     value: 'flipper',
     label: 'Flipper',
-    price: `$${BILLBOARD_PRICE_CENTS / 100}`,
+    price: `$${BILLBOARD_PRICE_CENTS / 100}/wk`,
     blurb: 'Rotates under the nav on the dashboard + leaderboard.'
   },
   {
     value: 'rail',
     label: 'Profile rail',
-    price: `from $${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}`,
+    price: `from $${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}/wk`,
     blurb: 'Always-on card beside every profile page.'
+  },
+  {
+    value: 'leaderboard',
+    label: 'Leaderboard bid',
+    price: `from ${formatSponsorUsd(LEADERBOARD_SPONSOR_OPENING_CENTS)}`,
+    blurb: 'Ranked sponsor face on the leaderboard — bid to hold #1.'
   }
 ]
 
@@ -308,6 +339,13 @@ export function BillboardSubmitForm({
   const [error, setError] = useState<string | null>(null)
   const [conflict, setConflict] = useState<string | null>(null)
   const [previewAccent, setPreviewAccent] = useState<string | null>(null)
+  /** Upload flow state. uploadAccent is the server-extracted color that
+   *  rode the /api/billboard/logo response — preferred over the canvas
+   *  sample while the logo value is that upload's data URI. */
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploadAccent, setUploadAccent] = useState<string | null>(null)
+  const logoFileRef = useRef<HTMLInputElement | null>(null)
 
   const uid = useId()
   const companyId = `${uid}-company`
@@ -382,13 +420,26 @@ export function BillboardSubmitForm({
   const previewText = text.trim() || 'Your one line goes here'
   const previewLogo = logoUrl.trim() || fallbackLogoUrl
   const usingAvatarFallback = !logoUrl.trim() && !!fallbackLogoUrl
+  /** True while the logo value is an uploaded inline image (the data
+   *  URI minted by /api/billboard/logo) rather than a pasted URL —
+   *  covers edit mode reopening an ad whose logo was uploaded. */
+  const logoIsUpload = logoUrl.startsWith('data:')
 
   // Sample the logo for the preview tint. Debounced — previewLogo
   // changes per keystroke in the logo field — and cancellation-guarded
-  // so a slow older sample can't overwrite a newer one.
+  // so a slow older sample can't overwrite a newer one. An uploaded
+  // logo skips the sample when the upload response already delivered
+  // the server-extracted accent — the same extractor that runs at
+  // submit, so the preview tint IS the shipped tint. (Edit mode can
+  // reopen a stored upload without one; the sample below covers that,
+  // and a data URI never taints the canvas.)
   useEffect(() => {
     if (!previewLogo) {
       setPreviewAccent(null)
+      return
+    }
+    if (previewLogo.startsWith('data:') && uploadAccent) {
+      setPreviewAccent(uploadAccent)
       return
     }
     let cancelled = false
@@ -401,7 +452,7 @@ export function BillboardSubmitForm({
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [previewLogo])
+  }, [previewLogo, uploadAccent])
 
   // Report the resolved preview upward — on mount too, so a parent stage
   // paints real values instead of its own placeholders for a frame.
@@ -425,6 +476,54 @@ export function BillboardSubmitForm({
     usingAvatarFallback,
     onPreviewChange
   ])
+
+  /** Client half of the logo upload: pre-check the 2MB cap for a
+   *  friendly error before any network, POST the file to
+   *  /api/billboard/logo (compressed fully in memory server-side —
+   *  nothing lands on any server storage), then adopt the returned
+   *  inline data URI as the logo value and its server-extracted accent
+   *  for the preview. Replaces whatever URL was typed — the two logo
+   *  shapes are mutually exclusive. */
+  const onLogoFilePicked = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    // Reset so picking the same file again still fires onChange.
+    event.target.value = ''
+    if (!file || uploading) return
+    setUploadError(null)
+    if (file.size > BILLBOARD_LOGO_UPLOAD_MAX_BYTES) {
+      setUploadError('That image is over 2 MB — pick a smaller file.')
+      return
+    }
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/billboard/logo', {
+        method: 'POST',
+        credentials: 'include',
+        body: form
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || typeof data?.logoData !== 'string') {
+        setUploadError(
+          typeof data?.error === 'string' ? data.error : 'Upload failed — try again.'
+        )
+        return
+      }
+      setLogoUrl(data.logoData)
+      setUploadAccent(typeof data.accentColor === 'string' ? data.accentColor : null)
+    } catch {
+      setUploadError('Network error — try again.')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const clearUploadedLogo = () => {
+    setLogoUrl('')
+    setUploadAccent(null)
+    setUploadError(null)
+  }
 
   const submitLabel =
     target.mode === 'create'
@@ -486,6 +585,8 @@ export function BillboardSubmitForm({
         setText('')
         setLinkUrl('')
         setLogoUrl('')
+        setUploadAccent(null)
+        setUploadError(null)
         setBillingEmail('')
         setPlacement('flipper')
         setRequestedSlot(null)
@@ -543,15 +644,15 @@ export function BillboardSubmitForm({
             <div
               role="radiogroup"
               aria-labelledby={placementLabelId}
-              className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2"
+              className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-3"
             >
               {PLACEMENTS.map((opt, i) => {
                 const selected = placement === opt.value
                 // The rail card's price tracks the picked slot's tier;
-                // with none picked it keeps the "from $199" floor.
+                // with none picked it keeps the "from $199/wk" floor.
                 const price =
                   opt.value === 'rail' && requestedSlot
-                    ? `$${RAIL_SLOT_PRICE_CENTS[requestedSlot] / 100}`
+                    ? `$${RAIL_SLOT_PRICE_CENTS[requestedSlot] / 100}/wk`
                     : opt.price
                 return (
                   <button
@@ -579,7 +680,7 @@ export function BillboardSubmitForm({
                         className="shrink-0 text-[12.5px] font-medium"
                         style={{ color: 'rgb(var(--lb-gold) / 0.9)' }}
                       >
-                        {price}/wk
+                        {price}
                       </span>
                     </span>
                     <span className="mt-1 block text-[12.5px] leading-5 text-[color:var(--st-text-faint)]">
@@ -732,21 +833,74 @@ export function BillboardSubmitForm({
           </FormField>
           <FormField
             id={logoId}
-            label="Logo URL"
+            label="Logo"
             aside={
               <span className="text-[12.5px] text-[color:var(--st-text-faint)]">
                 Optional — falls back to your avatar
               </span>
             }
           >
-            <input
-              id={logoId}
-              value={logoUrl}
-              onChange={(e) => setLogoUrl(e.target.value)}
-              placeholder="https://yoursite.dev/logo.png"
-              inputMode="url"
-              className={fieldInputCls}
-            />
+            {/* ---- two mutually exclusive shapes: an uploaded inline
+                image renders as a thumbnail chip with a remove control;
+                otherwise the URL input plus the upload affordance.
+                Removing the upload reopens the input, and uploading
+                replaces whatever URL was typed. ---- */}
+            {logoIsUpload ? (
+              <div className="flex items-center gap-2.5 rounded-lg border border-[color:var(--st-border)] py-1 pl-3 pr-1">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={logoUrl}
+                  alt=""
+                  aria-hidden
+                  className="h-7 w-7 shrink-0 rounded-md object-contain"
+                />
+                <span className="min-w-0 flex-1 truncate text-[13px] text-[color:var(--st-text)]">
+                  Uploaded logo
+                </span>
+                <SettingsButton variant="ghost" onClick={clearUploadedLogo}>
+                  Remove
+                </SettingsButton>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <input
+                  id={logoId}
+                  value={logoUrl}
+                  onChange={(e) => setLogoUrl(e.target.value)}
+                  placeholder="https://yoursite.dev/logo.png"
+                  inputMode="url"
+                  className={`${fieldInputCls} min-w-0 flex-1`}
+                />
+                <SettingsButton
+                  variant="ghost"
+                  pending={uploading}
+                  onClick={() => logoFileRef.current?.click()}
+                >
+                  {uploading ? 'Uploading…' : 'Upload'}
+                </SettingsButton>
+                <input
+                  ref={logoFileRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={onLogoFilePicked}
+                />
+              </div>
+            )}
+            {uploadError && (
+              <p
+                className="mt-1.5 text-[12.5px] leading-5"
+                style={{ color: 'var(--st-danger)' }}
+                role="alert"
+              >
+                {uploadError}
+              </p>
+            )}
+            <p className="mt-1.5 text-[12px] leading-5 text-[color:var(--st-text-faint)]">
+              {logoIsUpload
+                ? 'Auto-compressed and stored inline with your ad — nothing is kept on any server storage.'
+                : 'Paste a URL or upload an image (up to 2 MB) — uploads are auto-compressed and stored inline, never kept on any server storage.'}
+            </p>
           </FormField>
         </div>
 
@@ -823,7 +977,13 @@ export function BillboardSubmitForm({
             )}
           </div>
           <p className="text-[12.5px] leading-5 text-[color:var(--st-text-faint)]">
-            Nothing charges automatically. Payment is arranged over email after approval.
+            {/* The money story differs per product: the weekly slots are
+                paid manually over email after approval; the leaderboard
+                bid is a card checkout the buyer starts from Your ads —
+                and its approval is one-time, so edits cost a re-review. */}
+            {placement === 'leaderboard'
+              ? 'Nothing charges at submission. Approval is one-time — once approved, you bid by card from Your ads, and edits send the card back through review.'
+              : 'Nothing charges automatically. Payment is arranged over email after approval.'}
           </p>
         </div>
       </div>

@@ -14,11 +14,24 @@
 // The tab default is chosen once, when /api/user/me and
 // /api/billboard/mine first resolve (signed-out or zero ads -> buy,
 // existing ads -> mine); manual switches after that are never
-// overridden. claimSlot (the flipper cell, a rail cell, or a ?slot=
-// deep link from a vacant rail CTA) jumps to the buy view and remounts
-// the composer with the placement — and, for rails, the exact slot —
-// preselected; the form reads `initial` at mount only, so the key must
-// change on every claim.
+// overridden. claimSlot (the flipper cell, the leaderboard cell, a
+// rail cell, or a ?slot= deep link from a vacant rail CTA) jumps to
+// the buy view and remounts the composer with the placement — and, for
+// rails, the exact slot — preselected; the form reads `initial` at
+// mount only, so the key must change on every claim.
+//
+// The leaderboard product (migration 055) also lives here: its
+// inventory cell shows the current #1 and the live minimum to outbid
+// from the public GET /api/billboard/leaderboard, polled on the shared
+// 15s cadence while the buy view is visible (paused on hidden tabs —
+// BillboardTicker's stance), and picking it swaps in the ranked board
+// panel and the bid-flavored how-it-works. Bidding itself lives in the
+// tracker (an approved creative's row); returning from Polar checkout
+// lands back here as /sponsorship?lb_checkout=success (the /billboard
+// successUrl 301s here with its query intact), where a mount effect
+// strips the params, switches to Your ads and runs POST
+// /api/billboard/leaderboard/sync so the buyer sees their rank without
+// waiting for the webhook.
 //
 // The studio preview flows upward: the form owns placeholder / avatar /
 // accent resolution and reports AdPreviewValues through onPreviewChange
@@ -44,6 +57,7 @@ import {
   Skeleton,
   type SegmentedOption
 } from '@/components/settings'
+import { toast } from '@/components/Toaster'
 import {
   BILLBOARD_DURATION_DAYS,
   BILLBOARD_PAYMENT_X_HANDLE,
@@ -57,6 +71,12 @@ import {
   type RailSlot,
   type SlotBoard
 } from '@/lib/billboard'
+import {
+  LEADERBOARD_SPONSOR_OPENING_CENTS,
+  LEADERBOARD_SPONSOR_POLL_MS,
+  formatSponsorUsd,
+  type LeaderboardSponsorBoard
+} from '@/lib/leaderboardSponsor'
 import { fetchMe } from '@/lib/client/fetchMe'
 import type { MeUser } from '@/types/dashboard'
 
@@ -94,6 +114,28 @@ const HOW_IT_WORKS: { label: string; body: string }[] = [
   }
 ]
 
+/** The leaderboard bid's own steps — its money story (card checkout,
+ *  rolling 24h ranking) shares nothing with the weekly email flow, so
+ *  the band swaps wholesale when that product is picked. */
+const HOW_IT_WORKS_LEADERBOARD: { label: string; body: string }[] = [
+  {
+    label: 'Submit',
+    body: 'Logo, one line, one link. A human reviews every card.'
+  },
+  {
+    label: 'One-time review',
+    body: 'Approval is once per card — edits send it back through review.'
+  },
+  {
+    label: 'Bid by card',
+    body: 'From Your ads: pick a target total, see the exact charge, pay through Polar.'
+  },
+  {
+    label: 'Rolling 24h',
+    body: 'Each payment counts for 24 hours, then drops off. Rank follows the money.'
+  }
+]
+
 // How-it-works is 2-col below lg and 4-col at lg; divide-* utilities
 // can't track the column count across that breakpoint, so each cell
 // draws its own hairlines by index.
@@ -107,6 +149,19 @@ const HOW_IT_WORKS_DIVIDERS = [
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 
+/** Countdown against the board payload's server clock, never the
+ *  client's (the rolling-24h expiries are server-derived). Local
+ *  mirror of the tracker's rule — a display convention, not a module. */
+function fmtRemaining(targetIso: string, serverIso: string): string {
+  const ms = new Date(targetIso).getTime() - new Date(serverIso).getTime()
+  if (ms <= 0) return 'now'
+  const totalMinutes = Math.ceil(ms / 60_000)
+  if (totalMinutes < 60) return `${totalMinutes}m`
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  return minutes === 0 ? `${hours}h` : `${hours}h ${String(minutes).padStart(2, '0')}m`
+}
+
 export function BillboardLanding() {
   // Avatar for the preview fallback; also the first signed-in signal.
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
@@ -115,10 +170,14 @@ export function BillboardLanding() {
   const [signedIn, setSignedIn] = useState<boolean | null>(null)
   const [ads, setAds] = useState<MineAd[] | null>(null)
   const [adsError, setAdsError] = useState<string | null>(null)
-  /** Public availability for both placements; null (loading or failed)
-   *  keeps the strip's static codes and prices with placeholder
+  /** Public availability for the weekly placements; null (loading or
+   *  failed) keeps the strip's static codes and prices with placeholder
    *  occupancy rather than broken numbers. */
   const [board, setBoard] = useState<SlotBoard | null>(null)
+  /** The public leaderboard sponsor board — the third cell's current #1
+   *  and live minimum, and the ranked board panel when that product is
+   *  picked. null (loading or failed) keeps the opening-price pitch. */
+  const [sponsorBoard, setSponsorBoard] = useState<LeaderboardSponsorBoard | null>(null)
   /** null = not chosen yet — a skeleton holds the page until the first
    *  signed-in/ads resolution picks the default tab (no tab flash). */
   const [view, setView] = useState<BillboardView | null>(null)
@@ -168,6 +227,55 @@ export function BillboardLanding() {
       cancelled = true
     }
   }, [])
+
+  // The leaderboard board is a live auction, so unlike the weekly slots
+  // it polls: every LEADERBOARD_SPONSOR_POLL_MS while the buy view is
+  // up, paused while the tab is hidden and refetched immediately on
+  // return (BillboardTicker's visibility stance). Plain fetch on
+  // purpose — the route's short CDN layer collapses everyone's polls.
+  useEffect(() => {
+    if (view !== 'buy') return
+    let cancelled = false
+    let interval = 0
+    const load = () => {
+      fetch('/api/billboard/leaderboard')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: LeaderboardSponsorBoard | null) => {
+          if (cancelled) return
+          if (data && Array.isArray(data.board)) setSponsorBoard(data)
+        })
+        .catch(() => {
+          // Best effort — the cell keeps its opening-price pitch.
+        })
+    }
+    const start = () => {
+      if (interval === 0) {
+        interval = window.setInterval(load, LEADERBOARD_SPONSOR_POLL_MS)
+      }
+    }
+    const stop = () => {
+      window.clearInterval(interval)
+      interval = 0
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        load()
+        start()
+      } else {
+        stop()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    if (document.visibilityState === 'visible') {
+      load()
+      start()
+    }
+    return () => {
+      cancelled = true
+      document.removeEventListener('visibilitychange', onVisibility)
+      stop()
+    }
+  }, [view])
 
   const loadMine = useCallback(async () => {
     setAdsError(null)
@@ -234,6 +342,69 @@ export function BillboardLanding() {
     if (isRailSlot(slot)) claimSlot('rail', slot)
   }, [claimSlot])
 
+  // Return leg of a leaderboard bid: Polar's successUrl lands on
+  // /sponsorship?lb_checkout=success&checkout_id=... (via the
+  // /billboard redirect, query intact). Strip the params so a refresh
+  // can't replay this, park the buyer on Your ads, and run the
+  // pull-based bid sync — the webhook twin — so the paid bid ranks
+  // without waiting for delivery (or at all, on localhost). The sync
+  // reconciles every PENDING bid for this user, so checkout_id rides
+  // along only as noise to clean up. Same window.location stance as the
+  // ?slot= effect above.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('lb_checkout') !== 'success') return
+    params.delete('lb_checkout')
+    params.delete('checkout_id')
+    const rest = params.toString()
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}${rest ? `?${rest}` : ''}`
+    )
+    setView('mine')
+    const run = async () => {
+      try {
+        const res = await fetch('/api/billboard/leaderboard/sync', {
+          method: 'POST',
+          credentials: 'include'
+        })
+        const data = await res.json().catch(() => null)
+        if (res.ok && data?.success && Number(data.activated) > 0) {
+          toast({
+            kind: 'success',
+            title: 'Bid placed',
+            body: 'Payment confirmed — your card is on the board.'
+          })
+        } else if (res.ok && data?.success) {
+          // Nothing newly activated: the webhook beat us (fine — the
+          // rank is already right) or the payment is still settling.
+          toast({
+            kind: 'info',
+            title: 'Checkout complete',
+            body: 'Your bid lands on the board as soon as the payment settles.'
+          })
+        } else {
+          toast({
+            kind: 'error',
+            title: 'Could not confirm the payment yet',
+            body: 'The board updates as soon as it lands — check back in a moment.'
+          })
+        }
+      } catch {
+        toast({
+          kind: 'error',
+          title: 'Could not confirm the payment yet',
+          body: 'The board updates as soon as it lands — check back in a moment.'
+        })
+      }
+      // Reload either way: the tracker re-pulls its leaderboard
+      // standing whenever the ads array identity changes.
+      void loadMine()
+    }
+    void run()
+  }, [loadMine])
+
   const flipperSelected = placementIntent === 'flipper'
   const flipperFull = board !== null && board.flipper.taken >= board.flipper.max
   // Claimable while open — and while the board is unknown, so a slow
@@ -270,6 +441,49 @@ export function BillboardLanding() {
                   : ''
               }`
             : `${board.flipper.max - board.flipper.taken}/${board.flipper.max} open`}
+      </span>
+    </>
+  )
+
+  const leaderboardSelected = placementIntent === 'leaderboard'
+  const lbTop = sponsorBoard?.top ?? null
+  // Always claimable — the board can't fill up, it can only get more
+  // expensive. The gold price is the live minimum that takes #1 (the
+  // opening on an empty or unknown board), from the polled public GET.
+  const leaderboardCellBody = (
+    <>
+      <span className="flex items-baseline justify-between gap-3">
+        <span className="font-data text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--st-text-faint)]">
+          Leaderboard bid
+        </span>
+        <span className="font-data text-[12px] tabular-nums text-[color:var(--st-text-muted)]">
+          {sponsorBoard !== null && lbTop !== null ? (
+            <>
+              <span style={GOLD}>{formatSponsorUsd(sponsorBoard.minTargetCents)}</span> takes #1
+            </>
+          ) : (
+            <>
+              from{' '}
+              <span style={GOLD}>{formatSponsorUsd(LEADERBOARD_SPONSOR_OPENING_CENTS)}</span>
+            </>
+          )}
+        </span>
+      </span>
+      <span className="mt-1.5 block text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+        Outbid the top sponsor on the leaderboard page. Every dollar runs for 24 hours.
+      </span>
+      <span
+        className={`mt-3 block font-data text-[12px] leading-4 tabular-nums ${
+          sponsorBoard === null
+            ? 'text-[color:var(--st-text-faint)]'
+            : 'text-[color:var(--st-text)]'
+        }`}
+      >
+        {sponsorBoard === null
+          ? '—'
+          : lbTop === null
+            ? `Open — claim #1 for ${formatSponsorUsd(sponsorBoard.openingCents)}`
+            : `#1 ${lbTop.companyName || lbTop.linkHost || 'Sponsor'} · ${formatSponsorUsd(lbTop.activeCents)} active`}
       </span>
     </>
   )
@@ -330,10 +544,17 @@ export function BillboardLanding() {
           <Skeleton className="mt-2 h-3 w-full max-w-sm" />
           <div className={`mt-3 overflow-hidden ${PANEL}`}>
             <div className="grid lg:grid-cols-2">
-              <div className="p-4 sm:p-5">
-                <Skeleton className="h-3 w-24" />
-                <Skeleton className="mt-3 h-3 w-full max-w-xs" />
-                <Skeleton className="mt-3 h-3 w-20" />
+              <div className="flex flex-col">
+                <div className="flex-1 p-4 sm:p-5">
+                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="mt-3 h-3 w-full max-w-xs" />
+                  <Skeleton className="mt-3 h-3 w-20" />
+                </div>
+                <div className="flex-1 border-t border-[color:var(--st-border)] p-4 sm:p-5">
+                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="mt-3 h-3 w-full max-w-xs" />
+                  <Skeleton className="mt-3 h-3 w-20" />
+                </div>
               </div>
               <div className="border-t border-[color:var(--st-border)] p-4 sm:p-5 lg:border-l lg:border-t-0">
                 <Skeleton className="h-3 w-24" />
@@ -381,32 +602,54 @@ export function BillboardLanding() {
 
             <div className={`mt-3 overflow-hidden ${PANEL}`}>
               <div className="grid lg:grid-cols-2">
-                {/* ---- flipper cell: one big claim button while open ---- */}
-                {flipperClaimable ? (
+                {/* ---- left column: the two single-card products
+                     stacked — flipper on top, leaderboard bid under it
+                     — so their heights together balance the rail map's
+                     four rows on lg. ---- */}
+                <div className="flex flex-col">
+                  {/* ---- flipper cell: one big claim button while open ---- */}
+                  {flipperClaimable ? (
+                    <button
+                      type="button"
+                      aria-pressed={flipperSelected}
+                      aria-label="Claim a flipper slot"
+                      onClick={() => claimSlot('flipper')}
+                      className={`flex flex-1 flex-col p-4 text-left transition-colors sm:p-5 ${
+                        flipperSelected
+                          ? 'bg-[color:var(--st-panel-hover)] [box-shadow:inset_0_0_0_1px_var(--st-border-strong)]'
+                          : 'hover:bg-[color:var(--st-panel-hover)]'
+                      }`}
+                    >
+                      {flipperCellBody}
+                    </button>
+                  ) : (
+                    <div
+                      className={`flex flex-1 flex-col p-4 sm:p-5 ${
+                        flipperSelected
+                          ? 'bg-[color:var(--st-panel-hover)] [box-shadow:inset_0_0_0_1px_var(--st-border-strong)]'
+                          : ''
+                      }`}
+                    >
+                      {flipperCellBody}
+                    </div>
+                  )}
+
+                  {/* ---- leaderboard cell: always claimable — the
+                       board never fills, the price just climbs. ---- */}
                   <button
                     type="button"
-                    aria-pressed={flipperSelected}
-                    aria-label="Claim a flipper slot"
-                    onClick={() => claimSlot('flipper')}
-                    className={`flex flex-col p-4 text-left transition-colors sm:p-5 ${
-                      flipperSelected
+                    aria-pressed={leaderboardSelected}
+                    aria-label="Claim the leaderboard sponsor board"
+                    onClick={() => claimSlot('leaderboard')}
+                    className={`flex flex-1 flex-col border-t border-[color:var(--st-border)] p-4 text-left transition-colors sm:p-5 ${
+                      leaderboardSelected
                         ? 'bg-[color:var(--st-panel-hover)] [box-shadow:inset_0_0_0_1px_var(--st-border-strong)]'
                         : 'hover:bg-[color:var(--st-panel-hover)]'
                     }`}
                   >
-                    {flipperCellBody}
+                    {leaderboardCellBody}
                   </button>
-                ) : (
-                  <div
-                    className={`flex flex-col p-4 sm:p-5 ${
-                      flipperSelected
-                        ? 'bg-[color:var(--st-panel-hover)] [box-shadow:inset_0_0_0_1px_var(--st-border-strong)]'
-                        : ''
-                    }`}
-                  >
-                    {flipperCellBody}
-                  </div>
-                )}
+                </div>
 
                 {/* ---- rail map cell: static codes and ladder prices,
                      live occupancy layered on when the board lands ---- */}
@@ -496,8 +739,73 @@ export function BillboardLanding() {
               </div>
             </div>
 
+            {/* ---- picking the leaderboard swaps in the live ranked
+                 board, so the buyer sees exactly what a bid is up
+                 against — every active sponsor, their totals, and when
+                 each drops off. ---- */}
+            {placementIntent === 'leaderboard' && (
+              <div className={`mt-3 overflow-hidden ${PANEL}`}>
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-[color:var(--st-border)] px-4 py-2.5 sm:px-5">
+                  <span className="font-data text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--st-text-faint)]">
+                    The board right now
+                  </span>
+                  <span className="text-[12px] text-[color:var(--st-text-faint)]">
+                    Live — refreshes every {LEADERBOARD_SPONSOR_POLL_MS / 1000}s
+                  </span>
+                </div>
+                {sponsorBoard === null ? (
+                  <p className="px-4 py-3 text-[12.5px] text-[color:var(--st-text-faint)] sm:px-5">
+                    Loading the board…
+                  </p>
+                ) : sponsorBoard.board.length === 0 ? (
+                  <p className="px-4 py-3 text-[12.5px] leading-5 text-[color:var(--st-text-muted)] sm:px-5">
+                    Nobody holds the board — the first bid takes #1 for{' '}
+                    <span className="font-data tabular-nums" style={GOLD}>
+                      {formatSponsorUsd(sponsorBoard.openingCents)}
+                    </span>
+                    .
+                  </p>
+                ) : (
+                  <div className="divide-y divide-[color:var(--st-border)]">
+                    {sponsorBoard.board.map((entry) => (
+                      <div
+                        key={entry.adId}
+                        className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-4 py-2.5 sm:px-5"
+                      >
+                        <span className="font-data w-7 shrink-0 text-[12px] tabular-nums text-[color:var(--st-text-faint)]">
+                          #{entry.rank}
+                        </span>
+                        <span className="min-w-0 truncate text-[13px] font-medium text-[color:var(--st-text)]">
+                          {entry.companyName || entry.linkHost || 'Sponsor'}
+                        </span>
+                        <span className="text-[12px] tabular-nums text-[color:var(--st-text-muted)]">
+                          {entry.clicks.toLocaleString()} click{entry.clicks === 1 ? '' : 's'}
+                        </span>
+                        <span className="ml-auto flex shrink-0 items-baseline gap-2.5">
+                          <span className="font-data text-[12px] tabular-nums" style={GOLD}>
+                            {formatSponsorUsd(entry.activeCents)}
+                          </span>
+                          <span className="font-data text-[11.5px] tabular-nums text-[color:var(--st-text-faint)]">
+                            {/* nextDropAt = the soonest contribution
+                                expiry, expiresAt = the last; equal for
+                                a single-payment sponsor. */}
+                            {entry.nextDropAt !== entry.expiresAt
+                              ? `drops ${fmtRemaining(entry.nextDropAt, sponsorBoard.serverTime)} · `
+                              : ''}
+                            off in {fmtRemaining(entry.expiresAt, sponsorBoard.serverTime)}
+                          </span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <p className="mt-2 text-[12.5px] leading-5 text-[color:var(--st-text-faint)]">
-              {`Pitching a slot doesn't reserve it — the first confirmed payment takes it. If yours sells first, you can switch to any open slot.`}
+              {placementIntent === 'leaderboard'
+                ? 'A bid buys ranked exposure, not guaranteed time at #1 — anyone can outbid you, the minimum is re-checked at checkout, and each payment drops off 24 hours after it lands. Approved cards bid from Your ads.'
+                : `Pitching a slot doesn't reserve it — the first confirmed payment takes it. If yours sells first, you can switch to any open slot.`}
             </p>
           </section>
 
@@ -553,12 +861,17 @@ export function BillboardLanding() {
               How it works
             </h2>
             <p className="mt-0.5 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
-              A human reviews every card before anything runs.
+              {placementIntent === 'leaderboard'
+                ? 'A human reviews every card — after that one approval, bidding is instant.'
+                : 'A human reviews every card before anything runs.'}
             </p>
 
             <div className={`mt-3 overflow-hidden ${PANEL}`}>
               <div className="grid grid-cols-2 lg:grid-cols-4">
-                {HOW_IT_WORKS.map((step, i) => (
+                {(placementIntent === 'leaderboard'
+                  ? HOW_IT_WORKS_LEADERBOARD
+                  : HOW_IT_WORKS
+                ).map((step, i) => (
                   <div
                     key={step.label}
                     className={`border-[color:var(--st-border)] p-4 sm:p-5 ${HOW_IT_WORKS_DIVIDERS[i]}`}

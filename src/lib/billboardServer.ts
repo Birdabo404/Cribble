@@ -1,9 +1,11 @@
-// SERVER-ONLY billboard helpers: URL validation (cleanBillboardUrl) and
-// the logo accent-color extraction (extractAccentColor). The pinned
-// accent fetch pulls in node:dns / node:net / node:http(s) and sharp is
-// a native module, so this module must never be imported from a
-// 'use client' file — the isomorphic billboard contract (types,
-// constants, isLiveAd) lives in @/lib/billboard instead.
+// SERVER-ONLY billboard helpers: URL validation (cleanBillboardUrl),
+// inline-logo validation (parseBillboardLogoDataUri) and the logo
+// accent-color extraction (extractAccentColor / the buffer-level
+// extractAccentFromImageBuffer). The pinned accent fetch pulls in
+// node:dns / node:net / node:http(s) and sharp is a native module, so
+// this module must never be imported from a 'use client' file — the
+// isomorphic billboard contract (types, constants, isLiveAd) lives in
+// @/lib/billboard instead.
 
 import { request as httpRequest, type IncomingMessage } from 'node:http'
 import { request as httpsRequest } from 'node:https'
@@ -44,6 +46,65 @@ export function cleanBillboardUrl(value: unknown, maxLen: number = URL_MAX_DEFAU
     if (!url.hostname.includes('.')) return null
     if (!isPublicHostname(url.hostname)) return null
     return url.toString()
+  } catch {
+    return null
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Inline (uploaded) logo validation — the data-URI counterpart of the */
+/* URL bar above, for logos minted by POST /api/billboard/logo.        */
+/* ------------------------------------------------------------------ */
+
+export const BILLBOARD_LOGO_DATA_URI_PREFIX = 'data:image/webp;base64,'
+/** Decoded-byte ceiling the submit routes admit. The upload route
+ *  encodes to 48KB, so the gap is headroom for its own output — never
+ *  a target for clients to fill. */
+const LOGO_DATA_MAX_DECODED_BYTES = 64 * 1024
+/** base64 spends 4 chars per 3 bytes, so oversize payloads are refused
+ *  on string length before paying for a decode. */
+const LOGO_DATA_MAX_BASE64_CHARS = Math.ceil(LOGO_DATA_MAX_DECODED_BYTES / 3) * 4
+/** Hard cap on an inline logo's pixel dimensions — exactly what the
+ *  upload route emits at its largest. */
+export const BILLBOARD_LOGO_MAX_DIM = 256
+
+/**
+ * Validate an uploaded-logo data URI down to its decoded bytes, or null
+ * when the value isn't storable. This is the submit-side gate, NOT a
+ * convenience parser: clients can bypass POST /api/billboard/logo and
+ * PATCH any string into logo_url, so a data URI is never trusted as
+ * that route's output — it must independently prove it is exactly the
+ * shape the route mints. Strict on every axis:
+ *   - the literal `data:image/webp;base64,` prefix (no parameters, no
+ *     other mime, no unencoded payloads);
+ *   - base64 that decodes cleanly — charset/padding-checked and
+ *     round-trip compared, so non-canonical encodings are refused;
+ *   - decoded size <= 64KB;
+ *   - sharp's header read confirms real webp within 256x256.
+ */
+export async function parseBillboardLogoDataUri(value: unknown): Promise<Buffer | null> {
+  if (typeof value !== 'string') return null
+  if (!value.startsWith(BILLBOARD_LOGO_DATA_URI_PREFIX)) return null
+  const base64 = value.slice(BILLBOARD_LOGO_DATA_URI_PREFIX.length)
+  if (base64.length === 0 || base64.length > LOGO_DATA_MAX_BASE64_CHARS) return null
+  if (base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) return null
+
+  const image = Buffer.from(base64, 'base64')
+  // Node's decoder is lenient; the re-encode round trip is what makes
+  // "decodes cleanly" strict (canonical padding and trailing bits).
+  if (image.toString('base64') !== base64) return null
+  if (image.byteLength > LOGO_DATA_MAX_DECODED_BYTES) return null
+
+  try {
+    // Lazy sharp import, same stance as the accent extractors below.
+    const { default: sharp } = await import('sharp')
+    // metadata() only reads the container header — cheap, no pixel
+    // decode — which is exactly enough to prove format and dimensions.
+    const meta = await sharp(image).metadata()
+    if (meta.format !== 'webp') return null
+    if (!meta.width || !meta.height) return null
+    if (meta.width > BILLBOARD_LOGO_MAX_DIM || meta.height > BILLBOARD_LOGO_MAX_DIM) return null
+    return image
   } catch {
     return null
   }
@@ -160,6 +221,38 @@ function requestPinned(
 }
 
 /**
+ * Buffer-level tail of the accent pipeline: sharp's dominant color from
+ * image bytes already in hand, clamped to the legibility ranges above.
+ * Shared by the URL fetch below and the logo-upload path, which holds
+ * the uploaded bytes in memory and must never turn them back into a
+ * fetch. Returns lowercase '#rrggbb' (the exact shape migration 031's
+ * CHECK admits); best-effort like its caller — any decode or sharp
+ * import failure returns null, never throws.
+ */
+export async function extractAccentFromImageBuffer(image: Buffer): Promise<string | null> {
+  try {
+    // Lazy import — deliberate exception to the imports-at-top rule:
+    // sharp is a heavy native module, and loading it per call keeps it
+    // out of the route modules' import graph, so a missing platform
+    // binary degrades only accent extraction instead of the routes.
+    const { default: sharp } = await import('sharp')
+
+    // sharp's stats() reads the ORIGINAL input and ignores pipeline
+    // operations, so downsampling must materialize a small buffer first.
+    const sample = await sharp(image, { limitInputPixels: ACCENT_MAX_PIXELS })
+      .resize(ACCENT_SAMPLE_PX, ACCENT_SAMPLE_PX, { fit: 'inside', withoutEnlargement: true })
+      .toBuffer()
+    const { dominant } = await sharp(sample).stats()
+
+    const [h, s, l] = rgbToHsl(dominant.r, dominant.g, dominant.b)
+    const [r, g, b] = hslToRgb(h, clamp(s, ...ACCENT_SATURATION), clamp(l, ...ACCENT_LIGHTNESS))
+    return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`
+  } catch {
+    return null
+  }
+}
+
+/**
  * Derive an ad's sub-banner accent from its logo (or the owner-avatar
  * fallback): fetch the image, take sharp's dominant color, then clamp
  * saturation to [0.35, 0.85] and lightness to [0.42, 0.62] in HSL so
@@ -214,22 +307,7 @@ export async function extractAccentColor(logoUrl: string): Promise<string | null
     const image = await readBodyCapped(res, ACCENT_MAX_BYTES)
     if (!image) return null
 
-    // Lazy import — deliberate exception to the imports-at-top rule:
-    // sharp is a heavy native module, and loading it per call keeps it
-    // out of the route modules' import graph, so a missing platform
-    // binary degrades only accent extraction instead of the routes.
-    const { default: sharp } = await import('sharp')
-
-    // sharp's stats() reads the ORIGINAL input and ignores pipeline
-    // operations, so downsampling must materialize a small buffer first.
-    const sample = await sharp(image, { limitInputPixels: ACCENT_MAX_PIXELS })
-      .resize(ACCENT_SAMPLE_PX, ACCENT_SAMPLE_PX, { fit: 'inside', withoutEnlargement: true })
-      .toBuffer()
-    const { dominant } = await sharp(sample).stats()
-
-    const [h, s, l] = rgbToHsl(dominant.r, dominant.g, dominant.b)
-    const [r, g, b] = hslToRgb(h, clamp(s, ...ACCENT_SATURATION), clamp(l, ...ACCENT_LIGHTNESS))
-    return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`
+    return await extractAccentFromImageBuffer(image)
   } catch {
     return null
   } finally {

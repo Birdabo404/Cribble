@@ -4,9 +4,14 @@
 //   - Team subscription products  (monthly $50, yearly $500)
 //   - one one-time product per purchasable plate, with `plate_id` metadata
 //     (the webhook grants ownership from it)
+//   - the one-time "Leaderboard Sponsor Bid" product, with `cribble_key`
+//     metadata — its catalog price is the $6.66 empty-board opening and is
+//     nominal only: every checkout overrides it with a server-computed
+//     ad-hoc fixed price (migration 055)
 //   - the 25% "Pro Plate Perk" discount restricted to the plate products
 //   - the webhook endpoint pointing at /api/webhooks/polar (raw format —
-//     team products reuse the same subscription events, nothing extra)
+//     team products and sponsor bids reuse the same order events, nothing
+//     extra)
 //
 // Idempotent: existing objects are matched by metadata (pro_key / team_key /
 // plate_id / cribble_key, name as fallback) and reused; only missing pieces
@@ -31,6 +36,7 @@ import type { Product } from '@polar-sh/sdk/models/components/product'
 import type { WebhookEndpoint } from '@polar-sh/sdk/models/components/webhookendpoint'
 import type { WebhookEventType } from '@polar-sh/sdk/models/components/webhookeventtype'
 import { PLATES, type PlateDef } from '../src/lib/cosmetics/plates'
+import { LEADERBOARD_SPONSOR_OPENING_CENTS } from '../src/lib/leaderboardSponsor'
 import { getPolarServer } from '../src/lib/polar'
 
 // --write-env target; POLAR_SETUP_ENV_FILE redirects it (tests, .env.production)
@@ -129,6 +135,19 @@ const TEAM_SUBSCRIPTIONS: DesiredSubscription[] = [
 const PURCHASABLE_PLATES = PLATES.filter(
   (plate): plate is PlateDef & { priceUsd: number } => plate.priceUsd !== null
 )
+
+// The leaderboard sponsor bid (migration 055). Matched/tagged by
+// cribble_key metadata like the discount; the price is the empty-board
+// opening from lib/leaderboardSponsor and only nominal — checkout
+// always attaches an ad-hoc fixed price, so drift here is cosmetic.
+const LEADERBOARD_BID = {
+  metaValue: 'leaderboard_bid',
+  envKey: 'POLAR_PRODUCT_LEADERBOARD_BID',
+  name: 'Leaderboard Sponsor Bid',
+  description:
+    'A ranked sponsor contribution on the Cribble leaderboard — each payment counts toward your creative\'s rolling 24-hour total. The charged amount is set per checkout; this catalog price is the empty-board opening.',
+  priceCents: LEADERBOARD_SPONSOR_OPENING_CENTS
+}
 
 const DISCOUNT_NAME = 'Pro Plate Perk'
 const DISCOUNT_BASIS_POINTS = 2500
@@ -344,6 +363,37 @@ async function main() {
   if (plateProductIds.length === PURCHASABLE_PLATES.length) {
     envEntries.push(['POLAR_PLATE_PRODUCT_MAP', plateMapJson])
     recordEnvState('PLATES', 'POLAR_PLATE_PRODUCT_MAP', plateMapJson, willWriteEnv)
+  }
+
+  // --- Leaderboard sponsor bid ----------------------------------------------
+  {
+    let product = matchProduct(
+      products,
+      false,
+      'cribble_key',
+      LEADERBOARD_BID.metaValue,
+      LEADERBOARD_BID.name
+    )
+    if (!product && !check) {
+      product = await polar.products.create({
+        name: LEADERBOARD_BID.name,
+        description: LEADERBOARD_BID.description,
+        metadata: { cribble_key: LEADERBOARD_BID.metaValue },
+        prices: [{ amountType: 'fixed', priceAmount: LEADERBOARD_BID.priceCents }]
+      })
+      record('LEADERBOARD', LEADERBOARD_BID.name, 'created', `${formatUsd(LEADERBOARD_BID.priceCents)} opening (ad-hoc priced per checkout) → ${product.id}`)
+    } else if (!product) {
+      record('LEADERBOARD', LEADERBOARD_BID.name, 'missing', `would create at the ${formatUsd(LEADERBOARD_BID.priceCents)} opening (ad-hoc priced per checkout)`)
+    } else {
+      // Catalog price is nominal (checkout always overrides it), so a
+      // different stored price is reported like every other drift but
+      // harms nothing.
+      const cents = fixedPriceCents(product)
+      const priceNote = cents === LEADERBOARD_BID.priceCents ? `${formatUsd(LEADERBOARD_BID.priceCents)} opening` : `price drift (cosmetic — checkouts are ad-hoc priced): Polar has ${cents === null ? 'no fixed price' : formatUsd(cents)}, catalog says ${formatUsd(LEADERBOARD_BID.priceCents)}`
+      record('LEADERBOARD', LEADERBOARD_BID.name, cents === LEADERBOARD_BID.priceCents ? 'ok' : 'drift', `${priceNote} → ${product.id}`)
+    }
+    if (product) envEntries.push([LEADERBOARD_BID.envKey, product.id])
+    recordEnvState('LEADERBOARD', LEADERBOARD_BID.envKey, product?.id ?? null, willWriteEnv)
   }
 
   // --- Pro plate discount --------------------------------------------------

@@ -8,6 +8,10 @@ import {
   grantProEntitlement,
   grantTeamEntitlement
 } from '@/lib/entitlementGrant'
+import {
+  activateSponsorBidFromOrder,
+  revokeSponsorBidFromOrder
+} from '@/lib/leaderboardSponsorServer'
 import { getPolarWebhookSecret, isTeamSubscription } from '@/lib/polar'
 import { createServiceClient } from '@/lib/supabaseServer'
 
@@ -26,9 +30,22 @@ import { createServiceClient } from '@/lib/supabaseServer'
 //                            products, 'PRO' otherwise); manually set
 //                            tiers are left alone
 //   subscription.canceled -> no-op (the tier stays until the period ends)
-//   order.paid            -> grant plate in user_cosmetics (if plate order)
-//   order.refunded        -> delete user_cosmetics rows by source_order_id
-// Everything else is recorded for audit and acked.
+//   order.paid            -> grant plate in user_cosmetics (if plate
+//                            order), or activate a leaderboard sponsor
+//                            bid (if kind='leaderboard_bid' metadata /
+//                            the sponsor product) after verifying the
+//                            order against its PENDING ledger row
+//   order.refunded        -> delete user_cosmetics rows by
+//                            source_order_id + revoke any sponsor bid
+//                            (PENDING or PAID) by the order's checkout
+//                            id, falling back to polar_order_id — a
+//                            refund beating order.paid to delivery must
+//                            still strike the ledger row
+// The two one-time fulfillments can't collide: plates key off plate
+// metadata a bid checkout never sets, bids key off kind metadata /
+// product id a plate checkout never carries, and each handler no-ops
+// on the other's orders. Everything else is recorded for audit and
+// acked.
 
 export const dynamic = 'force-dynamic'
 
@@ -186,7 +203,9 @@ async function revokePlateFromOrder(order: Order) {
 
 // Deliberately partial dispatch (not an exhaustive switch): only these four
 // events have side effects; subscription.canceled and every other verified
-// event type keeps its audit row and is acked with no DB effect.
+// event type keeps its audit row and is acked with no DB effect. Both
+// order handlers run both fulfillments — each keys off markers the other
+// product never sets, so exactly one (or neither) has any effect.
 async function processEvent(event: PolarEvent) {
   if (event.type === 'subscription.active') {
     await activateSubscription(event.data)
@@ -194,8 +213,13 @@ async function processEvent(event: PolarEvent) {
     await revokeSubscription(event.data)
   } else if (event.type === 'order.paid') {
     await grantPlateFromOrder(event.data)
+    // Verification refusals resolve (logged inside) rather than throw:
+    // a mismatched amount or missing ledger row is permanent, and a 500
+    // here would make Polar redeliver an event no retry can fix.
+    await activateSponsorBidFromOrder(supabase, event.data)
   } else if (event.type === 'order.refunded') {
     await revokePlateFromOrder(event.data)
+    await revokeSponsorBidFromOrder(supabase, event.data)
   }
 }
 

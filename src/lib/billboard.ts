@@ -27,10 +27,14 @@ export type BillboardStatus =
   | 'REJECTED'
   | 'ARCHIVED'
 
-/** Which Billboard product an ad occupies (migration 035): the rotating
- *  flipper train under the navbar, or one of the always-on sponsor rails
- *  flanking the profile pages. */
-export type BillboardPlacement = 'flipper' | 'rail'
+/** Which Billboard product an ad occupies: the rotating flipper train
+ *  under the navbar, one of the always-on sponsor rails flanking the
+ *  profile pages (migration 035), or the rolling 24h sponsor ranking
+ *  on the leaderboard page (migration 055). Leaderboard creatives ride
+ *  the same review lifecycle and click redirect but NOT the 7-day LIVE
+ *  window — their liveness is APPROVED + at least one active paid
+ *  contribution (isLiveAd does not apply; see lib/leaderboardSponsor). */
+export type BillboardPlacement = 'flipper' | 'rail' | 'leaderboard'
 
 /** The 8 fixed rail slots in board/render order: L1-L4 down the left
  *  column, R1-R4 down the right. */
@@ -46,6 +50,11 @@ export function isRailSlot(value: unknown): value is RailSlot {
  *  capped by slot uniqueness instead (one live ad per RAIL_SLOTS entry,
  *  enforced at the same point). */
 export const BILLBOARD_MAX_LIVE = 8
+/** Ceiling on a logo upload (POST /api/billboard/logo). Isomorphic so
+ *  the composer can pre-check the picked file for a friendly error;
+ *  the route enforces it for real on both the declared and the actually
+ *  read body size. */
+export const BILLBOARD_LOGO_UPLOAD_MAX_BYTES = 2 * 1024 * 1024
 export const BILLBOARD_TEXT_MAX = 80
 /** Cap on the company/brand title line (migration 034), counted in
  *  code points like BILLBOARD_TEXT_MAX. */
@@ -273,6 +282,10 @@ export type SlotBoard = {
  * Mirrors the LIVE definition documented in migration 030:
  * status = 'APPROVED' AND paid_at IS NOT NULL AND now() BETWEEN
  * starts_at AND ends_at — inclusive on both ends, like SQL BETWEEN.
+ * Flipper and rail ads only — a 'leaderboard' creative has no window
+ * (its ad-row paid_at/starts_at/ends_at stay NULL) and is live while
+ * APPROVED with an active bid ledger total; this helper would always
+ * say false for it, which callers must not mistake for "not shown".
  */
 export function isLiveAd(
   ad: Pick<BillboardAd, 'status' | 'paid_at' | 'starts_at' | 'ends_at'>,

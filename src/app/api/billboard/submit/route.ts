@@ -7,7 +7,12 @@ import {
   type BillboardPlacement,
   type RailSlot
 } from '@/lib/billboard'
-import { cleanBillboardUrl, extractAccentColor } from '@/lib/billboardServer'
+import {
+  cleanBillboardUrl,
+  extractAccentColor,
+  extractAccentFromImageBuffer,
+  parseBillboardLogoDataUri
+} from '@/lib/billboardServer'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
 import { getSessionUserId } from '@/lib/sessionAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
@@ -30,6 +35,10 @@ type AdFields = {
   companyName: string
   linkUrl: string
   logoUrl: string | null
+  /** Decoded bytes of an inline (data-URI) logo, kept so the accent
+   *  can be extracted from the buffer instead of a URL fetch; null
+   *  whenever logoUrl is an https URL or absent. */
+  logoBuffer: Buffer | null
   placement: BillboardPlacement
   requestedRailSlot: RailSlot | null
   billingEmail: string
@@ -47,14 +56,22 @@ type AdFields = {
  *                  BILLBOARD_COMPANY_MAX code points.
  *   link_url     — required, must survive cleanBillboardUrl (https
  *                  coercion, credential and non-public-host rejection).
- *   logo_url     — optional; when present it faces the same URL bar.
- *                  Absent or blank stores NULL and the ticker falls back
- *                  to the owner's avatar.
- *   placement    — optional 'flipper' | 'rail' (migration 035); absent
- *                  defaults to 'flipper'. rail_slot is still never
- *                  accepted from buyers — the admin assigns it at
- *                  activation; the buyer's wish rides in
- *                  requested_rail_slot instead.
+ *   logo_url     — optional; either an https URL facing the same URL
+ *                  bar, or the inline `data:image/webp;base64,` URI
+ *                  minted by POST /api/billboard/logo — re-proven here
+ *                  by parseBillboardLogoDataUri (strict prefix, size
+ *                  and dimension caps) because clients can skip the
+ *                  upload route and send any string. Absent or blank
+ *                  stores NULL and the ticker falls back to the
+ *                  owner's avatar.
+ *   placement    — optional 'flipper' | 'rail' (migration 035) |
+ *                  'leaderboard' (migration 055); absent defaults to
+ *                  'flipper'. rail_slot is still never accepted from
+ *                  buyers — the admin assigns it at activation; the
+ *                  buyer's wish rides in requested_rail_slot instead.
+ *                  Leaderboard creatives go through this same review
+ *                  queue but are activated by paid bids, never by the
+ *                  admin window flow.
  *   requested_rail_slot — optional rail-slot preference (migration 038):
  *                  a valid RailSlot when present, absent/null means "any
  *                  slot", forced NULL on flipper ads. A preference,
@@ -65,7 +82,9 @@ type AdFields = {
  *                  flow, X DM as backup). Validated + lowercased by
  *                  validateEmail; the stored value is its sanitized form.
  */
-function parseAdFields(body: Record<string, unknown>): AdFields | { error: string } {
+async function parseAdFields(
+  body: Record<string, unknown>
+): Promise<AdFields | { error: string }> {
   const rawText = typeof body.text === 'string' ? body.text : ''
   const text = rawText
     // eslint-disable-next-line no-control-regex
@@ -93,18 +112,33 @@ function parseAdFields(body: Record<string, unknown>): AdFields | { error: strin
 
   const rawLogo = typeof body.logo_url === 'string' ? body.logo_url.trim() : ''
   let logoUrl: string | null = null
-  if (rawLogo) {
+  let logoBuffer: Buffer | null = null
+  if (rawLogo.startsWith('data:')) {
+    // The uploaded-logo path: anything data:-shaped must prove it is
+    // exactly the small inline webp POST /api/billboard/logo mints —
+    // never routed through the URL bar (whose 300-char cap and https
+    // rules it could never pass) and never trusted as-is.
+    logoBuffer = await parseBillboardLogoDataUri(rawLogo)
+    if (!logoBuffer) {
+      return { error: 'Uploaded logo is not a valid inline image — try uploading it again' }
+    }
+    logoUrl = rawLogo
+  } else if (rawLogo) {
     logoUrl = cleanBillboardUrl(rawLogo)
     if (!logoUrl) return { error: 'Logo URL is not a valid, publicly reachable URL' }
   }
 
-  // Which product the buyer is pitching (migration 035). Optional so
-  // pre-rails clients keep working: absent means the flipper.
+  // Which product the buyer is pitching (migrations 035/055). Optional
+  // so pre-rails clients keep working: absent means the flipper.
   const rawPlacement = body.placement
   let placement: BillboardPlacement = 'flipper'
   if (rawPlacement !== undefined) {
-    if (rawPlacement !== 'flipper' && rawPlacement !== 'rail') {
-      return { error: "placement must be 'flipper' or 'rail'" }
+    if (
+      rawPlacement !== 'flipper' &&
+      rawPlacement !== 'rail' &&
+      rawPlacement !== 'leaderboard'
+    ) {
+      return { error: "placement must be 'flipper', 'rail' or 'leaderboard'" }
     }
     placement = rawPlacement
   }
@@ -131,7 +165,16 @@ function parseAdFields(body: Record<string, unknown>): AdFields | { error: strin
   }
   const billingEmail = billingCheck.sanitized
 
-  return { text, companyName, linkUrl, logoUrl, placement, requestedRailSlot, billingEmail }
+  return {
+    text,
+    companyName,
+    linkUrl,
+    logoUrl,
+    logoBuffer,
+    placement,
+    requestedRailSlot,
+    billingEmail
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -158,7 +201,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
 
-    const fields = parseAdFields(body)
+    const fields = await parseAdFields(body)
     if ('error' in fields) {
       return NextResponse.json({ error: fields.error }, { status: 400 })
     }
@@ -189,18 +232,26 @@ export async function POST(request: NextRequest) {
     // The accent is derived from the image the ticker will actually
     // show: the submitted logo, or — when logo_url is NULL — the
     // owner's avatar, the same fallback source (users.twitter_profile_
-    // image) the public GET resolves logoUrl from. Best-effort: any
-    // extraction failure stores NULL and the ad still submits.
-    let logoSource = fields.logoUrl
-    if (!logoSource) {
-      const { data: owner } = await supabase
-        .from('users')
-        .select('twitter_profile_image')
-        .eq('id', session.userId)
-        .maybeSingle()
-      logoSource = owner?.twitter_profile_image || null
+    // image) the public GET resolves logoUrl from. An uploaded (data-
+    // URI) logo already holds its bytes, so its accent comes straight
+    // off the buffer; the guarded URL fetch only runs for https logos
+    // and the avatar fallback. Best-effort: any extraction failure
+    // stores NULL and the ad still submits.
+    let accentColor: string | null = null
+    if (fields.logoBuffer) {
+      accentColor = await extractAccentFromImageBuffer(fields.logoBuffer)
+    } else {
+      let logoSource = fields.logoUrl
+      if (!logoSource) {
+        const { data: owner } = await supabase
+          .from('users')
+          .select('twitter_profile_image')
+          .eq('id', session.userId)
+          .maybeSingle()
+        logoSource = owner?.twitter_profile_image || null
+      }
+      accentColor = logoSource ? await extractAccentColor(logoSource) : null
     }
-    const accentColor = logoSource ? await extractAccentColor(logoSource) : null
 
     const { data: ad, error: insertError } = await supabase
       .from('billboard_ads')

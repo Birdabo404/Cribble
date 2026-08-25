@@ -7,7 +7,12 @@ import {
   type BillboardPlacement,
   type RailSlot
 } from '@/lib/billboard'
-import { cleanBillboardUrl, extractAccentColor } from '@/lib/billboardServer'
+import {
+  cleanBillboardUrl,
+  extractAccentColor,
+  extractAccentFromImageBuffer,
+  parseBillboardLogoDataUri
+} from '@/lib/billboardServer'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
 import { getSessionUserId } from '@/lib/sessionAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
@@ -33,6 +38,10 @@ type AdFields = {
   companyName: string
   linkUrl: string
   logoUrl: string | null
+  /** Decoded bytes of an inline (data-URI) logo, kept so the accent
+   *  can be extracted from the buffer instead of a URL fetch; null
+   *  whenever logoUrl is an https URL or absent. */
+  logoBuffer: Buffer | null
   placement: BillboardPlacement
   requestedRailSlot: RailSlot | null
   billingEmail: string
@@ -51,11 +60,17 @@ type AdFields = {
  *                  NULL until their next edit, which must supply one.
  *   link_url     — required, must survive cleanBillboardUrl (https
  *                  coercion, credential and non-public-host rejection).
- *   logo_url     — optional; when present it faces the same URL bar.
- *                  Absent or blank stores NULL and the ticker falls back
- *                  to the owner's avatar.
- *   placement    — optional 'flipper' | 'rail' (migration 035); absent
- *                  defaults to 'flipper'. Editable only while the ad is
+ *   logo_url     — optional; either an https URL facing the same URL
+ *                  bar, or the inline `data:image/webp;base64,` URI
+ *                  minted by POST /api/billboard/logo — re-proven here
+ *                  by parseBillboardLogoDataUri (strict prefix, size
+ *                  and dimension caps) because clients can skip the
+ *                  upload route and send any string. Absent or blank
+ *                  stores NULL and the ticker falls back to the
+ *                  owner's avatar.
+ *   placement    — optional 'flipper' | 'rail' (migration 035) |
+ *                  'leaderboard' (migration 055); absent defaults to
+ *                  'flipper'. Editable only while the ad is
  *                  (PENDING / CHANGES_REQUESTED, which is all this route
  *                  ever touches). rail_slot is still never accepted from
  *                  buyers — the admin assigns it at activation; the
@@ -72,7 +87,9 @@ type AdFields = {
  *                  Pre-040 rows hold NULL until their next edit, which
  *                  must supply one.
  */
-function parseAdFields(body: Record<string, unknown>): AdFields | { error: string } {
+async function parseAdFields(
+  body: Record<string, unknown>
+): Promise<AdFields | { error: string }> {
   const rawText = typeof body.text === 'string' ? body.text : ''
   const text = rawText
     // eslint-disable-next-line no-control-regex
@@ -100,18 +117,33 @@ function parseAdFields(body: Record<string, unknown>): AdFields | { error: strin
 
   const rawLogo = typeof body.logo_url === 'string' ? body.logo_url.trim() : ''
   let logoUrl: string | null = null
-  if (rawLogo) {
+  let logoBuffer: Buffer | null = null
+  if (rawLogo.startsWith('data:')) {
+    // The uploaded-logo path: anything data:-shaped must prove it is
+    // exactly the small inline webp POST /api/billboard/logo mints —
+    // never routed through the URL bar (whose 300-char cap and https
+    // rules it could never pass) and never trusted as-is.
+    logoBuffer = await parseBillboardLogoDataUri(rawLogo)
+    if (!logoBuffer) {
+      return { error: 'Uploaded logo is not a valid inline image — try uploading it again' }
+    }
+    logoUrl = rawLogo
+  } else if (rawLogo) {
     logoUrl = cleanBillboardUrl(rawLogo)
     if (!logoUrl) return { error: 'Logo URL is not a valid, publicly reachable URL' }
   }
 
-  // Which product the buyer is pitching (migration 035). Optional so
-  // pre-rails clients keep working: absent means the flipper.
+  // Which product the buyer is pitching (migrations 035/055). Optional
+  // so pre-rails clients keep working: absent means the flipper.
   const rawPlacement = body.placement
   let placement: BillboardPlacement = 'flipper'
   if (rawPlacement !== undefined) {
-    if (rawPlacement !== 'flipper' && rawPlacement !== 'rail') {
-      return { error: "placement must be 'flipper' or 'rail'" }
+    if (
+      rawPlacement !== 'flipper' &&
+      rawPlacement !== 'rail' &&
+      rawPlacement !== 'leaderboard'
+    ) {
+      return { error: "placement must be 'flipper', 'rail' or 'leaderboard'" }
     }
     placement = rawPlacement
   }
@@ -138,7 +170,16 @@ function parseAdFields(body: Record<string, unknown>): AdFields | { error: strin
   }
   const billingEmail = billingCheck.sanitized
 
-  return { text, companyName, linkUrl, logoUrl, placement, requestedRailSlot, billingEmail }
+  return {
+    text,
+    companyName,
+    linkUrl,
+    logoUrl,
+    logoBuffer,
+    placement,
+    requestedRailSlot,
+    billingEmail
+  }
 }
 
 export async function PATCH(
@@ -174,7 +215,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
 
-    const fields = parseAdFields(body)
+    const fields = await parseAdFields(body)
     if ('error' in fields) {
       return NextResponse.json({ error: fields.error }, { status: 400 })
     }
@@ -225,9 +266,13 @@ export async function PATCH(
     // owner's avatar when logo_url is NULL — the same source
     // (users.twitter_profile_image) the public GET resolves logoUrl
     // from, so the avatar only needs fetching when a NULL is in play.
-    // A NULL stored accent also retries, picking up ads whose earlier
-    // extraction failed. Best-effort: failure stores NULL, the edit
-    // itself never blocks on it.
+    // Data URIs compare as plain strings here, so an unchanged upload
+    // skips re-extraction like an unchanged URL; when one IS in play,
+    // the accent comes off the already-validated buffer — the guarded
+    // URL fetch never sees a data URI. A NULL stored accent also
+    // retries, picking up ads whose earlier extraction failed.
+    // Best-effort: failure stores NULL, the edit itself never blocks
+    // on it.
     let ownerAvatar: string | null = null
     if (!fields.logoUrl || !ad.logo_url) {
       const { data: owner } = await supabase
@@ -240,7 +285,11 @@ export async function PATCH(
     const previousSource = ad.logo_url || ownerAvatar
     const nextSource = fields.logoUrl || ownerAvatar
     if (nextSource !== previousSource || ad.accent_color === null) {
-      update.accent_color = nextSource ? await extractAccentColor(nextSource) : null
+      update.accent_color = fields.logoBuffer
+        ? await extractAccentFromImageBuffer(fields.logoBuffer)
+        : nextSource
+          ? await extractAccentColor(nextSource)
+          : null
     }
 
     // Guarded on the status we based the edit on: if an admin decision

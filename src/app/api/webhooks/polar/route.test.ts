@@ -20,7 +20,14 @@ const {
   paymentEventsInsertMock,
   usersUpdateMock,
   usersUpdateEqMock,
-  teamProductIds
+  teamProductIds,
+  bidsReadEqMock,
+  bidsReadResult,
+  bidsUpdateMock,
+  bidsUpdateEqMock,
+  bidsUpdateInMock,
+  bidsUpdateResult,
+  leaderboardBidProductId
 } = vi.hoisted(() => ({
   validateEventMock: vi.fn(),
   grantProEntitlementMock: vi.fn(),
@@ -29,7 +36,18 @@ const {
   paymentEventsInsertMock: vi.fn(),
   usersUpdateMock: vi.fn(),
   usersUpdateEqMock: vi.fn(),
-  teamProductIds: new Set<string>()
+  teamProductIds: new Set<string>(),
+  // Sponsor-bid ledger (leaderboard_sponsor_bids) plumbing: the read
+  // behind activation's verification, and the guarded status updates.
+  bidsReadEqMock: vi.fn(),
+  bidsReadResult: { value: { data: null, error: null } as { data: unknown; error: unknown } },
+  bidsUpdateMock: vi.fn(),
+  bidsUpdateEqMock: vi.fn(),
+  bidsUpdateInMock: vi.fn(),
+  bidsUpdateResult: {
+    value: { data: [{ id: 55 }], error: null } as { data: unknown; error: unknown }
+  },
+  leaderboardBidProductId: { value: null as string | null }
 }))
 
 vi.mock('@polar-sh/sdk/webhooks', () => ({
@@ -49,7 +67,12 @@ vi.mock('@/lib/polar', () => ({
     if (teamProductIds.has(subscription.productId)) return true
     const teamKey = subscription.product?.metadata?.['team_key']
     return typeof teamKey === 'string' && teamKey.length > 0
-  }
+  },
+  // Sponsor-bid activation (leaderboardSponsorServer, running unmocked
+  // here) resolves the configured product id on every order.paid.
+  resolveLeaderboardBidProductId: () => leaderboardBidProductId.value,
+  // Only the pull-based sync reaches for the client — never the webhook.
+  getPolarClient: () => null
 }))
 
 vi.mock('@/lib/entitlementGrant', () => ({
@@ -77,6 +100,51 @@ vi.mock('@/lib/supabaseServer', () => ({
               eq(column: string, value: unknown) {
                 usersUpdateEqMock(column, value)
                 return builder
+              },
+              then(onFulfilled: (value: { error: null }) => unknown) {
+                return Promise.resolve({ error: null }).then(onFulfilled)
+              }
+            }
+            return builder
+          }
+        }
+      }
+      if (table === 'user_cosmetics') {
+        // order.refunded's plate leg — runs blind against source_order_id
+        // before the sponsor revoke; inert here.
+        return {
+          delete: () => ({ eq: () => Promise.resolve({ error: null }) })
+        }
+      }
+      if (table === 'leaderboard_sponsor_bids') {
+        return {
+          // Activation's ledger read: .select(...).eq('polar_checkout_id',
+          // id).maybeSingle() -> the row a test staged in bidsReadResult.
+          select: () => ({
+            eq: (column: string, value: unknown) => ({
+              maybeSingle: () => {
+                bidsReadEqMock(column, value)
+                return Promise.resolve(bidsReadResult.value)
+              }
+            })
+          }),
+          // The guarded status updates. Activation ends the chain with
+          // .select('id') (rows-touched witness); revocation filters
+          // with .in (PENDING/PAID guard) + .eq and awaits directly —
+          // the builder serves both.
+          update: (values: Record<string, unknown>) => {
+            bidsUpdateMock(values)
+            const builder = {
+              eq(column: string, value: unknown) {
+                bidsUpdateEqMock(column, value)
+                return builder
+              },
+              in(column: string, values_: unknown[]) {
+                bidsUpdateInMock(column, values_)
+                return builder
+              },
+              select() {
+                return Promise.resolve(bidsUpdateResult.value)
               },
               then(onFulfilled: (value: { error: null }) => unknown) {
                 return Promise.resolve({ error: null }).then(onFulfilled)
@@ -381,5 +449,262 @@ describe('POST /api/webhooks/polar — order.paid plate fulfillment recipient', 
     expect(response.status).toBe(200)
     expect(grantPlatePurchaseMock).not.toHaveBeenCalled()
     expect(warnSpy).toHaveBeenCalled()
+  })
+})
+
+// The sponsor-bid leg of order.paid/order.refunded (migration 055):
+// activation must verify the money trail end to end against the PENDING
+// ledger row its checkout created — checkout id, configured product,
+// USD denomination, charged amount, buyer — and every permanent refusal
+// is ACKED (a 500 would make Polar redeliver an event no retry can
+// fix). Refunds revoke by the order's CHECKOUT id across PENDING and
+// PAID rows (order-id fallback for orders without one), so a refund
+// that beats order.paid to delivery still strikes the ledger row and
+// the late activation finds it REFUNDED. leaderboardSponsorServer runs
+// unmocked; the ledger table is what's faked.
+
+describe('POST /api/webhooks/polar — leaderboard sponsor bids', () => {
+  let warnSpy: MockInstance
+
+  /** An order.paid event for the sponsor product, defaulting to a
+   *  payload that matches `pendingRow` exactly — each test breaks one
+   *  link in the verification chain. createdAt is a Date (the SDK's
+   *  parsed shape); activation stamps paid_at from it, not from
+   *  delivery time. */
+  function bidOrderEvent(overrides: Record<string, unknown> = {}) {
+    return {
+      type: 'order.paid',
+      data: {
+        id: 'order_lb_1',
+        checkoutId: 'chk_lb_1',
+        productId: 'prod_lb_bid',
+        netAmount: 766,
+        currency: 'usd',
+        createdAt: new Date('2026-08-25T10:00:00.000Z'),
+        customer: { externalId: '9' },
+        metadata: { userId: 9, kind: 'leaderboard_bid', lbAdId: 4 },
+        ...overrides
+      }
+    }
+  }
+
+  const pendingRow = () => ({
+    id: 55,
+    ad_id: 4,
+    user_id: 9,
+    status: 'PENDING',
+    amount_cents: 766,
+    polar_order_id: null
+  })
+
+  beforeEach(() => {
+    validateEventMock.mockReset()
+    grantProEntitlementMock.mockReset()
+    grantTeamEntitlementMock.mockReset()
+    grantPlatePurchaseMock.mockReset()
+    grantPlatePurchaseMock.mockResolvedValue(undefined)
+    paymentEventsInsertMock.mockReset()
+    paymentEventsInsertMock.mockResolvedValue({ error: null })
+    usersUpdateMock.mockReset()
+    usersUpdateEqMock.mockReset()
+    bidsReadEqMock.mockReset()
+    bidsUpdateMock.mockReset()
+    bidsUpdateEqMock.mockReset()
+    bidsUpdateInMock.mockReset()
+    bidsReadResult.value = { data: pendingRow(), error: null }
+    bidsUpdateResult.value = { data: [{ id: 55 }], error: null }
+    teamProductIds.clear()
+    leaderboardBidProductId.value = 'prod_lb_bid'
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    warnSpy.mockRestore()
+    leaderboardBidProductId.value = null
+  })
+
+  it('order.paid activates the PENDING row when checkout id, product, amount and buyer all match', async () => {
+    const event = bidOrderEvent()
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ received: true })
+    // The ledger row is found through the ORDER's checkout id.
+    expect(bidsReadEqMock).toHaveBeenCalledWith('polar_checkout_id', 'chk_lb_1')
+    // paid_at is the order's creation moment, not webhook arrival — the
+    // 24h clock must not stretch with delivery lag.
+    expect(bidsUpdateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'PAID',
+        polar_order_id: 'order_lb_1',
+        paid_at: '2026-08-25T10:00:00.000Z'
+      })
+    )
+    // Guarded to THIS row while still PENDING — the idempotency edge.
+    expect(bidsUpdateEqMock.mock.calls).toEqual([
+      ['id', 55],
+      ['status', 'PENDING']
+    ])
+    // No plate markers on a bid order — the other one-time fulfillment
+    // must not fire.
+    expect(grantPlatePurchaseMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses (and still acks) when the charged amount does not match the ledger row', async () => {
+    const event = bidOrderEvent({ netAmount: 999 })
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    expect(bidsUpdateMock).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalled()
+  })
+
+  it('refuses an order not denominated in USD even when the minor units match numerically', async () => {
+    // The ledger's amount_cents are US cents; 766 of a cheaper currency
+    // must never activate a 766-US-cent contribution.
+    const event = bidOrderEvent({ currency: 'jpy' })
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    expect(bidsUpdateMock).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalled()
+  })
+
+  it('refuses when the order is not on the configured sponsor product, whatever its metadata claims', async () => {
+    // kind='leaderboard_bid' classifies it as a bid, but verification
+    // still demands the configured product id before money activates.
+    const event = bidOrderEvent({ productId: 'prod_something_else' })
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    expect(bidsUpdateMock).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalled()
+  })
+
+  it('refuses when the payer does not match the ledger row buyer', async () => {
+    const event = bidOrderEvent({ metadata: { userId: 13, kind: 'leaderboard_bid', lbAdId: 4 } })
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    expect(bidsUpdateMock).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalled()
+  })
+
+  it('refuses a paid checkout this server never created (no ledger row)', async () => {
+    bidsReadResult.value = { data: null, error: null }
+    const event = bidOrderEvent()
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    expect(bidsReadEqMock).toHaveBeenCalledWith('polar_checkout_id', 'chk_lb_1')
+    expect(bidsUpdateMock).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalled()
+  })
+
+  it('refuses a bid order that carries no checkout id at all', async () => {
+    const event = bidOrderEvent({ checkoutId: null })
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    expect(bidsReadEqMock).not.toHaveBeenCalled()
+    expect(bidsUpdateMock).not.toHaveBeenCalled()
+  })
+
+  it('a duplicate delivery is dropped by the payment_events gate before the ledger is even read', async () => {
+    paymentEventsInsertMock.mockResolvedValue({ error: { code: '23505' } })
+    const event = bidOrderEvent()
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ received: true, skipped: true })
+    expect(bidsReadEqMock).not.toHaveBeenCalled()
+    expect(bidsUpdateMock).not.toHaveBeenCalled()
+  })
+
+  it('an already-PAID row acks without a second activation (sync raced the webhook)', async () => {
+    bidsReadResult.value = { data: { ...pendingRow(), status: 'PAID' }, error: null }
+    const event = bidOrderEvent()
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ received: true })
+    expect(bidsUpdateMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses to resurrect an already-REFUNDED row', async () => {
+    bidsReadResult.value = { data: { ...pendingRow(), status: 'REFUNDED' }, error: null }
+    const event = bidOrderEvent()
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    expect(bidsUpdateMock).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalled()
+  })
+
+  it('a plate order never touches the bid ledger (the two one-time products cannot collide)', async () => {
+    const event = orderPaidEvent({
+      externalId: '9',
+      metadata: { userId: 9, plateId: 'koi-pond' }
+    })
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    expect(grantPlatePurchaseMock).toHaveBeenCalled()
+    expect(bidsReadEqMock).not.toHaveBeenCalled()
+    expect(bidsUpdateMock).not.toHaveBeenCalled()
+  })
+
+  it('order.refunded revokes by the CHECKOUT id across PENDING and PAID rows — a refund beating order.paid still lands', async () => {
+    // The refund-before-activation race: polar_order_id is only stamped
+    // at activation, so a refund keyed to it alone would miss the still-
+    // PENDING row and the retried order.paid would seat refunded money
+    // on the board. The checkout id exists from row creation and the
+    // PENDING/PAID guard lets the refund strike first.
+    const event = {
+      type: 'order.refunded',
+      data: { id: 'order_lb_1', checkoutId: 'chk_lb_1' }
+    }
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    expect(bidsUpdateMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'REFUNDED' }))
+    expect(bidsUpdateInMock.mock.calls).toEqual([['status', ['PENDING', 'PAID']]])
+    expect(bidsUpdateEqMock.mock.calls).toEqual([['polar_checkout_id', 'chk_lb_1']])
+  })
+
+  it('order.refunded without a checkout id falls back to the stamped order id, same PENDING/PAID guard', async () => {
+    const event = { type: 'order.refunded', data: { id: 'order_lb_1' } }
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    expect(bidsUpdateMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'REFUNDED' }))
+    expect(bidsUpdateInMock.mock.calls).toEqual([['status', ['PENDING', 'PAID']]])
+    expect(bidsUpdateEqMock.mock.calls).toEqual([['polar_order_id', 'order_lb_1']])
   })
 })

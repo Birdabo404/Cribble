@@ -110,6 +110,14 @@ export function isTeamSubscription(subscription: TeamSubscriptionLike): boolean 
   return false
 }
 
+/** Polar product id for the one-time "Leaderboard Sponsor Bid" product
+ *  (scripts/setup-polar.ts), or null if unset. Its catalog price is
+ *  nominal — every checkout overrides it with a server-computed ad-hoc
+ *  fixed price, so the id is all the app ever needs. */
+export function resolveLeaderboardBidProductId(): string | null {
+  return process.env.POLAR_PRODUCT_LEADERBOARD_BID || null
+}
+
 /** Parsed POLAR_PLATE_PRODUCT_MAP (JSON string of plateId -> Polar product
  *  id). Malformed JSON or non-string values yield an empty/partial map
  *  rather than an exception. */

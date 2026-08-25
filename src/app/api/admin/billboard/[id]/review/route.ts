@@ -242,7 +242,12 @@ export async function POST(
 
     // The exact ask, shared by the payment email and the approval
     // notification below.
-    const placement: BillboardPlacement = ad.placement === 'rail' ? 'rail' : 'flipper'
+    const placement: BillboardPlacement =
+      ad.placement === 'rail'
+        ? 'rail'
+        : ad.placement === 'leaderboard'
+          ? 'leaderboard'
+          : 'flipper'
     const requestedSlot: RailSlot | null = isRailSlot(ad.requested_rail_slot)
       ? ad.requested_rail_slot
       : null
@@ -257,8 +262,16 @@ export async function POST(
     // approve can't double-deliver. A failure never fails the approve —
     // the admin queue reads emailStatus off the response and falls back
     // to X.
+    // Leaderboard creatives never get the manual-payment ask: their
+    // payment is self-serve Polar bidding (migration 055), and approval
+    // just opens the bid button.
     let emailStatus: 'sent' | 'failed' | 'skipped' = 'skipped'
-    if (action === 'approve' && billingEmail && isSponsorshipEmailConfigured()) {
+    if (
+      action === 'approve' &&
+      placement !== 'leaderboard' &&
+      billingEmail &&
+      isSponsorshipEmailConfigured()
+    ) {
       const emailResult = await sendSponsorshipPaymentEmail({
         to: billingEmail,
         adId,
@@ -289,13 +302,24 @@ export async function POST(
             emailStatus === 'sent'
               ? `Payment instructions (${priceLine}) were emailed to ${billingEmail} — reply there to complete payment, or DM @${BILLBOARD_PAYMENT_X_HANDLE} on X as backup.`
               : `To complete payment (${priceLine}), email ${BILLBOARD_PAYMENT_EMAIL} — or DM @${BILLBOARD_PAYMENT_X_HANDLE} on X as backup.`
-          notification = {
-            type: 'premium',
-            title: 'SPONSORSHIP AD APPROVED',
-            body: `Your sponsor ad passed review. ${paymentLine} Once it's confirmed, your ad is activated and goes live, usually within a few minutes to a few hours.`,
-            data: { kind: 'billboard_review', result: 'approved', adId },
-            dedupeKey: `billboard_${adId}_approved_${reviewedAt}`
-          }
+          // Leaderboard approval opens self-serve bidding (migration
+          // 055) — no manual ask, no activation wait.
+          notification =
+            placement === 'leaderboard'
+              ? {
+                  type: 'premium',
+                  title: 'SPONSORSHIP AD APPROVED',
+                  body: 'Your leaderboard sponsor creative passed review. Bidding is open — place a bid from the sponsorship page and your spot activates the moment payment completes.',
+                  data: { kind: 'billboard_review', result: 'approved', adId },
+                  dedupeKey: `billboard_${adId}_approved_${reviewedAt}`
+                }
+              : {
+                  type: 'premium',
+                  title: 'SPONSORSHIP AD APPROVED',
+                  body: `Your sponsor ad passed review. ${paymentLine} Once it's confirmed, your ad is activated and goes live, usually within a few minutes to a few hours.`,
+                  data: { kind: 'billboard_review', result: 'approved', adId },
+                  dedupeKey: `billboard_${adId}_approved_${reviewedAt}`
+                }
           break
         }
         case 'reject':

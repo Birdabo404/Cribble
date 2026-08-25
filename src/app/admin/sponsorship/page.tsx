@@ -18,6 +18,7 @@ import {
   type AdminChipTone
 } from '@/components/admin'
 import { BillboardCard } from '@/components/billboard/BillboardCard'
+import { BillboardPreviewStage } from '@/components/billboard/BillboardPreviewStage'
 import {
   BILLBOARD_DURATION_DAYS,
   BILLBOARD_MAX_LIVE,
@@ -30,25 +31,35 @@ import {
   type BillboardStatus,
   type RailSlot
 } from '@/lib/billboard'
+import {
+  LEADERBOARD_SPONSOR_OPENING_CENTS,
+  formatSponsorUsd
+} from '@/lib/leaderboardSponsor'
 
 // Billboard queue: review paid ad submissions with an exact-render
-// preview (the same BillboardCard the public surfaces ship). Approving
-// emails the payment instructions to the ad's billing_email (X DM is
-// the backup channel — the approve notice says which one to work);
-// once payment closes, mark paid + go live. Two
-// products share the queue: flipper ads (capped at 8 concurrent) and
-// profile-rail ads (one live ad per slot; activation picks a free slot
-// from a picker whose occupancy derives client-side from the live
-// bucket's rail_slot values — the server re-checks and answers 409 if
-// the slot filled meanwhile). A rail ad may carry the buyer's
-// requested_rail_slot — surfaced as a WANTS chip and preselected in
-// the picker while free, but never binding: first confirmed payment
-// wins the slot. Expired ads surface in Recent decisions with the same
-// activate controls relabelled as a renewal — payment is collected
-// manually again and the activate route stamps a fresh window, keeping
-// paid_at. Buyer-controlled fields (text, link_url, logo_url) are
-// untrusted: text renders as plain text and link_url is shown verbatim
-// for inspection, never as a clickable link.
+// preview (the same components the public surfaces ship). Three
+// products share the queue. Flipper ads (capped at 8 concurrent) and
+// profile-rail ads (one live ad per slot) close payment manually:
+// approving emails the payment instructions to the ad's billing_email
+// (X DM is the backup channel — the approve notice says which one to
+// work); once payment closes, mark paid + go live. Rail activation
+// picks a free slot from a picker whose occupancy derives client-side
+// from the live bucket's rail_slot values — the server re-checks and
+// answers 409 if the slot filled meanwhile. A rail ad may carry the
+// buyer's requested_rail_slot — surfaced as a WANTS chip and
+// preselected in the picker while free, but never binding: first
+// confirmed payment wins the slot. Expired ads surface in Recent
+// decisions with the same activate controls relabelled as a renewal —
+// payment is collected manually again and the activate route stamps a
+// fresh window, keeping paid_at. Leaderboard creatives (migration 055)
+// need review ONLY: approval opens self-serve Polar bidding and
+// liveness derives from paid contributions in the rolling 24h window —
+// no activate lever, no 7-day window, no slot. Their rows show the
+// board standing the list route decorates them with (rank + active
+// total), and archive stays the takedown. Buyer-controlled fields
+// (text, link_url, logo_url) are untrusted: text renders as plain text
+// and link_url is shown verbatim for inspection, never as a clickable
+// link.
 
 interface AdOwner {
   userId: number
@@ -88,6 +99,16 @@ interface AdRow {
   created_at: string
   updated_at: string
   owner: AdOwner | null
+  /** Sponsor-board standing for leaderboard creatives — rank, active
+   *  contribution total and the expiry pair, decorated by the list
+   *  route from the same derivation the public board serves. Null
+   *  while off the board; always null on flipper/rail ads. */
+  leaderboard: {
+    rank: number
+    activeCents: number
+    nextDropAt: string
+    expiresAt: string
+  } | null
 }
 
 interface BillboardData {
@@ -104,7 +125,7 @@ type DialogState =
   | { kind: 'request_changes'; ad: AdRow }
   | { kind: 'archive'; ad: AdRow }
 
-const PAGE_DESCRIPTION = `Paid ad slots, two placements — the flipper train on the dashboard + leaderboard ($${BILLBOARD_PRICE_CENTS / 100}/wk, max ${BILLBOARD_MAX_LIVE} live) and the always-on profile rails ($${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}–$${RAIL_SLOT_PRICE_CENTS.L1 / 100}/wk by row, ${RAIL_SLOTS.length} fixed slots). Approving emails the payment instructions to the ad's billing address (X DM @${BILLBOARD_PAYMENT_X_HANDLE} as backup); close payment there, then mark paid + go live — rail ads take their slot at activation.`
+const PAGE_DESCRIPTION = `Paid ad slots, three placements — the flipper train on the dashboard + leaderboard ($${BILLBOARD_PRICE_CENTS / 100}/wk, max ${BILLBOARD_MAX_LIVE} live), the always-on profile rails ($${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}–$${RAIL_SLOT_PRICE_CENTS.L1 / 100}/wk by row, ${RAIL_SLOTS.length} fixed slots), and the leaderboard sponsor board (rolling 24h Polar bids from ${formatSponsorUsd(LEADERBOARD_SPONSOR_OPENING_CENTS)}). Flipper + rail close payment manually: approving emails the instructions to the ad's billing address (X DM @${BILLBOARD_PAYMENT_X_HANDLE} as backup), then mark paid + go live — rail ads take their slot at activation. Leaderboard creatives only need review: bidding, payment and liveness run themselves.`
 
 function adChipMeta(ad: AdRow, expired: boolean): { label: string; tone: AdminChipTone } {
   if (expired) return { label: 'EXPIRED', tone: 'neutral' }
@@ -126,12 +147,45 @@ function adChipMeta(ad: AdRow, expired: boolean): { label: string; tone: AdminCh
   }
 }
 
-/** FLIPPER / RAIL placement badge; a rail ad with an assigned slot
- *  carries its code (RAIL · L2) so the live bucket reads at a glance. */
+/** FLIPPER / RAIL / LEADERBOARD placement badge; a rail ad with an
+ *  assigned slot carries its code (RAIL · L2) so the live bucket reads
+ *  at a glance. */
 function PlacementChip({ ad }: { ad: AdRow }) {
-  const label =
-    ad.placement === 'rail' ? (ad.rail_slot ? `RAIL · ${ad.rail_slot}` : 'RAIL') : 'FLIPPER'
-  return <AdminChip tone="neutral">{label}</AdminChip>
+  switch (ad.placement) {
+    case 'flipper':
+      return <AdminChip tone="neutral">FLIPPER</AdminChip>
+    case 'rail':
+      return (
+        <AdminChip tone="neutral">
+          {ad.rail_slot ? `RAIL · ${ad.rail_slot}` : 'RAIL'}
+        </AdminChip>
+      )
+    case 'leaderboard':
+      return <AdminChip tone="neutral">LEADERBOARD</AdminChip>
+    default: {
+      const exhaustive: never = ad.placement
+      return exhaustive
+    }
+  }
+}
+
+/** A live leaderboard creative's board facts — rank and active
+ *  contribution total straight off the standing the list route
+ *  decorates, plus when its last contribution expires. The windowed
+ *  "N days left / ends" pair is meaningless for this placement: the
+ *  total (and the rank with it) decays contribution by contribution
+ *  instead. Nothing to show while the creative is off the board. */
+function LeaderboardStandingMeta({ ad }: { ad: AdRow }) {
+  if (!ad.leaderboard) return null
+  return (
+    <>
+      <AdminChip tone="good">RANK #{ad.leaderboard.rank}</AdminChip>
+      <span className="tabular-nums text-[color:var(--st-text)]">
+        {formatSponsorUsd(ad.leaderboard.activeCents)} active
+      </span>
+      <MetaDate label="off board" value={ad.leaderboard.expiresAt} />
+    </>
+  )
 }
 
 /** The buyer's slot wish with its exact price — worn by queue/awaiting
@@ -149,8 +203,12 @@ function RequestedSlotChip({ ad }: { ad: AdRow }) {
 
 /** Whether a payment email can go out for this ad: the billing address
  *  on file, or an amber NO BILLING EMAIL — the tell that this deal
- *  closes over X DM instead (external sponsors, pre-040 rows). */
+ *  closes over X DM instead (external sponsors, pre-040 rows).
+ *  Leaderboard creatives render nothing: no payment email ever goes
+ *  out for them (bidding is self-serve Polar), so the address — still
+ *  collected at submit — is neither a channel nor a warning here. */
 function BillingEmailLine({ ad }: { ad: AdRow }) {
+  if (ad.placement === 'leaderboard') return null
   if (!ad.billing_email) {
     return <AdminChip tone="warn">NO BILLING EMAIL</AdminChip>
   }
@@ -201,17 +259,32 @@ function OwnerLine({ ad }: { ad: AdRow }) {
 }
 
 /** Exact-render preview — in the placement's real shape — plus the
- *  untrusted destination shown as plain text. */
+ *  untrusted destination shown as plain text. Flipper/rail render the
+ *  same BillboardCard the public surfaces ship; leaderboard creatives
+ *  have no card size, so they stage the sponsor face through the
+ *  buyer page's compact preview stage instead. */
 function AdPreview({ ad }: { ad: AdRow }) {
   return (
     <div className="space-y-2">
-      <BillboardCard
-        text={ad.text}
-        title={ad.company_name ?? hostOfLink(ad.link_url)}
-        logoUrl={ad.logo_url ?? ad.owner?.avatar ?? null}
-        accentColor={ad.accent_color ?? null}
-        size={ad.placement === 'rail' ? 'rail' : 'lg'}
-      />
+      {ad.placement === 'leaderboard' ? (
+        <BillboardPreviewStage
+          density="compact"
+          title={ad.company_name ?? hostOfLink(ad.link_url) ?? 'Untitled'}
+          text={ad.text}
+          logoUrl={ad.logo_url ?? ad.owner?.avatar ?? null}
+          accentColor={ad.accent_color ?? null}
+          placement="leaderboard"
+          slot={null}
+        />
+      ) : (
+        <BillboardCard
+          text={ad.text}
+          title={ad.company_name ?? hostOfLink(ad.link_url)}
+          logoUrl={ad.logo_url ?? ad.owner?.avatar ?? null}
+          accentColor={ad.accent_color ?? null}
+          size={ad.placement === 'rail' ? 'rail' : 'lg'}
+        />
+      )}
       <p className="text-[12px] leading-5">
         <span className="mr-1.5 font-data text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--st-text-faint)]">
           Links to
@@ -425,6 +498,13 @@ export default function AdminBillboardPage() {
       `/api/admin/billboard/${ad.id}/review`,
       { action: 'approve' },
       (payload) => {
+        // Leaderboard approval opens self-serve Polar bidding
+        // (migration 055) — there is no payment thread to work and no
+        // activation step, whatever emailStatus says (the review route
+        // always skips the send for this placement).
+        if (ad.placement === 'leaderboard') {
+          return `Ad #${ad.id} approved — bidding is open. It goes live on the leaderboard by itself the moment the buyer pays a bid.`
+        }
         // The notice names the channel the deal now lives on: the email
         // thread when the send went out, X DM when it didn't (failed
         // provider, unset env, or no address on file).
@@ -611,7 +691,7 @@ export default function AdminBillboardPage() {
           <AdminSection
             title="Awaiting payment"
             count={data.awaiting.length}
-            description={`Payment closes in the email thread (X DM @${BILLBOARD_PAYMENT_X_HANDLE} as backup) — nothing here bills the buyer.`}
+            description={`Payment closes in the email thread (X DM @${BILLBOARD_PAYMENT_X_HANDLE} as backup) — nothing here bills the buyer. Leaderboard creatives sit here only while bidding is open: their payment is self-serve Polar and they go live on their own.`}
             flush
           >
             {(showFlipperWarn || showRailWarn) && (
@@ -645,20 +725,31 @@ export default function AdminBillboardPage() {
                       <AdPreview ad={ad} />
                       {isOwner && (
                         <div className="flex flex-wrap items-center gap-2">
-                          <ActivateControls
-                            ad={ad}
-                            label="Mark paid + go live"
-                            working={working}
-                            pick={railSlotPick[ad.id]}
-                            occupiedSlots={occupiedSlots}
-                            firstFreeSlot={firstFreeSlot}
-                            flipperFull={flipperFull}
-                            flipperFullMsg={flipperFullMsg}
-                            onPickSlot={(slot) =>
-                              setRailSlotPick((prev) => ({ ...prev, [ad.id]: slot }))
-                            }
-                            onActivate={activate}
-                          />
+                          {ad.placement === 'leaderboard' ? (
+                            // No activate lever for this placement:
+                            // payment is self-serve Polar and liveness
+                            // derives from paid bids (the activate
+                            // route hard-refuses it too) — the row just
+                            // says what it's waiting for.
+                            <span className="text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+                              Bidding open — goes live by itself once the buyer pays a bid.
+                            </span>
+                          ) : (
+                            <ActivateControls
+                              ad={ad}
+                              label="Mark paid + go live"
+                              working={working}
+                              pick={railSlotPick[ad.id]}
+                              occupiedSlots={occupiedSlots}
+                              firstFreeSlot={firstFreeSlot}
+                              flipperFull={flipperFull}
+                              flipperFullMsg={flipperFullMsg}
+                              onPickSlot={(slot) =>
+                                setRailSlotPick((prev) => ({ ...prev, [ad.id]: slot }))
+                              }
+                              onActivate={activate}
+                            />
+                          )}
                           <AdminButton
                             variant="ghost"
                             disabled={working}
@@ -679,7 +770,9 @@ export default function AdminBillboardPage() {
             title="Live now"
             count={data.live.length}
             action={
-              // Both products' occupancy, derived from the live list.
+              // The windowed products' occupancy, derived from the live
+              // list. Leaderboard has no cap to meter — its live rows
+              // carry their board rank instead.
               <div className="flex flex-wrap items-center gap-4">
                 <OccupancyMeter label="Flipper" used={flipperLiveCount} max={data.maxLive} />
                 <OccupancyMeter label="Rail" used={occupiedSlots.size} max={RAIL_SLOTS.length} />
@@ -706,10 +799,19 @@ export default function AdminBillboardPage() {
                           #{ad.id}
                         </span>
                         <OwnerLine ad={ad} />
-                        <span className="tabular-nums text-[color:var(--st-text)]">
-                          {days} day{days === 1 ? '' : 's'} left
-                        </span>
-                        <MetaDate label="ends" value={ad.ends_at} />
+                        {ad.placement === 'leaderboard' ? (
+                          // Board standing instead of the 7-day window
+                          // facts — leaderboard liveness decays with its
+                          // contributions, not on an end date.
+                          <LeaderboardStandingMeta ad={ad} />
+                        ) : (
+                          <>
+                            <span className="tabular-nums text-[color:var(--st-text)]">
+                              {days} day{days === 1 ? '' : 's'} left
+                            </span>
+                            <MetaDate label="ends" value={ad.ends_at} />
+                          </>
+                        )}
                         <span className="tabular-nums text-[color:var(--st-text)]">
                           {ad.clicks.toLocaleString('en-US')} click{ad.clicks === 1 ? '' : 's'}
                         </span>

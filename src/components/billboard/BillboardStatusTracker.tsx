@@ -8,8 +8,20 @@
 // edit-and-resubmit. Admin feedback (review_note) stays the loudest
 // element of a redo/reject row because it is the one thing the buyer
 // must read.
+//
+// Leaderboard creatives (placement 'leaderboard', migration 055) ride
+// the same rows but a different money story: no 7-day window — liveness
+// is APPROVED plus an active bid total from GET
+// /api/billboard/leaderboard/mine (fetched here whenever the list
+// carries one, refreshed on every parent reload). An APPROVED row's
+// expansion is the bid console: the live ranked board with expirations,
+// a target-total entry with the explicit charge preview
+// (leaderboardChargeCents — the math is never re-derived here), and the
+// handoff to Polar's hosted checkout. A 409 from the checkout route
+// means the board moved: the console refreshes its displayed minimum
+// from the response and re-asks — it never silently re-submits.
 
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { BillboardPreviewStage } from '@/components/billboard/BillboardPreviewStage'
 import {
@@ -33,6 +45,16 @@ import {
   type BillboardStatus,
   type RailSlot
 } from '@/lib/billboard'
+import {
+  LEADERBOARD_SPONSOR_MAX_TARGET_CENTS,
+  LEADERBOARD_SPONSOR_MIN_CHECKOUT_CENTS,
+  LEADERBOARD_SPONSOR_POLL_MS,
+  formatSponsorUsd,
+  leaderboardChargeCents,
+  type LeaderboardSponsorBoard,
+  type LeaderboardSponsorMine,
+  type LeaderboardSponsorMineCreative
+} from '@/lib/leaderboardSponsor'
 
 /** One row of GET /api/billboard/mine — isLive computed server-side. */
 export interface MineAd {
@@ -84,14 +106,27 @@ interface ChipMeta {
 
 /** Lifecycle chip. APPROVED fans out by payment/window state: the admin
  *  stamps paid_at + the 7-day window together at activation, so a bare
- *  APPROVED row is still waiting on the manual X-DM payment step. */
-function chipMeta(ad: MineAd, now: Date): ChipMeta {
+ *  APPROVED row is still waiting on the manual X-DM payment step.
+ *  Leaderboard creatives never have a window — their APPROVED states
+ *  read from the bid standing instead (on the board, or ready to bid);
+ *  isLive is always false for them and must not be trusted here. */
+function chipMeta(
+  ad: MineAd,
+  now: Date,
+  lbStanding: LeaderboardSponsorMineCreative | null
+): ChipMeta {
   switch (ad.status) {
     case 'PENDING':
       return { label: 'In review', rgb: ZINC }
     case 'CHANGES_REQUESTED':
       return { label: 'Redo requested', rgb: AMBER, amber: true }
     case 'APPROVED': {
+      if (ad.placement === 'leaderboard') {
+        if (lbStanding && lbStanding.rank !== null) {
+          return { label: `On the board · #${lbStanding.rank}`, rgb: 'var(--lb-up)' }
+        }
+        return { label: 'Ready to bid', rgb: ZINC }
+      }
       if (ad.isLive) return { label: 'Live', rgb: 'var(--lb-up)' }
       if (ad.ends_at && new Date(ad.ends_at).getTime() < now.getTime()) {
         return { label: 'Run complete', rgb: ZINC }
@@ -126,9 +161,43 @@ function hostOfLink(linkUrl: string): string | null {
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 
+/** Countdown against the payload's server clock, never the client's —
+ *  the board's rolling-24h expiries are derived server-side and a
+ *  skewed local clock must not warp them. 'now' covers the sliver
+ *  where an entry expired between derivation and paint. */
+function fmtRemaining(targetIso: string, serverIso: string): string {
+  const ms = new Date(targetIso).getTime() - new Date(serverIso).getTime()
+  if (ms <= 0) return 'now'
+  const totalMinutes = Math.ceil(ms / 60_000)
+  if (totalMinutes < 60) return `${totalMinutes}m`
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  return minutes === 0 ? `${hours}h` : `${hours}h ${String(minutes).padStart(2, '0')}m`
+}
+
+/** Dollars-as-typed -> integer cents; null when it isn't money. Accepts
+ *  an optional leading $, thousands commas and up to two decimals —
+ *  parsed digit-wise so float rounding can never shave a cent. */
+function parseUsdInput(raw: string): number | null {
+  const cleaned = raw.trim().replace(/^\$/, '').replace(/,/g, '')
+  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null
+  const [dollars, cents = ''] = cleaned.split('.')
+  return Number(dollars) * 100 + Number(cents.padEnd(2, '0') || '0')
+}
+
+/** Cents -> the bid input's dollars text ('7.66', '14'). */
+function centsToInputValue(cents: number): string {
+  return cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2)
+}
+
+/** Gold is reserved for price numbers — the sponsorship page's rule.
+ *  --lb-gold flips with the theme on its own. */
+const GOLD = { color: 'rgb(var(--lb-gold))' } as const
+
 /** The dollar ask while payment is pending: the flipper's flat price,
  *  the requested slot's ladder price, or the ladder floor when the
- *  buyer left the slot open. */
+ *  buyer left the slot open. Weekly products only — a leaderboard
+ *  creative's ask is whatever the live board demands, never a label. */
 function adPriceLabel(ad: MineAd): string {
   if (ad.placement !== 'rail') return `$${BILLBOARD_PRICE_CENTS / 100}/wk`
   if (ad.requested_rail_slot) {
@@ -141,12 +210,15 @@ const daysLeft = (endsAt: string, now: Date) =>
   Math.max(0, Math.ceil((new Date(endsAt).getTime() - now.getTime()) / 86_400_000))
 
 /** Sort groups, ascending rank: what needs the buyer's eyes (or money)
- *  first, history last. */
-function sortGroup(ad: MineAd, now: Date): number {
+ *  first, history last. `onBoard` is the leaderboard liveness signal —
+ *  a ranked creative sorts like a live ad, an approved-but-inactive
+ *  one like a slot awaiting the buyer's money. */
+function sortGroup(ad: MineAd, now: Date, onBoard: boolean): number {
   switch (ad.status) {
     case 'CHANGES_REQUESTED':
       return 0
     case 'APPROVED': {
+      if (ad.placement === 'leaderboard') return onBoard ? 1 : 3
       if (ad.isLive) return 1
       if (ad.ends_at && new Date(ad.ends_at).getTime() < now.getTime()) return 4
       return 3
@@ -164,9 +236,9 @@ function sortGroup(ad: MineAd, now: Date): number {
 }
 
 /** Action-first ordering; newest submission first within a group. */
-function sortAds(ads: MineAd[], now: Date): MineAd[] {
+function sortAds(ads: MineAd[], now: Date, onBoard: (ad: MineAd) => boolean): MineAd[] {
   return [...ads].sort((a, b) => {
-    const g = sortGroup(a, now) - sortGroup(b, now)
+    const g = sortGroup(a, now, onBoard(a)) - sortGroup(b, now, onBoard(b))
     if (g !== 0) return g
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   })
@@ -175,13 +247,15 @@ function sortAds(ads: MineAd[], now: Date): MineAd[] {
 type FilterId = 'all' | 'live' | 'review' | 'ended'
 
 /** In review covers the redo loop too — a CHANGES_REQUESTED card is
- *  still the buyer's to fix, not history. */
-function matchesFilter(ad: MineAd, filter: FilterId, now: Date): boolean {
+ *  still the buyer's to fix, not history. `onBoard` folds leaderboard
+ *  liveness into Live; an expired-off leaderboard creative is never
+ *  Ended — it's a bid away from being live again. */
+function matchesFilter(ad: MineAd, filter: FilterId, now: Date, onBoard: boolean): boolean {
   switch (filter) {
     case 'all':
       return true
     case 'live':
-      return ad.isLive
+      return ad.isLive || onBoard
     case 'review':
       return ad.status === 'PENDING' || ad.status === 'CHANGES_REQUESTED'
     case 'ended':
@@ -275,19 +349,404 @@ function SkeletonRows() {
   )
 }
 
+/* ------------------------------------------------------------------ *
+ * Leaderboard bid console — the money surface of an APPROVED
+ * 'leaderboard' creative's expanded row. Polls the public board (GET
+ * /api/billboard/leaderboard) on the shared 15s cadence while mounted,
+ * pausing when the tab hides (BillboardTicker's stance), so the
+ * displayed minimum tracks the live board. The charge preview is
+ * leaderboardChargeCents against the buyer's fresh active total —
+ * pricing math is never re-derived here, and the checkout route
+ * re-prices server-side regardless. POST /leaderboard/checkout: 200
+ * hands the browser to Polar's hosted page; a 409 carrying
+ * minTargetCents means the board moved under the buyer — the console
+ * refreshes its displayed minimum from the response, resets the target
+ * to it, and asks again. It NEVER silently re-submits at a new price.
+ * ------------------------------------------------------------------ */
+
+function LeaderboardBidConsole({
+  ad,
+  standing,
+  onChanged
+}: {
+  ad: MineAd
+  /** Owner-side money row (pendingCents etc); null while loading. */
+  standing: LeaderboardSponsorMineCreative | null
+  /** Refreshes the parent list (and with it the standing fetch). */
+  onChanged: () => void
+}) {
+  const [board, setBoard] = useState<LeaderboardSponsorBoard | null>(null)
+  /** Dollars as typed. Tracks the fresh minimum until the buyer edits;
+   *  a 409 resets the tracking so the re-asked price is the new min. */
+  const [bidInput, setBidInput] = useState('')
+  const [edited, setEdited] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  /** The board-moved notice — the buyer must re-confirm the new price. */
+  const [movedNotice, setMovedNotice] = useState<string | null>(null)
+
+  // Poll the public board while the console is visible; pause on hidden
+  // tabs and refetch immediately on return. Plain fetch on purpose —
+  // the route's short CDN layer is what collapses everyone's polls.
+  useEffect(() => {
+    let cancelled = false
+    let interval = 0
+    const load = () => {
+      fetch('/api/billboard/leaderboard')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: LeaderboardSponsorBoard | null) => {
+          if (cancelled) return
+          if (data && Array.isArray(data.board)) setBoard(data)
+        })
+        .catch(() => {
+          // Keep the last board — the checkout re-prices server-side.
+        })
+    }
+    const start = () => {
+      if (interval === 0) {
+        interval = window.setInterval(load, LEADERBOARD_SPONSOR_POLL_MS)
+      }
+    }
+    const stop = () => {
+      window.clearInterval(interval)
+      interval = 0
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        load()
+        start()
+      } else {
+        stop()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    if (document.visibilityState === 'visible') {
+      load()
+      start()
+    }
+    return () => {
+      cancelled = true
+      document.removeEventListener('visibilitychange', onVisibility)
+      stop()
+    }
+  }, [])
+
+  // Default the target to the fresh minimum until the buyer edits, so
+  // the entry always opens on a price that would actually take #1.
+  useEffect(() => {
+    if (board === null || edited) return
+    setBidInput(centsToInputValue(board.minTargetCents))
+  }, [board, edited])
+
+  const targetId = `lb-target-${ad.id}`
+
+  if (board === null) {
+    return (
+      <div className="border-t border-[color:var(--st-border)] pt-3">
+        <p className="text-[12.5px] text-[color:var(--st-text-faint)]">Loading the live board…</p>
+      </div>
+    )
+  }
+
+  const entry = board.board.find((boardEntry) => boardEntry.adId === ad.id) ?? null
+  const activeCents = entry?.activeCents ?? 0
+  const holdsTop = board.top !== null && board.top.adId === ad.id
+  const targetCents = parseUsdInput(bidInput)
+  const chargeCents = targetCents === null ? null : leaderboardChargeCents(targetCents, activeCents)
+
+  // Client-side mirrors of the checkout route's gates — guidance only,
+  // the server re-checks everything against the board it recomputes.
+  let blocker: string | null = null
+  if (targetCents === null) {
+    blocker = 'Enter a dollar amount — e.g. 7.66'
+  } else if (targetCents > LEADERBOARD_SPONSOR_MAX_TARGET_CENTS) {
+    blocker = `Targets above ${formatSponsorUsd(LEADERBOARD_SPONSOR_MAX_TARGET_CENTS)} are refused.`
+  } else if (targetCents <= activeCents) {
+    blocker = `You already have ${formatSponsorUsd(activeCents)} active — set a higher target.`
+  } else if (!holdsTop && targetCents < board.minTargetCents) {
+    blocker = `Taking #1 needs at least ${formatSponsorUsd(board.minTargetCents)} right now.`
+  }
+  const chargeReady = blocker === null && chargeCents !== null && chargeCents > 0
+  // The $2.00 floor overshot the difference — worth calling out because
+  // the buyer pays more than the gap (and it all still counts).
+  const floorApplied =
+    chargeReady && targetCents !== null && chargeCents > targetCents - activeCents
+
+  const submitBid = async () => {
+    if (busy || targetCents === null) return
+    setBusy(true)
+    setError(null)
+    setMovedNotice(null)
+    let navigating = false
+    try {
+      const res = await fetch('/api/billboard/leaderboard/checkout', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adId: ad.id, targetTotalCents: targetCents })
+      })
+      const data = await res.json().catch(() => null)
+
+      if (res.status === 409 && typeof data?.minTargetCents === 'number') {
+        // The board moved under the buyer. Refresh the displayed
+        // minimum from the response (fresher than the CDN-cached
+        // poll), reset the target to it, and re-ask.
+        const freshMin = data.minTargetCents as number
+        setBoard((prev) => (prev === null ? prev : { ...prev, minTargetCents: freshMin }))
+        setEdited(false)
+        setBidInput(centsToInputValue(freshMin))
+        setMovedNotice(
+          `Someone raised the board while you were deciding — taking #1 now starts at ${formatSponsorUsd(freshMin)}. The target below is updated; check the new charge and bid again if it still works for you.`
+        )
+        return
+      }
+      if (res.status === 409) {
+        // The other 409: the creative slipped out of APPROVED under a
+        // concurrent admin action — say so and refresh the tracker.
+        setError(
+          typeof data?.error === 'string' ? data.error : 'This creative can no longer bid.'
+        )
+        onChanged()
+        return
+      }
+      if (!res.ok || typeof data?.url !== 'string') {
+        setError(
+          typeof data?.error === 'string'
+            ? data.error
+            : 'Could not start the checkout — try again.'
+        )
+        return
+      }
+
+      // Hand the browser to Polar's hosted checkout. It returns to
+      // /sponsorship?lb_checkout=success, where the landing runs the
+      // bid sync so the rank shows without waiting for the webhook.
+      navigating = true
+      window.location.assign(data.url)
+    } catch {
+      setError('Network error — try again.')
+    } finally {
+      if (!navigating) setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3 border-t border-[color:var(--st-border)] pt-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <span className="text-[13px] font-medium leading-5 text-[color:var(--st-text)]">
+          Bid for the board
+        </span>
+        <span className="text-[12px] text-[color:var(--st-text-faint)]">
+          Live — refreshes every {LEADERBOARD_SPONSOR_POLL_MS / 1000}s
+        </span>
+      </div>
+
+      {/* ---- your standing, from the same payload the board paints ---- */}
+      <p className="text-[13px] leading-relaxed text-[color:var(--st-text-muted)]">
+        {entry !== null ? (
+          <>
+            {`You're `}
+            <span className="font-medium text-[color:var(--st-text)]">#{entry.rank}</span>
+            {' with '}
+            <span className="font-data tabular-nums" style={GOLD}>
+              {formatSponsorUsd(entry.activeCents)}
+            </span>
+            {' active — your total next drops in '}
+            <span className="font-data tabular-nums">
+              {fmtRemaining(entry.nextDropAt, board.serverTime)}
+            </span>
+            {' and leaves the board in '}
+            <span className="font-data tabular-nums">
+              {fmtRemaining(entry.expiresAt, board.serverTime)}
+            </span>
+            .
+          </>
+        ) : (
+          <>
+            Nothing active right now — each payment counts for 24 hours from the moment it
+            lands, then drops off.
+          </>
+        )}
+      </p>
+
+      {/* ---- the active board with expirations ---- */}
+      {board.board.length === 0 ? (
+        <p className="text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+          Nobody holds the board — the first bid takes #1 for{' '}
+          <span className="font-data tabular-nums" style={GOLD}>
+            {formatSponsorUsd(board.openingCents)}
+          </span>
+          .
+        </p>
+      ) : (
+        <div className="space-y-1">
+          {board.board.map((boardEntry) => (
+            <p key={boardEntry.adId} className="flex items-baseline gap-2 text-[12px] leading-4">
+              <span className="font-data w-6 shrink-0 tabular-nums text-[color:var(--st-text-faint)]">
+                #{boardEntry.rank}
+              </span>
+              <span
+                className={`min-w-0 truncate ${
+                  boardEntry.adId === ad.id
+                    ? 'font-medium text-[color:var(--st-text)]'
+                    : 'text-[color:var(--st-text-muted)]'
+                }`}
+              >
+                {boardEntry.companyName || boardEntry.linkHost || 'Sponsor'}
+                {boardEntry.adId === ad.id ? ' — you' : ''}
+              </span>
+              <span className="ml-auto shrink-0 font-data tabular-nums" style={GOLD}>
+                {formatSponsorUsd(boardEntry.activeCents)}
+              </span>
+              <span className="shrink-0 font-data tabular-nums text-[color:var(--st-text-faint)]">
+                off in {fmtRemaining(boardEntry.expiresAt, board.serverTime)}
+              </span>
+            </p>
+          ))}
+        </div>
+      )}
+
+      {/* ---- an unfinished checkout is money in flight, not on the
+          board — warn before the buyer double-charges blindly ---- */}
+      {standing !== null && standing.pendingCents > 0 && (
+        <div
+          className={`rounded-lg px-3 py-2.5 text-[13px] leading-5 ${AMBER_FLIP_CLS}`}
+          style={{
+            color: 'rgb(var(--bb-amber))',
+            border: '1px solid rgb(var(--bb-amber) / 0.35)',
+            background: 'rgb(var(--bb-amber) / 0.06)'
+          }}
+          role="status"
+        >
+          <span className="mr-2 font-medium">Checkout in flight</span>
+          {formatSponsorUsd(standing.pendingCents)} from an earlier checkout {`hasn't`} settled
+          — if you finished paying, it lands on the board shortly. Bidding again starts a
+          separate charge.
+        </div>
+      )}
+
+      {movedNotice && (
+        <div
+          className={`rounded-lg px-3 py-2.5 text-[13px] leading-5 ${AMBER_FLIP_CLS}`}
+          style={{
+            color: 'rgb(var(--bb-amber))',
+            border: '1px solid rgb(var(--bb-amber) / 0.35)',
+            background: 'rgb(var(--bb-amber) / 0.06)'
+          }}
+          role="status"
+        >
+          <span className="mr-2 font-medium">The board moved</span>
+          {movedNotice}
+        </div>
+      )}
+
+      {/* ---- target entry + the explicit charge preview ---- */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <div className="flex items-baseline justify-between gap-3">
+            <label
+              htmlFor={targetId}
+              className="text-[13px] font-medium leading-5 text-[color:var(--st-text)]"
+            >
+              Target total
+            </label>
+            <span className="text-[12.5px] tabular-nums text-[color:var(--st-text-faint)]">
+              {holdsTop
+                ? `you hold #1 — anything above ${formatSponsorUsd(activeCents)}`
+                : `min ${formatSponsorUsd(board.minTargetCents)}`}
+            </span>
+          </div>
+          <div className="mt-1.5 flex items-center gap-2">
+            <span aria-hidden className="text-[15px] text-[color:var(--st-text-muted)]">
+              $
+            </span>
+            <input
+              id={targetId}
+              value={bidInput}
+              onChange={(event) => {
+                setBidInput(event.target.value)
+                setEdited(true)
+              }}
+              inputMode="decimal"
+              className="st-input block w-full rounded-lg px-3 py-2.5 text-[16px] leading-6 tabular-nums md:py-1.5 md:text-[15px]"
+            />
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-[color:var(--st-border)] px-3 py-2.5">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-[12.5px] text-[color:var(--st-text-muted)]">You pay now</span>
+            <span className="font-data text-[15px] tabular-nums" style={GOLD}>
+              {chargeReady && chargeCents !== null ? formatSponsorUsd(chargeCents) : '—'}
+            </span>
+          </div>
+          <p className="mt-1 text-[12px] leading-4 text-[color:var(--st-text-faint)]">
+            {floorApplied
+              ? `${formatSponsorUsd(LEADERBOARD_SPONSOR_MIN_CHECKOUT_CENTS)} checkout minimum — the full charge still counts toward your total.`
+              : `The difference between your target and your ${formatSponsorUsd(activeCents)} active total.`}
+          </p>
+        </div>
+      </div>
+
+      {blocker !== null && (
+        <p className="text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">{blocker}</p>
+      )}
+
+      {error && (
+        <p
+          className="rounded-lg px-3 py-2.5 text-[13px] leading-5"
+          style={{
+            color: 'var(--st-danger)',
+            border: '1px solid var(--st-danger-muted)',
+            background: 'var(--st-danger-bg)'
+          }}
+          role="alert"
+        >
+          {error}
+        </p>
+      )}
+
+      <div className="space-y-2">
+        <SettingsButton
+          variant="solid"
+          pending={busy}
+          disabled={blocker !== null}
+          onClick={submitBid}
+        >
+          {busy
+            ? 'Starting checkout…'
+            : chargeReady && chargeCents !== null
+              ? `Bid — pay ${formatSponsorUsd(chargeCents)}`
+              : 'Bid'}
+        </SettingsButton>
+        <p className="text-[12.5px] leading-5 text-[color:var(--st-text-faint)]">
+          Card checkout by Polar. A bid buys ranked exposure, not guaranteed time at #1 —
+          checkout {`doesn't`} reserve the spot, the minimum is re-checked when you bid, and
+          anyone can outbid you after. Every payment counts for 24 hours from the moment it
+          completes, then drops off.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 function AdRow({
   ad,
+  lbStanding,
   fallbackLogoUrl,
   onChanged
 }: {
   ad: MineAd
+  /** This creative's row from /api/billboard/leaderboard/mine — null
+   *  for non-leaderboard ads and while that fetch is in flight. */
+  lbStanding: LeaderboardSponsorMineCreative | null
   fallbackLogoUrl: string | null
   onChanged: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const now = new Date()
-  const meta = chipMeta(ad, now)
+  const meta = chipMeta(ad, now, lbStanding)
   const editable = ad.status === 'PENDING' || ad.status === 'CHANGES_REQUESTED'
 
   const editTarget: AdFormTarget = {
@@ -301,13 +760,15 @@ function AdRow({
   // then the buyer's request shows as a wish ("wants R1"), never as if
   // the slot were already theirs.
   const placementLabel =
-    ad.placement === 'rail'
-      ? ad.rail_slot
-        ? `Rail · ${ad.rail_slot}`
-        : ad.requested_rail_slot
-          ? `Rail · wants ${ad.requested_rail_slot}`
-          : 'Rail'
-      : 'Flipper'
+    ad.placement === 'leaderboard'
+      ? 'Leaderboard'
+      : ad.placement === 'rail'
+        ? ad.rail_slot
+          ? `Rail · ${ad.rail_slot}`
+          : ad.requested_rail_slot
+            ? `Rail · wants ${ad.requested_rail_slot}`
+            : 'Rail'
+        : 'Flipper'
   const regionId = `billboard-ad-${ad.id}`
 
   return (
@@ -378,10 +839,12 @@ function AdRow({
             <p className="text-[13px] leading-relaxed text-[color:var(--st-text-muted)]">
               In the review queue — a human checks every card. You can still edit it while it
               waits.
+              {ad.placement === 'leaderboard' &&
+                ' Approval is one-time — once it lands, bidding opens right here.'}
             </p>
           )}
 
-          {ad.status === 'APPROVED' && !ad.isLive && !ad.ends_at && (
+          {ad.status === 'APPROVED' && ad.placement !== 'leaderboard' && !ad.isLive && !ad.ends_at && (
             <p className="text-[13px] leading-relaxed text-[color:var(--st-text-muted)]">
               {/* Email-first: name the buyer's own billing inbox when one
                   is on file; pre-040 ads (no address) get the public
@@ -444,6 +907,13 @@ function AdRow({
             </p>
           )}
 
+          {/* An approved leaderboard creative's whole point: the bid
+              console — live board, target entry, charge preview and the
+              Polar handoff. */}
+          {ad.status === 'APPROVED' && ad.placement === 'leaderboard' && (
+            <LeaderboardBidConsole ad={ad} standing={lbStanding} onChanged={onChanged} />
+          )}
+
           {editable && !editing && (
             <div>
               <SettingsButton variant="ghost" onClick={() => setEditing(true)}>
@@ -502,10 +972,44 @@ export function BillboardStatusTracker({
   onBrowseSlots?: () => void
 }) {
   const [filter, setFilter] = useState<FilterId>('all')
+
+  /** The owner's leaderboard money standing (ranks, active/pending
+   *  cents), fetched whenever the list carries a leaderboard creative.
+   *  Keyed on the ads array identity on purpose: every parent reload
+   *  (loadMine) hands down a fresh array, so a bid landing through
+   *  onChanged refreshes ranks here too. Best effort — without it
+   *  chips degrade to 'Ready to bid' and the bid console still shows
+   *  the live truth from its own board poll. */
+  const [lbMine, setLbMine] = useState<LeaderboardSponsorMine | null>(null)
+  useEffect(() => {
+    if (!ads.some((ad) => ad.placement === 'leaderboard')) return
+    let cancelled = false
+    fetch('/api/billboard/leaderboard/mine', { credentials: 'include', cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: LeaderboardSponsorMine | null) => {
+        if (cancelled) return
+        if (data && Array.isArray(data.creatives)) setLbMine(data)
+      })
+      .catch(() => {
+        // Degrade gracefully — see the state comment above.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [ads])
+
+  const lbByAd = useMemo(
+    () => new Map((lbMine?.creatives ?? []).map((creative) => [creative.adId, creative])),
+    [lbMine]
+  )
+
   const visible = useMemo(() => {
     const now = new Date()
-    return sortAds(ads, now).filter((ad) => matchesFilter(ad, filter, now))
-  }, [ads, filter])
+    const onBoard = (ad: MineAd) => (lbByAd.get(ad.id)?.rank ?? null) !== null
+    return sortAds(ads, now, onBoard).filter((ad) =>
+      matchesFilter(ad, filter, now, onBoard(ad))
+    )
+  }, [ads, filter, lbByAd])
 
   if (signedIn === false) {
     return (
@@ -565,7 +1069,11 @@ export function BillboardStatusTracker({
     )
   }
 
-  const liveCount = ads.filter((ad) => ad.isLive).length
+  // Leaderboard liveness (an active bid total) counts as live — isLive
+  // is always false for that placement.
+  const liveCount = ads.filter(
+    (ad) => ad.isLive || (lbByAd.get(ad.id)?.rank ?? null) !== null
+  ).length
   const reviewCount = ads.filter(
     (ad) => ad.status === 'PENDING' || ad.status === 'CHANGES_REQUESTED'
   ).length
@@ -599,7 +1107,13 @@ export function BillboardStatusTracker({
           </p>
         ) : (
           visible.map((ad) => (
-            <AdRow key={ad.id} ad={ad} fallbackLogoUrl={fallbackLogoUrl} onChanged={onChanged} />
+            <AdRow
+              key={ad.id}
+              ad={ad}
+              lbStanding={lbByAd.get(ad.id) ?? null}
+              fallbackLogoUrl={fallbackLogoUrl}
+              onChanged={onChanged}
+            />
           ))
         )}
       </Panel>

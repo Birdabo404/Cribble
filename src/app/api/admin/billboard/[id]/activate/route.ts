@@ -33,9 +33,15 @@ import { createServiceClient } from '@/lib/supabaseServer'
 //              starts_at = now, ends_at = now + 7 days. Billing is NOT
 //              touched: payment happens manually over the approval
 //              email thread (or X DM as backup) before this click.
-//   archive  — early takedown of a live/approved ad. Requires a written
-//              reason (audit log only; review_note stays the buyer-facing
-//              review feedback). Click stats survive, per migration 030.
+//              Leaderboard-placement ads are refused outright: their
+//              liveness derives from paid Polar bids (migration 055),
+//              never from an admin-stamped window.
+//   archive  — early takedown of a live/approved ad, any placement.
+//              Requires a written reason (audit log only; review_note
+//              stays the buyer-facing review feedback). Click stats
+//              survive, per migration 030. For leaderboard creatives
+//              this is the takedown lever: the board derivation drops
+//              non-APPROVED creatives before ranking.
 // The activate update is guarded on both the status and the starts_at we
 // read, so two staff sessions activating at once can't double-stamp the
 // window. The flipper count and the rail slot-occupancy check are
@@ -137,6 +143,21 @@ export async function POST(
 
     switch (action) {
       case 'activate': {
+        // Leaderboard creatives (migration 055) have no admin-stamped
+        // window: payment is self-serve Polar bidding and liveness
+        // derives from paid contributions, so "mark paid + go live" is
+        // meaningless. Hard-refused here even though the queue never
+        // offers the button — archive stays available as the takedown.
+        if (ad.placement === 'leaderboard') {
+          return NextResponse.json(
+            {
+              error:
+                'Leaderboard creatives cannot be activated — they go live automatically from paid bids. Use archive to take one down.'
+            },
+            { status: 400 }
+          )
+        }
+
         if (isLiveAd(ad, now)) {
           return NextResponse.json(
             { error: 'Ad is already live — its current window has to end first' },

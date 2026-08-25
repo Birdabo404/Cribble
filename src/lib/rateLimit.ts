@@ -197,6 +197,15 @@ export const rateLimitConfigs = {
   admin: {
     windowMs: 60 * 1000, // 1 minute
     maxRequests: 10 // 10 requests per minute
+  },
+
+  // Paid-checkout creation: every allowed request mints a real Polar
+  // checkout plus a ledger row, so the budget is a handful of clicks —
+  // no legitimate buyer creates more. Used per-user through
+  // checkDistributedRateLimit so serverless fan-out can't multiply it.
+  checkoutCreation: {
+    windowMs: 60 * 1000, // 1 minute
+    maxRequests: 5
   }
 }
 
