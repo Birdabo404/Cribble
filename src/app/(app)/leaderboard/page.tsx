@@ -402,8 +402,9 @@ function LeaderboardArena() {
           {/* ---------- stat bar / sponsor flip ---------- */}
           {/* The flip wrapper owns the 8s/6s stats-to-sponsor rotation
               (lib/leaderboardSponsor cadence) around the untouched
-              StatBar; with no sponsor data it renders the stats alone,
-              so this block behaves exactly as before. */}
+              StatBar. TOKENS / AI / TEAMS wrap their own stat strips
+              the same way so the paid face airs on every board. With
+              no sponsor data it renders the stats alone. */}
           {isStandings && (
             <section className="lb4-reveal" style={{ ['--rv' as string]: '90ms' }}>
               <LeaderboardSponsorFlip>
