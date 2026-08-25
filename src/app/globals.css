@@ -2481,6 +2481,14 @@ html.light .dash-duotone {
   --st-danger-bg: rgba(245, 80, 78, 0.08);
   /* focus ring */
   --st-focus: rgba(250, 250, 250, 0.6);
+  /* terminal chrome — command blocks render as an actual terminal, fixed
+     dark in BOTH themes so the lime command ink always has contrast.
+     The lime is allowed only inside these blocks. */
+  --st-terminal-bg: #0a0a0b;
+  --st-terminal-border: rgba(255, 255, 255, 0.12);
+  --st-terminal-ink: #e4e4e7;
+  --st-terminal-muted: #6f7078;
+  --st-terminal-accent: #d0fe1d;
   /* elevation (light mode leans on shadows since panel == canvas there) */
   --st-panel-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
   --st-savebar-shadow: 0 12px 32px -8px rgb(0 0 0 / 0.65);
@@ -2623,6 +2631,12 @@ html.light .settings-scope {
   --st-danger-bg: rgba(245, 80, 78, 0.08);
   /* focus ring */
   --st-focus: rgba(250, 250, 250, 0.6);
+  /* terminal chrome — fixed dark in both themes (see .settings-scope) */
+  --st-terminal-bg: #0a0a0b;
+  --st-terminal-border: rgba(255, 255, 255, 0.12);
+  --st-terminal-ink: #e4e4e7;
+  --st-terminal-muted: #6f7078;
+  --st-terminal-accent: #d0fe1d;
   /* elevation */
   --st-panel-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
   --st-savebar-shadow: 0 12px 32px -8px rgb(0 0 0 / 0.65);

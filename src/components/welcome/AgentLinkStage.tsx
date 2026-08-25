@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { useGSAP } from '@gsap/react'
+import { AGENT_CLI_COMMANDS } from '@/lib/agentCli'
 import {
   formatCompactTokenCount,
   tokenAgentLabel,
@@ -26,15 +27,6 @@ import {
   welcomeMotionReduced
 } from '@/components/welcome/welcomeMotion'
 import type { AgentProgressSnapshot } from '@/components/welcome/welcomeProgress'
-
-/** Single source for every command this stage shows, so the panel can
- *  never drift apart from itself. */
-export const AGENT_CLI_COMMANDS = {
-  install: 'npm install -g cribble-agent',
-  connect: 'cribble connect',
-  sync: 'cribble sync',
-  autoSync: 'cribble start'
-} as const
 
 const SYNC_POLL_MS = 4_000
 

@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { formatRelative } from '@/components/dashboard-v2/format'
+import type { TokenUsageResponse } from '@/lib/userTokenUsage'
+import { AgentSetupGuide } from './AgentSetupGuide'
+import type { AgentLinkSummary } from './AgentSetupGuide'
 import { SettingsButton } from './SettingsButton'
-import { TextField } from './Field'
 import { SettingsRow } from './SettingsRow'
 import { SettingsSection } from './SettingsSection'
 import { SkeletonRow } from './Skeleton'
@@ -44,6 +46,14 @@ type AgentSharingState =
   | { phase: 'loading' }
   | { phase: 'error' }
   | { phase: 'ready'; enabled: boolean; enabledAt: string | null }
+
+/** Linked-state check: unknown until the first fetch settles. */
+type AgentLinkState =
+  | { phase: 'checking' }
+  | { phase: 'ready'; summary: AgentLinkSummary | null }
+
+/** Gentler than the welcome stage's 4s — settings is not a countdown. */
+const LINK_POLL_MS = 10_000
 
 function responseError(data: unknown, fallback: string): string {
   if (
@@ -166,14 +176,48 @@ function parseSharing(data: unknown): { enabled: boolean; enabledAt: string | nu
   return { enabled: data.enabled, enabledAt: data.enabledAt }
 }
 
+// availableBounds !== null means at least one sync was EVER ingested —
+// the same "first sync received" signal the welcome flow uses. A
+// malformed response reads as not-linked: keep the guide open.
+function readLinkSummary(data: unknown): AgentLinkSummary | null {
+  if (typeof data !== 'object' || data === null) return null
+  const response = data as Partial<TokenUsageResponse>
+  if (response.success !== true) return null
+  if (response.availableBounds === null || response.availableBounds === undefined) {
+    return null
+  }
+  return {
+    totalTokens: response.totals?.totalTokens ?? '0',
+    storedCostUsd: response.totals?.storedCostUsd ?? '0',
+    lastSyncedAt: response.sync?.lastSyncedAt ?? null
+  }
+}
+
+async function fetchLinkSummary(): Promise<AgentLinkSummary | null> {
+  try {
+    const response = await fetch('/api/user/token-usage', {
+      credentials: 'include',
+      cache: 'no-store'
+    })
+    if (!response.ok) return null
+    const data: unknown = await response.json().catch(() => null)
+    return readLinkSummary(data)
+  } catch {
+    return null
+  }
+}
+
 export function AgentCliSection() {
   const [keysState, setKeysState] = useState<AgentKeysState>({ phase: 'loading' })
   const [sharingState, setSharingState] = useState<AgentSharingState>({ phase: 'loading' })
+  const [linkState, setLinkState] = useState<AgentLinkState>({ phase: 'checking' })
+  const [guideExpanded, setGuideExpanded] = useState(false)
   const [label, setLabel] = useState('')
   const [createdKey, setCreatedKey] = useState<CreatedAgentKey | null>(null)
   const [creating, setCreating] = useState(false)
   const [revokingId, setRevokingId] = useState<number | null>(null)
-  const [actionError, setActionError] = useState<string | null>(null)
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [revokeError, setRevokeError] = useState<string | null>(null)
   const [sharingError, setSharingError] = useState<string | null>(null)
   const [updatingSharing, setUpdatingSharing] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -223,6 +267,39 @@ export function AgentCliSection() {
     void loadSharing()
   }, [loadKeys, loadSharing])
 
+  // One check on mount decides the guide's starting posture: linked
+  // accounts get the collapsed summary, everyone else gets the steps.
+  useEffect(() => {
+    let cancelled = false
+    void fetchLinkSummary().then((summary) => {
+      if (cancelled) return
+      setLinkState({ phase: 'ready', summary })
+      setGuideExpanded(summary === null)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // While the guide is open and the account has never synced, listen for
+  // the first sync so step 4 can flip to "First sync received". Stops as
+  // soon as it lands (or the guide closes, or we unmount). A mid-session
+  // link does NOT collapse the guide — the user is reading it.
+  useEffect(() => {
+    if (linkState.phase !== 'ready' || linkState.summary !== null || !guideExpanded) return
+    let cancelled = false
+    const id = window.setInterval(() => {
+      void fetchLinkSummary().then((summary) => {
+        if (cancelled || summary === null) return
+        setLinkState({ phase: 'ready', summary })
+      })
+    }, LINK_POLL_MS)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [linkState, guideExpanded])
+
   const activeKeyCount =
     keysState.phase === 'ready'
       ? keysState.keys.filter(
@@ -235,7 +312,7 @@ export function AgentCliSection() {
     if (creating || !nextLabel || activeKeyCount >= 5) return
 
     setCreating(true)
-    setActionError(null)
+    setCreateError(null)
     setCopied(false)
     try {
       const response = await fetch('/api/user/agent-keys', {
@@ -273,7 +350,7 @@ export function AgentCliSection() {
       )
       setLabel('')
     } catch (error) {
-      setActionError(
+      setCreateError(
         error instanceof Error ? error.message : 'Could not create a token tracker key'
       )
     } finally {
@@ -286,9 +363,9 @@ export function AgentCliSection() {
     try {
       await navigator.clipboard.writeText(createdKey.key)
       setCopied(true)
-      setActionError(null)
+      setCreateError(null)
     } catch {
-      setActionError('Could not copy automatically. Select the key and copy it manually.')
+      setCreateError('Could not copy automatically. Select the key and copy it manually.')
     }
   }, [createdKey])
 
@@ -338,7 +415,7 @@ export function AgentCliSection() {
       }
 
       setRevokingId(key.id)
-      setActionError(null)
+      setRevokeError(null)
       try {
         const response = await fetch('/api/user/agent-keys', {
           method: 'DELETE',
@@ -363,7 +440,7 @@ export function AgentCliSection() {
             : current
         )
       } catch (error) {
-        setActionError(
+        setRevokeError(
           error instanceof Error ? error.message : 'Could not revoke the token tracker key'
         )
       } finally {
@@ -376,99 +453,39 @@ export function AgentCliSection() {
   return (
     <SettingsSection
       title="Token tracker CLI"
-      description="Create a key so Cribble Agent can send local coding-agent token totals to this account. This is separate from browser activity."
+      description={
+        <>
+          Your season score comes from the browser extension. Cribble Agent is a separate CLI
+          that reads local coding-agent token burn (Claude Code, Cursor, and more via ccusage)
+          into your token dashboard — and the Burn Board only if you opt in. Requires macOS and
+          Node 18+.
+        </>
+      }
     >
-      <SettingsRow
-        label="Join the Burn Board"
-        description={
-          sharingState.phase === 'ready' && sharingState.enabled
-            ? 'Your public profile, aggregate token totals, estimated cost, and agent/model breakdowns are ranked. Raw usage and machine details stay private.'
-            : 'Opt in to the public token leaderboard. Sharing is off by default and does not affect your season score.'
-        }
-      >
-        {sharingState.phase === 'error' ? (
-          <SettingsButton variant="ghost" onClick={() => void loadSharing()}>
-            Try again
-          </SettingsButton>
-        ) : (
-          <Switch
-            checked={sharingState.phase === 'ready' && sharingState.enabled}
-            disabled={sharingState.phase !== 'ready' || updatingSharing}
-            onChange={(enabled) => void updateSharing(enabled)}
-            aria-label="Share aggregate token usage on the Burn Board"
-          />
-        )}
-      </SettingsRow>
-
-      {sharingError && (
-        <div className="px-4 py-3 sm:px-5">
-          <p role="alert" className="text-[13px] leading-5 text-[color:var(--st-danger)]">
-            {sharingError}
-          </p>
-        </div>
+      {linkState.phase === 'checking' ? (
+        <SkeletonRow />
+      ) : (
+        <AgentSetupGuide
+          linked={linkState.summary}
+          expanded={guideExpanded}
+          onToggleExpanded={() => setGuideExpanded((current) => !current)}
+          label={label}
+          onLabelChange={setLabel}
+          onCreate={() => void createKey()}
+          creating={creating}
+          activeKeyCount={activeKeyCount}
+          createdKey={createdKey?.key ?? null}
+          onDismissKey={() => setCreatedKey(null)}
+          onCopyKey={() => void copyKey()}
+          keyCopied={copied}
+          createError={createError}
+        />
       )}
 
-      <SettingsRow
-        label="Create a key"
-        description="Name this computer so you can recognize and revoke its access later."
-        stack
-      >
-        <div className="flex w-full flex-col gap-2 sm:w-80 sm:flex-row sm:items-end">
-          <TextField
-            label="Computer name"
-            value={label}
-            onChange={(event) => setLabel(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') void createKey()
-            }}
-            placeholder="Personal MacBook"
-            autoComplete="off"
-            maxLength={40}
-            disabled={creating || activeKeyCount >= 5}
-          />
-          <SettingsButton
-            onClick={() => void createKey()}
-            pending={creating}
-            disabled={!label.trim() || activeKeyCount >= 5}
-          >
-            Create
-          </SettingsButton>
-        </div>
-      </SettingsRow>
-
-      {createdKey && (
-        <div
-          className="space-y-3 bg-[color:var(--st-panel-hover)] px-4 py-4 sm:px-5"
-          aria-live="polite"
-        >
-          <div>
-            <p className="text-[14px] font-medium leading-5 text-[color:var(--st-text)]">
-              Copy this key now
-            </p>
-            <p className="mt-0.5 text-[13px] leading-5 text-[color:var(--st-text-muted)]">
-              It is shown once. In the Cribble Agent folder, run{' '}
-              <span className="font-data">node index.js auth set</span>, then paste the key when
-              prompted.
-            </p>
-          </div>
-          <code className="block select-all break-all rounded-lg border border-[color:var(--st-border-strong)] bg-[color:var(--st-panel)] px-3 py-2.5 font-data text-[12.5px] leading-5 text-[color:var(--st-text)]">
-            {createdKey.key}
-          </code>
-          <div className="flex items-center justify-end gap-1.5">
-            <SettingsButton variant="ghost" onClick={() => setCreatedKey(null)}>
-              Done
-            </SettingsButton>
-            <SettingsButton onClick={() => void copyKey()}>
-              {copied ? 'Copied' : 'Copy key'}
-            </SettingsButton>
-          </div>
-        </div>
-      )}
-
-      {actionError && (
+      {revokeError && (
         <div className="px-4 py-3 sm:px-5">
           <p role="alert" className="text-[13px] leading-5 text-[color:var(--st-danger)]">
-            {actionError}
+            {revokeError}
           </p>
         </div>
       )}
@@ -486,16 +503,8 @@ export function AgentCliSection() {
       {keysState.phase === 'ready' && keysState.keys.length === 0 && (
         <SettingsRow
           label="No keys yet"
-          description="Create one above, then save it in Cribble Agent when prompted."
+          description="Create one in step 2 above, then save it in Cribble Agent when prompted."
         />
-      )}
-
-      {keysState.phase === 'ready' && activeKeyCount >= 5 && (
-        <div className="px-4 py-3 sm:px-5">
-          <p className="text-[13px] leading-5 text-[color:var(--st-text-muted)]">
-            You have five active keys. Revoke one before creating another.
-          </p>
-        </div>
       )}
 
       {keysState.phase === 'ready' &&
@@ -538,6 +547,36 @@ export function AgentCliSection() {
             )}
           </SettingsRow>
         ))}
+
+      <SettingsRow
+        label="Join the Burn Board"
+        description={
+          sharingState.phase === 'ready' && sharingState.enabled
+            ? 'Your public profile, aggregate token totals, estimated cost, and agent/model breakdowns are ranked. Raw usage and machine details stay private.'
+            : 'Opt in to the public token leaderboard. Sharing is off by default and does not affect your season score.'
+        }
+      >
+        {sharingState.phase === 'error' ? (
+          <SettingsButton variant="ghost" onClick={() => void loadSharing()}>
+            Try again
+          </SettingsButton>
+        ) : (
+          <Switch
+            checked={sharingState.phase === 'ready' && sharingState.enabled}
+            disabled={sharingState.phase !== 'ready' || updatingSharing}
+            onChange={(enabled) => void updateSharing(enabled)}
+            aria-label="Share aggregate token usage on the Burn Board"
+          />
+        )}
+      </SettingsRow>
+
+      {sharingError && (
+        <div className="px-4 py-3 sm:px-5">
+          <p role="alert" className="text-[13px] leading-5 text-[color:var(--st-danger)]">
+            {sharingError}
+          </p>
+        </div>
+      )}
     </SettingsSection>
   )
 }
