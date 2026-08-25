@@ -17,8 +17,10 @@ import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib
 import { cleanReason, getStaffUser } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
-// Billboard slot lifecycle — owner only, same structure as the review
-// route (rate limit, staff gate, audit-first, guarded update):
+// Billboard slot lifecycle — owner only (billboard.activate: marking
+// paid and archiving settle real money, unlike the moderator-floor
+// review route), same structure as the review route (rate limit, staff
+// gate, audit-first, guarded update):
 //   activate — "mark paid + go live". APPROVED and not currently in a
 //              live window; refuses when BILLBOARD_MAX_LIVE flipper ads
 //              are already live (the cap lives here in app code per
@@ -90,7 +92,7 @@ export async function POST(
     )
   }
 
-  const staff = await getStaffUser(request, 'billboard.review')
+  const staff = await getStaffUser(request, 'billboard.activate')
   if (!staff.ok) {
     return NextResponse.json({ error: staff.error }, { status: staff.status })
   }

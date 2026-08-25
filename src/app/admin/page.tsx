@@ -196,8 +196,8 @@ function KpiCell({
 const KPI_GRID =
   'grid grid-cols-1 divide-y divide-[color:var(--st-border)] sm:grid-cols-3 sm:divide-x sm:divide-y-0'
 
-// Billboard review is owner-gated like team review — hiding this section
-// for moderators is cosmetic; the API still 403s.
+// Billboard acceptance sits at the moderator floor (billboard.review),
+// so every staff member gets these counts; only activation is owner work.
 function NeedsAttentionSection() {
   const [counts, setCounts] = useState<{
     queue: number
@@ -447,7 +447,7 @@ export default function AdminHomePage() {
         description="Every action is reason-gated and written to the audit log."
       />
       <UserSearchSection />
-      {me.role === 'owner' && <NeedsAttentionSection />}
+      <NeedsAttentionSection />
       {me.role === 'owner' && <StaffSection />}
       <RecentActivitySection />
     </div>

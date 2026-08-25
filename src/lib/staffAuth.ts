@@ -7,7 +7,8 @@ import { createServiceClient } from '@/lib/supabaseServer'
 // Two-tier staff model for the admin panel:
 //   owner     — the site operator. Everything, including entitlement
 //               grants and staff management.
-//   moderator — trusted helpers. Community moderation only.
+//   moderator — trusted helpers. Community moderation plus content
+//               review queues (feedback, sponsorship acceptance).
 //
 // Roles live in users.staff_role (migration 018). The ADMIN_USERNAMES
 // env allowlist and the legacy is_admin flag both resolve to 'owner' as
@@ -36,6 +37,7 @@ export type StaffAction =
   | 'season.manage'
   | 'team.review'
   | 'billboard.review'
+  | 'billboard.activate'
   | 'announcement.manage'
   | 'debug.manage'
 
@@ -48,6 +50,10 @@ export function minRoleFor(action: StaffAction): StaffRole {
     case 'audit.view':
     case 'feedback.view':
     case 'feedback.manage':
+    // Sponsorship acceptance — viewing the billboard queue and deciding
+    // approve / reject / request changes — is content review, so
+    // moderators work it. The money levers stay on billboard.activate.
+    case 'billboard.review':
       return 'moderator'
     case 'entitlement.grant_pro':
     case 'entitlement.revoke_pro':
@@ -65,12 +71,13 @@ export function minRoleFor(action: StaffAction): StaffRole {
     // Team approval hands out the gold badge — the anti-impersonation
     // gate is an owner call, same as entitlements.
     case 'team.review':
-    // Billboard ads are paid placements shown to every visitor —
-    // approving copy and flipping paid/live state is an owner call,
-    // same as team review (payment is collected manually over X DM).
-    case 'billboard.review':
-    // Announcements push site-wide broadcast copy into that same
-    // every-visitor ticker — an owner call, same as billboard.review.
+    // Flipping a billboard ad's paid/live state (and archiving) settles
+    // real money collected manually over email/X DM — that stays an
+    // owner call even though the acceptance decision above is
+    // moderator work.
+    case 'billboard.activate':
+    // Announcements push site-wide broadcast copy into the
+    // every-visitor ticker — an owner call, same as team.review.
     case 'announcement.manage':
     case 'debug.manage':
       return 'owner'

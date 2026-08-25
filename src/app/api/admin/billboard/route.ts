@@ -12,8 +12,9 @@ import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib
 import { getStaffUser } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
-// Billboard admin overview — owner only, the same gate as the decision
-// routes so a moderator can't even enumerate submissions. One call
+// Billboard admin overview — any staff (billboard.review, the same
+// moderator-floor gate as the review decisions, so moderators can work
+// the acceptance queue; only activation stays owner-only). One call
 // returns every bucket the queue page renders:
 //   queue    — PENDING + CHANGES_REQUESTED, oldest first (FIFO review)
 //   awaiting — APPROVED but not yet live: manual payment/activation

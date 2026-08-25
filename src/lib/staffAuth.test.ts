@@ -62,7 +62,9 @@ describe('minRoleFor', () => {
       'user.edit_notes',
       'audit.view',
       'feedback.view',
-      'feedback.manage'
+      'feedback.manage',
+      // Sponsorship acceptance is content review — moderator work.
+      'billboard.review'
     ]
     for (const action of moderatorActions) {
       expect(minRoleFor(action)).toBe('moderator')
@@ -78,7 +80,9 @@ describe('minRoleFor', () => {
       'staff.manage',
       'invite.manage',
       'team.review',
-      'billboard.review',
+      // Billboard activation settles real money — owner only, even
+      // though the acceptance decision is moderator work.
+      'billboard.activate',
       'announcement.manage',
       'debug.manage'
     ]
