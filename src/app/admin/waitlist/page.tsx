@@ -53,7 +53,14 @@ interface QueueData {
   total: number
   page: number
   pageSize: number
+  pendingTotal: number
   counts: Record<StatusFilter, number>
+}
+
+interface BulkSendSummary {
+  sent: number
+  failed: number
+  skipped: number
 }
 
 const PAGE_SIZE = 50
@@ -173,8 +180,14 @@ export default function AdminWaitlistPage() {
   const [armedId, setArmedId] = useState<string | null>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
+  const [bulkArmed, setBulkArmed] = useState(false)
+  const [bulkSending, setBulkSending] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState<BulkSendSummary | null>(null)
+  const [bulkSummary, setBulkSummary] = useState<BulkSendSummary | null>(null)
+  const [bulkError, setBulkError] = useState<string | null>(null)
   const queryRef = useRef('')
   const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const bulkArmTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loadSeq = useRef(0)
 
   useEffect(() => {
@@ -243,6 +256,7 @@ export default function AdminWaitlistPage() {
   useEffect(
     () => () => {
       if (armTimer.current) clearTimeout(armTimer.current)
+      if (bulkArmTimer.current) clearTimeout(bulkArmTimer.current)
     },
     []
   )
@@ -251,6 +265,13 @@ export default function AdminWaitlistPage() {
     if (armTimer.current) {
       clearTimeout(armTimer.current)
       armTimer.current = null
+    }
+  }
+
+  const clearBulkArmTimer = () => {
+    if (bulkArmTimer.current) {
+      clearTimeout(bulkArmTimer.current)
+      bulkArmTimer.current = null
     }
   }
 
@@ -318,9 +339,84 @@ export default function AdminWaitlistPage() {
     }
   }
 
+  const sendAll = async () => {
+    setBulkSending(true)
+    setBulkError(null)
+    setBulkSummary(null)
+
+    let totals: BulkSendSummary = { sent: 0, failed: 0, skipped: 0 }
+
+    try {
+      let remaining = data?.pendingTotal ?? 0
+      do {
+        const res = await fetch('/api/admin/waitlist/invite-all', {
+          method: 'POST',
+          credentials: 'include'
+        })
+        if (res.status === 401) {
+          router.push('/login')
+          return
+        }
+        if (res.status === 403) {
+          setForbidden(true)
+          return
+        }
+
+        const payload = await res.json().catch(() => null)
+        const batch = {
+          sent: Number(payload?.sent) || 0,
+          failed: Number(payload?.failed) || 0,
+          skipped: Number(payload?.skipped) || 0
+        }
+        totals = {
+          sent: totals.sent + batch.sent,
+          failed: totals.failed + batch.failed,
+          skipped: totals.skipped + batch.skipped
+        }
+        setBulkProgress(totals)
+
+        if (res.status === 503) {
+          setEmailUnconfigured(true)
+        }
+        if (!res.ok) {
+          throw new Error(payload?.error ?? 'Bulk send failed.')
+        }
+        if (!Number.isInteger(payload?.remaining) || payload.remaining < 0) {
+          throw new Error('Bulk send returned an invalid queue count.')
+        }
+        if (payload.remaining > 0 && (!Number.isInteger(payload?.processed) || payload.processed < 1)) {
+          throw new Error('Bulk send made no progress. Try again.')
+        }
+        remaining = payload.remaining
+      } while (remaining > 0)
+
+      setBulkSummary(totals)
+    } catch (err) {
+      setBulkError(err instanceof Error ? err.message : 'Bulk send failed.')
+    } finally {
+      setBulkSending(false)
+      setBulkProgress(null)
+      await load()
+    }
+  }
+
+  /** SEND ALL uses the same two-click guard as each row action. */
+  const onBulkAction = () => {
+    if (bulkSending || sendingId !== null || !data?.pendingTotal) return
+    if (bulkArmed) {
+      clearBulkArmTimer()
+      setBulkArmed(false)
+      void sendAll()
+      return
+    }
+    clearBulkArmTimer()
+    setBulkArmed(true)
+    bulkArmTimer.current = setTimeout(() => setBulkArmed(false), 5000)
+  }
+
   /** First click arms Confirm?, second fires; the arm decays after 3s. */
   const onAction = (entry: WaitlistEntry) => {
-    if (sendingId !== null) return
+    if (sendingId !== null || bulkSending) return
     if (armedId === entry.id) {
       clearArmTimer()
       setArmedId(null)
@@ -354,7 +450,7 @@ export default function AdminWaitlistPage() {
     <div className="space-y-6">
       <AdminPageHeader
         title="Waitlist queue"
-        description="Launch waitlist signups, oldest first — send private beta invites one at a time and track each one from pending through sent, failed or redeemed."
+        description="Launch waitlist signups, oldest first — send private beta invites individually or send every pending invite at once."
       />
 
       {emailUnconfigured && (
@@ -363,6 +459,29 @@ export default function AdminWaitlistPage() {
           server env. Sends will fail until then.
         </AdminNotice>
       )}
+
+      {bulkSending && (
+        <AdminNotice>
+          <span role="status">
+            SEND ALL is running. Keep this tab open
+            {bulkProgress
+              ? ` — ${bulkProgress.sent} sent${bulkProgress.failed ? `, ${bulkProgress.failed} failed` : ''}.`
+              : '…'}
+          </span>
+        </AdminNotice>
+      )}
+
+      {bulkSummary && (
+        <AdminNotice tone={bulkSummary.failed ? 'warning' : 'info'}>
+          Sent {bulkSummary.sent} invite{bulkSummary.sent === 1 ? '' : 's'}.
+          {bulkSummary.failed > 0 &&
+            ` ${bulkSummary.failed} failed and can be retried from the Failed tab.`}
+          {bulkSummary.skipped > 0 &&
+            ` ${bulkSummary.skipped} were skipped because another send had already claimed them.`}
+        </AdminNotice>
+      )}
+
+      {bulkError && <AdminNotice tone="danger">{bulkError}</AdminNotice>}
 
       {forbidden ? (
         <AdminNotice tone="info">
@@ -403,6 +522,30 @@ export default function AdminWaitlistPage() {
                   <span className="sr-only">Refreshing</span>
                 </span>
               )}
+              <div className="ml-auto">
+                <AdminButton
+                  variant={bulkArmed ? 'warn' : 'good'}
+                  pending={bulkSending}
+                  disabled={
+                    !data ||
+                    data.pendingTotal === 0 ||
+                    sendingId !== null ||
+                    (loading && !bulkSending)
+                  }
+                  onClick={onBulkAction}
+                  onBlur={() => {
+                    if (!bulkArmed) return
+                    clearBulkArmTimer()
+                    setBulkArmed(false)
+                  }}
+                >
+                  {bulkSending
+                    ? `Sending${bulkProgress ? ` · ${bulkProgress.sent} sent` : '…'}`
+                    : bulkArmed
+                      ? `Confirm ${data?.pendingTotal ?? 0}?`
+                      : `SEND ALL (${data?.pendingTotal ?? 0})`}
+                </AdminButton>
+              </div>
             </div>
             <div className="max-w-md">
               <TextField
@@ -468,7 +611,7 @@ export default function AdminWaitlistPage() {
                             <AdminButton
                               variant={armed ? 'warn' : 'good'}
                               pending={inFlight}
-                              disabled={sendingId !== null}
+                              disabled={sendingId !== null || bulkSending}
                               onClick={() => onAction(entry)}
                               onBlur={() => disarm(entry.id)}
                             >

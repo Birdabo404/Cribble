@@ -111,26 +111,33 @@ export async function GET(request: NextRequest) {
 
     // Tab badges follow the current search, so counts always agree with
     // what switching tabs would show.
-    const countQuery = (filter: StatusFilter | null) => {
+    const countQuery = (filter: StatusFilter | null, includeSearch = true) => {
       let query = supabase
         .from('waitlist_invite_queue')
         .select('*', { count: 'exact', head: true })
       if (filter) query = query.eq('queue_status', filter)
-      if (pattern) query = query.ilike('email', pattern)
+      if (includeSearch && pattern) query = query.ilike('email', pattern)
       return query
     }
 
-    const [list, all, pending, sent, failed, redeemed] = await Promise.all([
+    const [list, all, pending, sent, failed, redeemed, pendingTotal] = await Promise.all([
       listQuery(),
       countQuery(null),
       countQuery('pending'),
       countQuery('sent'),
       countQuery('failed'),
-      countQuery('redeemed')
+      countQuery('redeemed'),
+      countQuery('pending', false)
     ])
 
     const failure =
-      list.error || all.error || pending.error || sent.error || failed.error || redeemed.error
+      list.error ||
+      all.error ||
+      pending.error ||
+      sent.error ||
+      failed.error ||
+      redeemed.error ||
+      pendingTotal.error
     if (failure) {
       console.error('Failed to list waitlist queue:', failure)
       return NextResponse.json({ error: 'Failed to list waitlist queue' }, { status: 500 })
@@ -141,6 +148,7 @@ export async function GET(request: NextRequest) {
       total: list.count ?? 0,
       page,
       pageSize,
+      pendingTotal: pendingTotal.count ?? 0,
       counts: {
         all: all.count ?? 0,
         pending: pending.count ?? 0,
