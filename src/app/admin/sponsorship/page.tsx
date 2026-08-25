@@ -37,7 +37,11 @@ import {
 } from '@/lib/leaderboardSponsor'
 
 // Billboard queue: review paid ad submissions with an exact-render
-// preview (the same components the public surfaces ship). Three
+// preview (the same components the public surfaces ship). Acceptance
+// (approve / reject / request changes) is moderator-floor work
+// (billboard.review); the money levers — mark paid + go live, renew,
+// archive — render for the owner only, matching the owner-only
+// billboard.activate gate on their route. Three
 // products share the queue. Flipper ads (capped at 8 concurrent) and
 // profile-rail ads (one live ad per slot) close payment manually:
 // approving emails the payment instructions to the ad's billing_email
@@ -579,6 +583,9 @@ export default function AdminBillboardPage() {
     return null
   }
 
+  // Gates the money levers (activate / renew / archive) — cosmetic, the
+  // activate route's billboard.activate gate still 403s moderators. The
+  // review-queue decision buttons render for every staff member.
   const isOwner = me.role === 'owner'
   // Occupancy derives client-side from the live bucket: flipper fullness
   // against the 8-cap, rail occupancy from the live rail ads' slot codes.
@@ -658,29 +665,31 @@ export default function AdminBillboardPage() {
                           {ad.review_note}
                         </p>
                       )}
-                      {isOwner && (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <AdminButton variant="good" pending={working} onClick={() => approve(ad)}>
-                            Approve
-                          </AdminButton>
-                          {ad.status === 'PENDING' && (
-                            <AdminButton
-                              variant="ghost"
-                              disabled={working}
-                              onClick={() => setDialog({ kind: 'request_changes', ad })}
-                            >
-                              Request changes
-                            </AdminButton>
-                          )}
+                      {/* Acceptance decisions sit at the moderator floor
+                          (billboard.review) — every staff member sees
+                          these; only the money levers below are owner
+                          gated. */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <AdminButton variant="good" pending={working} onClick={() => approve(ad)}>
+                          Approve
+                        </AdminButton>
+                        {ad.status === 'PENDING' && (
                           <AdminButton
-                            variant="danger"
+                            variant="ghost"
                             disabled={working}
-                            onClick={() => setDialog({ kind: 'reject', ad })}
+                            onClick={() => setDialog({ kind: 'request_changes', ad })}
                           >
-                            Reject
+                            Request changes
                           </AdminButton>
-                        </div>
-                      )}
+                        )}
+                        <AdminButton
+                          variant="danger"
+                          disabled={working}
+                          onClick={() => setDialog({ kind: 'reject', ad })}
+                        >
+                          Reject
+                        </AdminButton>
+                      </div>
                     </li>
                   )
                 })}

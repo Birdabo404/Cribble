@@ -182,7 +182,7 @@ const NAV_GROUPS: readonly AdminNavGroup[] = [
   {
     label: 'Product',
     items: [
-      { href: '/admin/sponsorship', label: 'Sponsorship', icon: ICON_SPONSORSHIP, ownerOnly: true },
+      { href: '/admin/sponsorship', label: 'Sponsorship', icon: ICON_SPONSORSHIP },
       {
         href: '/admin/announcements',
         label: 'Announcements',

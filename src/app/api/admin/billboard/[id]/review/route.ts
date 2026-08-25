@@ -16,7 +16,9 @@ import { isSponsorshipEmailConfigured, sendSponsorshipPaymentEmail } from '@/lib
 import { cleanReason, getStaffUser } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
-// Billboard review decision — owner only, copied structurally from the
+// Billboard review decision — any staff (billboard.review sits at the
+// moderator floor: acceptance is content review; the money levers live
+// on the owner-only activate route), copied structurally from the
 // team-review route (rate limit, staff gate, audit-first, status-guarded
 // update):
 //   approve         — PENDING/CHANGES_REQUESTED -> APPROVED. Clears any
