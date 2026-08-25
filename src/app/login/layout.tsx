@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
   title: 'Sign in — cribble',
-  description: 'Sign in to cribble with GitHub or X. New accounts require a beta invite key.',
+  description: 'Sign in to cribble with GitHub or X. Invite keys from us or a friend still count.',
   robots: { index: false }
 }
 

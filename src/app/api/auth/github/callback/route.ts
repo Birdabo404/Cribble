@@ -5,6 +5,13 @@ import { resolveAppUrl, resolveGithubRedirectUri } from '@/lib/appUrl'
 import { isAllowlistedAdmin } from '@/lib/adminAuth'
 import { checkRateLimit, rateLimitConfigs } from '@/lib/rateLimit'
 import { runTeamIdentityTripwire } from '@/lib/teamTripwire'
+import {
+  logSignupInviteRedemption,
+  redeemedInviteId,
+  redeemSignupInvite,
+  releaseSignupInviteUse,
+  signupInviteRedirectError
+} from '@/lib/signupInvite'
 
 export const dynamic = 'force-dynamic'
 
@@ -135,26 +142,17 @@ export async function GET(request: NextRequest) {
         avatar
       })
     } else {
-      // New signups are invite-gated. The code was stashed in a cookie by
-      // /api/auth/github before the OAuth redirect.
-      const inviteCode = request.cookies.get('cribble_invite')?.value
-      if (!inviteCode) {
-        return NextResponse.redirect(`${appUrl}/login?error=invite_required`)
-      }
-
-      // Atomically claims one use of the code; returns null when the code
-      // is unknown, revoked, expired, or fully used.
-      const { data: inviteCodeId, error: redeemError } = await supabase.rpc(
-        'redeem_invite_code',
-        { p_code: inviteCode }
+      // Open signup. A cribble_invite cookie still redeems — staff keys
+      // and friend referrals both land here so referral points still pay.
+      const invite = await redeemSignupInvite(
+        supabase,
+        request.cookies.get('cribble_invite')?.value
       )
-      if (redeemError) {
-        console.error('Invite redemption failed:', redeemError)
-        return NextResponse.redirect(`${appUrl}/login?error=invite_check_failed`)
+      const inviteError = signupInviteRedirectError(invite)
+      if (inviteError) {
+        return NextResponse.redirect(`${appUrl}/login?error=${inviteError}`)
       }
-      if (!inviteCodeId) {
-        return NextResponse.redirect(`${appUrl}/login?error=invite_invalid`)
-      }
+      const inviteCodeId = redeemedInviteId(invite)
 
       const { data: created, error: insertError } = await supabase
         .from('users')
@@ -172,38 +170,13 @@ export async function GET(request: NextRequest) {
         .single()
       if (insertError) {
         console.error('Failed to create GitHub user:', insertError)
-        // Give the claimed use back so the invite still works on retry.
-        const { data: invite } = await supabase
-          .from('invite_codes')
-          .select('use_count')
-          .eq('id', inviteCodeId)
-          .single()
-        if (invite && invite.use_count > 0) {
-          await supabase
-            .from('invite_codes')
-            .update({ use_count: invite.use_count - 1 })
-            .eq('id', inviteCodeId)
-        }
+        if (inviteCodeId) await releaseSignupInviteUse(supabase, inviteCodeId)
         return NextResponse.redirect(`${appUrl}/login?error=github_user_create_failed`)
       }
       user = created
 
-      // The referral reward can only find this recruit through the
-      // invite_redemptions row: losing this insert bumps JOINED (use_count
-      // is already claimed) while silently voiding the referrer's reward
-      // forever. Retry once; if it still fails, log and continue — the
-      // account and session already exist and must not be blocked on
-      // attribution bookkeeping.
-      const logRedemption = () =>
-        supabase
-          .from('invite_redemptions')
-          .insert({ invite_code_id: inviteCodeId, user_id: created.id })
-      let { error: redemptionLogError } = await logRedemption()
-      if (redemptionLogError) {
-        ;({ error: redemptionLogError } = await logRedemption())
-      }
-      if (redemptionLogError) {
-        console.error('Failed to log invite redemption after retry:', redemptionLogError)
+      if (inviteCodeId) {
+        await logSignupInviteRedemption(supabase, inviteCodeId, created.id)
       }
     }
 

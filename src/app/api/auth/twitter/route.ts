@@ -6,9 +6,10 @@ import { checkRateLimit, rateLimitConfigs } from '@/lib/rateLimit'
 
 export const dynamic = 'force-dynamic'
 
-// X (Twitter) OAuth 2.0 with PKCE. Signups are invite-gated exactly like
-// GitHub: the callback only creates an account when a valid beta invite
-// key rides along in the cribble_invite cookie.
+// X (Twitter) OAuth 2.0 with PKCE. Sign-in is open: the callback creates
+// an account with or without an invite. When ?invite= is present we stash
+// it so staff keys and friend referrals still redeem (and still pay
+// referral points) on first signup.
 export async function GET(request: NextRequest) {
   const appUrl = resolveAppUrl(request)
 

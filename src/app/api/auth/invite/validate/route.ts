@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 const supabase = createServiceClient()
 
 // Pre-flight UX check only — does NOT consume a use. The authoritative,
-// atomic redemption happens in the GitHub OAuth callback.
+// atomic redemption happens in the OAuth callback on first signup.
 export async function POST(request: NextRequest) {
   // Tight limit so this endpoint can't be used to brute-force codes.
   const rateLimit = checkRateLimit(request, { windowMs: 60 * 1000, maxRequests: 10 })

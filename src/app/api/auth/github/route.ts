@@ -6,6 +6,10 @@ import { checkRateLimit, rateLimitConfigs } from '@/lib/rateLimit'
 
 export const dynamic = 'force-dynamic'
 
+// Sign-in is open: the callback creates an account with or without an
+// invite. When ?invite= is present we stash it so staff keys and friend
+// referrals still redeem (and still pay referral points) on first signup.
+
 export async function GET(request: NextRequest) {
   // OAuth flows are browser navigations, so a rate-limited attempt lands
   // back on /login with a visible error rather than a raw 429 body.
