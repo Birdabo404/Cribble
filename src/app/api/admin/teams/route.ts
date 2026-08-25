@@ -4,11 +4,11 @@ import { getStaffUser } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 import { getTeamSeatUsage } from '@/lib/teams'
 
-// Team review queue — owner only, same gate as the approve/reject
-// actions so a moderator can't even enumerate applicants. Defaults to
+// Team review queue — any staff (team.review sits at the moderator
+// floor, the same gate as the approve/reject actions). Defaults to
 // the accounts awaiting review (team_review_status='pending'); pass
 // ?status=approved|rejected to audit past decisions. Each row carries
-// the anti-impersonation signals the owner reviews against: OAuth
+// the anti-impersonation signals staff review against: OAuth
 // provider identity (users.twitter_id — GitHub and X ids share the
 // column, there is no provider column), account age, website claim,
 // current tier (a rejected/lapsed team shows FREE) and seat usage.

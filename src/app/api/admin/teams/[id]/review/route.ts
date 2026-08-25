@@ -10,9 +10,11 @@ import {
 } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
-// The anti-impersonation review decision — owner only, mirroring the
-// entitlements route (same rate limit, target guard and audit-first
-// pattern):
+// The anti-impersonation review decision — any staff (team.review sits
+// at the moderator floor: it's review work and never touches billing;
+// assertCanTarget still keeps staff accounts out of reach), mirroring
+// the entitlements route's rate limit, target guard and audit-first
+// pattern:
 //   approve — team_review_status='approved' + team_approved_at=now().
 //             This is the ONLY writer of team_approved_at. The team
 //             account gets the gold-badge notification.

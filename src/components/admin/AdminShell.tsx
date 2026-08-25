@@ -168,7 +168,7 @@ const NAV_GROUPS: readonly AdminNavGroup[] = [
     items: [
       { href: '/admin', label: 'Overview', icon: ICON_OVERVIEW },
       { href: '/admin/feedback', label: 'Feedback', icon: ICON_FEEDBACK },
-      { href: '/admin/teams', label: 'Teams', icon: ICON_TEAMS, ownerOnly: true }
+      { href: '/admin/teams', label: 'Teams', icon: ICON_TEAMS }
     ]
   },
   {
