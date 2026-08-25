@@ -18,6 +18,10 @@ const migration050 = readFileSync(
   join(process.cwd(), 'migrations/050_agent_usage_v2_preserve_daily.sql'),
   'utf8'
 )
+const migration057 = readFileSync(
+  join(process.cwd(), 'migrations/057_token_leaderboard_legacy_top_agent.sql'),
+  'utf8'
+)
 
 describe('Agent usage migrations', () => {
   it('keeps the production-recorded migration 046 in source control input', () => {
@@ -70,5 +74,44 @@ describe('Agent usage migrations', () => {
     expect(migration050).not.toMatch(
       /delete from public\.agent_usage_daily as daily\s+where daily\.user_id = p_user_id\s+and daily\.client_id = p_client_id;/
     )
+  })
+
+  it('restores a legacy top-agent label without inventing token attribution', () => {
+    // The fallback CTE unnests every legacy agent name, including
+    // multi-agent days, with no single-agent cardinality filter.
+    expect(migration057).toMatch(
+      /agent_rank_facts as \(\s+select[\s\S]*?cross join lateral unnest\(legacy\.agents\) as agent_name[\s\S]*?\),/
+    )
+    expect(migration057).not.toMatch(
+      /agent_rank_facts as \(\s+select[\s\S]*?cardinality\(legacy\.agents\) = 1[\s\S]*?\),/
+    )
+    // Fallback ranking mirrors the historical 044 ordering: distinct
+    // active days, then most recent sync, then stable name.
+    expect(migration057).toContain(
+      'count(distinct agent_rank_facts.usage_day)::bigint as active_days'
+    )
+    expect(migration057).toMatch(
+      /agent_rank_weights\.active_days desc,\s+agent_rank_weights\.last_seen_at desc,\s+agent_rank_weights\.name asc/
+    )
+    // The exact token-weighted rank always wins; the fallback only fills
+    // rows where no exact rank-1 agent exists.
+    expect(migration057).toContain(
+      'coalesce(top_agent.name, fallback_agent.name) as top_agent'
+    )
+    expect(migration057).toContain(
+      'coalesce(top_agent.active_days, fallback_agent.active_days, 0)::bigint'
+    )
+    // Conservative attribution: fallback rows report zero tokens and the
+    // fallback never feeds the exact breakdown.
+    expect(migration057).toContain(
+      'coalesce(top_agent.tokens, 0)::numeric as top_agent_tokens'
+    )
+    expect(migration057).not.toContain('fallback_agent.tokens')
+    expect(migration057).toContain(
+      'coalesce(agent_summaries.breakdown, \'[]\'::jsonb) as agent_breakdown'
+    )
+    // The RPC stays service-role only.
+    expect(migration057).toContain('from public, anon, authenticated')
+    expect(migration057).toContain('to service_role')
   })
 })
