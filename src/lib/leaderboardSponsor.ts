@@ -76,9 +76,11 @@ export const LEADERBOARD_FLIP_TRANSITION_MS = 450
 /** How often board consumers re-poll the public API. */
 export const LEADERBOARD_SPONSOR_POLL_MS = 15_000
 
-/** Ledger states of one leaderboard_sponsor_bids row (migration 055).
- *  Time-expiry is derived from paid_at at read time, never a status. */
-export type LeaderboardBidStatus = 'PENDING' | 'PAID' | 'REFUNDED'
+/** Ledger states of one leaderboard_sponsor_bids row (migrations
+ *  055/056). VOID is a completed checkout that permanently failed the
+ *  payment verification gate; it stays only for audit. Time-expiry is
+ *  derived from paid_at at read time, never a status. */
+export type LeaderboardBidStatus = 'PENDING' | 'PAID' | 'REFUNDED' | 'VOID'
 
 /* ------------------------------------------------------------------ *
  * Pricing math — every cent amount is an integer; the checkout route

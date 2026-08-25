@@ -27,11 +27,11 @@
 // BillboardTicker's stance), and picking it swaps in the ranked board
 // panel and the bid-flavored how-it-works. Bidding itself lives in the
 // tracker (an approved creative's row); returning from Polar checkout
-// lands back here as /sponsorship?lb_checkout=success (the /billboard
-// successUrl 301s here with its query intact), where a mount effect
-// strips the params, switches to Your ads and runs POST
+// lands back here as /sponsorship?lb_checkout=success, where a mount effect
+// switches to Your ads and runs POST
 // /api/billboard/leaderboard/sync so the buyer sees their rank without
-// waiting for the webhook.
+// waiting for the webhook. Terminal results clear the checkout params;
+// a still-pending result keeps them so refresh can retry safely.
 //
 // The studio preview flows upward: the form owns placeholder / avatar /
 // accent resolution and reports AdPreviewValues through onPreviewChange
@@ -190,6 +190,25 @@ export function BillboardLanding() {
   /** Latest resolved snapshot from the composer, feeding the stage;
    *  null until the current composer mount's first onPreviewChange. */
   const [preview, setPreview] = useState<AdPreviewValues | null>(null)
+  /** Deep link from the leaderboard KPI row. Existing leaderboard
+   *  sponsors go straight to their expanded bid row; everyone else gets
+   *  the leaderboard creative composer instead of the default Flipper. */
+  const [leaderboardBidIntent, setLeaderboardBidIntent] = useState(false)
+  /** Prevent the normal default-tab effect from winning the first mount
+   *  before the URL intent effect has resolved. */
+  const [bidIntentResolved, setBidIntentResolved] = useState(false)
+
+  useEffect(() => {
+    const intent = new URLSearchParams(window.location.search).get('intent')
+    if (intent === 'leaderboard-bid') {
+      setLeaderboardBidIntent(true)
+      setPlacementIntent('leaderboard')
+      setSlotIntent(null)
+      setComposerNonce((nonce) => nonce + 1)
+      setPreview(null)
+    }
+    setBidIntentResolved(true)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -309,11 +328,16 @@ export function BillboardLanding() {
   // resolves. An ads error still resolves (to buy — the composer works
   // without the list), so the skeleton can't outlive a failed fetch.
   useEffect(() => {
-    if (view !== null) return
+    if (view !== null || !bidIntentResolved) return
     const resolved = adsError !== null || (signedIn !== null && (!signedIn || ads !== null))
     if (!resolved) return
+    if (leaderboardBidIntent) {
+      const hasLeaderboardCreative = ads?.some((ad) => ad.placement === 'leaderboard') ?? false
+      setView(signedIn === true && hasLeaderboardCreative ? 'mine' : 'buy')
+      return
+    }
     setView(signedIn === true && ads !== null && ads.length > 0 ? 'mine' : 'buy')
-  }, [view, signedIn, ads, adsError])
+  }, [view, signedIn, ads, adsError, leaderboardBidIntent, bidIntentResolved])
 
   const claimSlot = useCallback((placement: BillboardPlacement, slot?: RailSlot) => {
     setView('buy')
@@ -354,35 +378,83 @@ export function BillboardLanding() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('lb_checkout') !== 'success') return
-    params.delete('lb_checkout')
-    params.delete('checkout_id')
-    const rest = params.toString()
-    window.history.replaceState(
-      null,
-      '',
-      `${window.location.pathname}${rest ? `?${rest}` : ''}`
-    )
+    const checkoutId = params.get('checkout_id')
+    let cancelled = false
+    setLeaderboardBidIntent(true)
     setView('mine')
+
+    const clearCheckoutParams = () => {
+      const fresh = new URLSearchParams(window.location.search)
+      fresh.delete('lb_checkout')
+      fresh.delete('checkout_id')
+      const rest = fresh.toString()
+      window.history.replaceState(
+        null,
+        '',
+        `${window.location.pathname}${rest ? `?${rest}` : ''}`
+      )
+    }
+
     const run = async () => {
       try {
-        const res = await fetch('/api/billboard/leaderboard/sync', {
-          method: 'POST',
-          credentials: 'include'
-        })
-        const data = await res.json().catch(() => null)
-        if (res.ok && data?.success && Number(data.activated) > 0) {
+        let response: Response | null = null
+        let data: Record<string, unknown> | null = null
+
+        // A successful card return normally has its paid order ready,
+        // but give Polar a few seconds for asynchronous order creation.
+        // The checkout id stays in the URL while still pending, so a
+        // manual refresh can safely retry after the bounded loop.
+        for (let attempt = 0; attempt < 4; attempt++) {
+          response = await fetch('/api/billboard/leaderboard/sync', {
+            method: 'POST',
+            credentials: 'include',
+            headers: checkoutId ? { 'Content-Type': 'application/json' } : undefined,
+            body: checkoutId ? JSON.stringify({ checkoutId }) : undefined
+          })
+          data = await response.json().catch(() => null)
+          if (cancelled) return
+          if (!response.ok || data?.status !== 'pending' || attempt === 3) break
+          await new Promise((resolve) => window.setTimeout(resolve, 1_500))
+          if (cancelled) return
+        }
+
+        if (!response) throw new Error('No sync response')
+
+        const status = typeof data?.status === 'string' ? data.status : null
+        if (
+          response.ok &&
+          data?.success &&
+          (status === 'activated' || status === 'already_active' || Number(data.activated) > 0)
+        ) {
+          clearCheckoutParams()
           toast({
             kind: 'success',
             title: 'Bid placed',
-            body: 'Payment confirmed — your card is on the board.'
+            body: 'Payment confirmed — your bid is active on the board.'
           })
-        } else if (res.ok && data?.success) {
-          // Nothing newly activated: the webhook beat us (fine — the
-          // rank is already right) or the payment is still settling.
+        } else if (response.ok && data?.success && status === 'refunded') {
+          clearCheckoutParams()
+          toast({
+            kind: 'error',
+            title: 'Bid refunded',
+            body: 'This payment was refunded, so it is not active on the board.'
+          })
+        } else if (
+          response.ok &&
+          data?.success &&
+          (status === 'refused' || status === 'not_found')
+        ) {
+          clearCheckoutParams()
+          toast({
+            kind: 'error',
+            title: 'Bid could not be activated',
+            body: 'The checkout did not match a qualifying paid bid. No rank credit was added.'
+          })
+        } else if (response.ok && data?.success) {
           toast({
             kind: 'info',
-            title: 'Checkout complete',
-            body: 'Your bid lands on the board as soon as the payment settles.'
+            title: 'Confirming payment',
+            body: 'Polar is still settling this checkout. Refresh this page to re-check it.'
           })
         } else {
           toast({
@@ -392,17 +464,21 @@ export function BillboardLanding() {
           })
         }
       } catch {
+        if (cancelled) return
         toast({
           kind: 'error',
           title: 'Could not confirm the payment yet',
           body: 'The board updates as soon as it lands — check back in a moment.'
         })
       }
-      // Reload either way: the tracker re-pulls its leaderboard
-      // standing whenever the ads array identity changes.
-      void loadMine()
+      // Reload the creative lifecycle either way; the owner standing has
+      // its own live poll and runs immediately whenever the tracker mounts.
+      if (!cancelled) void loadMine()
     }
     void run()
+    return () => {
+      cancelled = true
+    }
   }, [loadMine])
 
   const flipperSelected = placementIntent === 'flipper'
@@ -587,6 +663,7 @@ export function BillboardLanding() {
             fallbackLogoUrl={avatarUrl}
             onChanged={loadMine}
             onBrowseSlots={() => setView('buy')}
+            focusLeaderboardBid={leaderboardBidIntent}
           />
         </div>
       ) : (

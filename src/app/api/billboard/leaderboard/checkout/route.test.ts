@@ -90,10 +90,10 @@ function boardEntry(adId: number, activeCents: number, rank: number): Leaderboar
 
 /** POST with the explicit host header pinning resolveAppUrl (the
  *  dev/test branch follows Host), so successUrl assertions hold. */
-function bidRequest(body: unknown) {
+function bidRequest(body: unknown, headers: Record<string, string> = {}) {
   return new NextRequest('https://cribble.dev/api/billboard/leaderboard/checkout', {
     method: 'POST',
-    headers: { host: 'cribble.dev', 'content-type': 'application/json' },
+    headers: { host: 'cribble.dev', 'content-type': 'application/json', ...headers },
     body: JSON.stringify(body)
   })
 }
@@ -236,6 +236,10 @@ describe('POST /api/billboard/leaderboard/checkout', () => {
           prod_lb_bid: [{ amountType: 'fixed', priceAmount: 666, priceCurrency: 'usd' }]
         },
         externalCustomerId: '9',
+        // Sponsor stake can never be reduced by an org coupon. A real
+        // production checkout once succeeded at $0 after a 100% code;
+        // the ledger correctly refused it, but the buyer got no rank.
+        allowDiscountCodes: false,
         metadata: {
           userId: 9,
           kind: 'leaderboard_bid',
@@ -243,11 +247,12 @@ describe('POST /api/billboard/leaderboard/checkout', () => {
           lbTargetCents: 666,
           lbChargeCents: 666
         },
-        // The return leg BillboardLanding handles: /billboard 308s to
-        // /sponsorship with the query intact (next.config.mjs), where
-        // lb_checkout=success triggers the pull-based bid sync.
+        // The return leg BillboardLanding handles directly, where the
+        // exact checkout id triggers pull-based bid reconciliation.
         // {CHECKOUT_ID} is Polar's template token — literal braces.
-        successUrl: 'http://cribble.dev/billboard?lb_checkout=success&checkout_id={CHECKOUT_ID}'
+        successUrl:
+          'http://cribble.dev/sponsorship?lb_checkout=success&checkout_id={CHECKOUT_ID}',
+        returnUrl: 'http://cribble.dev/sponsorship?intent=leaderboard-bid'
       })
     )
     // The PENDING row activation verifies against — its amount is the
@@ -268,6 +273,31 @@ describe('POST /api/billboard/leaderboard/checkout', () => {
       targetTotalCents: 666,
       activeCents: 0
     })
+  })
+
+  it('forwards a valid buyer IP so Polar localizes checkout to the visitor, not the server', async () => {
+    const response = await POST(
+      bidRequest(
+        { adId: 4, targetTotalCents: 666 },
+        { 'x-forwarded-for': '203.0.113.7, 10.0.0.1' }
+      )
+    )
+
+    expect(response.status).toBe(200)
+    expect(checkoutsCreateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ customerIpAddress: '203.0.113.7' })
+    )
+  })
+
+  it('does not forward a malformed buyer IP to Polar', async () => {
+    const response = await POST(
+      bidRequest({ adId: 4, targetTotalCents: 666 }, { 'x-forwarded-for': 'not-an-ip' })
+    )
+
+    expect(response.status).toBe(200)
+    expect(checkoutsCreateMock).toHaveBeenCalledWith(
+      expect.not.objectContaining({ customerIpAddress: expect.anything() })
+    )
   })
 
   it('charges a returning challenger only the difference from their own active total', async () => {

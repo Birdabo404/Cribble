@@ -46,11 +46,11 @@ import {
   type RailSlot
 } from '@/lib/billboard'
 import {
-  LEADERBOARD_SPONSOR_MAX_TARGET_CENTS,
   LEADERBOARD_SPONSOR_MIN_CHECKOUT_CENTS,
   LEADERBOARD_SPONSOR_POLL_MS,
   formatSponsorUsd,
   leaderboardChargeCents,
+  leaderboardMaxTargetCents,
   type LeaderboardSponsorBoard,
   type LeaderboardSponsorMine,
   type LeaderboardSponsorMineCreative
@@ -372,7 +372,7 @@ function LeaderboardBidConsole({
   ad: MineAd
   /** Owner-side money row (pendingCents etc); null while loading. */
   standing: LeaderboardSponsorMineCreative | null
-  /** Refreshes the parent list (and with it the standing fetch). */
+  /** Refreshes the parent creative list. */
   onChanged: () => void
 }) {
   const [board, setBoard] = useState<LeaderboardSponsorBoard | null>(null)
@@ -453,14 +453,15 @@ function LeaderboardBidConsole({
   const holdsTop = board.top !== null && board.top.adId === ad.id
   const targetCents = parseUsdInput(bidInput)
   const chargeCents = targetCents === null ? null : leaderboardChargeCents(targetCents, activeCents)
+  const maxTargetCents = leaderboardMaxTargetCents(board.minTargetCents)
 
   // Client-side mirrors of the checkout route's gates — guidance only,
   // the server re-checks everything against the board it recomputes.
   let blocker: string | null = null
   if (targetCents === null) {
     blocker = 'Enter a dollar amount — e.g. 7.66'
-  } else if (targetCents > LEADERBOARD_SPONSOR_MAX_TARGET_CENTS) {
-    blocker = `Targets above ${formatSponsorUsd(LEADERBOARD_SPONSOR_MAX_TARGET_CENTS)} are refused.`
+  } else if (targetCents > maxTargetCents) {
+    blocker = `Targets above ${formatSponsorUsd(maxTargetCents)} are refused.`
   } else if (targetCents <= activeCents) {
     blocker = `You already have ${formatSponsorUsd(activeCents)} active — set a higher target.`
   } else if (!holdsTop && targetCents < board.minTargetCents) {
@@ -733,6 +734,7 @@ function LeaderboardBidConsole({
 function AdRow({
   ad,
   lbStanding,
+  initiallyOpen,
   fallbackLogoUrl,
   onChanged
 }: {
@@ -740,10 +742,11 @@ function AdRow({
   /** This creative's row from /api/billboard/leaderboard/mine — null
    *  for non-leaderboard ads and while that fetch is in flight. */
   lbStanding: LeaderboardSponsorMineCreative | null
+  initiallyOpen?: boolean
   fallbackLogoUrl: string | null
   onChanged: () => void
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(Boolean(initiallyOpen))
   const [editing, setEditing] = useState(false)
   const now = new Date()
   const meta = chipMeta(ad, now, lbStanding)
@@ -959,7 +962,8 @@ export function BillboardStatusTracker({
   signedIn,
   fallbackLogoUrl,
   onChanged,
-  onBrowseSlots
+  onBrowseSlots,
+  focusLeaderboardBid = false
 }: {
   ads: MineAd[]
   loading: boolean
@@ -970,33 +974,65 @@ export function BillboardStatusTracker({
   /** Hands the empty state's Browse slots button to the parent, which
    *  switches /sponsorship to the buy tab. Omitting it drops the button. */
   onBrowseSlots?: () => void
+  /** Deep-linked OUTBID visitors land with their first leaderboard
+   *  creative expanded so the payment action is immediately visible. */
+  focusLeaderboardBid?: boolean
 }) {
   const [filter, setFilter] = useState<FilterId>('all')
 
   /** The owner's leaderboard money standing (ranks, active/pending
-   *  cents), fetched whenever the list carries a leaderboard creative.
-   *  Keyed on the ads array identity on purpose: every parent reload
-   *  (loadMine) hands down a fresh array, so a bid landing through
-   *  onChanged refreshes ranks here too. Best effort — without it
-   *  chips degrade to 'Ready to bid' and the bid console still shows
-   *  the live truth from its own board poll. */
+   *  cents), refreshed on the live-board cadence while visible. This
+   *  clears an in-flight warning when the webhook settles without a page
+   *  reload and keeps row chips aligned with the public board. */
   const [lbMine, setLbMine] = useState<LeaderboardSponsorMine | null>(null)
+  const hasLeaderboardAds = ads.some((ad) => ad.placement === 'leaderboard')
   useEffect(() => {
-    if (!ads.some((ad) => ad.placement === 'leaderboard')) return
+    if (!hasLeaderboardAds) {
+      setLbMine(null)
+      return
+    }
     let cancelled = false
-    fetch('/api/billboard/leaderboard/mine', { credentials: 'include', cache: 'no-store' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: LeaderboardSponsorMine | null) => {
-        if (cancelled) return
-        if (data && Array.isArray(data.creatives)) setLbMine(data)
+    let interval = 0
+    const load = () => {
+      fetch('/api/billboard/leaderboard/mine', {
+        credentials: 'include',
+        cache: 'no-store'
       })
-      .catch(() => {
-        // Degrade gracefully — see the state comment above.
-      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: LeaderboardSponsorMine | null) => {
+          if (cancelled) return
+          if (data && Array.isArray(data.creatives)) setLbMine(data)
+        })
+        .catch(() => {
+          // Degrade gracefully — the bid console's public board remains.
+        })
+    }
+    const start = () => {
+      if (interval === 0) interval = window.setInterval(load, LEADERBOARD_SPONSOR_POLL_MS)
+    }
+    const stop = () => {
+      window.clearInterval(interval)
+      interval = 0
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        load()
+        start()
+      } else {
+        stop()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    if (document.visibilityState === 'visible') {
+      load()
+      start()
+    }
     return () => {
       cancelled = true
+      document.removeEventListener('visibilitychange', onVisibility)
+      stop()
     }
-  }, [ads])
+  }, [hasLeaderboardAds])
 
   const lbByAd = useMemo(
     () => new Map((lbMine?.creatives ?? []).map((creative) => [creative.adId, creative])),
@@ -1010,6 +1046,9 @@ export function BillboardStatusTracker({
       matchesFilter(ad, filter, now, onBoard(ad))
     )
   }, [ads, filter, lbByAd])
+  const focusedLeaderboardAdId = focusLeaderboardBid
+    ? ads.find((ad) => ad.placement === 'leaderboard')?.id ?? null
+    : null
 
   if (signedIn === false) {
     return (
@@ -1111,6 +1150,7 @@ export function BillboardStatusTracker({
               key={ad.id}
               ad={ad}
               lbStanding={lbByAd.get(ad.id) ?? null}
+              initiallyOpen={ad.id === focusedLeaderboardAdId}
               fallbackLogoUrl={fallbackLogoUrl}
               onChanged={onChanged}
             />

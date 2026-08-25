@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { syncSponsorBidsFromPolar } from '@/lib/leaderboardSponsorServer'
+import {
+  syncSponsorBidCheckoutFromPolar,
+  syncSponsorBidsFromPolar
+} from '@/lib/leaderboardSponsorServer'
 import { isPolarConfigured } from '@/lib/polar'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
 import { getSessionUserId } from '@/lib/sessionAuth'
@@ -16,11 +19,25 @@ import { createServiceClient } from '@/lib/supabaseServer'
 // never activate anything the webhook would refuse. Activation-only —
 // refunds stay the webhook's job.
 //
-// Contract: { success: true, activated: number }
+// Body (optional): { checkoutId: string }. The success return leg always
+// sends it; no-body callers keep the broad pending-row reconciliation.
+// Contract (targeted): { success: true, activated: 0|1, status }
+// Contract (broad):    { success: true, activated: number }
 
 export const dynamic = 'force-dynamic'
 
 const supabase = createServiceClient()
+
+async function readCheckoutId(request: NextRequest): Promise<string | null> {
+  try {
+    const body: unknown = await request.json()
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return null
+    const checkoutId = (body as Record<string, unknown>).checkoutId
+    return typeof checkoutId === 'string' && checkoutId ? checkoutId : null
+  } catch {
+    return null
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,6 +59,20 @@ export async function POST(request: NextRequest) {
         { success: false, error: 'Sponsor bidding is not configured yet' },
         { status: 503 }
       )
+    }
+
+    const checkoutId = await readCheckoutId(request)
+    if (checkoutId) {
+      const status = await syncSponsorBidCheckoutFromPolar(
+        supabase,
+        session.userId,
+        checkoutId
+      )
+      return NextResponse.json({
+        success: true,
+        activated: status === 'activated' ? 1 : 0,
+        status
+      })
     }
 
     const activated = await syncSponsorBidsFromPolar(supabase, session.userId)

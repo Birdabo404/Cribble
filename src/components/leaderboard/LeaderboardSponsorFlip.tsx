@@ -379,7 +379,7 @@ function SponsorCreativeFace({
           </span>
         </div>
         <Link
-          href="/sponsorship"
+          href="/sponsorship?intent=leaderboard-bid"
           className="shrink-0 whitespace-nowrap rounded-md border border-[rgb(var(--lb-gold)/0.5)] bg-[rgb(var(--lb-gold)/0.07)] px-3 py-2 text-[10px] tracking-[0.2em] text-[rgb(var(--lb-gold))] transition-colors hover:bg-[rgb(var(--lb-gold)/0.14)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[rgb(var(--lb-gold)/0.6)] sm:tracking-[0.3em]"
         >
           OUTBID · {formatUsd(minTargetCents)}
@@ -397,7 +397,7 @@ function SponsorCreativeFace({
 function ClaimSlotFace({ openingCents }: { openingCents: number }) {
   return (
     <Link
-      href="/sponsorship"
+      href="/sponsorship?intent=leaderboard-bid"
       className="group relative flex h-full flex-col items-center justify-center gap-2 px-4 py-3 text-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[rgb(var(--lb-gold)/0.5)]"
     >
       <span className="text-[9px] tracking-[0.16em] text-zinc-500 sm:tracking-[0.28em]">

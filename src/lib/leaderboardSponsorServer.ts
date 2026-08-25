@@ -211,12 +211,27 @@ export type SponsorBidActivation =
   | 'activated'
   /** Already PAID (duplicate delivery / sync raced the webhook). */
   | 'already_active'
+  /** A refund won the final PENDING -> PAID compare-and-set race. */
+  | 'refunded'
   /** Not a leaderboard bid order — nothing to do here. */
   | 'not_a_bid'
   /** Verification refused the order (no ledger row, product or amount
    *  mismatch, wrong buyer, refunded row). Logged inside; retrying the
    *  delivery cannot fix these, so callers ack instead of erroring. */
   | 'refused'
+
+/** Exact-checkout result for the post-Polar return leg. Unlike the broad
+ *  account reconciliation below, this can accurately tell the browser
+ *  what happened to the checkout it just completed. */
+export type SponsorBidCheckoutSync =
+  | 'activated'
+  | 'already_active'
+  | 'pending'
+  | 'refunded'
+  | 'refused'
+  | 'not_found'
+
+const POLAR_CHECKOUT_ID_RE = /^[A-Za-z0-9_-]{1,128}$/
 
 /**
  * order.paid -> activate the PENDING ledger row the order's checkout
@@ -268,6 +283,7 @@ export async function activateSponsorBidFromOrder(
     )
     return 'refused'
   }
+  if (row.status === 'VOID') return 'refused'
 
   const productId = resolveLeaderboardBidProductId()
   if (!productId || order.productId !== productId) {
@@ -302,9 +318,9 @@ export async function activateSponsorBidFromOrder(
   // userId is stamped server-side at checkout creation, so it is the
   // stronger witness (see the webhook's resolveRecipientUserId story).
   const metaUserId = Number(order.metadata?.['userId'])
-  if (Number.isSafeInteger(metaUserId) && metaUserId !== Number(row.user_id)) {
+  if (!Number.isSafeInteger(metaUserId) || metaUserId !== Number(row.user_id)) {
     console.warn(
-      `[LeaderboardSponsor] Order ${order.id} metadata userId=${metaUserId} does not match ledger row ${row.id} user ${row.user_id} — refusing`
+      `[LeaderboardSponsor] Order ${order.id} metadata userId=${String(order.metadata?.['userId'])} does not exactly match ledger row ${row.id} user ${row.user_id} — refusing`
     )
     return 'refused'
   }
@@ -324,10 +340,24 @@ export async function activateSponsorBidFromOrder(
   if (updateError) {
     throw new Error(`Failed to activate bid ${row.id}: ${updateError.message}`)
   }
-  // Zero rows = a concurrent writer won the PENDING guard: a rival
-  // activation (the bid is active) or a racing refund (the row is
-  // REFUNDED and must stay so). Neither leaves anything to do here.
-  return updated && updated.length > 0 ? 'activated' : 'already_active'
+  if (updated && updated.length > 0) return 'activated'
+
+  // A concurrent writer won the PENDING guard. Distinguish a duplicate
+  // activation from a racing refund instead of telling the returning
+  // buyer a refunded contribution is live.
+  const { data: finalData, error: finalReadError } = await supabase
+    .from('leaderboard_sponsor_bids')
+    .select('status')
+    .eq('id', row.id)
+    .maybeSingle()
+
+  if (finalReadError) {
+    throw new Error(`Failed to confirm final status for bid ${row.id}: ${finalReadError.message}`)
+  }
+  const finalStatus = (finalData as unknown as { status?: string } | null)?.status
+  if (finalStatus === 'PAID') return 'already_active'
+  if (finalStatus === 'REFUNDED') return 'refunded'
+  return 'refused'
 }
 
 /**
@@ -373,6 +403,91 @@ export async function revokeSponsorBidFromOrder(
  *  subscriptionSync's stance; OrderStatus is an open enum, so
  *  membership is checked as plain strings. */
 const REFUNDED_ORDER_STATUSES = new Set<string>(['refunded', 'partially_refunded'])
+
+/**
+ * Reconcile the exact checkout Polar returned in success_url. Ownership
+ * is proven against the service-role ledger before Polar is queried, then
+ * Orders is filtered by checkout_id rather than external_customer_id.
+ * That distinction matters because Polar may merge a same-email buyer
+ * into an existing customer whose external id belongs to another Cribble
+ * account; checkout metadata + this ledger row remain the reliable pair.
+ */
+export async function syncSponsorBidCheckoutFromPolar(
+  supabase: SupabaseClient,
+  userId: number,
+  checkoutId: string
+): Promise<SponsorBidCheckoutSync> {
+  if (!POLAR_CHECKOUT_ID_RE.test(checkoutId)) return 'not_found'
+
+  const { data, error: ledgerError } = await supabase
+    .from('leaderboard_sponsor_bids')
+    .select('id, ad_id, user_id, status, amount_cents, polar_order_id')
+    .eq('polar_checkout_id', checkoutId)
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (ledgerError) {
+    throw new Error(`Failed to read bid ledger for checkout ${checkoutId}: ${ledgerError.message}`)
+  }
+  const row = data as unknown as PendingBidRow | null
+  if (!row) return 'not_found'
+  if (row.status === 'PAID') return 'already_active'
+  if (row.status === 'REFUNDED') return 'refunded'
+  if (row.status === 'VOID') return 'refused'
+
+  const polar = getPolarClient()
+  if (!polar) return 'pending'
+
+  const orders: Order[] = []
+  try {
+    const pages = await polar.orders.list({ checkoutId, limit: 10 })
+    for await (const page of pages) orders.push(...page.result.items)
+  } catch (error) {
+    if (
+      error instanceof PolarError &&
+      (error.statusCode === 404 || error.statusCode === 422)
+    ) {
+      return 'pending'
+    }
+    throw error
+  }
+
+  const order = orders.find((candidate) => candidate.checkoutId === checkoutId && candidate.paid)
+  if (!order) return 'pending'
+
+  if (REFUNDED_ORDER_STATUSES.has(order.status)) {
+    await revokeSponsorBidFromOrder(supabase, order)
+    return 'refunded'
+  }
+
+  const activation = await activateSponsorBidFromOrder(supabase, order)
+  if (
+    activation === 'activated' ||
+    activation === 'already_active' ||
+    activation === 'refunded'
+  ) {
+    return activation
+  }
+
+  // A completed checkout that permanently fails the shared integrity
+  // gate must stop looking like money still "in flight" for two hours.
+  // Keep the row for audit, but remove it from pending UI/sync scans.
+  const { error: voidError } = await supabase
+    .from('leaderboard_sponsor_bids')
+    .update({
+      status: 'VOID',
+      failure_reason: 'payment_verification_failed',
+      updated_at: new Date().toISOString()
+    })
+    .eq('polar_checkout_id', checkoutId)
+    .eq('user_id', userId)
+    .eq('status', 'PENDING')
+
+  if (voidError) {
+    throw new Error(`Failed to void refused sponsor checkout ${checkoutId}: ${voidError.message}`)
+  }
+  return 'refused'
+}
 
 /**
  * Pull-based bid reconciliation, the sponsor twin of

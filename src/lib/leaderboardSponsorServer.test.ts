@@ -23,6 +23,7 @@ vi.mock('@/lib/polar', () => ({
 import {
   activateSponsorBidFromOrder,
   revokeSponsorBidFromOrder,
+  syncSponsorBidCheckoutFromPolar,
   syncSponsorBidsFromPolar
 } from './leaderboardSponsorServer'
 
@@ -44,7 +45,7 @@ function rowMatches(row: LedgerRow, filters: Filter[]): boolean {
  *  .maybeSingle()) and filtered update (awaited or .select()), with
  *  updates actually MUTATING the rows so sequenced calls observe each
  *  other — the point of this suite. */
-function fakeLedger(rows: LedgerRow[]): SupabaseClient {
+function fakeLedger(rows: LedgerRow[], beforeFirstUpdate?: () => void): SupabaseClient {
   const client = {
     from(table: string) {
       if (table !== 'leaderboard_sponsor_bids') {
@@ -80,6 +81,8 @@ function fakeLedger(rows: LedgerRow[]): SupabaseClient {
         update(values: Record<string, unknown>) {
           const filters: Filter[] = []
           const apply = () => {
+            beforeFirstUpdate?.()
+            beforeFirstUpdate = undefined
             const hit = rows.filter((row) => rowMatches(row, filters))
             for (const row of hit) Object.assign(row, values)
             return { data: hit.map((row) => ({ id: row.id })), error: null }
@@ -190,6 +193,18 @@ describe('refund/activation ordering (leaderboardSponsorServer)', () => {
     expect(rows[0].status).toBe('REFUNDED')
   })
 
+  it('reports refunded when a refund wins the guarded activation update', async () => {
+    const rows = [makeRow()]
+    const supabase = fakeLedger(rows, () => {
+      rows[0].status = 'REFUNDED'
+      rows[0].refunded_at = '2026-08-25T10:00:00.000Z'
+    })
+
+    await expect(activateSponsorBidFromOrder(supabase, paidOrder())).resolves.toBe('refunded')
+    expect(rows[0].status).toBe('REFUNDED')
+    expect(rows[0].paid_at).toBeNull()
+  })
+
   it('a refund order without a checkout id falls back to the stamped polar_order_id', async () => {
     const rows = [makeRow({ status: 'PAID', polar_order_id: 'order_lb_1' })]
     const supabase = fakeLedger(rows)
@@ -213,6 +228,120 @@ describe('refund/activation ordering (leaderboardSponsorServer)', () => {
 
     await revokeSponsorBidFromOrder(supabase, refundedOrder())
     expect(rows[0].status).toBe('PENDING')
+  })
+
+  it('requires the server-stamped buyer metadata instead of accepting a missing payer witness', async () => {
+    const rows = [makeRow()]
+    const supabase = fakeLedger(rows)
+
+    await expect(
+      activateSponsorBidFromOrder(supabase, paidOrder({ metadata: {} }))
+    ).resolves.toBe('refused')
+    expect(rows[0].status).toBe('PENDING')
+  })
+})
+
+describe('syncSponsorBidCheckoutFromPolar exact return checkout', () => {
+  let warnSpy: MockInstance
+
+  beforeEach(() => {
+    getPolarClientMock.mockReset()
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    warnSpy.mockRestore()
+  })
+
+  it('queries by checkout id and activates even when Polar merged the buyer under a different customer external id', async () => {
+    const rows = [makeRow()]
+    const supabase = fakeLedger(rows)
+    const list = vi.fn(async () => ({
+      async *[Symbol.asyncIterator]() {
+        yield {
+          result: {
+            items: [paidOrder({ customer: { externalId: 'someone-else' } })]
+          }
+        }
+      }
+    }))
+    getPolarClientMock.mockReturnValue({ orders: { list } })
+
+    await expect(
+      syncSponsorBidCheckoutFromPolar(supabase, 9, 'chk_lb_1')
+    ).resolves.toBe('activated')
+    expect(list).toHaveBeenCalledWith({ checkoutId: 'chk_lb_1', limit: 10 })
+    expect(rows[0].status).toBe('PAID')
+  })
+
+  it('refuses a zero-net paid order instead of crediting a coupon-funded bid', async () => {
+    const rows = [makeRow()]
+    const supabase = fakeLedger(rows)
+    getPolarClientMock.mockReturnValue({
+      orders: {
+        list: async () => ({
+          async *[Symbol.asyncIterator]() {
+            yield { result: { items: [paidOrder({ netAmount: 0 })] } }
+          }
+        })
+      }
+    })
+
+    await expect(
+      syncSponsorBidCheckoutFromPolar(supabase, 9, 'chk_lb_1')
+    ).resolves.toBe('refused')
+    expect(rows[0].status).toBe('VOID')
+    expect(rows[0].failure_reason).toBe('payment_verification_failed')
+  })
+
+  it("does not query Polar for another user's or a malformed checkout id", async () => {
+    const rows = [makeRow()]
+    const supabase = fakeLedger(rows)
+
+    await expect(
+      syncSponsorBidCheckoutFromPolar(supabase, 7, 'chk_lb_1')
+    ).resolves.toBe('not_found')
+    await expect(
+      syncSponsorBidCheckoutFromPolar(supabase, 9, '../bad')
+    ).resolves.toBe('not_found')
+    expect(getPolarClientMock).not.toHaveBeenCalled()
+  })
+
+  it('reports pending while Polar has not created a paid order yet', async () => {
+    const rows = [makeRow()]
+    const supabase = fakeLedger(rows)
+    getPolarClientMock.mockReturnValue({
+      orders: {
+        list: async () => ({
+          async *[Symbol.asyncIterator]() {
+            yield { result: { items: [] } }
+          }
+        })
+      }
+    })
+
+    await expect(
+      syncSponsorBidCheckoutFromPolar(supabase, 9, 'chk_lb_1')
+    ).resolves.toBe('pending')
+  })
+
+  it('revokes and reports an already-refunded paid order', async () => {
+    const rows = [makeRow()]
+    const supabase = fakeLedger(rows)
+    getPolarClientMock.mockReturnValue({
+      orders: {
+        list: async () => ({
+          async *[Symbol.asyncIterator]() {
+            yield { result: { items: [refundedOrder()] } }
+          }
+        })
+      }
+    })
+
+    await expect(
+      syncSponsorBidCheckoutFromPolar(supabase, 9, 'chk_lb_1')
+    ).resolves.toBe('refunded')
+    expect(rows[0].status).toBe('REFUNDED')
   })
 })
 

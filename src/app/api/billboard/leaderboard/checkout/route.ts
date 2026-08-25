@@ -1,3 +1,4 @@
+import { isIP } from 'node:net'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { resolveAppUrl } from '@/lib/appUrl'
@@ -56,6 +57,16 @@ const bodySchema = z.object({
   adId: z.number().int().positive(),
   targetTotalCents: z.number().int().positive()
 })
+
+/** Polar creates the hosted checkout from this server-side request, so
+ *  without the visitor IP it geolocates the server instead of the buyer.
+ *  Only forward a syntactically valid address; malformed/spoofed header
+ *  values are safer omitted than handed to the payments API. */
+function customerIpAddressOf(request: NextRequest): string | undefined {
+  const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+  const candidate = forwarded || request.headers.get('x-real-ip')?.trim()
+  return candidate && isIP(candidate) !== 0 ? candidate : undefined
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -203,6 +214,7 @@ export async function POST(request: NextRequest) {
     // decision — never the amounts activation trusts.
     const polar = getPolarClient()!
     const appUrl = resolveAppUrl(request)
+    const customerIpAddress = customerIpAddressOf(request)
     const checkout = await polar.checkouts.create({
       products: [productId],
       prices: {
@@ -211,6 +223,13 @@ export async function POST(request: NextRequest) {
         ]
       },
       externalCustomerId: String(session.userId),
+      ...(customerIpAddress ? { customerIpAddress } : {}),
+      // A bid is money committed to rank. Letting an organization-wide
+      // coupon reduce the order (including to $0) makes Polar report a
+      // successful checkout that the integrity gate must refuse because
+      // netAmount no longer matches the server ledger. Pin coupons off for
+      // this product; its ad-hoc amount is already the complete price.
+      allowDiscountCodes: false,
       metadata: {
         userId: session.userId,
         kind: LEADERBOARD_BID_METADATA_KIND,
@@ -221,7 +240,11 @@ export async function POST(request: NextRequest) {
       // {CHECKOUT_ID} is Polar's template token, interpolated at
       // redirect time — built by string concat so the braces are never
       // URL-encoded. The buyer page passes it to the bid sync route.
-      successUrl: `${appUrl}/billboard?lb_checkout=success&checkout_id={CHECKOUT_ID}`
+      successUrl: `${appUrl}/sponsorship?lb_checkout=success&checkout_id={CHECKOUT_ID}`,
+      // Polar shows a back button when this is present. The intent sends
+      // an existing bidder to their bid console and a new sponsor to the
+      // leaderboard creative form instead of dropping them on Flipper.
+      returnUrl: `${appUrl}/sponsorship?intent=leaderboard-bid`
     })
 
     // The PENDING ledger row is what order.paid verification activates
