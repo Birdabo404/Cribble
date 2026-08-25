@@ -74,6 +74,9 @@ export function TokenPlayerCard({
       exactRatioPercent(row.topModelTokens, row.totalTokens)
     )
   )
+  // Presence-ranked tops carry no token attribution, so a literal 0% share
+  // would read as a bug; show how many days the top agent was present instead.
+  const shareKnown = row.topAgentTokens !== '0' || row.topModelTokens !== '0'
   const tokenParts = [
     { label: 'INPUT', value: row.inputTokens, color: 'rgb(96 165 250)' },
     { label: 'OUTPUT', value: row.outputTokens, color: 'rgb(192 132 252)' },
@@ -335,19 +338,56 @@ export function TokenPlayerCard({
             <div className="text-[9px] tracking-[0.34em] text-zinc-500">PRIMARY STACK</div>
             <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-[rgb(var(--lb-panel-edge)/0.1)] bg-[rgb(var(--lb-panel-edge)/0.025)] p-3">
               <TokenAgentIcon agent={row.topAgent} size={22} mixed={row.agents.length > 1} />
+              {/* Agent and model are independent superlatives — the labels keep
+                  a cross-vendor pair (e.g. Claude Code + a GPT model) from
+                  reading as "this agent ran this model". */}
               <div className="min-w-0 flex-1">
-                <div className="truncate font-display text-[13px] font-medium text-zinc-100">
-                  {topAgent ?? (row.agents.length > 1 ? 'Mixed agents' : 'Agent not reported')}
+                <div className="flex items-baseline gap-1.5">
+                  <span className="shrink-0 text-[7px] tracking-[0.16em] text-zinc-600">
+                    TOP AGENT
+                  </span>
+                  <span className="truncate font-display text-[13px] font-medium text-zinc-100">
+                    {topAgent ?? (row.agents.length > 1 ? 'Mixed agents' : 'Agent not reported')}
+                  </span>
                 </div>
-                <div className="mt-1 truncate text-[10px] text-zinc-500">
-                  {topModel ?? 'Model not reported'}
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <span className="shrink-0 text-[7px] tracking-[0.16em] text-zinc-600">
+                    TOP MODEL
+                  </span>
+                  <span className="truncate text-[10px] text-zinc-500">
+                    {topModel ?? 'Model not reported'}
+                  </span>
                 </div>
               </div>
               <div className="shrink-0 text-right">
-                <div className="text-[10px] tabular-nums text-zinc-300 [font-family:var(--font-pixel)]">
-                  {primaryTokenShare}%
-                </div>
-                <div className="mt-1 text-[7px] tracking-[0.16em] text-zinc-600">TOKEN SHARE</div>
+                {shareKnown ? (
+                  <>
+                    <div className="text-[10px] tabular-nums text-zinc-300 [font-family:var(--font-pixel)]">
+                      {primaryTokenShare}%
+                    </div>
+                    <div className="mt-1 text-[7px] tracking-[0.16em] text-zinc-600">
+                      TOKEN SHARE
+                    </div>
+                  </>
+                ) : row.topAgentDays > 0 ? (
+                  <>
+                    <div className="text-[10px] tabular-nums text-zinc-300 [font-family:var(--font-pixel)]">
+                      {row.topAgentDays}/{row.activeDays}
+                    </div>
+                    <div className="mt-1 text-[7px] tracking-[0.16em] text-zinc-600">
+                      DAYS PRESENT
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-[10px] tabular-nums text-zinc-300 [font-family:var(--font-pixel)]">
+                      —
+                    </div>
+                    <div className="mt-1 text-[7px] tracking-[0.16em] text-zinc-600">
+                      TOKEN SHARE
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
