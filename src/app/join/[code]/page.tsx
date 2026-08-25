@@ -16,7 +16,7 @@ interface JoinPageProps {
 
 const TITLE = "You're Invited!"
 const DESCRIPTION =
-  'A personal invite to Cribble — skip the gate, join the AI coding leaderboard, and see where you rank.'
+  'A personal invite to Cribble — join through this link so the invite still counts, then see where you rank on the AI coding leaderboard.'
 
 // The interstitial is always deep-space dark regardless of theme, so the
 // electric lime (--ref-lime in globals.css) is hard-coded here rather than

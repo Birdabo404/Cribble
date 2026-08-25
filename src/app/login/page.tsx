@@ -29,9 +29,9 @@ const PROVIDER_LABEL: Record<Provider, string> = {
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
-  invite_required: 'No cribble account found for that login. Redeem an invite key below.',
-  invite_invalid: 'That key is invalid, expired, or already used.',
-  invite_check_failed: 'We could not verify your key. Please try again.',
+  invite_required: 'No invite needed — sign in with GitHub or X to create your account.',
+  invite_invalid: 'That key is invalid, expired, or already used. Sign in anyway, or try another key.',
+  invite_check_failed: 'We could not verify your key. Sign in anyway, or try again.',
   github_oauth_denied: 'GitHub sign-in was cancelled. Try again when you are ready.',
   twitter_oauth_denied: 'X sign-in was cancelled. Try again when you are ready.',
   twitter_not_configured: 'X sign-in is not available right now. Use GitHub instead.',
@@ -43,7 +43,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 
 const GENERIC_GITHUB_ERROR = 'GitHub sign-in failed. Please try again in a moment.'
 const GENERIC_TWITTER_ERROR = 'X sign-in failed. Please try again in a moment.'
-const INVITE_ERRORS = new Set(['invite_required', 'invite_invalid', 'invite_check_failed'])
+const INVITE_ERRORS = new Set(['invite_invalid', 'invite_check_failed'])
 
 /** Invite keys are always CRIB-XXXX-XXXX; the UI collects the 8 payload chars. */
 const KEY_LENGTH = 8
@@ -78,6 +78,10 @@ function preparePaste(raw: string): string {
   return s.slice(0, KEY_LENGTH)
 }
 
+function formatInviteCode(payload: string): string {
+  return `${KEY_PREFIX}-${payload.slice(0, 4)}-${payload.slice(4)}`
+}
+
 function LoginExperience() {
   const searchParams = useSearchParams()
 
@@ -98,6 +102,11 @@ function LoginExperience() {
     return cells
   })
   const [phase, setPhase] = useState<Phase>('idle')
+  // Survives the register → signin tab switch (which parks phase back at
+  // idle so the Sign In buttons aren't disabled). Claimed on a successful
+  // pre-check; cleared if the cells change. OAuth carries this so a friend
+  // referral still redeems even if they pick Sign In instead of Claim.
+  const [grantedCode, setGrantedCode] = useState<string | null>(null)
   // Which provider button kicked off a redirect (signin or claim), if any.
   const [busyProvider, setBusyProvider] = useState<Provider | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -131,7 +140,10 @@ function LoginExperience() {
     setMode(next)
     setLocalError(null)
     setShaking(false)
-    if (next === 'register') pendingCellFocusRef.current = true
+    if (next === 'register') {
+      pendingCellFocusRef.current = true
+      if (grantedCode) setPhase('granted')
+    }
     if (focusTab) tabRefs.current[next]?.focus()
   }
 
@@ -161,6 +173,7 @@ function LoginExperience() {
       return next
     })
     setLocalError(null)
+    setGrantedCode(null)
     focusCell(Math.min(start + payload.length, KEY_LENGTH - 1))
   }
 
@@ -172,6 +185,7 @@ function LoginExperience() {
         next[i] = ''
         return next
       })
+      setGrantedCode(null)
       return
     }
     if (cleaned.length > 1) {
@@ -186,6 +200,7 @@ function LoginExperience() {
       return next
     })
     setLocalError(null)
+    setGrantedCode(null)
     if (i < KEY_LENGTH - 1) focusCell(i + 1)
   }
 
@@ -219,10 +234,33 @@ function LoginExperience() {
     fillFrom(payload.length >= KEY_LENGTH ? 0 : i, payload)
   }
 
-  const signIn = (provider: Provider) => {
+  const inviteCodeForOAuth = (): string | null => {
+    // A failed invite must not keep hitchhiking — Sign In has to be able
+    // to create the account without it now that signup is open.
+    if (isInviteError || localError) return null
+    if (grantedCode) return grantedCode
+    // Carry a /join prefill that has not been tried yet, so a recruit who
+    // hits Sign In before the auto-verify still redeems. A tried-and-failed
+    // prefill stays off the request.
+    if (
+      invitePrefill.length === KEY_LENGTH &&
+      lastAutoTriedRef.current !== invitePrefill
+    ) {
+      return formatInviteCode(invitePrefill)
+    }
+    return null
+  }
+
+  const startOAuth = (provider: Provider) => {
     if (busy) return
     setBusyProvider(provider)
-    window.location.href = `/api/auth/${provider}`
+    const invite = inviteCodeForOAuth()
+    const qs = invite ? `?invite=${encodeURIComponent(invite)}` : ''
+    window.location.href = `/api/auth/${provider}${qs}`
+  }
+
+  const signIn = (provider: Provider) => {
+    startOAuth(provider)
   }
 
   // After a key is granted: claim the seat with the chosen provider. The
@@ -230,13 +268,13 @@ function LoginExperience() {
   const claimSeat = (provider: Provider) => {
     if (signinBusy || phase !== 'granted') return
     setBusyProvider(provider)
-    const payload = chars.join('')
-    const code = `${KEY_PREFIX}-${payload.slice(0, 4)}-${payload.slice(4)}`
+    const code = grantedCode ?? formatInviteCode(chars.join(''))
     window.location.href = `/api/auth/${provider}?invite=${encodeURIComponent(code)}`
   }
 
   const fail = (message: string) => {
     setLocalError(message)
+    setGrantedCode(null)
     setPhase('idle')
     setShaking(true)
   }
@@ -245,7 +283,7 @@ function LoginExperience() {
     e?.preventDefault()
     if (phase !== 'idle' || signinBusy || !complete) return
     const payload = chars.join('')
-    const code = `${KEY_PREFIX}-${payload.slice(0, 4)}-${payload.slice(4)}`
+    const code = formatInviteCode(payload)
     lastAutoTriedRef.current = payload
     setPhase('checking')
     setLocalError(null)
@@ -270,6 +308,7 @@ function LoginExperience() {
         fail(ERROR_MESSAGES.invite_invalid)
         return
       }
+      setGrantedCode(code)
       setPhase('granted')
     } catch {
       fail('Network error. Please try again.')
@@ -313,7 +352,7 @@ function LoginExperience() {
         style={{ ['--d' as string]: '0ms' }}
       >
         <span className="lg-diode h-1.5 w-1.5 rounded-full bg-accent" />
-        PRIVATE BETA · INVITE ONLY
+        PRIVATE BETA · OPEN SIGNUP
       </p>
 
       {/* headline — editorial serif, swaps with the mode */}
@@ -324,7 +363,7 @@ function LoginExperience() {
         <span key={mode} className="lg-swap block">
           {mode === 'signin' ? (
             <>
-              back to the <Emph>grind</Emph>.
+              join the <Emph>grind</Emph>.
             </>
           ) : (
             <>
@@ -340,8 +379,8 @@ function LoginExperience() {
       >
         <span key={mode} className="lg-swap block">
           {mode === 'signin'
-            ? 'Pick up where you left off — sign in with the GitHub or X account tied to your cribble profile.'
-            : 'Every seat is claimed with a key. Enter yours, link GitHub or X once, and you\u2019re on the board.'}
+            ? 'GitHub or X gets you in — new accounts and returning pilots use the same door. Have a key? Redeem it first so the invite still counts.'
+            : 'A key from us or a friend still counts. Enter it, link GitHub or X, and the invite lands with the account.'}
         </span>
       </p>
 
@@ -414,13 +453,13 @@ function LoginExperience() {
                   disabled={busy}
                 />
                 <p className="mt-4 text-center text-xs text-zinc-500">
-                  First time here?{' '}
+                  First time here? Same door. Or{' '}
                   <button
                     type="button"
                     onClick={() => switchMode('register')}
                     className="text-zinc-300 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-accent hover:decoration-accent/60"
                   >
-                    Redeem an invite key
+                    redeem an invite key
                   </button>
                 </p>
               </div>
@@ -498,8 +537,8 @@ function LoginExperience() {
                 </div>
 
                 {phase === 'granted' ? (
-                  // Key accepted — beta access unlocked. The seat is claimed by
-                  // linking either provider; the callback consumes the key.
+                  // Key accepted. The seat is claimed by linking either
+                  // provider; the callback consumes the key.
                   <div className="lg-swap mt-4">
                     <p className="flex items-center justify-center gap-2 font-mono text-[10px] tracking-[0.24em] text-accent">
                       <CheckIcon className="h-3.5 w-3.5" />
@@ -549,14 +588,8 @@ function LoginExperience() {
         className="lg-rise mt-6 text-xs text-zinc-500"
         style={{ ['--d' as string]: '320ms' }}
       >
-        No key yet?{' '}
-        <Link
-          href="/"
-          className="text-zinc-300 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-accent hover:decoration-accent/60"
-        >
-          Join the waitlist
-        </Link>
-        <span className="text-zinc-600"> — seats open in waves.</span>
+        No key? Sign in anyway. Friends on the board can still send you one
+        for extra credit.
       </p>
     </div>
   )
@@ -569,8 +602,8 @@ function Emph({ children }: { children: ReactNode }) {
 
 /**
  * The two OAuth entry points, stacked. GitHub keeps top billing; X sits
- * below in a quieter shell. Both flows are invite-gated server-side, so
- * this is purely a "which account do you want to link" choice.
+ * below in a quieter shell. Sign-in is open; an invite cookie is optional
+ * extra credit (staff keys and friend referrals) attached by the parent.
  */
 function ProviderButtons({
   onSelect,
