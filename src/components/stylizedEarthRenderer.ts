@@ -29,6 +29,14 @@ export interface EarthRenderer {
   resize: () => void
   destroy: () => void
   getPinScreenPositions: () => PinScreenPosition[]
+  /**
+   * Sets the scroll-pose TARGET (0 = resting orbit, 1 = full hero
+   * push-in; clamped, non-finite ignored). Only stores the value — the
+   * next render() call applies it, so a scrubbed timeline can write this
+   * every scroll tick at no extra cost and the pose stays perfectly
+   * synced to scroll. Never schedules a frame of its own.
+   */
+  setScrollPose: (progress: number) => void
 }
 
 /* ────────────────────────────────────────────────────────────────────────
@@ -57,6 +65,19 @@ const HILL_SHAPING = 1.35 // >1 flattens valleys while ridges stay bold
 const AXIAL_TILT = (23.5 * Math.PI) / 180 // leans the pole to the right
 const CAMERA_ELEVATION = 0.35 // radians of overhead tilt (isometric feel)
 const FRUSTUM_HALF_HEIGHT = 1.42 // ortho half-extent; planet disk ≈ 72% of canvas
+
+// Scroll pose — the hero pinned-entry push-in, driven externally through
+// setScrollPose(p). The camera is orthographic, so "push-in" is frustum
+// zoom (the ortho equivalent of dollying closer): p 0→1 ramps camera.zoom
+// 1→SCROLL_ZOOM_MAX (planet reads ~16% closer; the frustum tightens
+// ~14%). Alongside the zoom, the whole tilt assembly pitches forward
+// about the screen-horizontal axis and a small extra yaw rides on top of
+// frame.phi, so the planet rolls away beneath the viewer. Both rotations
+// are ADDITIVE offsets — drag-to-spin and idle auto-spin keep working
+// under the pose. p = 0 is byte-identical to the renderer without a pose.
+const SCROLL_ZOOM_MAX = 1.16
+const SCROLL_PITCH_MAX = 0.3 // rad about screen X at p = 1 (~17°)
+const SCROLL_YAW_MAX = 0.42 // rad added to frame.phi at p = 1 (~24°)
 
 // Ocean — a smooth-shaded sphere painted per-VERTEX (vertex colors under
 // a white-day / cool-night multiplier material), unlike the land which
@@ -867,9 +888,13 @@ export async function createStylizedEarthRenderer(
 
     /* Scene graph:
          scene
-         ├─ tiltGroup (23.5° axial tilt, fixed)
-         │  ├─ planetSpin (rotation.y = frame.phi) — ocean, continents,
-         │  │                             trees, city dots, user pins
+         ├─ tiltGroup (rotation.z = 23.5° axial tilt, fixed;
+         │  │          rotation.x = scroll-pose pitch — Euler 'XYZ'
+         │  │          applies Rx after Rz, i.e. about the parent/screen
+         │  │          horizontal axis, so the tilted assembly pitches
+         │  │          away beneath the viewer)
+         │  ├─ planetSpin (rotation.y = frame.phi + scroll-pose yaw) —
+         │  │              ocean, continents, trees, city dots, user pins
          │  ├─ cloudSpin (time-driven drift only, ignores drag) — puffs
          │  └─ aurora curtain (leans with the axis, never spins)
          ├─ floating islands (fixed screen corners, bob + slow self-turn)
@@ -1637,11 +1662,21 @@ export async function createStylizedEarthRenderer(
     const cloudEmissiveNight = new THREE.Color(CLOUD_EMISSIVE_NIGHT)
     const projected = new THREE.Vector3()
     const worldDirection = new THREE.Vector3()
+    // Canvas CSS size, cached by resize(). getPinScreenPositions runs every
+    // animation frame, and reading canvas.clientWidth/Height there forces a
+    // synchronous whole-document layout each frame (the landing page also
+    // writes CSS vars per frame, so every read pays a full reflow — measured
+    // at >50% of scroll-time CPU). The ResizeObserver in Globe.tsx keeps
+    // these fresh instead.
+    let viewWidth = 1
+    let viewHeight = 1
 
     const resize = () => {
       const pixelRatio = Math.min(window.devicePixelRatio || 1, 2)
       const width = Math.max(1, canvas.clientWidth)
       const height = Math.max(1, canvas.clientHeight)
+      viewWidth = width
+      viewHeight = height
       renderer.setPixelRatio(pixelRatio)
       renderer.setSize(width, height, false)
 
@@ -1656,10 +1691,31 @@ export async function createStylizedEarthRenderer(
       cityDotMaterial.size = CITY_DOT_SIZE * pixelRatio
     }
 
+    // Scroll pose: a stored target the frame loop applies (see the
+    // EarthRenderer interface). appliedZoom tracks the projection so a
+    // matrix rebuild only happens on frames where the pose actually
+    // moved — at pose 0 the projection is never touched.
+    let scrollPose = 0
+    let appliedZoom = 1
+    const setScrollPose = (progress: number) => {
+      if (!Number.isFinite(progress)) return
+      scrollPose = Math.min(1, Math.max(0, progress))
+    }
+
     const render = ({ phi, time, lightMode, accent }: EarthFrame) => {
       const day = Math.min(1, Math.max(0, lightMode))
 
-      planetSpin.rotation.y = phi
+      // additive yaw/pitch: the pose composes with drag + auto-spin (phi)
+      // instead of overwriting them
+      planetSpin.rotation.y = phi + scrollPose * SCROLL_YAW_MAX
+      tiltGroup.rotation.x = scrollPose * SCROLL_PITCH_MAX
+      const zoom = 1 + (SCROLL_ZOOM_MAX - 1) * scrollPose
+      if (zoom !== appliedZoom) {
+        appliedZoom = zoom
+        camera.zoom = zoom
+        camera.updateProjectionMatrix()
+      }
+
       // clouds ignore phi entirely: dragging spins the ground, not the sky
       cloudSpin.rotation.y = time * CLOUD_ROTATE_SPEED
       for (const cloud of cloudRigs) {
@@ -1732,8 +1788,8 @@ export async function createStylizedEarthRenderer(
 
     const getPinScreenPositions = (): PinScreenPosition[] => {
       planetSpin.updateWorldMatrix(true, false)
-      const width = canvas.clientWidth
-      const height = canvas.clientHeight
+      const width = viewWidth
+      const height = viewHeight
 
       return pinAnchors.map((anchor, index) => {
         projected.copy(anchor).applyMatrix4(planetSpin.matrixWorld)
@@ -1759,7 +1815,7 @@ export async function createStylizedEarthRenderer(
     }
 
     resize()
-    return { render, resize, destroy, getPinScreenPositions }
+    return { render, resize, destroy, getPinScreenPositions, setScrollPose }
   } catch (error) {
     for (const resource of disposables) resource.dispose()
     renderer.dispose()

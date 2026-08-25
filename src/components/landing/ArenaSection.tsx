@@ -12,7 +12,6 @@
 
 import {
   CSSProperties,
-  useEffect,
   useLayoutEffect,
   useRef,
   useState
@@ -22,6 +21,7 @@ import AnimatedCounter from '@/components/AnimatedCounter'
 import { PlateLayer } from '@/components/cosmetics/PlateLayer'
 import { formatNumber } from '@/components/dashboard-v2/format'
 import { IconCrown, SocialIcon, ToolIcon } from '@/components/leaderboard/icons'
+import { landingTier } from '@/lib/landingMotion'
 import { prefersReducedMotion } from '@/lib/motion'
 import {
   ARENA_STATS,
@@ -30,7 +30,8 @@ import {
   TAKEOVER_START,
   type SimPilot
 } from './data'
-import { CountUp, Seam, SectionHeader, Stage, useStageLive } from './scrollFx'
+import { CountUp, Seam, SectionHeader, Stage } from './scrollFx'
+import { useSectionMotion } from './useSectionMotion'
 
 const MEDALS = ['var(--lb-gold)', 'var(--lb-silver)', 'var(--lb-bronze)']
 
@@ -48,8 +49,10 @@ const TK_EXIT_MS = 680
  * gap so the moment of unmount is layout-silent. */
 const TK_ROW_GAP = 6
 
-function useArenaSim(rowRefs: { current: Map<string, HTMLDivElement> }) {
-  const live = useStageLive()
+function useArenaSim(
+  rowRefs: { current: Map<string, HTMLDivElement> },
+  panelRef: { current: HTMLDivElement | null }
+) {
   const [pilots, setPilots] = useState<SimPilot[]>(SIM_ROSTER)
   const [gain, setGain] = useState<{ id: string; amt: number; seq: number } | null>(null)
   const seqRef = useRef(0)
@@ -66,129 +69,168 @@ function useArenaSim(rowRefs: { current: Map<string, HTMLDivElement> }) {
     setPilots(TAKEOVER_START)
   }, [])
 
-  useEffect(() => {
-    if (!live || prefersReducedMotion()) return
-    const timers: ReturnType<typeof setTimeout>[] = []
-    let iv: ReturnType<typeof setInterval> | undefined
+  useSectionMotion(
+    'arena',
+    ({ timer }) => {
+      // Rebuild rewind (reduced motion flipped back off mid-session): the
+      // replay needs the old guard on the board again. First run is a
+      // no-op — the layout effect above already committed TAKEOVER_START.
+      setPilots(TAKEOVER_START)
+      setGain(null)
 
-    // Act one — the takeover. Each insurgent warps in one slot above their
-    // victim (the warp-in height growth shoves the victim down a rank),
-    // the victim flashes red, stalls, then collapses off the board.
-    TAKEOVER_EVENTS.forEach((ev, k) => {
-      const at = TK_T0 + k * TK_STEP
-      timers.push(
-        setTimeout(() => {
-          suppressFlip.current = true
-          setGain({ id: ev.enter.id, amt: ev.enter.today, seq: ++seqRef.current })
-          setPilots((prev) => [...prev, ev.enter].sort((a, b) => b.score - a.score))
-        }, at)
-      )
-      timers.push(
-        setTimeout(() => {
-          const el = rowRefs.current.get(ev.drop)
-          if (!el) return
-          const h = el.offsetHeight
-          el.animate(
-            [
-              {
-                height: `${h}px`,
-                marginBottom: '0px',
-                opacity: 1,
-                boxShadow: 'inset 0 0 0 1px rgb(251 113 133 / 0)'
-              },
-              {
-                boxShadow:
-                  'inset 0 0 0 1px rgb(251 113 133 / 0.65), 0 0 26px -8px rgb(251 113 133 / 0.5)',
-                offset: 0.16
-              },
-              {
-                height: `${h}px`,
-                marginBottom: '0px',
-                opacity: 0.75,
-                offset: 0.42
-              },
-              {
-                height: '0px',
-                marginBottom: `-${TK_ROW_GAP}px`,
-                opacity: 0,
-                filter: 'saturate(0.3) brightness(0.5)',
-                boxShadow: 'inset 0 0 0 1px rgb(251 113 133 / 0)'
-              }
-            ],
-            { duration: TK_EXIT_MS, easing: 'cubic-bezier(0.5, 0, 0.75, 0.4)', fill: 'forwards' }
-          )
-        }, at + TK_EXIT_AT)
-      )
-      timers.push(
-        setTimeout(() => {
-          suppressFlip.current = true
-          setPilots((prev) => prev.filter((p) => p.id !== ev.drop))
-        }, at + TK_EXIT_AT + TK_EXIT_MS)
-      )
-    })
+      // When act one hands over to act two (row count back to the settled
+      // ten, so releasing the freeze below moves nothing).
+      const settled =
+        TK_T0 + (TAKEOVER_EVENTS.length - 1) * TK_STEP + TK_EXIT_AT + TK_EXIT_MS
 
-    // Act two — the standing duel, resumed once the new cast holds the board
-    // (which by then equals SIM_ROSTER exactly, so the pool stays tuned).
-    const pool = SIM_ROSTER.flatMap((p) => Array<string>(p.heat).fill(p.id))
+      // Freeze the panel's height for act one. Each takeover event briefly
+      // holds an 11th row, growing the board ~52px and shrinking it back —
+      // and inside ScrollSmoother every document-height change forces a full
+      // ScrollTrigger refresh (measured as a recurring long-task storm while
+      // the arena is on screen). The panel is overflow-hidden, so the
+      // transient extra row just clips at the bottom edge — the last pilot
+      // being shoved off the board — and the page never sees a resize. Act
+      // two only re-sorts a fixed cast, so the natural height is static
+      // again once this releases.
+      const panel = panelRef.current
+      if (panel) {
+        panel.style.height = `${panel.offsetHeight}px`
+        timer({
+          duration: settled,
+          onComplete: () => panel.style.removeProperty('height')
+        })
+      }
 
-    // Dramaturgy: the crown never falls — @Birdabo holds #1 — but the fight
-    // stays hot. Challengers take runs at the leader; the moment the gap
-    // gets thin the champion answers with a counter-surge. Meanwhile the
-    // silver duel below flips ranks while you watch. Max challenger surge
-    // (1100) < defense trigger (1800), so the counter always lands in time.
-    const tick = () => {
-      if (document.hidden) return
-      setPilots((prev) => {
-        const leader = prev[0]
-        let id: string
-        let amt: number
-        if (leader.score - prev[1].score < 1800) {
-          id = leader.id
-          amt = 1700 + Math.floor(Math.random() * 900)
-        } else {
-          const r = Math.random()
-          if (r < 0.34) {
-            // silver duel — #3 lunges at #2
-            id = prev[2].id
-            amt = 520 + Math.floor(Math.random() * 580)
-          } else if (r < 0.52) {
-            // a run at the champion
-            id = prev[1].id
-            amt = 480 + Math.floor(Math.random() * 620)
-          } else {
-            id = pool[Math.floor(Math.random() * pool.length)]
-            amt = 160 + Math.floor(Math.random() * 680)
+      // Act one — the takeover. Each insurgent warps in one slot above their
+      // victim (the warp-in height growth shoves the victim down a rank),
+      // the victim flashes red, stalls, then collapses off the board.
+      TAKEOVER_EVENTS.forEach((ev, k) => {
+        const at = TK_T0 + k * TK_STEP
+        timer({
+          duration: at,
+          onComplete: () => {
+            suppressFlip.current = true
+            setGain({ id: ev.enter.id, amt: ev.enter.today, seq: ++seqRef.current })
+            setPilots((prev) => [...prev, ev.enter].sort((a, b) => b.score - a.score))
           }
-          // The crown never falls: if a surge would clear the champion,
-          // the champion answers on the same tick instead.
-          const target = prev.find((p) => p.id === id)
-          if (target && id !== leader.id && target.score + amt > leader.score - 140) {
+        })
+        timer({
+          duration: at + TK_EXIT_AT,
+          onComplete: () => {
+            const el = rowRefs.current.get(ev.drop)
+            if (!el) return
+            const h = el.offsetHeight
+            el.animate(
+              [
+                {
+                  height: `${h}px`,
+                  marginBottom: '0px',
+                  opacity: 1,
+                  boxShadow: 'inset 0 0 0 1px rgb(251 113 133 / 0)'
+                },
+                {
+                  boxShadow:
+                    'inset 0 0 0 1px rgb(251 113 133 / 0.65), 0 0 26px -8px rgb(251 113 133 / 0.5)',
+                  offset: 0.16
+                },
+                {
+                  height: `${h}px`,
+                  marginBottom: '0px',
+                  opacity: 0.75,
+                  offset: 0.42
+                },
+                {
+                  height: '0px',
+                  marginBottom: `-${TK_ROW_GAP}px`,
+                  opacity: 0,
+                  filter: 'saturate(0.3) brightness(0.5)',
+                  boxShadow: 'inset 0 0 0 1px rgb(251 113 133 / 0)'
+                }
+              ],
+              { duration: TK_EXIT_MS, easing: 'cubic-bezier(0.5, 0, 0.75, 0.4)', fill: 'forwards' }
+            )
+          }
+        })
+        timer({
+          duration: at + TK_EXIT_AT + TK_EXIT_MS,
+          onComplete: () => {
+            suppressFlip.current = true
+            setPilots((prev) => prev.filter((p) => p.id !== ev.drop))
+          }
+        })
+      })
+
+      // Act two — the standing duel, resumed once the new cast holds the board
+      // (which by then equals SIM_ROSTER exactly, so the pool stays tuned).
+      const pool = SIM_ROSTER.flatMap((p) => Array<string>(p.heat).fill(p.id))
+
+      // Dramaturgy: the crown never falls — @Birdabo holds #1 — but the fight
+      // stays hot. Challengers take runs at the leader; the moment the gap
+      // gets thin the champion answers with a counter-surge. Meanwhile the
+      // silver duel below flips ranks while you watch. Max challenger surge
+      // (1100) < defense trigger (1800), so the counter always lands in time.
+      // (No document.hidden check: the anime engine pauses itself in
+      // background tabs via engine.pauseOnDocumentHidden.)
+      const tick = () => {
+        setPilots((prev) => {
+          const leader = prev[0]
+          let id: string
+          let amt: number
+          if (leader.score - prev[1].score < 1800) {
             id = leader.id
             amt = 1700 + Math.floor(Math.random() * 900)
+          } else {
+            const r = Math.random()
+            if (r < 0.34) {
+              // silver duel — #3 lunges at #2
+              id = prev[2].id
+              amt = 520 + Math.floor(Math.random() * 580)
+            } else if (r < 0.52) {
+              // a run at the champion
+              id = prev[1].id
+              amt = 480 + Math.floor(Math.random() * 620)
+            } else {
+              id = pool[Math.floor(Math.random() * pool.length)]
+              amt = 160 + Math.floor(Math.random() * 680)
+            }
+            // The crown never falls: if a surge would clear the champion,
+            // the champion answers on the same tick instead.
+            const target = prev.find((p) => p.id === id)
+            if (target && id !== leader.id && target.score + amt > leader.score - 140) {
+              id = leader.id
+              amt = 1700 + Math.floor(Math.random() * 900)
+            }
           }
-        }
-        setGain({ id, amt, seq: ++seqRef.current })
-        return prev
-          .map((p) =>
-            p.id === id ? { ...p, score: p.score + amt, today: p.today + amt } : p
-          )
-          .sort((a, b) => b.score - a.score)
+          setGain({ id, amt, seq: ++seqRef.current })
+          return prev
+            .map((p) =>
+              p.id === id ? { ...p, score: p.score + amt, today: p.today + amt } : p
+            )
+            .sort((a, b) => b.score - a.score)
+        })
+      }
+      // onBegin fires once the delay elapses (the old setTimeout's job),
+      // onLoop every 2200ms after — the old setInterval's.
+      timer({
+        delay: settled + 1600,
+        duration: 2200,
+        loop: true,
+        onBegin: tick,
+        onLoop: tick
       })
-    }
-    const settled =
-      TK_T0 + (TAKEOVER_EVENTS.length - 1) * TK_STEP + TK_EXIT_AT + TK_EXIT_MS
-    timers.push(
-      setTimeout(() => {
-        tick()
-        iv = setInterval(tick, 2200)
-      }, settled + 1600)
-    )
 
-    return () => {
-      timers.forEach(clearTimeout)
-      if (iv) clearInterval(iv)
-    }
-  }, [live, rowRefs])
+      return () => {
+        // Reduced motion flipped on mid-flight: land on the final cast —
+        // the same resolved state SSR renders. The FLIP pass sees tier
+        // 'still' and records positions without animating. The height
+        // freeze releases too — its timer died with the scope.
+        panel?.style.removeProperty('height')
+        setPilots(SIM_ROSTER)
+        setGain(null)
+      }
+    },
+    [rowRefs, panelRef]
+  )
 
   return { pilots, gain, suppressFlip }
 }
@@ -356,7 +398,8 @@ function Row({
 
 function ArenaBody() {
   const rowRefs = useRef(new Map<string, HTMLDivElement>())
-  const { pilots, gain, suppressFlip } = useArenaSim(rowRefs)
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  const { pilots, gain, suppressFlip } = useArenaSim(rowRefs, panelRef)
   const prevTops = useRef(new Map<string, number>())
   const prevOrder = useRef<string[]>(SIM_ROSTER.map((p) => p.id))
   const order = pilots.map((p) => p.id).join('|')
@@ -371,7 +414,12 @@ function ArenaBody() {
     rowRefs.current.forEach((el, id) => next.set(id, el.getBoundingClientRect().top))
 
     const ids = pilots.map((p) => p.id)
-    if (suppressFlip.current) {
+    if (landingTier() === 'still') {
+      // Reduced motion (OS or in-app, possibly flipped mid-session): the
+      // sim's revert commit still reaches here — record positions so a
+      // later re-enable FLIPs from truth, but never play WAAPI.
+      suppressFlip.current = false
+    } else if (suppressFlip.current) {
       suppressFlip.current = false
       // Warp-in: the freshly inserted insurgent materializes — grows out of
       // the seam above their victim behind an accent flash, hot and bright.
@@ -510,6 +558,7 @@ function ArenaBody() {
             lx-hw: a fixed dark instrument in both themes (see Descent). */}
         <div className="ar-board" style={{ transformOrigin: '50% 0%' }}>
           <div
+            ref={panelRef}
             className="lx-hw ar-panel relative overflow-hidden rounded-2xl p-4 sm:p-5"
             style={{
               background:

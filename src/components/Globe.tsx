@@ -1,6 +1,12 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react'
 import { useTheme } from 'next-themes'
 import {
   createStylizedEarthRenderer,
@@ -11,9 +17,27 @@ import {
 import { PILOTS } from '@/components/landing/pilots'
 import { ACCENT, accentA } from '@/lib/theme'
 
+/**
+ * Imperative scroll-pose handle for the pinned hero entry. Calls are safe
+ * at any lifecycle point: before the WebGL renderer has initialized the
+ * value is remembered and applied on init, and after disposal calls are
+ * no-ops.
+ */
+export interface GlobeHandle {
+  /** 0 = resting orbit (exactly today's look), 1 = full hero push-in. */
+  setScrollPose: (p: number) => void
+}
+
 interface GlobeProps {
   className?: string
   size?: number
+  /**
+   * Delivers the GlobeHandle on mount. next/dynamic does not forward
+   * refs, so parents that load Globe through dynamic() (page.tsx does)
+   * must use this callback instead of `ref`; both hand out the same
+   * stable handle object.
+   */
+  onReady?: (handle: GlobeHandle) => void
 }
 
 type RenderStatus = 'loading' | 'ready' | 'fallback'
@@ -35,7 +59,10 @@ const mixRGB = (from: RGB, to: RGB, amount: number): RGB => [
   from[2] + (to[2] - from[2]) * amount,
 ]
 
-export default function Globe({ className = '', size = 400 }: GlobeProps) {
+const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
+  { className = '', size = 400, onReady }: GlobeProps,
+  ref,
+) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [renderStatus, setRenderStatus] = useState<RenderStatus>('loading')
   const { resolvedTheme } = useTheme()
@@ -47,6 +74,30 @@ export default function Globe({ className = '', size = 400 }: GlobeProps) {
   const rot = useRef(0)
   const vel = useRef(0)
   const targetLightMode = useRef(isLight ? 1 : 0)
+
+  // Scroll pose: deliberately NOT gated by prefers-reduced-motion. Like
+  // drag-to-spin (which also stays enabled below), it only moves when the
+  // user scrolls — scrubbed input, not autonomous animation. Reduced
+  // motion keeps disabling exactly what it does today: the idle auto-spin
+  // and the time-driven drift (time frozen at 0 in the draw loop).
+  const rendererRef = useRef<EarthRenderer | null>(null)
+  const scrollPoseRef = useRef(0)
+  // One stable handle for the whole component lifetime, shared by the
+  // forwarded ref and the onReady callback. It only stores/forwards a
+  // number — the existing draw loop's render() call applies the pose, so
+  // scrubbing it every scroll tick costs nothing extra.
+  const handleRef = useRef<GlobeHandle>({
+    setScrollPose: (p: number) => {
+      scrollPoseRef.current = p
+      rendererRef.current?.setScrollPose(p)
+    },
+  })
+
+  useImperativeHandle(ref, () => handleRef.current, [])
+
+  useEffect(() => {
+    onReady?.(handleRef.current)
+  }, [onReady])
 
   // Pilot chip state: the render loop projects pins each frame and steers
   // the chip node directly (no per-frame React state); React only re-renders
@@ -109,6 +160,9 @@ export default function Globe({ className = '', size = 400 }: GlobeProps) {
         }
 
         renderer = createdRenderer
+        rendererRef.current = createdRenderer
+        // replay whatever pose the scroll timeline set while we loaded
+        createdRenderer.setScrollPose(scrollPoseRef.current)
         resizeObserver = new ResizeObserver(() => renderer?.resize())
         resizeObserver.observe(canvas)
         setRenderStatus('ready')
@@ -188,6 +242,7 @@ export default function Globe({ className = '', size = 400 }: GlobeProps) {
       }
       resizeObserver?.disconnect()
       renderer?.destroy()
+      rendererRef.current = null // handle calls after disposal become no-ops
     }
   }, [size])
 
@@ -223,7 +278,11 @@ export default function Globe({ className = '', size = 400 }: GlobeProps) {
   const chipInitial = pinPositionsRef.current[activePin]
 
   return (
+    // data-lag="0" pins the globe (canvas + chip overlay) out of GSAP
+    // ScrollSmoother's effects lag, so smoothing never desyncs the canvas
+    // from the pointer. Inert without ScrollSmoother.
     <div
+      data-lag="0"
       className={`relative flex w-full items-center justify-center ${className}`}
       style={{ maxWidth: size }}
     >
@@ -318,4 +377,6 @@ export default function Globe({ className = '', size = 400 }: GlobeProps) {
       )}
     </div>
   )
-}
+})
+
+export default Globe

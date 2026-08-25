@@ -40,6 +40,48 @@
      band swaps this for an animated iridescent chip locally. */
   --r-mythic: 205 190 255;
 
+  /* Pixel-art tone ramps for the achievement trophies (PixelIcon).
+     Nine materials x 4 steps, 1 shadow → 4 highlight, one shared
+     top-left light source across the whole sprite set. Dark values
+     mirror src/components/achievements/palette.ts (the source of
+     truth); light overrides below. */
+  --px-ember-1: #7c2d12;
+  --px-ember-2: #ea580c;
+  --px-ember-3: #ff8a3d;
+  --px-ember-4: #ffc466;
+  --px-gold-1: #8a6512;
+  --px-gold-2: #d4a017;
+  --px-gold-3: #ffd644;
+  --px-gold-4: #fff3b0;
+  --px-ice-1: #1e5f7a;
+  --px-ice-2: #4aa8cc;
+  --px-ice-3: #9bdcf5;
+  --px-ice-4: #e3f7ff;
+  --px-signal-1: #0b6e1f;
+  --px-signal-2: #05c414;
+  --px-signal-3: #02fe01;
+  --px-signal-4: #b8ffb0;
+  --px-plasma-1: #831051;
+  --px-plasma-2: #d61a7f;
+  --px-plasma-3: #ff2d95;
+  --px-plasma-4: #ff9ecb;
+  --px-azure-1: #14547d;
+  --px-azure-2: #1e8ec2;
+  --px-azure-3: #38bdf8;
+  --px-azure-4: #bae9ff;
+  --px-void-1: #07080d;
+  --px-void-2: #14161d;
+  --px-void-3: #262a35;
+  --px-void-4: #3d4250;
+  --px-steel-1: #3f3f46;
+  --px-steel-2: #71717a;
+  --px-steel-3: #a1a1aa;
+  --px-steel-4: #e4e4e7;
+  --px-bone-1: #8f8a7e;
+  --px-bone-2: #c9c3b4;
+  --px-bone-3: #ece7d9;
+  --px-bone-4: #fffdf5;
+
   /* stars / decorative dots */
   --star-rgb: 255 255 255;
   --dot-rgb: 255 255 255;
@@ -178,6 +220,47 @@ html.light {
   /* mythic: deep blue-violet ink — bluer than the epic violet, darker
      than the print blue, so the ladder still reads at chip size */
   --r-mythic: 79 70 229;
+
+  /* Pixel ramps on white: highlights wash out, so steps 3-4 darken and
+     saturate while step 1 stays legible as ink. Void inverts into an
+     engraved gray ramp (shadow light → highlight dark) so locked
+     silhouettes stamp on paper instead of vanishing. */
+  --px-ember-1: #7c2d12;
+  --px-ember-2: #c2410c;
+  --px-ember-3: #ea580c;
+  --px-ember-4: #fb923c;
+  --px-gold-1: #713f12;
+  --px-gold-2: #a16207;
+  --px-gold-3: #ca8a04;
+  --px-gold-4: #eab308;
+  --px-ice-1: #164e63;
+  --px-ice-2: #0e7490;
+  --px-ice-3: #0891b2;
+  --px-ice-4: #22d3ee;
+  --px-signal-1: #14532d;
+  --px-signal-2: #15803d;
+  --px-signal-3: #16a34a;
+  --px-signal-4: #4ade80;
+  --px-plasma-1: #831051;
+  --px-plasma-2: #be185d;
+  --px-plasma-3: #db2777;
+  --px-plasma-4: #f472b6;
+  --px-azure-1: #0c4a6e;
+  --px-azure-2: #075985;
+  --px-azure-3: #0284c7;
+  --px-azure-4: #38bdf8;
+  --px-void-1: #d4d4d8;
+  --px-void-2: #a1a1aa;
+  --px-void-3: #71717a;
+  --px-void-4: #52525b;
+  --px-steel-1: #27272a;
+  --px-steel-2: #52525b;
+  --px-steel-3: #71717a;
+  --px-steel-4: #a1a1aa;
+  --px-bone-1: #57534e;
+  --px-bone-2: #78716c;
+  --px-bone-3: #a8a29e;
+  --px-bone-4: #d6d3d1;
 
   /* stars become neutral ink specks so the SpaceBackdrop starfield and
      asteroid streaks still read on the white canvas */
@@ -832,6 +915,132 @@ html.light .lx-hero {
    it, leaving the SpaceBackdrop star/asteroid layer to read on top. */
 html.light .dossier-canvas {
   background: #ffffff;
+}
+
+/* ————— Controlled Fall motion layer ————————————————————————————————
+   Everything in this block is gated behind html.lx-motion-full — the
+   class LandingScrollRuntime adds only when the GSAP chunk has loaded on
+   the full capability tier (desktop, fine pointer, ≥4 cores) and the
+   ScrollSmoother is live. Without it, none of these rules exist and the
+   landing renders byte-identical to its CSS-only self. Inputs, all
+   written on <html> by the runtime, all defaulting to rest via var()
+   fallbacks:
+     --alt  0..1  page-long descent progress (one ScrollTrigger)
+     --vel  0..1  lerp-smoothed |scroll velocity| (one gsap ticker)
+     --skew ±1.2  signed, capped velocity for the section shear        */
+
+/* Velocity shear: descent section content leans a hair against the
+   direction of travel — transform-only, ±1.2deg max (the runtime caps
+   the variable), and skewY(0) at rest thanks to the fallback. Scoped to
+   the descent: the pinned hero must not shear during entry. */
+html.lx-motion-full .lx-descent .page-zoom-out {
+  transform: skewY(calc(var(--skew, 0) * 1deg));
+  /* Layer-promote each section wrapper: --skew retargets this transform on
+     every scrolling frame, and without promotion each retarget repaints the
+     whole section (measured as the single largest source of >50ms tasks
+     while scrolling). Promoted, the skew is compositor-only. Chromium
+     rasterizes layers in tiles, so seven tall sections don't hold seven
+     full-height textures — only tiles near the viewport. */
+  will-change: transform;
+}
+
+/* Hero star tiles move off .lx-hero onto their own layer so the pinned
+   entry can stretch them into streaks with a compositor-only scaleY
+   (hero/heroPin.ts) instead of repainting background-size. At rest
+   (scaleY 1) the tiles render exactly as the originals did. Dark only —
+   the light hero is a clean white sheet with no stars. */
+.lx-hero-stars {
+  display: none;
+}
+html.lx-motion-full:not(.light) .lx-hero {
+  background-image: linear-gradient(
+    180deg,
+    var(--space-zenith) 0%,
+    var(--space-mid) 52%,
+    var(--space-deep) 100%
+  );
+  background-size: 100% 100%;
+}
+html.lx-motion-full:not(.light) .lx-hero-stars {
+  display: block;
+  background-image:
+    radial-gradient(1.2px 1.2px at 22px 84px, rgb(190 210 255 / 0.32) 50%, transparent 55%),
+    radial-gradient(1px 1px at 118px 31px, rgb(255 255 255 / 0.22) 50%, transparent 55%),
+    radial-gradient(1.6px 1.6px at 73px 156px, rgb(165 195 255 / 0.17) 50%, transparent 55%);
+  background-size: 210px 210px, 260px 260px, 320px 320px;
+  transform-origin: 50% 18%;
+}
+
+/* ATMOSPHERE JOURNEY (Layer 7) — dark mode only. The fixed layer stack
+   sits as an earlier sibling of #smooth-wrapper (which ScrollSmoother
+   makes position:fixed, so tree order keeps page content painting on
+   top), and .lx-descent goes background:none while this is active (see
+   Descent.tsx). Each layer is a static gradient cross-faded purely by
+   element opacity derived from --alt — compositor work, no giant
+   gradient repaints per frame. The journey: space-black → stratosphere
+   #0b1b3a → #1a2340 → dusk ember at touchdown; star tiles thin out as
+   the atmosphere thickens. html.light never displays the stack, so the
+   dossier theme ignores --alt completely. */
+.lx-atmo {
+  display: none;
+}
+html.lx-motion-full:not(.light) .lx-atmo {
+  display: block;
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+.lx-atmo > div {
+  position: absolute;
+  inset: 0;
+  /* Promotion is what actually makes the crossfade "compositor work, no
+     giant gradient repaints": a style-driven opacity change on an
+     unpromoted element repaints it, and these are four viewport-sized
+     gradients retargeted every frame --alt moves. The stack only displays
+     under html.lx-motion-full, so no other page pays the layer cost. */
+  will-change: opacity;
+}
+/* the hero's own backdrop settles to --space-deep at the fold; basing the
+   stack on the same token keeps hero → descent one continuous column */
+.lx-atmo-base {
+  background: var(--space-deep);
+}
+/* same speck tiles .lx-descent used to carry; now fixed (stars at
+   infinity shouldn't ride the airframe) and fading toward 0 with --alt */
+.lx-atmo-stars {
+  background-image:
+    radial-gradient(1.2px 1.2px at 37px 63px, rgb(190 210 255 / 0.22) 50%, transparent 55%),
+    radial-gradient(1px 1px at 141px 158px, rgb(255 255 255 / 0.14) 50%, transparent 55%);
+  background-size: 240px 240px, 300px 300px;
+  opacity: calc(1 - clamp(0, calc((var(--alt, 0) - 0.08) / 0.55), 0.96));
+}
+/* stratosphere blue arrives through the early-mid descent */
+.lx-atmo-strato {
+  background: linear-gradient(
+    180deg,
+    rgb(11 27 58 / 0.05),
+    rgb(11 27 58 / 0.16)
+  );
+  opacity: clamp(0, calc((var(--alt, 0) - 0.12) / 0.24), 1);
+}
+/* deeper mesosphere tone stacks on through the middle stages */
+.lx-atmo-meso {
+  background: linear-gradient(
+    180deg,
+    rgb(26 35 64 / 0.04),
+    rgb(26 35 64 / 0.18)
+  );
+  opacity: clamp(0, calc((var(--alt, 0) - 0.42) / 0.24), 1);
+}
+/* dusk ember rising from the ground for the final approach — hands off
+   to the Finale's landing-pad glow */
+.lx-atmo-dusk {
+  background: radial-gradient(
+    120% 85% at 50% 100%,
+    rgb(var(--ember-rgb) / 0.11),
+    transparent 62%
+  );
+  opacity: clamp(0, calc((var(--alt, 0) - 0.7) / 0.24), 1);
 }
 
 /*

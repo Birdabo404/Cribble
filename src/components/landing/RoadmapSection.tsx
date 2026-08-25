@@ -7,6 +7,7 @@
 
 import { CSSProperties, useEffect, useRef, useState } from 'react'
 import { ToolIcon } from '@/components/leaderboard/icons'
+import { onLandingRuntime, type LandingMotion } from '@/lib/landingMotion'
 import { prefersReducedMotion } from '@/lib/motion'
 import {
   AGENT_CHIPS,
@@ -14,7 +15,13 @@ import {
   ROADMAP_PHASES,
   type RoadmapPhase
 } from './data'
-import { Seam, SectionHeader, Stage, useStageLive } from './scrollFx'
+import { Seam, SectionHeader, Stage } from './scrollFx'
+import { useSectionMotion } from './useSectionMotion'
+
+type StickyTween = ReturnType<LandingMotion['gsap']['fromTo']>
+
+/** The CSS sticky offset (`lg:top-24`) in layout px. */
+const STICKY_TOP = 96
 
 function StatusChip({ status }: { status: RoadmapPhase['status'] }) {
   if (status === 'LIVE') {
@@ -57,38 +64,43 @@ function StatusChip({ status }: { status: RoadmapPhase['status'] }) {
 /* ------------------------------------------------------------------ */
 
 function AgentTerminal() {
-  const live = useStageLive()
   const [count, setCount] = useState(AGENT_TERMINAL_LINES.length)
   const [typed, setTyped] = useState('')
-  const timers = useRef<Array<ReturnType<typeof setTimeout>>>([])
+  // Flips once the typing build actually starts — until then (SSR, chunk
+  // still loading, reduced motion) the render below shows the full command.
+  const [armed, setArmed] = useState(false)
 
-  useEffect(() => {
-    if (!live || prefersReducedMotion()) return
+  useSectionMotion('roadmap', ({ timer }) => {
+    setArmed(true)
     setCount(0)
     setTyped('')
     const cmd = AGENT_TERMINAL_LINES[0].text
 
-    // type the command character by character, then reveal output lines
+    // type the command character by character, then reveal output lines.
+    // Each keystroke is its own one-shot timer (chained via onComplete) so
+    // the irregular 34–74ms rhythm survives the engine swap.
     let ci = 0
     const typeNext = () => {
       ci++
       setTyped(cmd.slice(0, ci))
       if (ci < cmd.length) {
-        timers.current.push(setTimeout(typeNext, 34 + Math.random() * 40))
+        timer({ duration: 34 + Math.random() * 40, onComplete: typeNext })
       } else {
-        timers.current.push(setTimeout(() => setCount(1), 320))
+        timer({ duration: 320, onComplete: () => setCount(1) })
         for (let i = 2; i <= AGENT_TERMINAL_LINES.length; i++) {
-          timers.current.push(setTimeout(() => setCount(i), 320 + (i - 1) * 430))
+          timer({ duration: 320 + (i - 1) * 430, onComplete: () => setCount(i) })
         }
       }
     }
-    timers.current.push(setTimeout(typeNext, 700))
+    timer({ duration: 700, onComplete: typeNext })
 
+    // Reduced motion flipped on mid-type: resolve the whole session, the
+    // state SSR renders.
     return () => {
-      timers.current.forEach(clearTimeout)
-      timers.current = []
+      setTyped(cmd)
+      setCount(AGENT_TERMINAL_LINES.length)
     }
-  }, [live])
+  })
 
   const done = count >= AGENT_TERMINAL_LINES.length
   const reduced = typeof window !== 'undefined' && prefersReducedMotion()
@@ -139,7 +151,7 @@ function AgentTerminal() {
         <div>
           <span style={{ color: INK.green }}>$ </span>
           <span style={{ color: INK.bright }}>
-            {live && !reduced ? typed.replace(/^\$ /, '') : AGENT_TERMINAL_LINES[0].text.replace(/^\$ /, '')}
+            {armed && !reduced ? typed.replace(/^\$ /, '') : AGENT_TERMINAL_LINES[0].text.replace(/^\$ /, '')}
           </span>
           {!done && <span className="rm-caret ml-0.5 inline-block h-3 w-[6px] align-middle" />}
         </div>
@@ -192,12 +204,17 @@ function AgentTerminal() {
             </div>
           )
         })}
-        {done && (
-          <div className="mt-1">
-            <span style={{ color: INK.green }}>$ </span>
-            <span className="rm-caret ml-0.5 inline-block h-3 w-[6px] align-middle" />
-          </div>
-        )}
+        {/* visibility (not conditional render) keeps the line in layout
+            while the typing replays: unmounting it shrank the pane ~9px,
+            and inside ScrollSmoother any document-height change forces a
+            full ScrollTrigger refresh mid-scroll. */}
+        <div
+          className="mt-1"
+          style={{ visibility: done ? 'visible' : 'hidden' }}
+        >
+          <span style={{ color: INK.green }}>$ </span>
+          <span className="rm-caret ml-0.5 inline-block h-3 w-[6px] align-middle" />
+        </div>
       </div>
     </div>
   )
@@ -295,12 +312,80 @@ function PhaseNode({
 /* ------------------------------------------------------------------ */
 
 function RoadmapBody() {
+  const gridRef = useRef<HTMLDivElement | null>(null)
+  const stickyColRef = useRef<HTMLDivElement | null>(null)
+
+  // position:sticky silently dies inside ScrollSmoother's transformed
+  // content (sticky displacement comes from a scrolling ancestor, and the
+  // smoother moves the page by transform instead), so on the full tier the
+  // left column is kept in view with a scrubbed y tween that replicates the
+  // sticky contract: hold at top-24 once the column top reaches it, release
+  // when the column bottom meets the grid bottom. Deliberately NOT a
+  // ScrollTrigger pin — pinning wraps the column in a pin-spacer sized from
+  // visual pixels, which inside .page-zoom-out (zoom: 0.9) is off by 1/0.9
+  // and would also swap the grid item out from under the column. lite/still
+  // never create a smoother, so the CSS sticky keeps working there as-is.
+  useEffect(() => {
+    let tween: StickyTween | null = null
+    let tweenTarget: HTMLDivElement | null = null
+    const off = onLandingRuntime(({ motion, smoother }) => {
+      const grid = gridRef.current
+      const col = stickyColRef.current
+      if (!smoother || !grid || !col || tween) return
+      tweenTarget = col
+      const { gsap } = motion
+
+      // zoom scales rendered pixels: one layout px of translateY moves the
+      // column `zoom` visual px. Measured live (it's 1 below md, 0.9 above)
+      // so the scroll distance and the travel stay 1:1 in screen pixels.
+      const zoom = () => {
+        const w = col.offsetWidth
+        return w > 0 ? col.getBoundingClientRect().width / w : 1
+      }
+      // Travel in layout px until the column bottom reaches the grid
+      // bottom — the same constraint native sticky enforces. Below lg the
+      // grid stacks (and the CSS sticky is off), so the emulation stands
+      // down by scrubbing over a zero-length travel.
+      const travel = () =>
+        window.matchMedia('(min-width: 1024px)').matches
+          ? Math.max(0, grid.offsetHeight - col.offsetHeight)
+          : 0
+
+      tween = gsap.fromTo(
+        col,
+        { y: 0 },
+        {
+          y: travel,
+          ease: 'none',
+          scrollTrigger: {
+            trigger: col,
+            start: () => `top ${STICKY_TOP * zoom()}px`,
+            end: () => `+=${travel() * zoom()}`,
+            scrub: true,
+            invalidateOnRefresh: true
+          }
+        }
+      )
+    })
+    return () => {
+      off()
+      tween?.scrollTrigger?.kill()
+      tween?.kill()
+      tween = null
+      tweenTarget?.style.removeProperty('transform')
+      tweenTarget = null
+    }
+  }, [])
+
   return (
     <>
       <Seam alt="00 KM" note="TOUCHDOWN · FLIGHT PLAN LOADED" />
 
-      <div className="mt-10 sm:mt-14 grid grid-cols-1 gap-12 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
-        <div className="lg:sticky lg:top-24 lg:self-start">
+      <div
+        ref={gridRef}
+        className="mt-10 sm:mt-14 grid grid-cols-1 gap-12 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16"
+      >
+        <div ref={stickyColRef} className="lg:sticky lg:top-24 lg:self-start">
           <SectionHeader
             index="05"
             code="FLIGHT_PLAN"

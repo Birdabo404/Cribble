@@ -5,18 +5,31 @@
 // stitched together by a fixed altitude HUD that tracks scroll like a
 // re-entry telemetry readout. The hero above is untouched; this component
 // simply extends the page downward.
+//
+// The HUD is exported and mounted from page.tsx (NOT rendered here):
+// ScrollSmoother transforms #smooth-content and position:fixed dies inside
+// a transform, so every fixed overlay must be a sibling of #smooth-wrapper.
 
-import { CSSProperties, useEffect, useRef, useState } from 'react'
+import { CSSProperties, RefObject, useEffect, useState } from 'react'
 import Link from 'next/link'
+import {
+  landingSmoother,
+  onLandingRuntime,
+  type LandingMotion
+} from '@/lib/landingMotion'
 import { prefersReducedMotion } from '@/lib/motion'
 import { ArenaSection } from './ArenaSection'
 import { CockpitSection } from './CockpitSection'
 import { HonorsSection } from './HonorsSection'
 import { IdentitySection } from './IdentitySection'
 import { RoadmapSection } from './RoadmapSection'
-import { DecodeText, Stage } from './scrollFx'
+import { DecodeText, Stage, useMaskedLines } from './scrollFx'
 
-const SECTIONS = [
+type ScrollTriggerInstance = ReturnType<LandingMotion['ScrollTrigger']['create']>
+
+/** The five descent stages, in scroll order — shared with DescentSpine so
+ *  the trajectory ticks and the HUD ladder can never drift apart. */
+export const SECTIONS = [
   { id: 'arena', label: 'ARENA' },
   { id: 'cockpit', label: 'COCKPIT' },
   { id: 'identity', label: 'IDENTITY' },
@@ -28,38 +41,21 @@ const SECTIONS = [
 /* Altitude HUD — fixed right rail, wakes up once the hero is cleared  */
 /* ------------------------------------------------------------------ */
 
-function DescentHud({ rootRef }: { rootRef: React.RefObject<HTMLDivElement> }) {
+export function DescentHud({
+  rootRef
+}: {
+  rootRef: RefObject<HTMLDivElement>
+}) {
   const [visible, setVisible] = useState(false)
   const [barVisible, setBarVisible] = useState(false)
   const [alt, setAlt] = useState(100)
   const [active, setActive] = useState<string>('arena')
-  const raf = useRef(0)
 
+  // Active-section ladder: IntersectionObserver, deliberately independent
+  // of the motion chunk (IO measures visual rects, so it stays correct
+  // under the smoother's transform too).
   useEffect(() => {
     if (prefersReducedMotion()) return
-
-    const measure = () => {
-      raf.current = 0
-      const root = rootRef.current
-      if (!root) return
-      const vh = window.innerHeight
-      setVisible(window.scrollY > vh * 0.55)
-      // The phone chip overlays page content (no free margin on small
-      // screens), so it waits until the hero is fully cleared.
-      setBarVisible(window.scrollY > vh * 1.05)
-
-      const r = root.getBoundingClientRect()
-      const total = r.height - vh
-      const p = total > 0 ? Math.min(1, Math.max(0, -r.top / total)) : 1
-      setAlt(Math.max(0, 100 - p * 100))
-    }
-    const onScroll = () => {
-      if (!raf.current) raf.current = requestAnimationFrame(measure)
-    }
-    measure()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    window.addEventListener('resize', onScroll)
-
     const io = new IntersectionObserver(
       (entries) => {
         entries.forEach((e) => {
@@ -72,12 +68,50 @@ function DescentHud({ rootRef }: { rootRef: React.RefObject<HTMLDivElement> }) {
       { rootMargin: '-42% 0px -42% 0px' }
     )
     document.querySelectorAll('[data-sec]').forEach((el) => io.observe(el))
+    return () => io.disconnect()
+  }, [])
 
+  // Altitude + wake thresholds: the old per-scroll getBoundingClientRect
+  // math is gone — three ScrollTriggers arm when the motion chunk lands.
+  // The wake thresholds keep their original absolute scroll positions
+  // (0.55/1.05 viewports), which under the full tier now land mid-pin:
+  // telemetry waking during atmospheric entry is the point.
+  useEffect(() => {
+    if (prefersReducedMotion()) return
+    let triggers: ScrollTriggerInstance[] = []
+    const off = onLandingRuntime(({ motion }) => {
+      const root = rootRef.current
+      if (!root || triggers.length) return
+      const { ScrollTrigger } = motion
+      const wakeAt = (fraction: number, set: (on: boolean) => void) =>
+        ScrollTrigger.create({
+          start: () => window.innerHeight * fraction,
+          end: 'max',
+          onToggle: (self) => set(self.isActive)
+        })
+      triggers = [
+        wakeAt(0.55, setVisible),
+        // The phone chip overlays page content (no free margin on small
+        // screens), so it waits until the hero is fully cleared.
+        wakeAt(1.05, setBarVisible),
+        // Same geometry as the old rect math: 100km at the descent root's
+        // top edge, 0km when its bottom meets the viewport bottom.
+        ScrollTrigger.create({
+          trigger: root,
+          start: 'top top',
+          end: 'bottom bottom',
+          onUpdate: (self) => setAlt(Math.max(0, 100 - self.progress * 100))
+        })
+      ]
+      // seed — callbacks only fire on change after this point
+      setVisible(triggers[0].isActive)
+      setBarVisible(triggers[1].isActive)
+      setAlt(Math.max(0, 100 - triggers[2].progress * 100))
+    })
     return () => {
-      window.removeEventListener('scroll', onScroll)
-      window.removeEventListener('resize', onScroll)
-      cancelAnimationFrame(raf.current)
-      io.disconnect()
+      off()
+      triggers.forEach((t) => t.kill())
+      triggers = []
     }
   }, [rootRef])
 
@@ -167,6 +201,15 @@ function DescentHud({ rootRef }: { rootRef: React.RefObject<HTMLDivElement> }) {
               <a
                 href={`#descent-${s.id}`}
                 aria-label={s.label}
+                onClick={(e) => {
+                  // Under transform-based smoothing the native anchor jump
+                  // scrolls the (fixed) wrapper nowhere — route through the
+                  // smoother. Without one, native behavior stands.
+                  const smoother = landingSmoother()
+                  if (!smoother) return
+                  e.preventDefault()
+                  smoother.scrollTo(`#descent-${s.id}`, true)
+                }}
                 className="block h-[3px] rounded-full transition-all duration-300"
                 style={{
                   width: on ? 26 : 14,
@@ -237,6 +280,25 @@ function DescentGate() {
 /* Finale — touchdown CTA                                              */
 /* ------------------------------------------------------------------ */
 
+/** Wordmark touchdown: SplitText masked line reveal when the chunk beats
+ *  the stage going live; the .st CSS rise otherwise (see useMaskedLines).
+ *  A separate component because useMaskedLines reads the surrounding
+ *  Stage's context — called from Finale itself (outside the Stage) the
+ *  hook never hears "live" and the reveal strands the wordmark hidden. */
+function FinaleWordmark() {
+  const wordmarkRef = useMaskedLines<HTMLHeadingElement>(110)
+  return (
+    <h2
+      ref={wordmarkRef}
+      className="st mt-7 font-semibold leading-none tracking-tight text-zinc-50 text-6xl md:text-8xl"
+      style={{ '--d': '110ms' } as CSSProperties}
+    >
+      cribble
+      <span style={{ color: 'var(--accent)' }}>.</span>
+    </h2>
+  )
+}
+
 function Finale() {
   return (
     <section className="relative overflow-hidden">
@@ -266,13 +328,7 @@ function Finale() {
           <DecodeText text="TOUCHDOWN CONFIRMED" delay={150} />
         </span>
 
-        <h2
-          className="st mt-7 font-semibold leading-none tracking-tight text-zinc-50 text-6xl md:text-8xl"
-          style={{ '--d': '110ms' } as CSSProperties}
-        >
-          cribble
-          <span style={{ color: 'var(--accent)' }}>.</span>
-        </h2>
+        <FinaleWordmark />
 
         <p
           className="st mt-6 font-serif italic text-2xl text-zinc-400 md:text-3xl"
@@ -296,7 +352,13 @@ function Finale() {
           </Link>
           <button
             type="button"
-            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            onClick={() => {
+              // scrollTo must go through the smoother when it's active —
+              // native smooth scroll fights the transform-based smoothing.
+              const smoother = landingSmoother()
+              if (smoother) smoother.scrollTo(0, true)
+              else window.scrollTo({ top: 0, behavior: 'smooth' })
+            }}
             className="px-2 py-2 text-[13px] sm:px-0 sm:py-0 sm:text-xs tracking-[0.2em] text-zinc-400 transition-colors hover:text-[color:var(--accent)]"
           >
             back to orbit ↑
@@ -316,12 +378,15 @@ function Finale() {
 
 /* ------------------------------------------------------------------ */
 
-export function Descent() {
-  const rootRef = useRef<HTMLDivElement>(null)
-
+export function Descent({
+  rootRef
+}: {
+  /** Owned by page.tsx and shared with the hoisted DescentHud and the
+   *  DescentSpine, which both measure their scroll geometry against it. */
+  rootRef: RefObject<HTMLDivElement>
+}) {
   return (
     <div ref={rootRef} className="lx-descent relative text-zinc-100 font-mono">
-      <DescentHud rootRef={rootRef} />
       <DescentGate />
       <ArenaSection />
       <CockpitSection />
@@ -376,6 +441,17 @@ export function Descent() {
              clip (not hidden) keeps this from becoming a scroll container,
              so page scroll + the roadmap's sticky column stay intact */
           overflow-x: clip;
+        }
+
+        /* Full tier (html.lx-motion-full, set by LandingScrollRuntime):
+           the altitude gradient and star tiles above are superseded by the
+           fixed .lx-atmo layer stack (globals.css), which cross-fades the
+           same journey from the scrubbed --alt over the WHOLE page instead
+           of keying it to this section's own height. This surface goes
+           transparent so the two never double up; lite/still keep the
+           static version. Light mode keeps its own background below. */
+        html.lx-motion-full:not(.light) .lx-descent {
+          background: none;
         }
 
         html.light .lx-descent {

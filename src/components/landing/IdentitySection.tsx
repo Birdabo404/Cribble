@@ -7,18 +7,21 @@
 
 import {
   CSSProperties,
+  MutableRefObject,
   PointerEvent as ReactPointerEvent,
-  useEffect,
+  useLayoutEffect,
   useRef,
   useState
 } from 'react'
+import type { JSAnimation } from 'animejs'
 import { PlateLayer } from '@/components/cosmetics/PlateLayer'
 import { PixelIcon } from '@/components/achievements/PixelIcon'
 import { SocialIcon, ToolIcon } from '@/components/leaderboard/icons'
 import { getPlate, PLATE_RARITY_META } from '@/lib/cosmetics/plates'
 import { prefersReducedMotion } from '@/lib/motion'
 import { SHOWCASE_PLATES } from './data'
-import { Seam, SectionHeader, Stage, useStageLive } from './scrollFx'
+import { Seam, SectionHeader, Stage } from './scrollFx'
+import { useSectionMotion, type SectionMotionHandle } from './useSectionMotion'
 
 /* The demo card is the founder's real profile — same numbers the arena sim
    above puts him at, so the two sections corroborate each other. */
@@ -42,21 +45,25 @@ const CARD_TOOLS = [
   { name: 'ChatGPT', pct: 19 }
 ] as const
 
-const RARITY: Record<string, string> = {
-  common: 'rgb(var(--r-common))',
-  rare: 'rgb(var(--r-rare))',
-  epic: 'rgb(var(--r-epic))',
-  legendary: 'rgb(var(--r-legendary))',
-  mythic: 'rgb(var(--r-mythic))'
-}
-
-function PilotCard({ plateId }: { plateId: string }) {
+function PilotCard({
+  plateId,
+  motionRef
+}: {
+  plateId: string
+  motionRef: MutableRefObject<SectionMotionHandle | null>
+}) {
   const ref = useRef<HTMLDivElement | null>(null)
   const raf = useRef(0)
+  const releaseAnim = useRef<JSAnimation | null>(null)
+  const swapRef = useRef<HTMLDivElement | null>(null)
+  const prevPlate = useRef(plateId)
 
   const onMove = (e: ReactPointerEvent) => {
     const el = ref.current
     if (!el || prefersReducedMotion()) return
+    // The pointer takes the wheel back from a mid-flight release spring.
+    releaseAnim.current?.cancel()
+    releaseAnim.current = null
     const r = el.getBoundingClientRect()
     const px = (e.clientX - r.left) / r.width
     const py = (e.clientY - r.top) / r.height
@@ -74,10 +81,42 @@ function PilotCard({ plateId }: { plateId: string }) {
     const el = ref.current
     if (!el) return
     cancelAnimationFrame(raf.current)
-    el.style.setProperty('--rx', '0deg')
-    el.style.setProperty('--ry', '0deg')
     el.style.setProperty('--glare', '0')
+    const m = motionRef.current
+    // Spring the tilt back to rest instead of snapping. The inline-var
+    // check skips pointers that never tilted (e.g. a touch tap); no handle
+    // (chunk pending, reduced motion) keeps today's instant reset.
+    if (m && el.style.getPropertyValue('--rx') !== '') {
+      releaseAnim.current = m.motion.animate(el, {
+        '--rx': '0deg',
+        '--ry': '0deg',
+        ease: m.motion.spring({ stiffness: 170, damping: 13 })
+      })
+    } else {
+      el.style.setProperty('--rx', '0deg')
+      el.style.setProperty('--ry', '0deg')
+    }
   }
+
+  // Plate swap: once the motion layer is live, the entering banner springs
+  // in instead of playing the CSS crossfade. Pre-paint (layout effect +
+  // anime rendering from-values synchronously), so suppressing the CSS
+  // animation inline never lets it start — no double play, and the CSS
+  // path stays intact as the fallback while the handle is null.
+  useLayoutEffect(() => {
+    if (prevPlate.current === plateId) return
+    prevPlate.current = plateId
+    const m = motionRef.current
+    const el = swapRef.current
+    if (!m || !el) return
+    el.style.animation = 'none'
+    m.motion.animate(el, {
+      opacity: [0, 1],
+      filter: ['saturate(1.6) brightness(1.35)', 'saturate(1) brightness(1)'],
+      ease: m.motion.spring({ stiffness: 120, damping: 14 }),
+      onComplete: () => el.style.removeProperty('filter')
+    })
+  }, [plateId, motionRef])
 
   const plate = getPlate(plateId)
   const accent = plate?.render.kind === 'css' ? plate.render.accent : '204 255 0'
@@ -103,7 +142,7 @@ function PilotCard({ plateId }: { plateId: string }) {
         {/* banner — the equipped plate, full bleed */}
         <div className="relative h-[118px] overflow-hidden">
           {/* crossfade: key swap re-mounts, entering layer fades in over the old paint */}
-          <div key={plateId} className="id-plate-swap absolute inset-0">
+          <div key={plateId} ref={swapRef} className="id-plate-swap absolute inset-0">
             <PlateLayer plateId={plateId} fade="none" />
           </div>
           <span
@@ -229,9 +268,8 @@ function PilotCard({ plateId }: { plateId: string }) {
                   title={b.name}
                   className="flex h-7 w-7 items-center justify-center rounded-md"
                   style={{
-                    color: RARITY[b.rarity],
                     background: 'rgb(var(--lb-panel-edge) / 0.04)',
-                    border: '1px solid rgb(var(--lb-panel-edge) / 0.09)'
+                    border: `1px solid rgb(var(--r-${b.rarity}) / 0.3)`
                   }}
                 >
                   <PixelIcon name={b.icon} size={14} />
@@ -258,20 +296,28 @@ function PilotCard({ plateId }: { plateId: string }) {
 }
 
 function IdentityBody() {
-  const live = useStageLive()
   const [plateId, setPlateId] = useState<string>(SHOWCASE_PLATES[0])
   const [autoCycle, setAutoCycle] = useState(true)
 
-  useEffect(() => {
-    if (!live || !autoCycle || prefersReducedMotion()) return
-    const iv = setInterval(() => {
-      setPlateId((prev) => {
-        const i = SHOWCASE_PLATES.indexOf(prev as (typeof SHOWCASE_PLATES)[number])
-        return SHOWCASE_PLATES[(i + 1) % SHOWCASE_PLATES.length]
+  // Plate auto-cycle on the shared engine tick; the handle also powers the
+  // card's tilt-release and plate-swap springs.
+  const motionRef = useSectionMotion(
+    'identity',
+    ({ timer }) => {
+      if (!autoCycle) return
+      timer({
+        duration: 3600,
+        loop: true,
+        onLoop: () => {
+          setPlateId((prev) => {
+            const i = SHOWCASE_PLATES.indexOf(prev as (typeof SHOWCASE_PLATES)[number])
+            return SHOWCASE_PLATES[(i + 1) % SHOWCASE_PLATES.length]
+          })
+        }
       })
-    }, 3600)
-    return () => clearInterval(iv)
-  }, [live, autoCycle])
+    },
+    [autoCycle]
+  )
 
   return (
     <>
@@ -393,7 +439,7 @@ function IdentityBody() {
             }}
           />
           <div className="id-float relative mx-auto w-full max-w-[440px]">
-            <PilotCard plateId={plateId} />
+            <PilotCard plateId={plateId} motionRef={motionRef} />
           </div>
           <p className="mt-4 text-center text-[9px] tracking-[0.3em] text-zinc-700">
             <span className="sm:hidden">

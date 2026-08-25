@@ -1,16 +1,18 @@
 'use client'
 
-// Descent stage 04 — THE HONORS. The real 25-medal service record: 24 tiles
+// Descent stage 04 — THE HONORS. The real 32-medal service record: 31 tiles
 // igniting in a radial wave around one APEX centerpiece — the legendary that
 // only ever exists on one account at a time. Hovering a tile reads out its
 // name + brief on the inspection line below the wall.
 
-import { CSSProperties, useState } from 'react'
+import { CSSProperties, useEffect, useRef, useState } from 'react'
 import { PixelIcon } from '@/components/achievements/PixelIcon'
 import { IconCrown } from '@/components/leaderboard/icons'
 import type { AchievementDef } from '@/lib/achievements'
+import { landingTier, loadLandingMotion } from '@/lib/landingMotion'
 import { APEX, HONOR_TILES, RARITY_COLOR } from './data'
-import { CountUp, Seam, SectionHeader, Stage } from './scrollFx'
+import { CountUp, Seam, SectionHeader, Stage, useStageLive } from './scrollFx'
+import { useSectionMotion } from './useSectionMotion'
 
 /** The story the wall tells: a mid-ladder pilot's record — commons banked,
  * rares coming in, exactly one epic to prove the ladder keeps going. */
@@ -32,7 +34,9 @@ const UNLOCKED = new Set([
 const COLS = 8
 
 function tileDelay(index: number): number {
-  // radial ignition wave measured from the wall's center tile
+  // radial ignition wave measured from the wall's center tile — the CSS
+  // fallback path; the anime entrance derives the same wave from a grid
+  // stagger instead
   const row = Math.floor(index / COLS)
   const col = index % COLS
   const dist = Math.hypot(col - (COLS - 1) / 2, row - 1)
@@ -42,11 +46,15 @@ function tileDelay(index: number): number {
 function Tile({
   def,
   index,
-  onHover
+  onHover,
+  jsEntrance
 }: {
   def: AchievementDef
   index: number
   onHover: (def: AchievementDef) => void
+  /** True when the anime spring entrance owns the wall — swaps the CSS
+   * st-cell ignition out so the two can never double-fire. */
+  jsEntrance: boolean
 }) {
   const unlocked = UNLOCKED.has(def.id)
   const color = RARITY_COLOR[def.rarity]
@@ -57,7 +65,7 @@ function Tile({
       onPointerEnter={() => onHover(def)}
       onFocus={() => onHover(def)}
       aria-label={`${def.name}: ${def.description}`}
-      className="st-cell hn-tile group relative flex aspect-square items-center justify-center rounded-lg"
+      className={`${jsEntrance ? 'hn-js' : 'st-cell'} hn-tile group relative flex aspect-square items-center justify-center rounded-lg`}
       style={
         {
           '--d': `${tileDelay(index)}ms`,
@@ -74,15 +82,16 @@ function Tile({
         } as CSSProperties
       }
     >
+      {/* self-colored trophy; locked slots read as engraved silhouettes */}
       <span
         className="transition-transform duration-300 group-hover:scale-110"
         style={{
-          color: unlocked ? color : 'rgb(var(--z600))',
-          opacity: unlocked ? 1 : 0.7,
-          filter: unlocked ? `drop-shadow(0 0 6px ${color})` : undefined
+          filter: unlocked
+            ? `drop-shadow(0 0 6px color-mix(in srgb, ${color} 40%, transparent))`
+            : undefined
         }}
       >
-        <PixelIcon name={def.icon} size={28} />
+        <PixelIcon name={def.icon} size={28} locked={!unlocked} />
       </span>
       {!unlocked && (
         <span
@@ -202,6 +211,62 @@ function HonorsBody() {
   const inspectColor = RARITY_COLOR[inspect.rarity]
   const inspectUnlocked = UNLOCKED.has(inspect.id)
 
+  const live = useStageLive()
+  const liveRef = useRef(live)
+  liveRef.current = live
+  const wallRef = useRef<HTMLDivElement | null>(null)
+  const [jsEntrance, setJsEntrance] = useState(false)
+
+  // Entrance ownership is decided before the stage goes live: if the motion
+  // chunk lands first, anime owns the wall (tiles mount without st-cell, so
+  // the CSS ignition can never also fire); if the stage wins the race, the
+  // CSS wave plays exactly as today and anime stands down for good.
+  useEffect(() => {
+    if (landingTier() === 'still') return
+    let disposed = false
+    loadLandingMotion().then(() => {
+      if (disposed || liveRef.current) return
+      setJsEntrance(true)
+    }, () => {}) // failed chunk: the CSS wave owns the wall, as designed
+    return () => {
+      disposed = true
+    }
+  }, [])
+
+  useSectionMotion(
+    'honors',
+    ({ motion }) => {
+      if (!jsEntrance) return
+      const wall = wallRef.current
+      if (!wall) {
+        setJsEntrance(false)
+        return
+      }
+      const tiles = wall.querySelectorAll<HTMLElement>('.hn-tile')
+      motion.animate(tiles, {
+        opacity: [0, 1],
+        scale: [0.3, 1],
+        ease: motion.spring({ stiffness: 120, damping: 12 }),
+        // start: 420 keeps the CSS wave's intro beat — header lands first
+        delay: motion.stagger(60, {
+          start: 420,
+          grid: [COLS, Math.ceil(tiles.length / COLS)],
+          from: 'center'
+        }),
+        onComplete: () => {
+          // the spring's final inline transform would pin the tiles and
+          // block the CSS hover lift — opacity: 1 stays, transform goes
+          tiles.forEach((t) => t.style.removeProperty('transform'))
+        }
+      })
+      // Reduced motion flipped mid-session: the scope reverts the inline
+      // styles, so hand the wall back to the CSS path (kill-switched to its
+      // final state) rather than leave hn-js tiles with nothing to show them.
+      return () => setJsEntrance(false)
+    },
+    [jsEntrance]
+  )
+
   return (
     <>
       <Seam alt="02 KM" note="FINAL APPROACH · SERVICE RECORD" />
@@ -211,12 +276,12 @@ function HonorsBody() {
           align="center"
           index="04"
           code="SERVICE_RECORD"
-          title={<>Twenty-five medals.</>}
+          title={<>Thirty-two medals.</>}
           serif={<>earned in the field, never bought.</>}
           body={
             <>
-              Milestones, streaks, arsenal, operations. Every medal is cut
-              from real usage stats, so the case fills at the speed you
+              Milestones, streaks, arsenal, operations, burn. Every medal is
+              cut from real usage stats, so the case fills at the speed you
               actually work. Most collections stall in single digits. The
               last one can&apos;t be collected at all: it&apos;s held, and
               only for as long as you can defend it.
@@ -235,7 +300,7 @@ function HonorsBody() {
             UNLOCKED{' '}
             <span style={{ color: 'var(--accent)' }} className="tabular-nums">
               <CountUp to={UNLOCKED.size} duration={1400} delay={900} />
-              /25
+              /32
             </span>
           </span>
           <span className="sm:hidden">TAP TO INSPECT</span>
@@ -244,9 +309,15 @@ function HonorsBody() {
 
         {/* lx-hw + lx-case: in the light dossier the tiles mount inside one
             dark velvet medal case; in dark mode the page itself is the case */}
-        <div className="lx-hw lx-case grid grid-cols-6 gap-2 sm:grid-cols-8">
+        <div ref={wallRef} className="lx-hw lx-case grid grid-cols-6 gap-2 sm:grid-cols-8">
           {HONOR_TILES.map((def, i) => (
-            <Tile key={def.id} def={def} index={i} onHover={setInspect} />
+            <Tile
+              key={def.id}
+              def={def}
+              index={i}
+              onHover={setInspect}
+              jsEntrance={jsEntrance}
+            />
           ))}
         </div>
 
@@ -255,8 +326,8 @@ function HonorsBody() {
           className="st lx-paper mt-3 flex min-h-[40px] items-center gap-3 rounded-lg border border-zinc-800/70 bg-[color:var(--panel)] px-4 py-2.5"
           style={{ '--d': '480ms' } as CSSProperties}
         >
-          <span style={{ color: inspectColor }}>
-            <PixelIcon name={inspect.icon} size={16} />
+          <span>
+            <PixelIcon name={inspect.icon} size={16} locked={!inspectUnlocked} />
           </span>
           <span className="min-w-0 flex-1 truncate">
             <span
@@ -284,6 +355,24 @@ function HonorsBody() {
       </div>
 
       <style jsx global>{`
+        /* anime-owned entrance: hn-js replaces st-cell on the tiles, so the
+           stage classes hide them until the spring writes inline opacity.
+           Reduced motion (either switch) overrides back to visible — a
+           mid-race flip can never strand the wall hidden. Rule order inside
+           this block is the tiebreak for the media query. */
+        .stage-armed .hn-js,
+        .stage-live .hn-js {
+          opacity: 0;
+        }
+        html[data-motion='reduced'] .hn-js {
+          opacity: 1;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .stage-armed .hn-js,
+          .stage-live .hn-js {
+            opacity: 1;
+          }
+        }
         .hn-tile {
           cursor: default;
           transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1),

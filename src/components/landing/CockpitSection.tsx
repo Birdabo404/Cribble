@@ -5,12 +5,12 @@
 // ignites cell by cell, tool split bars, and a sync feed that streams in
 // scored sessions. The whole console docks in from below on scroll.
 
-import { CSSProperties, useEffect, useState } from 'react'
+import { CSSProperties, useState } from 'react'
 import { formatNumber } from '@/components/dashboard-v2/format'
 import { ToolIcon } from '@/components/leaderboard/icons'
-import { prefersReducedMotion } from '@/lib/motion'
 import { COCKPIT, heatLevel, SYNC_FEED } from './data'
-import { CountUp, Seam, SectionHeader, Stage, useStageLive } from './scrollFx'
+import { CountUp, Seam, SectionHeader, Stage } from './scrollFx'
+import { useSectionMotion } from './useSectionMotion'
 
 const WEEKS = 12
 const DAYS = 7
@@ -108,20 +108,24 @@ function Sparkline() {
 }
 
 function SyncFeed() {
-  const live = useStageLive()
   const [shown, setShown] = useState(SYNC_FEED.length)
 
-  useEffect(() => {
-    if (!live || prefersReducedMotion()) return
+  useSectionMotion('cockpit', ({ timer }) => {
     setShown(0)
     let i = 0
-    const iv = setInterval(() => {
-      i++
-      setShown(i)
-      if (i >= SYNC_FEED.length) clearInterval(iv)
-    }, 620)
-    return () => clearInterval(iv)
-  }, [live])
+    timer({
+      duration: 620,
+      loop: true,
+      onLoop: (self) => {
+        i++
+        setShown(i)
+        if (i >= SYNC_FEED.length) self.cancel()
+      }
+    })
+    // Reduced motion flipped on mid-stream: resolve to the full feed, the
+    // state SSR renders.
+    return () => setShown(SYNC_FEED.length)
+  })
 
   return (
     <div className="flex flex-col gap-1.5 font-mono text-[10.5px] leading-relaxed">
