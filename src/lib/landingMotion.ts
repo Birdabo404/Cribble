@@ -50,14 +50,17 @@ export function landingTier(): LandingTier {
   return finePointer && wideViewport && capableCpu ? 'full' : 'lite'
 }
 
-/** Run `cb` when the main thread goes idle. Safari has no
+/** Run `cb` when the main thread goes idle. The 800ms timeout ceiling
+ *  matters: under first-load pressure (globe boot, hydration) the browser
+ *  may not go idle for seconds, and the motion chunk arriving that late
+ *  means entrances fire visibly after content settled. Safari has no
  *  requestIdleCallback, so it falls back to a 200ms timeout; SSR no-ops. */
 export function whenIdle(cb: () => void): void {
   if (typeof window === 'undefined') return
   // typeof check (not `in`): lib.dom types Window with requestIdleCallback
   // unconditionally, so an `in` guard narrows the else branch to `never`.
   if (typeof window.requestIdleCallback === 'function') {
-    window.requestIdleCallback(() => cb())
+    window.requestIdleCallback(() => cb(), { timeout: 800 })
   } else {
     window.setTimeout(cb, 200)
   }
@@ -74,6 +77,8 @@ async function importLandingMotion() {
     splitTextModule,
     drawSvgModule,
     customEaseModule,
+    flipModule,
+    scrambleTextModule,
     animeModule
   ] = await Promise.all([
     import('gsap'),
@@ -82,6 +87,8 @@ async function importLandingMotion() {
     import('gsap/SplitText'),
     import('gsap/DrawSVGPlugin'),
     import('gsap/CustomEase'),
+    import('gsap/Flip'),
+    import('gsap/ScrambleTextPlugin'),
     import('animejs')
   ])
 
@@ -91,6 +98,8 @@ async function importLandingMotion() {
   const { SplitText } = splitTextModule
   const { DrawSVGPlugin } = drawSvgModule
   const { CustomEase } = customEaseModule
+  const { Flip } = flipModule
+  const { ScrambleTextPlugin } = scrambleTextModule
   // spring() is v4.5's name for the deprecated createSpring()
   const { createTimer, animate, stagger, spring, createScope, engine } =
     animeModule
@@ -101,7 +110,9 @@ async function importLandingMotion() {
     ScrollSmoother,
     SplitText,
     DrawSVGPlugin,
-    CustomEase
+    CustomEase,
+    Flip,
+    ScrambleTextPlugin
   )
   CustomEase.create(CRIBBLE_EASE_NAME, CRIBBLE_EASE)
 
@@ -111,6 +122,8 @@ async function importLandingMotion() {
     ScrollSmoother,
     SplitText,
     DrawSVGPlugin,
+    Flip,
+    ScrambleTextPlugin,
     createTimer,
     animate,
     stagger,
@@ -120,8 +133,9 @@ async function importLandingMotion() {
   }
 }
 
-/** Everything loadLandingMotion() resolves with: gsap + its four registered
- *  scroll/text/SVG plugins, and the anime.js functions the landing uses. */
+/** Everything loadLandingMotion() resolves with: gsap + its registered
+ *  scroll/text/SVG/Flip plugins, and the anime.js functions the landing
+ *  uses. */
 export type LandingMotion = Awaited<ReturnType<typeof importLandingMotion>>
 
 let landingMotionPromise: Promise<LandingMotion> | null = null

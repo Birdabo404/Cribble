@@ -18,6 +18,7 @@
 
 import type { GlobeHandle } from '@/components/Globe'
 import type { LandingMotion } from '@/lib/landingMotion'
+import { settleHeroEntrance, whenHeroEntranceSettled } from './heroEntrance'
 
 type TimelineInstance = ReturnType<LandingMotion['gsap']['timeline']>
 type SplitTextInstance = ReturnType<LandingMotion['SplitText']['create']>
@@ -42,7 +43,9 @@ export function createHeroPin(
   // Instrument Serif loads with preload: false, so the tagline's line
   // breaks aren't final until fonts resolve. The exit splits live inside a
   // scrubbed timeline (autoSplit can't rebuild tweens that belong to a
-  // timeline), so instead of autoSplit we simply build once, after fonts.
+  // timeline), so instead of autoSplit we simply build once, after fonts —
+  // and after the GSAP entrance cascade settles, so the pin never splits or
+  // tweens nodes another timeline is mid-animating.
   void document.fonts.ready.then(() => {
     if (killed) return
     // If the visitor already scrolled past the hero while the chunk was
@@ -50,10 +53,18 @@ export function createHeroPin(
     // them — a guaranteed layout jump for zero payoff (the entry moment is
     // behind them). Skip it; everything else still arms.
     if (window.scrollY > hero.offsetHeight * 0.5) return
-    build()
+    whenHeroEntranceSettled(() => {
+      if (killed) return
+      if (window.scrollY > hero.offsetHeight * 0.5) return
+      build()
+    })
   })
 
   function build() {
+    // Safety valve: if an entrance is somehow still in flight, jump it to
+    // its end and kill it, so every exit below is built over settled values.
+    settleHeroEntrance()
+
     const { gsap, ScrollTrigger, SplitText } = motion
 
     const stars = hero.querySelector<HTMLElement>('.lx-hero-stars')
@@ -138,40 +149,52 @@ export function createHeroPin(
     }
 
     // Hero copy exit: masked lines rise up out of their clip edges,
-    // dynamic blocks lift and fade. All transform/opacity.
+    // dynamic blocks lift and fade. All transform/opacity — and every exit
+    // is an explicit fromTo with hard start values, so GSAP never derives a
+    // start by sampling a transient computed style (a `.to(autoAlpha)` here
+    // once latched opacity 0 off the old CSS entrance mid-delay and pinned
+    // the badge and body invisible forever). immediateRender stays off:
+    // the entrance settled these nodes at their resting pose, and the scrub
+    // re-asserts the same hard values the moment it renders.
     if (titleLines.length) {
-      timeline.to(
+      timeline.fromTo(
         titleLines,
+        { yPercent: 0 },
         {
           yPercent: -120,
           duration: 0.38,
           stagger: 0.05,
-          ease: 'power2.in'
+          ease: 'power2.in',
+          immediateRender: false
         },
         0.05
       )
     }
     if (taglineLines.length) {
-      timeline.to(
+      timeline.fromTo(
         taglineLines,
+        { yPercent: 0 },
         {
           yPercent: -120,
           duration: 0.38,
           stagger: 0.05,
-          ease: 'power2.in'
+          ease: 'power2.in',
+          immediateRender: false
         },
         0.12
       )
     }
     if (copyBlocks.length) {
-      timeline.to(
+      timeline.fromTo(
         copyBlocks,
+        { autoAlpha: 1, y: 0 },
         {
           autoAlpha: 0,
           y: -36,
           duration: 0.38,
           stagger: 0.05,
-          ease: 'power2.in'
+          ease: 'power2.in',
+          immediateRender: false
         },
         0.08
       )

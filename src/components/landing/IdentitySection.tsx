@@ -45,6 +45,13 @@ const CARD_TOOLS = [
   { name: 'ChatGPT', pct: 19 }
 ] as const
 
+type TiltSetters = {
+  rx: (v: number) => void
+  ry: (v: number) => void
+  gx: (v: number) => void
+  gy: (v: number) => void
+}
+
 function PilotCard({
   plateId,
   motionRef
@@ -53,7 +60,7 @@ function PilotCard({
   motionRef: MutableRefObject<SectionMotionHandle | null>
 }) {
   const ref = useRef<HTMLDivElement | null>(null)
-  const raf = useRef(0)
+  const settersRef = useRef<TiltSetters | null>(null)
   const releaseAnim = useRef<JSAnimation | null>(null)
   const swapRef = useRef<HTMLDivElement | null>(null)
   const prevPlate = useRef(plateId)
@@ -67,20 +74,39 @@ function PilotCard({
     const r = el.getBoundingClientRect()
     const px = (e.clientX - r.left) / r.width
     const py = (e.clientY - r.top) / r.height
-    cancelAnimationFrame(raf.current)
-    raf.current = requestAnimationFrame(() => {
+    // gsap.quickSetter on the custom properties — GSAP's cheapest write
+    // path, riding its own render batching instead of a hand-rolled rAF.
+    // Built lazily once the runtime handle exists; before that (chunk
+    // still loading) plain writes keep the tilt working — pointer events
+    // are already delivered at frame rate, so there is nothing to batch.
+    const m = motionRef.current
+    if (m && !settersRef.current) {
+      const { gsap } = m.motion
+      settersRef.current = {
+        rx: gsap.quickSetter(el, '--rx', 'deg') as TiltSetters['rx'],
+        ry: gsap.quickSetter(el, '--ry', 'deg') as TiltSetters['ry'],
+        gx: gsap.quickSetter(el, '--gx', '%') as TiltSetters['gx'],
+        gy: gsap.quickSetter(el, '--gy', '%') as TiltSetters['gy']
+      }
+    }
+    const setters = settersRef.current
+    if (setters) {
+      setters.rx((0.5 - py) * 10)
+      setters.ry((px - 0.5) * 12)
+      setters.gx(px * 100)
+      setters.gy(py * 100)
+    } else {
       el.style.setProperty('--rx', `${(0.5 - py) * 10}deg`)
       el.style.setProperty('--ry', `${(px - 0.5) * 12}deg`)
       el.style.setProperty('--gx', `${px * 100}%`)
       el.style.setProperty('--gy', `${py * 100}%`)
-      el.style.setProperty('--glare', '1')
-    })
+    }
+    el.style.setProperty('--glare', '1')
   }
 
   const onLeave = () => {
     const el = ref.current
     if (!el) return
-    cancelAnimationFrame(raf.current)
     el.style.setProperty('--glare', '0')
     const m = motionRef.current
     // Spring the tilt back to rest instead of snapping. The inline-var

@@ -11,9 +11,10 @@ import { FilmGrain } from '@/components/landing/hero/FilmGrain'
 import { Footer } from '@/components/landing/hero/Footer'
 import { GlobeStage } from '@/components/landing/hero/GlobeStage'
 import { Header } from '@/components/landing/hero/Header'
+import { HeroCta } from '@/components/landing/hero/HeroCta'
+import { useHeroEntrance } from '@/components/landing/hero/heroEntrance'
 import { RotatingTool } from '@/components/landing/hero/RotatingTool'
 import { ToolChip } from '@/components/landing/hero/ToolChip'
-import { WaitlistCta } from '@/components/landing/hero/WaitlistCta'
 import { LandingScrollRuntime } from '@/components/landing/scrollFx'
 
 export default function HomeV2() {
@@ -28,6 +29,12 @@ export default function HomeV2() {
   const handleGlobeReady = useCallback((handle: GlobeHandle) => {
     globeHandleRef.current = handle
   }, [])
+
+  // Hero entrance: pre-paint arming + one GSAP timeline over the four
+  // [data-hero-enter] blocks (hero/heroEntrance.ts). The old .hero-item CSS
+  // keyframes are gone — CSS never animates opacity/transform on nodes the
+  // pin's GSAP exits also own.
+  useHeroEntrance(heroRef)
 
   return (
     <>
@@ -83,81 +90,104 @@ export default function HomeV2() {
       <div className="page-zoom-out relative z-10 max-w-6xl w-full mx-auto px-6 flex-1 flex flex-col">
         <Header />
 
+        {/* 7/5 asymmetric grid: the copy column (cols 1–7) overlaps the
+            globe column (cols 7–13) on an explicit z-order, and the globe
+            bleeds past the container's right edge (negative margin; the
+            hero's overflow-hidden clips it) — the Earth reads as the object
+            the page is falling toward, not a screenshot beside a paragraph.
+            Below lg it stacks: copy first, globe after. */}
         <main className="flex-1 flex items-center py-4 sm:py-8">
-          <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_1fr] gap-4 sm:gap-10 lg:gap-16 items-center w-full">
-            {/* LEFT — hero copy. During the pinned entry the static text
-                exits as SplitText masked lines (.lx-hero-title /
-                .lx-hero-tagline) while blocks with dynamic children
-                (WorldwideText, RotatingTool, LiquidMark) lift out whole
-                (.lx-hero-exit) — SplitText must never own DOM that React
-                re-renders. */}
-            <div className="order-1">
-              <span
-                className="hero-item lx-hero-exit inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-zinc-800 bg-zinc-950 text-[10px] tracking-[0.25em] sm:tracking-[0.3em] text-zinc-400"
-                style={{ ['--hr' as string]: '0ms' }}
+          <div className="grid w-full grid-cols-1 items-center gap-y-10 lg:grid-cols-12">
+            {/* LEFT — hero copy in four deliberate blocks (masthead /
+                display unit / body / CTA), spaced on the shared --rhythm
+                scale. During the pinned entry the static text exits as
+                SplitText masked lines (.lx-hero-title / .lx-hero-tagline)
+                while blocks with dynamic children (WorldwideText,
+                RotatingTool, LiquidMark) lift out whole (.lx-hero-exit) —
+                SplitText must never own DOM that React re-renders. */}
+            <div className="relative z-10 order-1 lg:col-start-1 lg:col-end-8 lg:row-start-1">
+              {/* masthead — telemetry line, not a pill: status reading on
+                  the left, hairline, altitude callout on the right. */}
+              <div
+                data-hero-enter
+                className="lx-hero-exit flex items-center gap-3 text-[length:var(--fs-label)] tracking-[0.25em] sm:tracking-[0.3em] text-zinc-400"
               >
                 <span
-                  className="h-1.5 w-1.5 rounded-full"
+                  className="h-1.5 w-1.5 shrink-0 rounded-full"
                   style={{
                     background: ACCENT,
                     boxShadow: `0 0 8px ${accentA(0.69)}`
                   }}
                 />
-                PRIVATE BETA · INVITE-ONLY
-              </span>
-
-              <h1
-                className="hero-item mt-6 flex items-center gap-3.5 font-semibold tracking-tight leading-none text-zinc-50 text-[clamp(2.5rem,11vw,3.25rem)] md:text-6xl lg:text-[4.75rem]"
-                style={{ ['--hr' as string]: '90ms' }}
-              >
-                {/* liquid-metal hive mark, sized to the cap height */}
-                <span className="lx-hero-exit">
-                  <LiquidMark size="0.92em" />
+                <span className="whitespace-nowrap">OPEN BETA</span>
+                <span className="text-zinc-700">{'//'}</span>
+                <span className="whitespace-nowrap">FREE WHILE IN BETA</span>
+                <span aria-hidden className="h-px flex-1 bg-zinc-800/70" />
+                <span className="hidden whitespace-nowrap text-zinc-600 md:inline">
+                  ALT 408KM · SIG LOCKED
                 </span>
-                <span className="lx-hero-title">
-                  cribble
-                  <span style={{ color: ACCENT }}>.</span>
-                </span>
-              </h1>
+              </div>
 
-              {/* Editorial serif tagline — deliberate contrast against the
-                  mono wordmark. The rotating word rides an accent underline
-                  that stretches with each language (see .worldwide-anchor). */}
-              <div
-                className="hero-item mt-5 font-serif text-[clamp(1.875rem,8.2vw,2.5rem)] md:text-[2.85rem] lg:text-[3.55rem] leading-[1.12] md:leading-[1.1]"
-                style={{ ['--hr' as string]: '180ms' }}
-              >
-                <div className="lx-hero-tagline text-zinc-400">
-                  ranking AI users,
-                </div>
-                <div className="lx-hero-exit worldwide-anchor mt-2 md:mt-3">
-                  <WorldwideText />
+              {/* display unit — wordmark + tagline locked together, the
+                  rotating word on its own optical line under an accent
+                  underline that stretches with each language
+                  (.worldwide-anchor). */}
+              <div data-hero-enter className="mt-[var(--rhythm-3)]">
+                <h1 className="flex items-center gap-3.5 font-semibold tracking-tight leading-none text-zinc-50 text-[length:var(--fs-hero)]">
+                  {/* liquid-metal hive mark, sized to the cap height */}
+                  <span className="lx-hero-exit">
+                    <LiquidMark size="0.92em" />
+                  </span>
+                  <span className="lx-hero-title">
+                    cribble
+                    <span style={{ color: ACCENT }}>.</span>
+                  </span>
+                </h1>
+
+                {/* Editorial serif tagline — deliberate contrast against
+                    the mono wordmark. */}
+                <div className="mt-[var(--rhythm-1)] font-serif text-[length:var(--fs-tagline)] leading-[1.12] md:leading-[1.1]">
+                  <div className="lx-hero-tagline text-zinc-400">
+                    ranking AI users,
+                  </div>
+                  <div className="lx-hero-exit worldwide-anchor mt-[var(--rhythm-1)]">
+                    <WorldwideText />
+                  </div>
                 </div>
               </div>
 
-              <p
-                className="hero-item lx-hero-exit mt-6 max-w-md font-sans text-[15px] leading-[1.75] text-zinc-400 sm:text-[15px] sm:leading-[1.8]"
-                style={{ ['--hr' as string]: '280ms' }}
-              >
-                You&apos;re in <ToolChip>ChatGPT</ToolChip>,{' '}
-                <ToolChip>Claude</ToolChip>, <ToolChip>Cursor</ToolChip> and{' '}
-                <RotatingTool />
-                {' all day anyway. Cribble just keeps score: one quiet '}
-                extension, 47 AI sites, one worldwide board. Install it,
-                forget it, and check your rank when the group chat gets
-                cocky.
-              </p>
+              {/* body — ~46ch measure set off by a hairline rule */}
+              <div data-hero-enter className="lx-hero-exit mt-[var(--rhythm-3)]">
+                <span
+                  aria-hidden
+                  className="block h-px w-16"
+                  style={{
+                    background:
+                      'linear-gradient(90deg, rgb(var(--accent-rgb) / 0.9), rgb(var(--accent-rgb) / 0.05))'
+                  }}
+                />
+                <p className="mt-[var(--rhythm-2)] max-w-[46ch] font-sans text-[length:var(--fs-body)] leading-[1.8] text-zinc-400">
+                  You&apos;re in <ToolChip>ChatGPT</ToolChip>,{' '}
+                  <ToolChip>Claude</ToolChip>, <ToolChip>Cursor</ToolChip> and{' '}
+                  <RotatingTool />
+                  {' all day anyway. Cribble just keeps score: one quiet '}
+                  extension, 47 AI sites, one worldwide board. Install it,
+                  forget it, and check your rank when the group chat gets
+                  cocky.
+                </p>
+              </div>
 
-              <div className="lx-hero-exit">
-                <WaitlistCta />
+              {/* single CTA + proof line */}
+              <div data-hero-enter className="lx-hero-exit mt-[var(--rhythm-3)]">
+                <HeroCta />
               </div>
             </div>
 
-            {/* RIGHT — globe. The old scroll-recede wrapper is gone: on the
-                full tier the pinned entry pushes the globe IN via
-                setScrollPose (hero/heroPin.ts), and on lite/still the
-                stacked or static hero never receded anyway. */}
-            <div className="order-2">
+            {/* RIGHT — globe, bleeding past the container edge on lg+. On
+                the full tier the pinned entry pushes it IN via
+                setScrollPose (hero/heroPin.ts); on lite/still the stacked
+                or static hero never receded anyway. */}
+            <div className="relative z-0 order-2 lg:col-start-7 lg:col-end-13 lg:row-start-1 lg:-mr-24 xl:-mr-36">
               <GlobeStage onGlobeReady={handleGlobeReady} />
             </div>
           </div>
@@ -177,7 +207,7 @@ export default function HomeV2() {
         }
 
         /* Accent underline that stretches and shrinks with each language —
-           it tracks the animated width of the wrap above it. */
+           it tracks the width the rotator writes on the wrap above it. */
         .worldwide-anchor::after {
           content: '';
           position: absolute;
@@ -193,36 +223,6 @@ export default function HomeV2() {
           );
           box-shadow: 0 0 14px rgb(var(--accent-rgb) / 0.35);
           pointer-events: none;
-        }
-
-        /* Hero entrance — badge, wordmark, tagline, copy, CTAs rise in
-           sequence. Uses "backwards" fill so hover states stay free after
-           the cascade finishes. Delay comes from --hr, set inline. */
-        .hero-item {
-          animation: hero-rise-in 720ms cubic-bezier(0.22, 1, 0.36, 1)
-            backwards;
-          animation-delay: var(--hr, 0ms);
-        }
-        @keyframes hero-rise-in {
-          from {
-            opacity: 0;
-            transform: translateY(var(--hero-rise, 16px));
-            filter: blur(var(--hero-blur, 8px));
-          }
-        }
-        /* Phones: animating a large blur radius across the whole cascade
-           drops frames on mobile GPUs (the WebGL globe is booting at the
-           same moment) — keep the motion, shrink the expensive part. */
-        @media (max-width: 639px) {
-          .hero-item {
-            --hero-blur: 4px;
-            --hero-rise: 12px;
-          }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .hero-item {
-            animation: none;
-          }
         }
       `}</style>
     </div>

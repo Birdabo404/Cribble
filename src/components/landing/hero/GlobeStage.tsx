@@ -106,8 +106,14 @@ export function GlobeStage({
         </div>
       </div>
 
-      {/* tiny corner annotation */}
-      <div className="absolute bottom-2 right-2 text-[9px] tracking-[0.3em] text-zinc-700 pointer-events-none">
+      {/* tiny corner annotation. The stage fills the hero's globe column,
+          which bleeds past the container edge on lg+ (lg:-mr-24 xl:-mr-36
+          in page.tsx) — the hero's overflow-hidden clips that overhang, so
+          right-2 alone would push the text off-viewport at 1024. The lg/xl
+          offsets mirror the bleed (6rem / 9rem) plus the base 0.5rem inset,
+          anchoring the annotation to the visible container edge instead of
+          the bled box. */}
+      <div className="absolute bottom-2 right-2 lg:right-[6.5rem] xl:right-[9.5rem] text-[9px] tracking-[0.3em] text-zinc-700 pointer-events-none">
         {`// ${PILOTS.length} pilots worldwide · drag to spin`}
       </div>
 

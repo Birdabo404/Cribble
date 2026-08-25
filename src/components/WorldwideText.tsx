@@ -1,12 +1,35 @@
 'use client'
 
+// The hero's rotating "worldwide" word, rebuilt on the shared GSAP runtime.
+// The old version transitioned `width` (layout work every animated frame),
+// declared will-change: width, blurred on every fade, ran a per-character
+// CSS keyframe entrance, and re-measured via getBoundingClientRect in a
+// layout effect on every swap plus its own resize listener. Now:
+//
+//  · English "worldwide" renders statically until the runtime arms; the
+//    still tier (reduced motion) never publishes it, so that word simply
+//    stays — zero animation, matching the old reduced-motion behavior.
+//  · Every swap is a whole-word transform+opacity tween. Whole-word on
+//    purpose: the roster spans RTL scripts (Arabic, Hebrew) and grapheme
+//    clusters (Hindi), where per-character animation is exactly the
+//    fragile path — so the grapheme splitter is gone with it.
+//  · Width gets ONE discrete write per swap, taken while the word is
+//    invisible, so the accent underline on .worldwide-anchor keeps
+//    tracking the word's box. Words wider than the column scale down via
+//    transform, replacing the old --ww-scale plumbing. No resize listener:
+//    the next swap (≤6s) re-measures anyway.
+
+import { useEffect, useRef } from 'react'
 import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+  CRIBBLE_EASE_NAME,
+  landingTier,
+  onLandingRuntime,
+  type LandingMotion
+} from '@/lib/landingMotion'
+
+type GsapCore = LandingMotion['gsap']
+type TimelineInstance = ReturnType<GsapCore['timeline']>
+type DelayedCallInstance = ReturnType<GsapCore['delayedCall']>
 
 interface Language {
   text: string
@@ -30,179 +53,101 @@ const languages: Language[] = [
   { text: 'wereldwijd', font: 'font-dutch' },
   { text: 'παγκοσμίως', font: 'font-greek' },
   { text: 'ברחבי העולם', font: 'font-hebrew', direction: 'rtl' },
-  { text: 'दुनिया भर में', font: 'font-hindi' },
+  { text: 'दुनिया भर में', font: 'font-hindi' }
 ]
 
-// Hold times (steady-state, between transitions)
-const HOLD_ENGLISH_MS = 6000
-const HOLD_OTHER_MS = 3000
-
-// Transition window — snappy fade
-const FADE_OUT_MS = 420
-const SWAP_GAP_MS = 90
-const FADE_IN_MS = 520
-
-// Kinetic per-character entrance (non-English only)
-const KIN_CHAR_DUR_MS = 520
-const KIN_CHAR_STAGGER_MS = 28
-
-// Grapheme-aware splitter — keeps Hindi/Arabic clusters intact.
-function getGraphemes(text: string): string[] {
-  const I =
-    typeof Intl !== 'undefined'
-      ? (Intl as unknown as { Segmenter?: typeof Intl.Segmenter })
-      : null
-  if (I && I.Segmenter) {
-    try {
-      const seg = new I.Segmenter(undefined, { granularity: 'grapheme' })
-      return Array.from(seg.segment(text), (s) => s.segment)
-    } catch {
-      // fall through
-    }
-  }
-  return Array.from(text)
-}
+const HOLD_ENGLISH_S = 6
+const HOLD_OTHER_S = 3
+const OUT_S = 0.3
+const IN_S = 0.46
 
 export default function WorldwideText() {
-  const [index, setIndex] = useState(0)
-  const [phase, setPhase] = useState<'in' | 'out'>('in')
-  // Kinetic plays on the first reveal of each non-English language only.
-  // English (index 0) always fades like the standard transition.
-  const [kinetic, setKinetic] = useState(false)
-  const [width, setWidth] = useState<number | null>(null)
-  const [avail, setAvail] = useState<number | null>(null)
-
-  const measureRef = useRef<HTMLSpanElement | null>(null)
   const wrapRef = useRef<HTMLSpanElement | null>(null)
-  const indexRef = useRef(0)
-  const seenRef = useRef<Set<number>>(new Set([0]))
-
-  // Measure each rendered text so the wrap animates between exact widths.
-  // The wrap and its anchor are inline-block shrink-to-fit, so the available
-  // line width comes from the nearest block ancestor (the anchor's parent);
-  // when the word is wider than that, the wrap caps at it and --ww-scale
-  // shrinks the glyphs to fit.
-  useLayoutEffect(() => {
-    const update = () => {
-      if (measureRef.current) {
-        const w = measureRef.current.getBoundingClientRect().width
-        setWidth(Math.ceil(w))
-      }
-      const container = wrapRef.current?.parentElement?.parentElement
-      if (container) {
-        setAvail(container.clientWidth)
-      }
-    }
-    update()
-    window.addEventListener('resize', update)
-    return () => window.removeEventListener('resize', update)
-  }, [index])
+  const wordRef = useRef<HTMLSpanElement | null>(null)
 
   useEffect(() => {
-    let cancelled = false
-    const timers: Array<ReturnType<typeof setTimeout>> = []
-    const wait = (ms: number) =>
-      new Promise<void>((resolve) => {
-        const t = setTimeout(resolve, ms)
-        timers.push(t)
-      })
+    if (landingTier() === 'still') return
+    const wrap = wrapRef.current
+    const word = wordRef.current
+    if (!wrap || !word) return
 
-    const loop = async () => {
-      while (!cancelled) {
-        const holdMs =
-          indexRef.current === 0 ? HOLD_ENGLISH_MS : HOLD_OTHER_MS
-        await wait(holdMs)
-        if (cancelled) return
+    let index = 0
+    let currentFont = languages[0].font
+    let swap: TimelineInstance | null = null
+    let hold: DelayedCallInstance | null = null
+    let gsapRef: GsapCore | null = null
 
-        setPhase('out')
-        await wait(FADE_OUT_MS)
-        if (cancelled) return
-
-        const next = (indexRef.current + 1) % languages.length
-        // Kinetic is exclusive to non-English languages on first reveal.
-        const isFirst = next !== 0 && !seenRef.current.has(next)
-        indexRef.current = next
-        seenRef.current.add(next)
-        setIndex(next)
-        setKinetic(isFirst)
-
-        await wait(SWAP_GAP_MS)
-        if (cancelled) return
-
-        setPhase('in')
-        await wait(FADE_IN_MS)
-      }
+    // Swaps the text/font/direction and performs the single discrete width
+    // write of the cycle, all while the word is hidden. offsetWidth (layout
+    // px), not getBoundingClientRect (visual px): the hero sits under
+    // `zoom: 0.9`, and a rect-based measure gets shrunk a second time when
+    // written back as style.width. Returns the glyph scale for words wider
+    // than the column (the anchor's parent block).
+    const applyLanguage = (lang: Language): number => {
+      word.classList.remove(currentFont)
+      word.classList.add(lang.font)
+      currentFont = lang.font
+      word.dir = lang.direction ?? 'ltr'
+      word.textContent = lang.text
+      const natural = word.offsetWidth + 1
+      const available = wrap.parentElement?.parentElement?.clientWidth ?? natural
+      wrap.style.width = `${Math.min(natural, available)}px`
+      return natural > available ? available / natural : 1
     }
-    loop()
+
+    const off = onLandingRuntime(({ motion }) => {
+      if (gsapRef) return
+      const { gsap } = motion
+      gsapRef = gsap
+
+      // GSAP owns this span's text and transforms directly — React renders
+      // the English word once and never re-renders it, so nothing here can
+      // race a render (the reason the pin also exits this block whole).
+      function cycle() {
+        const next = (index + 1) % languages.length
+        swap = gsap.timeline({ onComplete: queueNext })
+        swap.to(word, {
+          autoAlpha: 0,
+          y: -10,
+          duration: OUT_S,
+          ease: 'power2.in'
+        })
+        swap.add(() => {
+          index = next
+          const scale = applyLanguage(languages[next])
+          gsap.set(word, { scale, transformOrigin: 'left center' })
+        })
+        swap.fromTo(
+          word,
+          { autoAlpha: 0, y: 14 },
+          { autoAlpha: 1, y: 0, duration: IN_S, ease: CRIBBLE_EASE_NAME }
+        )
+      }
+      function queueNext() {
+        hold = gsap.delayedCall(
+          index === 0 ? HOLD_ENGLISH_S : HOLD_OTHER_S,
+          cycle
+        )
+      }
+      queueNext()
+    })
 
     return () => {
-      cancelled = true
-      timers.forEach(clearTimeout)
+      off()
+      hold?.kill()
+      swap?.kill()
+      gsapRef?.set(word, { clearProps: 'all' })
+      wrap.style.width = ''
     }
   }, [])
 
-  const lang = languages[index]
-  const graphemes = useMemo(() => getGraphemes(lang.text), [lang.text])
-  const showKinetic = kinetic && phase === 'in'
-
-  const cappedWidth = width != null ? Math.min(width, avail ?? width) : null
-  const wwScale =
-    width != null && avail != null && width > 0
-      ? Math.min(1, avail / width)
-      : 1
-
   return (
-    <span
-      ref={wrapRef}
-      className="worldwide-wrap"
-      style={{
-        width: cappedWidth != null ? `${cappedWidth}px` : 'auto',
-        transition: `width ${FADE_IN_MS + SWAP_GAP_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
-        ...(wwScale < 0.99
-          ? { ['--ww-scale' as string]: wwScale.toFixed(4) }
-          : {}),
-      }}
-    >
-      {/* hidden measurement node — lays out the next-rendered text */}
-      <span
-        ref={measureRef}
-        aria-hidden
-        className={`worldwide-measure ${lang.font}`}
-        dir={lang.direction ?? 'ltr'}
-      >
-        {lang.text}
+    <span ref={wrapRef} className="worldwide-wrap">
+      <span ref={wordRef} className="worldwide-text font-english">
+        worldwide
       </span>
 
-      <span
-        className={`worldwide-text ${lang.font} ${
-          phase === 'in' ? 'is-in' : 'is-out'
-        } ${kinetic ? 'is-kinetic' : ''}`}
-        dir={lang.direction ?? 'ltr'}
-      >
-        {showKinetic ? (
-          <>
-            <span aria-hidden className="kin-row">
-              {graphemes.map((g, i) => (
-                <span
-                  key={`${index}-${i}`}
-                  className="kin-char"
-                  style={{
-                    animationDelay: `${i * KIN_CHAR_STAGGER_MS}ms`,
-                  }}
-                >
-                  {g === ' ' ? '\u00A0' : g}
-                </span>
-              ))}
-            </span>
-            {/* keeps the word announced as a single token to AT */}
-            <span className="sr-only">{lang.text}</span>
-          </>
-        ) : (
-          lang.text
-        )}
-      </span>
-
-      <style jsx>{`
+      <style jsx global>{`
         .worldwide-wrap {
           position: relative;
           display: inline-block;
@@ -210,108 +155,23 @@ export default function WorldwideText() {
           max-width: 100%;
           line-height: 1.05;
           color: var(--accent);
-          text-shadow: 0 0 14px rgb(var(--accent-rgb)/0.18);
-          will-change: width;
-        }
-        .worldwide-measure {
-          position: absolute;
-          visibility: hidden;
-          white-space: nowrap;
-          pointer-events: none;
-          left: 0;
-          top: 0;
-          letter-spacing: -0.01em;
+          text-shadow: 0 0 14px rgb(var(--accent-rgb) / 0.18);
         }
         .worldwide-text {
           display: inline-block;
           white-space: nowrap;
           letter-spacing: -0.01em;
           transform-origin: left center;
-          transition:
-            opacity ${FADE_IN_MS}ms cubic-bezier(0.22, 1, 0.36, 1),
-            transform ${FADE_IN_MS}ms cubic-bezier(0.22, 1, 0.36, 1),
-            filter ${FADE_IN_MS}ms cubic-bezier(0.22, 1, 0.36, 1);
-        }
-        .is-in:not(.is-kinetic) {
-          opacity: 1;
-          transform: translateY(0) scale(var(--ww-scale, 1));
-          filter: blur(0);
-        }
-        .is-out {
-          opacity: 0;
-          transform: translateY(2px) scale(calc(0.985 * var(--ww-scale, 1)));
-          filter: blur(2px);
-          transition-duration: ${FADE_OUT_MS}ms;
-        }
-        /* Kinetic mode: parent stays fully visible so per-char animation
-           drives the entrance, not a parent fade. The static overflow
-           scale still applies so first reveals of long words fit. */
-        .is-in.is-kinetic {
-          opacity: 1;
-          transform: scale(var(--ww-scale, 1));
-          filter: none;
-          transition: none;
         }
 
         /* English-specific tuning — editorial serif italic, the signature
            moment of the rotation. Deliberate contrast with the mono
            "cribble." wordmark above it. */
-        :global(.font-english) {
+        .font-english {
           font-family: var(--font-serif-display), Georgia, serif;
           font-style: italic;
           font-weight: 400;
           letter-spacing: 0.005em;
-        }
-
-        .kin-row {
-          display: inline-block;
-        }
-        .kin-char {
-          display: inline-block;
-          /* keyframe handles the entrance; "both" pins start + end states. */
-          animation: kin-in ${KIN_CHAR_DUR_MS}ms
-            cubic-bezier(0.22, 1, 0.36, 1) both;
-          will-change: transform, opacity, filter;
-        }
-        @keyframes kin-in {
-          0% {
-            opacity: 0;
-            transform: translateY(0.55em) skewX(-7deg) scale(0.92);
-            filter: blur(6px);
-          }
-          55% {
-            opacity: 1;
-            filter: blur(0);
-          }
-          100% {
-            opacity: 1;
-            transform: translateY(0) skewX(0) scale(1);
-            filter: blur(0);
-          }
-        }
-
-        .sr-only {
-          position: absolute;
-          width: 1px;
-          height: 1px;
-          padding: 0;
-          margin: -1px;
-          overflow: hidden;
-          clip: rect(0, 0, 0, 0);
-          white-space: nowrap;
-          border: 0;
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .worldwide-text {
-            transition: none;
-          }
-          .worldwide-wrap {
-            transition: none;
-          }
-          .kin-char {
-            animation: none;
-          }
         }
       `}</style>
     </span>

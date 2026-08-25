@@ -280,8 +280,8 @@ function DescentGate() {
 /* Finale — touchdown CTA                                              */
 /* ------------------------------------------------------------------ */
 
-/** Wordmark touchdown: SplitText masked line reveal when the chunk beats
- *  the stage going live; the .st CSS rise otherwise (see useMaskedLines).
+/** Wordmark touchdown: SplitText masked line reveal, claimed via
+ *  data-split so the stage's own .st reveal skips it (see useMaskedLines).
  *  A separate component because useMaskedLines reads the surrounding
  *  Stage's context — called from Finale itself (outside the Stage) the
  *  hook never hears "live" and the reveal strands the wordmark hidden. */
@@ -290,7 +290,7 @@ function FinaleWordmark() {
   return (
     <h2
       ref={wordmarkRef}
-      className="st mt-7 font-semibold leading-none tracking-tight text-zinc-50 text-6xl md:text-8xl"
+      className="st mt-[var(--rhythm-2,1.75rem)] font-semibold leading-none tracking-tight text-zinc-50 text-6xl md:text-8xl"
       style={{ '--d': '110ms' } as CSSProperties}
     >
       cribble
@@ -320,9 +320,12 @@ function Finale() {
         }}
       />
 
+      {/* Type + spacing consume the shared tokens (--fs-*, --rhythm-*) the
+          hero defines, with fallbacks pinning today's rendered sizes so
+          load order between the two chunks never matters. */}
       <Stage className="page-zoom-out relative mx-auto flex w-full max-w-6xl flex-col items-center px-6 pb-20 pt-20 text-center sm:pb-24 sm:pt-28 md:pt-36">
         <span
-          className="st text-[9px] tracking-[0.45em] text-zinc-600"
+          className="st text-[length:var(--fs-label,9px)] tracking-[0.45em] text-zinc-600"
           style={{ '--d': '0ms' } as CSSProperties}
         >
           <DecodeText text="TOUCHDOWN CONFIRMED" delay={150} />
@@ -331,14 +334,14 @@ function Finale() {
         <FinaleWordmark />
 
         <p
-          className="st mt-6 font-serif italic text-2xl text-zinc-400 md:text-3xl"
+          className="st mt-[var(--rhythm-2,1.5rem)] font-serif italic text-[length:var(--fs-serif,clamp(1.5rem,2.3vw,1.9rem))] text-zinc-400"
           style={{ '--d': '210ms' } as CSSProperties}
         >
           the board is live. your rank isn&apos;t.
         </p>
 
         <div
-          className="st mt-11 flex flex-wrap items-center justify-center gap-4"
+          className="st mt-[var(--rhythm-3,2.5rem)] flex flex-wrap items-center justify-center gap-4"
           style={{ '--d': '320ms' } as CSSProperties}
         >
           <Link
@@ -366,7 +369,7 @@ function Finale() {
         </div>
 
         <span
-          className="st mt-20 text-[9px] tracking-[0.4em] text-zinc-700"
+          className="st mt-20 text-[length:var(--fs-label,9px)] tracking-[0.4em] text-zinc-700"
           style={{ '--d': '420ms' } as CSSProperties}
         >
           {'// TRANSMISSION ENDS'}

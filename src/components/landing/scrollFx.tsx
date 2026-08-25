@@ -9,15 +9,18 @@
 //    property, so all scrub math stays in CSS (clamp/calc on transform +
 //    opacity only). A synchronous seed at mount keeps the first paint at
 //    the right pose before (or without) the chunk.
-//  · Entrance choreography is progressive enhancement: SSR/no-JS renders
-//    the final state; a pre-paint layout effect "arms" a stage (hides its
-//    `.st` children), and an IntersectionObserver flips it "live", firing
-//    the staggered entrance. prefers-reduced-motion never arms anything.
-//    When the motion chunk is ready in time, SectionHeader headings trade
-//    the `.st` CSS rise for SplitText masked line reveals (see
-//    useMaskedLines) — never both.
+//  · Entrance choreography is progressive enhancement with ONE engine:
+//    SSR/no-JS renders the final state; a pre-paint layout effect "arms" a
+//    stage (a static CSS rule hides its `.st` children — no CSS animation
+//    exists anymore), and a GSAP ScrollTrigger reveal animates everything
+//    in with transform + opacity only. The 'still' tier never arms; a
+//    watchdog un-hides a stage if the chunk never arrives. SectionHeader
+//    headings upgrade to SplitText masked line reveals (see useMaskedLines)
+//    and are excluded from the stage reveal via data-split — never both.
 //  · Components that animate values (CountUp, DecodeText, live tickers)
 //    read the surrounding Stage via context and start when it goes live.
+//    They ride gsap's single ticker via the runtime — no private rAF or
+//    setInterval loops — and simply render their final value without it.
 //  · LandingScrollRuntime (bottom of file) is the page-level orchestrator:
 //    it picks the capability tier, idle-loads the chunk, arms the full-tier
 //    extras (ScrollSmoother, hero pin, velocity + atmosphere feedback) and
@@ -46,7 +49,6 @@ import {
   type LandingMotion
 } from '@/lib/landingMotion'
 import { prefersReducedMotion } from '@/lib/motion'
-import { useDecode } from '@/lib/useDecode'
 import { createHeroPin } from './hero/heroPin'
 
 // Instance types derived from the lazy bundle, so nothing here imports
@@ -84,6 +86,84 @@ const StageCtx = createContext(false)
  * allowed). Value components use it as their "go" signal. */
 export const useStageLive = () => useContext(StageCtx)
 
+/**
+ * The staged GSAP entrance, transform + opacity only (no blur, no
+ * clip-path — those repainted every frame on Firefox). Per-element `--d`
+ * (ms, set inline by every section) drives the stagger, so each section's
+ * choreography vocabulary — the Honors radial wave, the cockpit heatmap
+ * ripple — survives unchanged. clearProps hands the elements back to CSS
+ * at the end: hover transitions (.id-rack, .rm-item) transition inline-
+ * free transforms, and a leftover translate would pin them.
+ */
+function runStageEntrance(motion: LandingMotion, root: HTMLElement) {
+  const { gsap } = motion
+  const delayOf = (_i: number, target: unknown) =>
+    (parseFloat((target as HTMLElement).style.getPropertyValue('--d')) || 0) /
+    1000
+
+  const rises = root.querySelectorAll<HTMLElement>('.st:not([data-split])')
+  if (rises.length) {
+    gsap.fromTo(
+      rises,
+      { opacity: 0, y: 16 },
+      {
+        opacity: 1,
+        y: 0,
+        duration: 0.7,
+        ease: CRIBBLE_EASE_NAME,
+        stagger: delayOf,
+        clearProps: 'opacity,transform'
+      }
+    )
+  }
+  const cells = root.querySelectorAll<HTMLElement>('.st-cell')
+  if (cells.length) {
+    gsap.fromTo(
+      cells,
+      { opacity: 0, scale: 0.3 },
+      {
+        opacity: 1,
+        scale: 1,
+        duration: 0.52,
+        ease: 'back.out(1.7)',
+        stagger: delayOf,
+        clearProps: 'opacity,transform'
+      }
+    )
+  }
+  const grows = root.querySelectorAll<HTMLElement>('.st-grow')
+  if (grows.length) {
+    gsap.fromTo(
+      grows,
+      { scaleX: 0 },
+      {
+        scaleX: 1,
+        duration: 0.9,
+        ease: CRIBBLE_EASE_NAME,
+        stagger: delayOf,
+        clearProps: 'transform'
+      }
+    )
+  }
+  // The old clip-path sweep becomes a scaleX wipe from the left edge —
+  // same left-to-right read, compositor-only.
+  const sweeps = root.querySelectorAll<HTMLElement>('.st-sweep')
+  if (sweeps.length) {
+    gsap.fromTo(
+      sweeps,
+      { opacity: 0, scaleX: 0 },
+      {
+        opacity: 1,
+        scaleX: 1,
+        duration: 1.1,
+        ease: 'power2.inOut',
+        stagger: delayOf,
+        clearProps: 'opacity,transform'
+      }
+    )
+  }
+}
+
 export function Stage({
   id,
   className = '',
@@ -101,23 +181,57 @@ export function Stage({
   const ref = useRef<HTMLDivElement | null>(null)
   const [phase, setPhase] = useState<'idle' | 'armed' | 'live'>('idle')
 
-  // Arm before first client paint so the entrance can't flash.
+  // Arm before first client paint so the entrance can't flash. The 'still'
+  // tier (OS reduced motion or the in-app kill switch) never arms: the
+  // runtime never publishes there, so arming would strand content hidden —
+  // the page keeps its CSS final state instead, same as no-JS.
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el || prefersReducedMotion()) return
+    if (!el || landingTier() === 'still') return
     setPhase('armed')
 
-    let trigger: ScrollTriggerInstance | null = null
-    let offRuntime: (() => void) | null = null
+    let scrubTrigger: ScrollTriggerInstance | null = null
+    let revealTrigger: ScrollTriggerInstance | null = null
+    let revealed = false
+
     if (scrub) {
       // Seed --p synchronously — the first painted frame must already sit
       // at the correct scroll pose, not jump into it. If the motion chunk
-      // never arrives (still tier, network), this static value is the
-      // final say and the page stays correct.
+      // never arrives (network), this static value is the final say and
+      // the page stays correct.
       seedScrubProgress(el)
-      offRuntime = onLandingRuntime(({ motion }) => {
-        if (trigger) return
-        trigger = motion.ScrollTrigger.create({
+    }
+
+    const reveal = (motion: LandingMotion) => {
+      if (revealed) return
+      revealed = true
+      setPhase('live')
+      // One microtask of deferral orders the reveal after sibling runtime
+      // subscribers: useMaskedLines claims its headings (data-split) in the
+      // same publish pass, and the collection in runStageEntrance must not
+      // see them. Still pre-paint — the fromTo inline styles land before
+      // React lifts the stage-armed class, so nothing can flash.
+      queueMicrotask(() => {
+        if (ref.current) runStageEntrance(motion, ref.current)
+      })
+    }
+
+    // Watchdog: a chunk-load failure must never strand content hidden. If
+    // the runtime hasn't produced the reveal trigger ~4s after arming,
+    // flip live with no animation — the armed hide lifts and the stage
+    // shows its CSS final state. Once the trigger exists the watchdog
+    // stands down: the trigger is guaranteed to fire when the stage
+    // scrolls in (or immediately, if it already has).
+    const watchdog = window.setTimeout(() => {
+      if (!revealTrigger && !revealed) {
+        revealed = true
+        setPhase('live')
+      }
+    }, 4000)
+
+    const offRuntime = onLandingRuntime(({ motion }) => {
+      if (scrub && !scrubTrigger) {
+        scrubTrigger = motion.ScrollTrigger.create({
           trigger: el,
           start: 'top bottom',
           end: 'bottom top',
@@ -128,28 +242,27 @@ export function Stage({
         })
         // hand-off write: onUpdate only fires on change, so align --p with
         // the trigger's own reading the moment it takes over from the seed
-        el.style.setProperty('--p', trigger.progress.toFixed(4))
-      })
-    }
-
-    // threshold 0 + a negative bottom rootMargin: fires once ~22% of the
-    // viewport height of the section has scrolled in. A fractional
-    // threshold would never fire for sections taller than the viewport.
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          setPhase('live')
-          io.disconnect()
-        }
-      },
-      { threshold: 0, rootMargin: '0px 0px -22% 0px' }
-    )
-    io.observe(el)
+        el.style.setProperty('--p', scrubTrigger.progress.toFixed(4))
+      }
+      if (!revealTrigger && !revealed) {
+        window.clearTimeout(watchdog)
+        // start 'top 78%': same geometry as the IntersectionObserver this
+        // replaces (threshold 0, -22% bottom rootMargin) — fires once the
+        // stage's top clears the lower fifth of the viewport.
+        revealTrigger = motion.ScrollTrigger.create({
+          trigger: el,
+          start: 'top 78%',
+          once: true,
+          onEnter: () => reveal(motion)
+        })
+      }
+    })
 
     return () => {
-      io.disconnect()
-      offRuntime?.()
-      trigger?.kill()
+      window.clearTimeout(watchdog)
+      offRuntime()
+      scrubTrigger?.kill()
+      revealTrigger?.kill()
     }
   }, [scrub])
 
@@ -167,73 +280,31 @@ export function Stage({
       {/* Entrance vocabulary — shared by every section. styled-jsx dedupes
           identical global blocks, so many Stages cost one stylesheet. */}
       <style jsx global>{`
+        /* Armed: children hidden by a static opacity — CSS never animates
+           entrances anymore, GSAP is the one engine. The reveal's fromTo
+           writes inline opacity/transform in the same tick it fires, and
+           inline beats this class rule, so ownership hands over without a
+           contested frame; this rule only covers arm → reveal. */
         .stage-armed .st:not([data-split]),
         .stage-armed .st-cell,
         .stage-armed .st-grow,
         .stage-armed .st-sweep {
           opacity: 0;
         }
-        /* data-split: SplitText owns this element's entrance (masked line
-           reveal, see useMaskedLines). The attribute is set in the same
-           synchronous block that hides the lines behind their masks, so
-           excluding it here can't flash — and it guarantees the CSS rise
-           and the GSAP reveal never both fire on one element. */
-        .stage-live .st:not([data-split]) {
-          animation: st-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
-          animation-delay: var(--d, 0ms);
-        }
+        /* data-split: SplitText owns that element's entrance (masked line
+           reveal, see useMaskedLines) and runStageEntrance skips it. It
+           stays visible while armed — its lines hide behind their masks. */
         /* Kerning shifts between the pre-split text and the line-sliced
            spans read as a subtle "wobble" on reveal — pin it off for any
            element SplitText manages (GSAP guidance). */
         [data-split] {
           font-kerning: none;
         }
-        @keyframes st-rise {
-          from {
-            opacity: 0;
-            transform: translateY(var(--st-rise, 16px));
-            filter: blur(var(--st-blur, 6px));
-          }
-        }
-        /* Phones: dozens of staggered blur animations per stage overwhelm
-           mobile GPUs mid-scroll — keep the rise, shrink the blur. */
-        @media (max-width: 639px) {
-          .stage-live .st {
-            --st-blur: 3px;
-            --st-rise: 12px;
-          }
-        }
-        .stage-live .st-cell {
-          animation: st-cell 520ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
-          animation-delay: var(--d, 0ms);
-        }
-        @keyframes st-cell {
-          from {
-            opacity: 0;
-            transform: scale(0.3);
-          }
-        }
-        .stage-live .st-grow {
+        /* Static origins for the GSAP scaleX entrances; inline overrides
+           (e.g. DescentGate's vertical rule) still win. */
+        .st-grow,
+        .st-sweep {
           transform-origin: left center;
-          animation: st-grow 900ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
-          animation-delay: var(--d, 0ms);
-        }
-        @keyframes st-grow {
-          from {
-            transform: scaleX(0);
-          }
-        }
-        .stage-live .st-sweep {
-          animation: st-sweep 1100ms cubic-bezier(0.65, 0, 0.35, 1) backwards;
-          animation-delay: var(--d, 0ms);
-        }
-        @keyframes st-sweep {
-          from {
-            clip-path: inset(0 100% 0 0);
-          }
-          to {
-            clip-path: inset(0 0 0 0);
-          }
         }
       `}</style>
     </div>
@@ -243,6 +314,11 @@ export function Stage({
 /* ------------------------------------------------------------------ */
 /* DecodeText — terminal scramble that resolves left to right          */
 /* ------------------------------------------------------------------ */
+
+// Same glyph set as lib/useDecode (the billboard keeps that hook; the
+// landing runs the identical look through ScrambleTextPlugin so the
+// scramble rides gsap's ticker instead of a private setInterval).
+const DECODE_GLYPHS = '█▓▒░<>/[]{}=+*#'
 
 export function DecodeText({
   text,
@@ -254,17 +330,45 @@ export function DecodeText({
   className?: string
 }) {
   const live = useStageLive()
-  // The scramble loop lives in lib/useDecode (shared with the billboard's
-  // hype announcement); here the Stage going live is the arm signal.
-  const { out, decoding } = useDecode(text, live && !prefersReducedMotion(), delay)
+  const ref = useRef<HTMLSpanElement | null>(null)
+  const [decoding, setDecoding] = useState(false)
 
+  useEffect(() => {
+    if (!live || prefersReducedMotion()) return
+    const el = ref.current
+    if (!el) return
+    let tween: TweenInstance | null = null
+    const off = onLandingRuntime(({ motion }) => {
+      if (tween) return
+      // ~66ms per character mirrors useDecode's cadence (2.2 frames of
+      // 30ms per char) — a lock-in, not a slot machine.
+      tween = motion.gsap.to(el, {
+        duration: Math.max(0.3, text.length * 0.066),
+        delay: delay / 1000,
+        ease: 'none',
+        scrambleText: { text, chars: DECODE_GLYPHS, speed: 0.4 },
+        onStart: () => setDecoding(true),
+        onComplete: () => setDecoding(false)
+      })
+    })
+    return () => {
+      off()
+      tween?.kill()
+      setDecoding(false)
+      el.textContent = text
+    }
+  }, [live, text, delay])
+
+  // SSR, reduced motion and a missing runtime all render the resolved
+  // text — the scramble is strictly additive.
   return (
     <span
+      ref={ref}
       className={className}
       data-decoding={decoding ? '' : undefined}
       style={decoding ? { color: 'rgb(var(--accent-rgb) / 0.9)' } : undefined}
     >
-      {out}
+      {text}
     </span>
   )
 }
@@ -287,30 +391,95 @@ export function CountUp({
   className?: string
 }) {
   const live = useStageLive()
-  const [v, setV] = useState(to) // SSR/no-JS shows the final value
-  const rafRef = useRef(0)
+  const [v, setV] = useState(to) // SSR/no-JS/no-runtime shows the final value
 
+  // A gsap tween on a proxy object — driven by gsap's single ticker, no
+  // private rAF loop. The reset to 0 happens only once the runtime is in
+  // hand, so a failed chunk can never park the value at zero.
   useEffect(() => {
     if (!live || prefersReducedMotion()) return
-    setV(0)
-    let start = 0
-    const step = (now: number) => {
-      if (!start) start = now
-      const t = Math.min((now - start) / duration, 1)
-      const eased = 1 - Math.pow(2, -10 * t) // easeOutExpo
-      setV(Math.round(to * (t === 1 ? 1 : eased)))
-      if (t < 1) rafRef.current = requestAnimationFrame(step)
-    }
-    const timer = setTimeout(() => {
-      rafRef.current = requestAnimationFrame(step)
-    }, delay)
+    let tween: TweenInstance | null = null
+    const off = onLandingRuntime(({ motion }) => {
+      if (tween) return
+      const proxy = { v: 0 }
+      setV(0)
+      tween = motion.gsap.to(proxy, {
+        v: to,
+        duration: duration / 1000,
+        delay: delay / 1000,
+        ease: 'expo.out',
+        onUpdate: () => setV(Math.round(proxy.v))
+      })
+    })
     return () => {
-      clearTimeout(timer)
-      cancelAnimationFrame(rafRef.current)
+      off()
+      tween?.kill()
     }
   }, [live, to, duration, delay])
 
   return <span className={className}>{format(v)}</span>
+}
+
+/* ------------------------------------------------------------------ */
+/* TickerCounter — landing-local stand-in for AnimatedCounter          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Retargetable counter for values that keep changing (the arena score
+ * duel). Same contract as components/AnimatedCounter — interrupted
+ * animations restart from the currently painted value — but tweened on
+ * gsap's shared ticker via the runtime instead of a rAF loop per counter
+ * (the arena renders dozens at once). No runtime yet, or reduced motion:
+ * snap to the value.
+ */
+export function TickerCounter({
+  value,
+  duration = 1000,
+  formatter = (v: number) => v.toString(),
+  className = ''
+}: {
+  value: number
+  duration?: number
+  formatter?: (v: number) => string
+  className?: string
+}) {
+  const [display, setDisplay] = useState(value)
+  const displayRef = useRef(value)
+  const motionRef = useRef<LandingMotion | null>(null)
+
+  useEffect(
+    () =>
+      onLandingRuntime(({ motion }) => {
+        motionRef.current = motion
+      }),
+    []
+  )
+
+  useEffect(() => {
+    const from = displayRef.current
+    if (from === value) return
+    const motion = motionRef.current
+    if (!motion || prefersReducedMotion()) {
+      displayRef.current = value
+      setDisplay(value)
+      return
+    }
+    const proxy = { v: from }
+    const tween = motion.gsap.to(proxy, {
+      v: value,
+      duration: duration / 1000,
+      ease: 'power2.out',
+      onUpdate: () => {
+        displayRef.current = proxy.v
+        setDisplay(proxy.v)
+      }
+    })
+    return () => {
+      tween.kill()
+    }
+  }, [value, duration])
+
+  return <span className={className}>{formatter(display)}</span>
 }
 
 /* ------------------------------------------------------------------ */
@@ -319,21 +488,25 @@ export function CountUp({
 
 /**
  * Upgrades an `.st` element's entrance to a SplitText masked line reveal
- * (lines rise from behind their clip edge, staggered) when the motion
- * chunk is ready in time. The double-animation guard, in order:
+ * (lines rise from behind their clip edge, staggered). The stage reveal
+ * is GSAP-owned now, so the old CSS-vs-SplitText race is gone; two guards
+ * remain and both are still load-bearing:
  *
- *  1. The stage goes live BEFORE the chunk lands → `playedRef` latches,
- *     the runtime subscription refuses to split, and the `.st` CSS
- *     entrance fires exactly as today. Nothing regresses without JS/GSAP.
- *  2. The chunk lands first → the element gets `data-split` (which the
- *     Stage CSS excludes from the `.st` animation) in the same synchronous
- *     block that hides its lines behind masks; the paused reveal tween
- *     then plays when the stage flips live. Only GSAP animates it.
+ *  · `data-split`, set in the same synchronous block that hides the lines
+ *    behind masks, is what excludes the element from runStageEntrance's
+ *    `.st` collection — SplitText and the stage y-rise must never both
+ *    animate one element. (The Stage reveal defers its collection one
+ *    microtask so this claim always lands first when the runtime
+ *    publishes with the stage already in view.)
+ *  · `playedRef` latches when the stage goes live. Reaching live without
+ *    the chunk (the Stage watchdog after a failed load) means the heading
+ *    is already showing statically — a late-arriving runtime must not
+ *    split it and re-hide its lines.
  *
  * autoSplit + returning the tween from onSplit handles font-load/resize
  * re-splits (Instrument Serif loads with preload: false, so late reflows
  * are the norm, not the edge case). `delayMs` mirrors the `--d` stagger
- * the CSS fallback uses.
+ * of the surrounding stage reveal.
  */
 export function useMaskedLines<T extends HTMLElement>(
   delayMs = 0
@@ -427,13 +600,16 @@ export function SectionHeader({
   const center = align === 'center'
   // Masked line reveals for the display pair only; the label row, rule and
   // body keep the plain .st rise (they're one-liners — a mask buys nothing).
-  // Delays mirror the --d stagger of the CSS fallback path.
+  // Delays mirror the --d stagger of the stage reveal.
+  // Type + spacing ride the shared tokens (--fs-*, --rhythm-*) the hero
+  // defines, with fallbacks pinning today's rendered sizes so load order
+  // between the two chunks never matters.
   const titleRef = useMaskedLines<HTMLHeadingElement>(90)
   const serifRef = useMaskedLines<HTMLDivElement>(180)
   return (
     <div className={center ? 'flex flex-col items-center text-center' : ''}>
       <div
-        className={`st flex items-baseline gap-4 text-[10px] tracking-[0.32em] text-zinc-500 ${
+        className={`st flex items-baseline gap-4 text-[length:var(--fs-label,10px)] tracking-[0.32em] text-zinc-500 ${
           center ? 'justify-center' : 'justify-between'
         }`}
         style={{ '--d': '0ms' } as CSSProperties}
@@ -452,7 +628,7 @@ export function SectionHeader({
 
       <h2
         ref={titleRef}
-        className="st mt-5 font-display text-4xl font-semibold leading-[0.98] tracking-tight text-zinc-50 md:text-[3.4rem]"
+        className="st mt-[var(--rhythm-2,1.5rem)] font-display text-[length:var(--fs-display,clamp(2.25rem,4.6vw,3.4rem))] font-semibold leading-[0.98] tracking-tight text-zinc-50"
         style={{ '--d': '90ms' } as CSSProperties}
       >
         {title}
@@ -460,14 +636,14 @@ export function SectionHeader({
 
       <div
         ref={serifRef}
-        className="st mt-3 font-serif italic text-2xl leading-snug text-zinc-400 md:text-[1.9rem]"
+        className="st mt-[var(--rhythm-1,0.75rem)] font-serif italic text-[length:var(--fs-serif,clamp(1.5rem,2.3vw,1.9rem))] leading-snug text-zinc-400"
         style={{ '--d': '180ms' } as CSSProperties}
       >
         {serif}
       </div>
 
       <span
-        className={`st-grow mt-6 block h-px w-24 ${center ? 'mx-auto' : ''}`}
+        className={`st-grow mt-[var(--rhythm-2,1.5rem)] block h-px w-24 ${center ? 'mx-auto' : ''}`}
         style={
           {
             '--d': '240ms',
@@ -479,7 +655,7 @@ export function SectionHeader({
 
       {body && (
         <p
-          className={`st mt-6 max-w-xl font-sans text-base leading-[1.75] text-zinc-400 sm:text-[15px] sm:leading-[1.8] ${
+          className={`st mt-[var(--rhythm-2,1.5rem)] max-w-xl font-sans text-base leading-[1.75] sm:text-[length:var(--fs-body,15px)] sm:leading-[1.8] ${
             center ? 'mx-auto' : ''
           }`}
           style={{ '--d': '280ms' } as CSSProperties}
@@ -541,10 +717,10 @@ export function CornerTicks({ className = '' }: { className?: string }) {
  *    publishes the runtime (Stage --p scrubs + SplitText reveals arm; no
  *    smoother, no pin, no spine, no velocity/atmosphere feedback).
  *  · full  — everything: ScrollSmoother, the pinned hero entry, velocity
- *    feedback (--vel/--skew) and the atmosphere scrub (--alt), then the
- *    runtime publish. The `lx-motion-full` class on <html> is what arms
- *    the CSS consumers (atmosphere layers, hero star layer, skew), so a
- *    page without the chunk renders byte-identical to today.
+ *    feedback (--vel) and the atmosphere scrub (--alt), then the runtime
+ *    publish. The `lx-motion-full` class on <html> is what arms the CSS
+ *    consumers (atmosphere layers, hero star layer), so a page without
+ *    the chunk renders byte-identical to today.
  *
  * The runtime is published only AFTER the global config and (on full) the
  * smoother + pin exist, so subscriber-created ScrollTriggers are born with
@@ -680,11 +856,11 @@ function armLandingRuntime(
 
 /**
  * The one velocity write per frame everything else reads. --vel is the
- * lerp-smoothed |velocity| normalized to 0..1 over 0..3000 px/s (film
- * grain thickens with it, star streaks ride it); --skew keeps the sign,
- * capped at ±1.2 (consumed as skewY(calc(var(--skew) * 1deg)) on descent
- * section content — transform-only). Both live on <html> and default to 0
- * for every consumer via var() fallbacks.
+ * lerp-smoothed |velocity| normalized to 0..1 over 0..3000 px/s (the film
+ * grain thickens with it, star streaks ride it). It lives on <html> and
+ * defaults to 0 for every consumer via var() fallbacks. The signed --skew
+ * companion is retired with the section shear it fed (see globals.css) —
+ * nothing else consumed it.
  */
 function startVelocityFeedback(
   motion: LandingMotion,
@@ -693,7 +869,6 @@ function startVelocityFeedback(
   const { gsap } = motion
   const html = document.documentElement
   const VELOCITY_RANGE = 3000 // px/s that maps to the full 0..1 band
-  const MAX_SKEW = 1.2 // degrees
   const FOLLOW = 0.12 // per-frame lerp factor
   let value = 0
   let settled = true
@@ -707,13 +882,11 @@ function startVelocityFeedback(
     if (value === 0 && settled) return // idle — skip redundant style writes
     settled = value === 0
     html.style.setProperty('--vel', Math.abs(value).toFixed(3))
-    html.style.setProperty('--skew', (value * MAX_SKEW).toFixed(2))
   }
   gsap.ticker.add(tick)
   return () => {
     gsap.ticker.remove(tick)
     html.style.removeProperty('--vel')
-    html.style.removeProperty('--skew')
   }
 }
 

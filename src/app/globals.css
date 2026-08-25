@@ -927,22 +927,13 @@ html.light .dossier-canvas {
    fallbacks:
      --alt  0..1  page-long descent progress (one ScrollTrigger)
      --vel  0..1  lerp-smoothed |scroll velocity| (one gsap ticker)
-     --skew ±1.2  signed, capped velocity for the section shear        */
 
-/* Velocity shear: descent section content leans a hair against the
-   direction of travel — transform-only, ±1.2deg max (the runtime caps
-   the variable), and skewY(0) at rest thanks to the fallback. Scoped to
-   the descent: the pinned hero must not shear during entry. */
-html.lx-motion-full .lx-descent .page-zoom-out {
-  transform: skewY(calc(var(--skew, 0) * 1deg));
-  /* Layer-promote each section wrapper: --skew retargets this transform on
-     every scrolling frame, and without promotion each retarget repaints the
-     whole section (measured as the single largest source of >50ms tasks
-     while scrolling). Promoted, the skew is compositor-only. Chromium
-     rasterizes layers in tiles, so seven tall sections don't hold seven
-     full-height textures — only tiles near the viewport. */
-  will-change: transform;
-}
+   The velocity shear (skewY on every .page-zoom-out descent wrapper) is
+   retired. Its blanket will-change promoted seven full-height section
+   wrappers; Firefox drops promotion past its layer budget and repainted
+   a full-height section on every --skew retarget — the single largest
+   source of scroll-time long tasks there. Nothing else consumed --skew,
+   so the runtime no longer writes it. */
 
 /* Hero star tiles move off .lx-hero onto their own layer so the pinned
    entry can stretch them into streaks with a compositor-only scaleY
@@ -2763,4 +2754,37 @@ html[data-motion='reduced'] *::after {
   animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;
   scroll-behavior: auto !important;
+}
+
+/* ————— Landing type & rhythm scale (design tokens) ——————————————————————
+   One modular scale shared by the hero and the descent, replacing the
+   hero's five ad-hoc clamp() sizes and its mt-6/mt-5/mt-6/mt-7 ladder.
+   Contract between workstreams: the descent consumes these via
+   var(--fs-*, fallback) / var(--rhythm-*, fallback), so definition and
+   adoption can land in either order. --fs-display and --fs-serif sit on
+   the current section-header scale (2.25→3.4rem / 1.5→1.9rem) so
+   SectionHeader and the Finale can adopt them without a visual jump.
+   Rhythm steps: 1 = intra-block, 2 = between related blocks, 3 = between
+   block groups. */
+:root {
+  --fs-label: 0.625rem;
+  --fs-body: 0.9375rem;
+  --fs-serif: clamp(1.5rem, 1.05rem + 1.2vw, 1.9rem);
+  --fs-display: clamp(2.25rem, 1.4rem + 2.6vw, 3.4rem);
+  --fs-hero: clamp(2.5rem, 1rem + 6vw, 4.75rem);
+  --fs-tagline: clamp(1.875rem, 0.75rem + 4.5vw, 3.55rem);
+  --rhythm-1: 0.75rem;
+  --rhythm-2: 1.25rem;
+  --rhythm-3: clamp(1.75rem, 1.25rem + 1.6vw, 2.5rem);
+}
+
+/* Hero entrance arming — set pre-paint by useHeroEntrance (landing/hero/
+   heroEntrance.ts) and removed in the same synchronous block that builds
+   the GSAP entrance timeline (or by its ~1.5s watchdog if the motion chunk
+   never arrives; the still tier never arms at all). Deliberately a static
+   hide, not an animation: CSS must never animate opacity/transform/filter
+   on nodes GSAP owns — a CSS keyframe racing the pin's autoAlpha sample on
+   these same nodes is exactly the invisible-copy bug this replaced. */
+.lx-hero[data-hero-arm] [data-hero-enter] {
+  opacity: 0;
 }

@@ -9,7 +9,6 @@ import { CSSProperties, useEffect, useRef, useState } from 'react'
 import { PixelIcon } from '@/components/achievements/PixelIcon'
 import { IconCrown } from '@/components/leaderboard/icons'
 import type { AchievementDef } from '@/lib/achievements'
-import { landingTier, loadLandingMotion } from '@/lib/landingMotion'
 import { APEX, HONOR_TILES, RARITY_COLOR } from './data'
 import { CountUp, Seam, SectionHeader, Stage, useStageLive } from './scrollFx'
 import { useSectionMotion } from './useSectionMotion'
@@ -33,28 +32,17 @@ const UNLOCKED = new Set([
 
 const COLS = 8
 
-function tileDelay(index: number): number {
-  // radial ignition wave measured from the wall's center tile — the CSS
-  // fallback path; the anime entrance derives the same wave from a grid
-  // stagger instead
-  const row = Math.floor(index / COLS)
-  const col = index % COLS
-  const dist = Math.hypot(col - (COLS - 1) / 2, row - 1)
-  return 420 + Math.round(dist * 130)
-}
-
 function Tile({
   def,
-  index,
   onHover,
-  jsEntrance
+  waiting
 }: {
   def: AchievementDef
-  index: number
   onHover: (def: AchievementDef) => void
-  /** True when the anime spring entrance owns the wall — swaps the CSS
-   * st-cell ignition out so the two can never double-fire. */
-  jsEntrance: boolean
+  /** True until the wall's watchdog lifts the hn-wait CSS hide; the anime
+   * spring's inline styles own the tiles from build time either way (see
+   * HonorsBody). */
+  waiting: boolean
 }) {
   const unlocked = UNLOCKED.has(def.id)
   const color = RARITY_COLOR[def.rarity]
@@ -65,10 +53,9 @@ function Tile({
       onPointerEnter={() => onHover(def)}
       onFocus={() => onHover(def)}
       aria-label={`${def.name}: ${def.description}`}
-      className={`${jsEntrance ? 'hn-js' : 'st-cell'} hn-tile group relative flex aspect-square items-center justify-center rounded-lg`}
+      className={`${waiting ? 'hn-wait ' : ''}hn-tile group relative flex aspect-square items-center justify-center rounded-lg`}
       style={
         {
-          '--d': `${tileDelay(index)}ms`,
           '--hn-c': color,
           background: unlocked
             ? `linear-gradient(160deg, rgb(255 255 255 / 0.04), transparent 55%), rgb(var(--lb-panel-bg))`
@@ -126,14 +113,17 @@ function ApexCenterpiece() {
         } as CSSProperties
       }
     >
-      {/* rotating conic halo behind the crown */}
+      {/* rotating halo behind the crown — an off-center radial gradient
+          with wide feathered stops, i.e. the blur baked into the paint
+          itself. The old conic + filter:blur(14px) re-blurred 300px² on
+          the GPU every frame of its 9s spin; this one rotates a static
+          texture, transform-only. */}
       <span
         aria-hidden
         className="hn-apex-halo absolute left-1/2 top-1/2 h-[300px] w-[300px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-40"
         style={{
           background:
-            'conic-gradient(from 0deg, transparent, rgb(var(--lb-gold) / 0.28) 90deg, rgb(var(--lb-gold-hi) / 0.4) 130deg, transparent 210deg, rgb(var(--lb-gold) / 0.16) 305deg, transparent)',
-          filter: 'blur(14px)'
+            'radial-gradient(48% 48% at 34% 30%, rgb(var(--lb-gold-hi) / 0.42), rgb(var(--lb-gold) / 0.2) 52%, rgb(var(--lb-gold) / 0.07) 72%, transparent 85%)'
         }}
       />
       <span
@@ -212,60 +202,50 @@ function HonorsBody() {
   const inspectUnlocked = UNLOCKED.has(inspect.id)
 
   const live = useStageLive()
-  const liveRef = useRef(live)
-  liveRef.current = live
   const wallRef = useRef<HTMLDivElement | null>(null)
-  const [jsEntrance, setJsEntrance] = useState(false)
+  // One engine owns the wall: the anime spring ignition below. hn-wait (a
+  // static CSS hide keyed to the stage classes) keeps the tiles dark until
+  // the spring's inline styles take over — inline beats the class rule, so
+  // the hide never contests a single animated frame, and it deliberately
+  // stays on through the spring (the old proven model): a reduced-motion
+  // revert that strips anime's inline styles falls back to the visible
+  // overrides below, never to a hidden wall.
+  const [revealed, setRevealed] = useState(false)
 
-  // Entrance ownership is decided before the stage goes live: if the motion
-  // chunk lands first, anime owns the wall (tiles mount without st-cell, so
-  // the CSS ignition can never also fire); if the stage wins the race, the
-  // CSS wave plays exactly as today and anime stands down for good.
+  // Watchdog, same pattern as Stage's: ~4s after the stage goes live the
+  // hide class lifts unconditionally. If the chunk failed or the build
+  // bailed that un-strands the tiles; if the spring ran (it settles in
+  // ~2.5s) the inline styles already own the wall and this is a no-op.
   useEffect(() => {
-    if (landingTier() === 'still') return
-    let disposed = false
-    loadLandingMotion().then(() => {
-      if (disposed || liveRef.current) return
-      setJsEntrance(true)
-    }, () => {}) // failed chunk: the CSS wave owns the wall, as designed
-    return () => {
-      disposed = true
-    }
-  }, [])
+    if (!live || revealed) return
+    const watchdog = window.setTimeout(() => setRevealed(true), 4000)
+    return () => window.clearTimeout(watchdog)
+  }, [live, revealed])
 
-  useSectionMotion(
-    'honors',
-    ({ motion }) => {
-      if (!jsEntrance) return
-      const wall = wallRef.current
-      if (!wall) {
-        setJsEntrance(false)
-        return
+  useSectionMotion('honors', ({ motion }) => {
+    const wall = wallRef.current
+    if (!wall) {
+      setRevealed(true)
+      return
+    }
+    const tiles = wall.querySelectorAll<HTMLElement>('.hn-tile')
+    motion.animate(tiles, {
+      opacity: [0, 1],
+      scale: [0.3, 1],
+      ease: motion.spring({ stiffness: 120, damping: 12 }),
+      // start: 420 keeps the wall's intro beat — the header lands first
+      delay: motion.stagger(60, {
+        start: 420,
+        grid: [COLS, Math.ceil(tiles.length / COLS)],
+        from: 'center'
+      }),
+      onComplete: () => {
+        // the spring's final inline transform would pin the tiles and
+        // block the CSS hover lift — opacity: 1 stays, transform goes
+        tiles.forEach((t) => t.style.removeProperty('transform'))
       }
-      const tiles = wall.querySelectorAll<HTMLElement>('.hn-tile')
-      motion.animate(tiles, {
-        opacity: [0, 1],
-        scale: [0.3, 1],
-        ease: motion.spring({ stiffness: 120, damping: 12 }),
-        // start: 420 keeps the CSS wave's intro beat — header lands first
-        delay: motion.stagger(60, {
-          start: 420,
-          grid: [COLS, Math.ceil(tiles.length / COLS)],
-          from: 'center'
-        }),
-        onComplete: () => {
-          // the spring's final inline transform would pin the tiles and
-          // block the CSS hover lift — opacity: 1 stays, transform goes
-          tiles.forEach((t) => t.style.removeProperty('transform'))
-        }
-      })
-      // Reduced motion flipped mid-session: the scope reverts the inline
-      // styles, so hand the wall back to the CSS path (kill-switched to its
-      // final state) rather than leave hn-js tiles with nothing to show them.
-      return () => setJsEntrance(false)
-    },
-    [jsEntrance]
-  )
+    })
+  })
 
   return (
     <>
@@ -310,13 +290,12 @@ function HonorsBody() {
         {/* lx-hw + lx-case: in the light dossier the tiles mount inside one
             dark velvet medal case; in dark mode the page itself is the case */}
         <div ref={wallRef} className="lx-hw lx-case grid grid-cols-6 gap-2 sm:grid-cols-8">
-          {HONOR_TILES.map((def, i) => (
+          {HONOR_TILES.map((def) => (
             <Tile
               key={def.id}
               def={def}
-              index={i}
               onHover={setInspect}
-              jsEntrance={jsEntrance}
+              waiting={!revealed}
             />
           ))}
         </div>
@@ -355,21 +334,22 @@ function HonorsBody() {
       </div>
 
       <style jsx global>{`
-        /* anime-owned entrance: hn-js replaces st-cell on the tiles, so the
-           stage classes hide them until the spring writes inline opacity.
+        /* anime-owned entrance: hn-wait hides the tiles under the stage
+           classes until the spring's inline opacity takes over (inline
+           wins; the watchdog strips the class ~4s after live either way).
            Reduced motion (either switch) overrides back to visible — a
-           mid-race flip can never strand the wall hidden. Rule order inside
-           this block is the tiebreak for the media query. */
-        .stage-armed .hn-js,
-        .stage-live .hn-js {
+           mid-session flip can never strand the wall hidden. Rule order
+           inside this block is the tiebreak for the media query. */
+        .stage-armed .hn-wait,
+        .stage-live .hn-wait {
           opacity: 0;
         }
-        html[data-motion='reduced'] .hn-js {
+        html[data-motion='reduced'] .hn-wait {
           opacity: 1;
         }
         @media (prefers-reduced-motion: reduce) {
-          .stage-armed .hn-js,
-          .stage-live .hn-js {
+          .stage-armed .hn-wait,
+          .stage-live .hn-wait {
             opacity: 1;
           }
         }

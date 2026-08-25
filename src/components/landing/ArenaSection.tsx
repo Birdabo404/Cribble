@@ -2,13 +2,20 @@
 
 // Descent stage 01 — THE ARENA. A living preview of the global leaderboard:
 // six simulated pilots whose scores tick upward on a randomized clock, with
-// real FLIP reordering when someone overtakes the row above. The board panel
+// GSAP-Flip reordering when someone overtakes the row above. The board panel
 // itself pitches in from a re-entry angle, driven by scroll (--p from Stage).
 //
 // Opening act: the board boots with the old guard (sama, elonmusk, mntruell,
 // naval) holding ranks — then the insurgents warp in one by one, derank
 // their victims and knock them off the board entirely (TAKEOVER_EVENTS).
 // SSR / reduced motion skip the theater and render the final cast.
+//
+// Every board animation is transform + opacity: reorders and arrivals are
+// Flip passes over React commits (capture right before the state update,
+// Flip.from in the layout effect), exits fade-and-fall in place, and the
+// old height/box-shadow/filter WAAPI keyframes are gone. The rank-change
+// "flash" lives on a per-row overlay whose box-shadow is static — only its
+// opacity animates.
 
 import {
   CSSProperties,
@@ -17,11 +24,14 @@ import {
   useState
 } from 'react'
 import Link from 'next/link'
-import AnimatedCounter from '@/components/AnimatedCounter'
 import { PlateLayer } from '@/components/cosmetics/PlateLayer'
 import { formatNumber } from '@/components/dashboard-v2/format'
 import { IconCrown, SocialIcon, ToolIcon } from '@/components/leaderboard/icons'
-import { landingTier } from '@/lib/landingMotion'
+import {
+  CRIBBLE_EASE_NAME,
+  landingTier,
+  type LandingMotion
+} from '@/lib/landingMotion'
 import { prefersReducedMotion } from '@/lib/motion'
 import {
   ARENA_STATS,
@@ -30,8 +40,28 @@ import {
   TAKEOVER_START,
   type SimPilot
 } from './data'
-import { CountUp, Seam, SectionHeader, Stage } from './scrollFx'
+import { CountUp, Seam, SectionHeader, Stage, TickerCounter } from './scrollFx'
 import { useSectionMotion } from './useSectionMotion'
+
+type FlipStateInstance = ReturnType<LandingMotion['Flip']['getState']>
+
+/** Rank-change flash: sets the overlay's ring color and fades it out.
+ *  The box-shadow itself never animates — only the overlay's opacity. */
+function flashRow(
+  gsap: LandingMotion['gsap'],
+  row: HTMLElement,
+  rgb: string,
+  duration = 1
+) {
+  const flash = row.querySelector<HTMLElement>('.ar-flash')
+  if (!flash) return
+  flash.style.setProperty('--ar-flash', rgb)
+  gsap.fromTo(
+    flash,
+    { opacity: 1 },
+    { opacity: 0, duration, ease: 'power2.out', overwrite: true }
+  )
+}
 
 const MEDALS = ['var(--lb-gold)', 'var(--lb-silver)', 'var(--lb-bronze)']
 
@@ -45,9 +75,6 @@ const TK_T0 = 2400
 const TK_STEP = 2800
 const TK_EXIT_AT = 820
 const TK_EXIT_MS = 680
-/** Matches the board's row gap (gap-1.5): exiting rows also swallow their
- * gap so the moment of unmount is layout-silent. */
-const TK_ROW_GAP = 6
 
 function useArenaSim(
   rowRefs: { current: Map<string, HTMLDivElement> },
@@ -56,42 +83,49 @@ function useArenaSim(
   const [pilots, setPilots] = useState<SimPilot[]>(SIM_ROSTER)
   const [gain, setGain] = useState<{ id: string; amt: number; seq: number } | null>(null)
   const seqRef = useRef(0)
-  // Arrival/removal commits reflow the board via animated heights — the
-  // FLIP pass in ArenaBody skips those commits so the two never fight.
-  const suppressFlip = useRef(false)
+  // Handoff to the Flip pass in ArenaBody: every commit that moves rows
+  // captures their layout state right before the state update; the layout
+  // effect consumes it with Flip.from. Commits without a capture (mount
+  // rewind, reduced-motion reset) intentionally don't animate.
+  const flipStateRef = useRef<FlipStateInstance | null>(null)
 
   // Rewind to the old guard before first paint — the takeover needs someone
   // to dethrone. SSR / no-JS / reduced motion keep the final cast instead.
-  // (Safe unsuppressed: birdabo and karpathy hold the same slots in both
-  // casts, so the swap commit moves nothing the FLIP pass would animate.)
   useLayoutEffect(() => {
     if (prefersReducedMotion()) return
     setPilots(TAKEOVER_START)
   }, [])
 
-  useSectionMotion(
+  const motionRef = useSectionMotion(
     'arena',
-    ({ timer }) => {
+    ({ motion, timer }) => {
       // Rebuild rewind (reduced motion flipped back off mid-session): the
       // replay needs the old guard on the board again. First run is a
       // no-op — the layout effect above already committed TAKEOVER_START.
       setPilots(TAKEOVER_START)
       setGain(null)
 
+      const captureRows = () => {
+        const rows = Array.from(rowRefs.current.values())
+        if (rows.length) flipStateRef.current = motion.Flip.getState(rows)
+      }
+
       // When act one hands over to act two (row count back to the settled
       // ten, so releasing the freeze below moves nothing).
       const settled =
         TK_T0 + (TAKEOVER_EVENTS.length - 1) * TK_STEP + TK_EXIT_AT + TK_EXIT_MS
 
-      // Freeze the panel's height for act one. Each takeover event briefly
-      // holds an 11th row, growing the board ~52px and shrinking it back —
-      // and inside ScrollSmoother every document-height change forces a full
-      // ScrollTrigger refresh (measured as a recurring long-task storm while
-      // the arena is on screen). The panel is overflow-hidden, so the
-      // transient extra row just clips at the bottom edge — the last pilot
-      // being shoved off the board — and the page never sees a resize. Act
-      // two only re-sorts a fixed cast, so the natural height is static
-      // again once this releases.
+      // Freeze the panel's height for act one. The freeze survives the
+      // Flip rewrite because its reason was never the animation engine:
+      // each takeover event briefly holds an 11th row, and even as an
+      // instant (unanimated) layout change that grows the board ~52px and
+      // shrinks it back — and inside ScrollSmoother every document-height
+      // change forces a full ScrollTrigger refresh (measured as a
+      // recurring long-task storm while the arena is on screen). The panel
+      // is overflow-hidden, so the transient extra row just clips at the
+      // bottom edge — the last pilot being shoved off the board — and the
+      // page never sees a resize. Act two only re-sorts a fixed cast, so
+      // the natural height is static again once this releases.
       const panel = panelRef.current
       if (panel) {
         panel.style.height = `${panel.offsetHeight}px`
@@ -101,15 +135,17 @@ function useArenaSim(
         })
       }
 
-      // Act one — the takeover. Each insurgent warps in one slot above their
-      // victim (the warp-in height growth shoves the victim down a rank),
-      // the victim flashes red, stalls, then collapses off the board.
+      // Act one — the takeover. Each insurgent warps in one slot above
+      // their victim (the Flip pass slides the rows below down to make
+      // room), the victim flashes red, stalls, falls off the board in
+      // place, and the rows below close over the gap on the removal
+      // commit's Flip pass. Transform + opacity throughout.
       TAKEOVER_EVENTS.forEach((ev, k) => {
         const at = TK_T0 + k * TK_STEP
         timer({
           duration: at,
           onComplete: () => {
-            suppressFlip.current = true
+            captureRows()
             setGain({ id: ev.enter.id, amt: ev.enter.today, seq: ++seqRef.current })
             setPilots((prev) => [...prev, ev.enter].sort((a, b) => b.score - a.score))
           }
@@ -119,42 +155,24 @@ function useArenaSim(
           onComplete: () => {
             const el = rowRefs.current.get(ev.drop)
             if (!el) return
-            const h = el.offsetHeight
-            el.animate(
-              [
-                {
-                  height: `${h}px`,
-                  marginBottom: '0px',
-                  opacity: 1,
-                  boxShadow: 'inset 0 0 0 1px rgb(251 113 133 / 0)'
-                },
-                {
-                  boxShadow:
-                    'inset 0 0 0 1px rgb(251 113 133 / 0.65), 0 0 26px -8px rgb(251 113 133 / 0.5)',
-                  offset: 0.16
-                },
-                {
-                  height: `${h}px`,
-                  marginBottom: '0px',
-                  opacity: 0.75,
-                  offset: 0.42
-                },
-                {
-                  height: '0px',
-                  marginBottom: `-${TK_ROW_GAP}px`,
-                  opacity: 0,
-                  filter: 'saturate(0.3) brightness(0.5)',
-                  boxShadow: 'inset 0 0 0 1px rgb(251 113 133 / 0)'
-                }
-              ],
-              { duration: TK_EXIT_MS, easing: 'cubic-bezier(0.5, 0, 0.75, 0.4)', fill: 'forwards' }
-            )
+            flashRow(motion.gsap, el, '251 113 133', 0.6)
+            // flash → stall → fall: the row keeps its slot while it dies,
+            // so nothing below reflows until the removal commit.
+            motion.gsap
+              .timeline()
+              .to(el, { opacity: 0.75, duration: (TK_EXIT_MS / 1000) * 0.42 })
+              .to(el, {
+                opacity: 0,
+                y: 32,
+                duration: (TK_EXIT_MS / 1000) * 0.58,
+                ease: 'power2.in'
+              })
           }
         })
         timer({
           duration: at + TK_EXIT_AT + TK_EXIT_MS,
           onComplete: () => {
-            suppressFlip.current = true
+            captureRows()
             setPilots((prev) => prev.filter((p) => p.id !== ev.drop))
           }
         })
@@ -172,6 +190,7 @@ function useArenaSim(
       // (No document.hidden check: the anime engine pauses itself in
       // background tabs via engine.pauseOnDocumentHidden.)
       const tick = () => {
+        captureRows()
         setPilots((prev) => {
           const leader = prev[0]
           let id: string
@@ -221,9 +240,10 @@ function useArenaSim(
 
       return () => {
         // Reduced motion flipped on mid-flight: land on the final cast —
-        // the same resolved state SSR renders. The FLIP pass sees tier
-        // 'still' and records positions without animating. The height
+        // the same resolved state SSR renders. No capture, so the Flip
+        // pass lets the reset commit land without animating. The height
         // freeze releases too — its timer died with the scope.
+        flipStateRef.current = null
         panel?.style.removeProperty('height')
         setPilots(SIM_ROSTER)
         setGain(null)
@@ -232,7 +252,7 @@ function useArenaSim(
     [rowRefs, panelRef]
   )
 
-  return { pilots, gain, suppressFlip }
+  return { pilots, gain, flipStateRef, motionRef }
 }
 
 function Row({
@@ -251,8 +271,8 @@ function Row({
   const medal = rank <= 3 ? MEDALS[rank - 1] : null
   const champion = rank === 1
   const gained = gain?.id === pilot.id ? gain : null
-  // Insurgents get the warp-in (driven from the FLIP pass) instead of the
-  // staggered stage entrance — .st would replay st-rise on top of it.
+  // Insurgents get the warp-in (the Flip pass's onEnter) instead of the
+  // staggered stage entrance — .st would replay the y-rise on top of it.
   const arriver = ARRIVER_IDS.has(pilot.id)
 
   return (
@@ -286,6 +306,10 @@ function Row({
           />
         </>
       )}
+
+      {/* rank-change flash — static inset ring (color via --ar-flash),
+          revealed by opacity only; see flashRow */}
+      <span aria-hidden className="ar-flash absolute inset-0 z-20 rounded-xl" />
 
       <div className="relative z-10 grid grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-2 px-3 py-3 sm:grid-cols-[44px_minmax(0,1fr)_80px_62px_auto] sm:gap-2.5 sm:px-4 sm:py-2.5">
         {/* rank */}
@@ -365,7 +389,7 @@ function Row({
           className="hidden text-right text-[11px] tabular-nums sm:block"
           style={{ color: 'rgb(var(--lb-up))' }}
         >
-          +<AnimatedCounter value={pilot.today} duration={900} formatter={(v) => formatNumber(Math.round(v))} />
+          +<TickerCounter value={pilot.today} duration={900} formatter={(v) => formatNumber(Math.round(v))} />
         </span>
 
         {/* score */}
@@ -379,7 +403,7 @@ function Row({
                 : 'rgb(var(--lb-score) / 0.22) 0 0 12px'
             }}
           >
-            <AnimatedCounter
+            <TickerCounter
               value={pilot.score}
               duration={900}
               formatter={(v) => formatNumber(Math.round(v))}
@@ -399,90 +423,58 @@ function Row({
 function ArenaBody() {
   const rowRefs = useRef(new Map<string, HTMLDivElement>())
   const panelRef = useRef<HTMLDivElement | null>(null)
-  const { pilots, gain, suppressFlip } = useArenaSim(rowRefs, panelRef)
-  const prevTops = useRef(new Map<string, number>())
+  const { pilots, gain, flipStateRef, motionRef } = useArenaSim(rowRefs, panelRef)
   const prevOrder = useRef<string[]>(SIM_ROSTER.map((p) => p.id))
   const order = pilots.map((p) => p.id).join('|')
 
-  // FLIP: rows glide from their previous slot into the new one; a climber
-  // gets a gold edge-flash so the overtake reads even in peripheral vision.
-  // Takeover commits opt out (suppressFlip): arrivals unfold from 0px and
-  // push the rows below via layout, and removals happen at zero height —
-  // FLIP translates on top of that would double-move everything.
+  // The Flip pass: the sim captures row layout right before every animated
+  // commit (flipStateRef); here — post-commit, pre-paint — Flip.from glides
+  // each surviving row from its old slot into the new one, transform-only.
+  // Rows that entered since the capture (the insurgents) warp in via
+  // onEnter; rows that left (fallen victims) already played their exit in
+  // place, so the slide-up of the rows below is their whole goodbye.
   useLayoutEffect(() => {
-    const next = new Map<string, number>()
-    rowRefs.current.forEach((el, id) => next.set(id, el.getBoundingClientRect().top))
-
+    const state = flipStateRef.current
+    flipStateRef.current = null
+    const motion = motionRef.current?.motion
     const ids = pilots.map((p) => p.id)
-    if (landingTier() === 'still') {
-      // Reduced motion (OS or in-app, possibly flipped mid-session): the
-      // sim's revert commit still reaches here — record positions so a
-      // later re-enable FLIPs from truth, but never play WAAPI.
-      suppressFlip.current = false
-    } else if (suppressFlip.current) {
-      suppressFlip.current = false
-      // Warp-in: the freshly inserted insurgent materializes — grows out of
-      // the seam above their victim behind an accent flash, hot and bright.
-      ids.forEach((id) => {
-        if (!ARRIVER_IDS.has(id) || prevOrder.current.includes(id)) return
-        const el = rowRefs.current.get(id)
-        if (!el) return
-        const h = el.offsetHeight
-        el.animate(
-          [
+
+    // Reduced motion (OS or in-app, possibly flipped mid-session): the
+    // sim's revert commit still reaches here — land instantly, no Flip.
+    if (state && motion && landingTier() !== 'still') {
+      const { gsap, Flip } = motion
+      const rows = Array.from(rowRefs.current.values())
+      Flip.from(state, {
+        targets: rows,
+        duration: 0.64,
+        ease: CRIBBLE_EASE_NAME,
+        simple: true,
+        onEnter: (els) => {
+          // Warp-in: the insurgent materializes in the seam above their
+          // victim behind an accent flash — scale + opacity, no blur.
+          els.forEach((el) => flashRow(gsap, el as HTMLElement, '204 255 0'))
+          return gsap.fromTo(
+            els,
+            { opacity: 0, scale: 0.86 },
             {
-              height: '0px',
-              marginBottom: `-${TK_ROW_GAP}px`,
-              opacity: 0,
-              filter: 'blur(10px) brightness(2.4) saturate(1.4)',
-              boxShadow: 'inset 0 0 0 1px rgb(204 255 0 / 0)'
-            },
-            {
-              height: `${h}px`,
-              marginBottom: '0px',
               opacity: 1,
-              filter: 'blur(0px) brightness(1.4) saturate(1.15)',
-              boxShadow:
-                'inset 0 0 0 1px rgb(204 255 0 / 0.65), 0 0 34px -6px rgb(204 255 0 / 0.55)',
-              offset: 0.5
-            },
-            {
-              height: `${h}px`,
-              marginBottom: '0px',
-              opacity: 1,
-              filter: 'blur(0px) brightness(1) saturate(1)',
-              boxShadow: 'inset 0 0 0 1px rgb(204 255 0 / 0)'
+              scale: 1,
+              duration: 0.82,
+              ease: 'back.out(1.4)',
+              clearProps: 'opacity,transform'
             }
-          ],
-          { duration: 820, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }
-        )
-      })
-    } else {
-      next.forEach((top, id) => {
-        const old = prevTops.current.get(id)
-        const el = rowRefs.current.get(id)
-        if (old == null || !el) return
-        const dy = old - top
-        if (Math.abs(dy) < 2) return
-        el.animate(
-          [{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }],
-          { duration: 640, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }
-        )
-        if (prevOrder.current.indexOf(id) > ids.indexOf(id)) {
-          el.animate(
-            [
-              {
-                boxShadow:
-                  'inset 0 0 0 1px rgb(255 214 68 / 0.75), 0 0 30px -6px rgb(255 214 68 / 0.55)'
-              },
-              { boxShadow: 'inset 0 0 0 1px rgb(255 214 68 / 0)' }
-            ],
-            { duration: 1000, easing: 'ease-out' }
           )
         }
       })
+      // a climber gets a gold edge-flash so the overtake reads even in
+      // peripheral vision
+      ids.forEach((id) => {
+        if (!prevOrder.current.includes(id)) return
+        if (prevOrder.current.indexOf(id) <= ids.indexOf(id)) return
+        const el = rowRefs.current.get(id)
+        if (el) flashRow(gsap, el, '255 214 68')
+      })
     }
-    prevTops.current = next
     prevOrder.current = ids
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order])
@@ -676,6 +668,16 @@ function ArenaBody() {
             opacity: 0.35;
             transform: scale(0.8);
           }
+        }
+        /* rank-change flash overlay: the ring + inner glow are STATIC
+           paint (inset-only — rows clip their overflow); flashRow swaps
+           the color var and animates nothing but opacity */
+        .ar-flash {
+          pointer-events: none;
+          opacity: 0;
+          box-shadow:
+            inset 0 0 0 1px rgb(var(--ar-flash, 255 214 68) / 0.7),
+            inset 0 0 24px -8px rgb(var(--ar-flash, 255 214 68) / 0.4);
         }
         .ar-gain {
           position: absolute;
