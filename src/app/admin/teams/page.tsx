@@ -17,14 +17,14 @@ import {
   formatDate,
   statusChipMeta,
   tierChipMeta,
-  useAdmin,
   type AdminChipMeta,
   type AdminFact
 } from '@/components/admin'
 import { SegmentedControl } from '@/components/settings/SegmentedControl'
 
 // Team review queue: every account that bought the team plan waits here
-// (pay first, badge later) until the owner approves or rejects it. The
+// (pay first, badge later) until staff approve or reject it — team.review
+// sits at the moderator floor, so moderators work this queue too. The
 // row surfaces the anti-impersonation signals — OAuth provider identity,
 // account age, claimed website, tier and seat usage — and approving is
 // one click, while rejecting demands a written reason (it reverts the
@@ -91,13 +91,11 @@ function providerLabel(hint: TeamRow['provider_hint']): string {
 
 function TeamListRow({
   team,
-  isOwner,
   working,
   onApprove,
   onReject
 }: {
   team: TeamRow
-  isOwner: boolean
   working: boolean
   onApprove: () => void
   onReject: () => void
@@ -203,26 +201,23 @@ function TeamListRow({
 
       <AdminFactGrid facts={facts} columns={4} />
 
-      {isOwner && (
-        <div className="flex flex-wrap items-center gap-2">
-          {team.review_status !== 'approved' && (
-            <AdminButton variant="good" pending={working} onClick={onApprove}>
-              Approve
-            </AdminButton>
-          )}
-          {team.review_status !== 'rejected' && (
-            <AdminButton variant="danger" disabled={working} onClick={onReject}>
-              Reject
-            </AdminButton>
-          )}
-        </div>
-      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {team.review_status !== 'approved' && (
+          <AdminButton variant="good" pending={working} onClick={onApprove}>
+            Approve
+          </AdminButton>
+        )}
+        {team.review_status !== 'rejected' && (
+          <AdminButton variant="danger" disabled={working} onClick={onReject}>
+            Reject
+          </AdminButton>
+        )}
+      </div>
     </li>
   )
 }
 
 export default function AdminTeamsPage() {
-  const me = useAdmin()
   const [filter, setFilter] = useState<ReviewFilter>('pending')
   const [teams, setTeams] = useState<TeamRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -303,8 +298,6 @@ export default function AdminTeamsPage() {
     return null
   }
 
-  const isOwner = me.role === 'owner'
-
   return (
     <div className="space-y-6">
       <AdminPageHeader
@@ -350,7 +343,6 @@ export default function AdminTeamsPage() {
               <TeamListRow
                 key={team.userId}
                 team={team}
-                isOwner={isOwner}
                 working={workingId === team.userId}
                 onApprove={() => void approve(team)}
                 onReject={() => setRejecting(team)}

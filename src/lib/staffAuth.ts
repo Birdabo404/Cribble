@@ -54,6 +54,11 @@ export function minRoleFor(action: StaffAction): StaffRole {
     // approve / reject / request changes — is content review, so
     // moderators work it. The money levers stay on billboard.activate.
     case 'billboard.review':
+    // Team approval is the same shape of review work: judging the
+    // anti-impersonation signals and handing out (or refusing) the gold
+    // badge. Billing is never touched on this path — rejection refunds
+    // happen manually in Polar — so moderators work this queue too.
+    case 'team.review':
       return 'moderator'
     case 'entitlement.grant_pro':
     case 'entitlement.revoke_pro':
@@ -68,16 +73,13 @@ export function minRoleFor(action: StaffAction): StaffRole {
     // The season calendar controls every player's scores and standings —
     // rescheduling or force-ending a season is an owner power.
     case 'season.manage':
-    // Team approval hands out the gold badge — the anti-impersonation
-    // gate is an owner call, same as entitlements.
-    case 'team.review':
     // Flipping a billboard ad's paid/live state (and archiving) settles
     // real money collected manually over email/X DM — that stays an
     // owner call even though the acceptance decision above is
     // moderator work.
     case 'billboard.activate':
     // Announcements push site-wide broadcast copy into the
-    // every-visitor ticker — an owner call, same as team.review.
+    // every-visitor ticker — an owner call, same as billboard.activate.
     case 'announcement.manage':
     case 'debug.manage':
       return 'owner'
