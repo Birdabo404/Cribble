@@ -107,6 +107,21 @@ describe('token leaderboard windows', () => {
 })
 
 describe('token personas', () => {
+  // Defaults deliberately land on SMALL FIRE so each case below only
+  // overrides the fields its badge is about.
+  const personaId = (overrides: Partial<Parameters<typeof tokenPersona>[0]>) =>
+    tokenPersona({
+      burnUsd: 10,
+      totalTokens: 1_000_000,
+      outputTokens: 50_000,
+      cachePercent: 50,
+      modelCount: 2,
+      activeDays: 4,
+      clientCount: 1,
+      agentCount: 1,
+      ...overrides
+    }).id
+
   it('prioritizes dramatic spend over efficiency personas', () => {
     expect(
       tokenPersona({
@@ -114,7 +129,10 @@ describe('token personas', () => {
         totalTokens: 100_000_000,
         outputTokens: 20_000_000,
         cachePercent: 95,
-        modelCount: 8
+        modelCount: 8,
+        activeDays: 4,
+        clientCount: 1,
+        agentCount: 1
       }).id
     ).toBe('financial-incident')
   })
@@ -126,7 +144,10 @@ describe('token personas', () => {
         totalTokens: 20_000_000,
         outputTokens: 500_000,
         cachePercent: 94,
-        modelCount: 1
+        modelCount: 1,
+        activeDays: 4,
+        clientCount: 1,
+        agentCount: 1
       }).id
     ).toBe('cache-goblin')
     expect(
@@ -135,9 +156,74 @@ describe('token personas', () => {
         totalTokens: 2_000_000,
         outputTokens: 300_000,
         cachePercent: 40,
-        modelCount: 1
+        modelCount: 1,
+        activeDays: 4,
+        clientCount: 1,
+        agentCount: 1
       }).id
     ).toBe('output-demon')
+  })
+
+  it('splits the spend ladder into strictly descending tiers', () => {
+    // The $31k burner outranks FINANCIAL INCIDENT — that's the point.
+    expect(personaId({ burnUsd: 31_000 })).toBe('compute-baron')
+    expect(personaId({ burnUsd: 25_000 })).toBe('compute-baron')
+    expect(personaId({ burnUsd: 10_000 })).toBe('audit-risk')
+    expect(personaId({ burnUsd: 2_500 })).toBe('payroll-expense')
+    expect(personaId({ burnUsd: 500 })).toBe('financial-incident')
+    expect(personaId({ burnUsd: 100 })).toBe('whale')
+  })
+
+  it('flags fast-tier pricing as PRIORITY LANE at two dollars per MTok', () => {
+    // $40 across 20M tokens is exactly $2/MTok — the boundary qualifies.
+    expect(personaId({ burnUsd: 40, totalTokens: 20_000_000 })).toBe('priority-lane')
+    expect(personaId({ burnUsd: 99, totalTokens: 20_000_000 })).toBe('priority-lane')
+    // A hair under the rate is just an ordinary burning wallet.
+    expect(personaId({ burnUsd: 39, totalTokens: 20_000_000 })).toBe('wallet-on-fire')
+  })
+
+  it('calls out industrial-scale freeloading as FREE TIER FREAK', () => {
+    expect(personaId({ burnUsd: 49, totalTokens: 1_000_000_000 })).toBe('free-tier-freak')
+    // Paying $50 forfeits the badge; sheer volume takes over instead.
+    expect(personaId({ burnUsd: 50, totalTokens: 1_000_000_000 })).toBe('token-furnace')
+  })
+
+  it('prefers GROUNDHOG DAY over CACHE GOBLIN at 98 percent cache', () => {
+    expect(personaId({ cachePercent: 98, totalTokens: 50_000_000 })).toBe('groundhog-day')
+    // Below the 50M volume floor the goblin keeps the badge.
+    expect(personaId({ cachePercent: 98, totalTokens: 20_000_000 })).toBe('cache-goblin')
+  })
+
+  it('escalates OUTPUT DEMON to YAPPER for extreme output', () => {
+    expect(personaId({ outputTokens: 25_000_000, totalTokens: 100_000_000 })).toBe('yapper')
+    expect(personaId({ outputTokens: 600_000, totalTokens: 2_000_000 })).toBe('yapper')
+    // A 15% share stays a demon, not a yapper.
+    expect(personaId({ outputTokens: 300_000, totalTokens: 2_000_000 })).toBe('output-demon')
+  })
+
+  it('recognizes TOKEN BLACK HOLE volume above the furnace', () => {
+    expect(personaId({ burnUsd: 60, totalTokens: 5_000_000_000 })).toBe('token-black-hole')
+    expect(personaId({ burnUsd: 60, totalTokens: 50_000_000 })).toBe('token-furnace')
+  })
+
+  it('grades model promiscuity from hopper to commitment issues', () => {
+    expect(personaId({ modelCount: 10 })).toBe('commitment-issues')
+    expect(personaId({ modelCount: 9 })).toBe('model-hopper')
+    expect(personaId({ modelCount: 5 })).toBe('model-hopper')
+  })
+
+  it('badges multi-machine and multi-agent fleets', () => {
+    expect(personaId({ clientCount: 3 })).toBe('botnet')
+    expect(personaId({ agentCount: 4 })).toBe('zookeeper')
+    // Three machines outrank four agents when both apply.
+    expect(personaId({ clientCount: 3, agentCount: 4 })).toBe('botnet')
+  })
+
+  it('separates monogamous loyalty from simply never logging off', () => {
+    expect(personaId({ modelCount: 1, activeDays: 14 })).toBe('ride-or-die')
+    // Loyalty beats the calendar even after 28 straight days.
+    expect(personaId({ modelCount: 1, activeDays: 30 })).toBe('ride-or-die')
+    expect(personaId({ modelCount: 2, activeDays: 28 })).toBe('touch-grass')
   })
 })
 
@@ -307,6 +393,35 @@ describe('buildTokenBoard', () => {
       models: ['gpt-5.5', 'gpt-5.6-sol', 'gpt-5.6-terra'],
       modelBreakdownComplete: false
     })
+  })
+
+  it('feeds behavior fields into the persona at the call site', () => {
+    const behavior = (overrides: Partial<TokenLeaderboardRpcRow>) =>
+      usage({
+        cost_usd: '5',
+        input_tokens: '950000',
+        output_tokens: '50000',
+        cache_creation_tokens: '0',
+        cache_read_tokens: '0',
+        total_tokens: '1000000',
+        models: ['opus'],
+        ...overrides
+      })
+
+    const board = buildTokenBoard([
+      behavior({ user_id: 1, client_count: '3' }),
+      behavior({
+        user_id: 2,
+        agents: ['claude-code', 'codex', 'cursor', 'gemini'],
+        top_agent: 'cursor'
+      }),
+      behavior({ user_id: 3, active_days: '14' })
+    ])
+
+    const personaById = new Map(board.rows.map((row) => [row.userId, row.persona.id]))
+    expect(personaById.get(1)).toBe('botnet')
+    expect(personaById.get(2)).toBe('zookeeper')
+    expect(personaById.get(3)).toBe('ride-or-die')
   })
 
   it('uses tokens and output as deterministic tie-breakers', () => {

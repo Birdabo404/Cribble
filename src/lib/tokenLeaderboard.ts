@@ -44,12 +44,25 @@ export type TokenPersonaTone = 'danger' | 'hot' | 'cache' | 'output' | 'neutral'
 
 export interface TokenPersona {
   id:
+    | 'compute-baron'
+    | 'audit-risk'
+    | 'payroll-expense'
     | 'financial-incident'
     | 'whale'
+    | 'priority-lane'
+    | 'free-tier-freak'
+    | 'groundhog-day'
     | 'cache-goblin'
+    | 'yapper'
     | 'output-demon'
+    | 'token-black-hole'
+    | 'commitment-issues'
     | 'model-hopper'
+    | 'botnet'
+    | 'zookeeper'
     | 'raw-dogger'
+    | 'ride-or-die'
+    | 'touch-grass'
     | 'token-furnace'
     | 'wallet-on-fire'
     | 'small-fire'
@@ -257,6 +270,16 @@ export function addExactDecimals(left: string, right: string): string {
   return exactDecimal(`${padded.slice(0, -scale)}.${padded.slice(-scale)}`)
 }
 
+/** Shifts an exact decimal six places (× 1,000,000) without leaving
+ *  exact-string arithmetic — token totals can exceed 2^53, so per-MTok
+ *  rate checks must never round-trip through Number. */
+function decimalTimesMillion(value: string): string {
+  const { whole, fraction } = decimalParts(value)
+  const padded = fraction.padEnd(6, '0')
+  const tail = padded.slice(6)
+  return exactDecimal(`${whole}${padded.slice(0, 6)}${tail ? `.${tail}` : ''}`)
+}
+
 export function formatExactInteger(value: string): string {
   return exactInteger(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
@@ -416,21 +439,58 @@ export function tokenPersona(input: {
   outputTokens: number | string
   cachePercent: number
   modelCount: number
+  activeDays: number
+  clientCount: number
+  agentCount: number
 }): TokenPersona {
   const burnUsd = exactDecimal(input.burnUsd)
   const totalTokens = exactInteger(input.totalTokens)
   const outputTokens = exactInteger(input.outputTokens)
-  const { cachePercent, modelCount } = input
+  const { cachePercent, modelCount, activeDays, clientCount, agentCount } = input
   const outputPercent = exactRatioPercent(outputTokens, totalTokens)
 
+  // Spend tiers descend strictly so the biggest burners outrank everyone.
+  if (compareExactDecimals(burnUsd, '25000') >= 0) {
+    return { id: 'compute-baron', label: 'COMPUTE BARON', tone: 'danger' }
+  }
+  if (compareExactDecimals(burnUsd, '10000') >= 0) {
+    return { id: 'audit-risk', label: 'AUDIT RISK', tone: 'danger' }
+  }
+  if (compareExactDecimals(burnUsd, '2500') >= 0) {
+    return { id: 'payroll-expense', label: 'PAYROLL EXPENSE', tone: 'danger' }
+  }
   if (compareExactDecimals(burnUsd, '500') >= 0) {
     return { id: 'financial-incident', label: 'FINANCIAL INCIDENT', tone: 'danger' }
   }
   if (compareExactDecimals(burnUsd, '100') >= 0) {
     return { id: 'whale', label: 'WHALE', tone: 'danger' }
   }
+  // Blended rate ≥ $2/MTok, i.e. burn × 1,000,000 ≥ totalTokens × 2 —
+  // fast-tier pricing paid to skip the queue.
+  if (
+    compareExactIntegers(totalTokens, '20000000') >= 0 &&
+    compareExactDecimals(burnUsd, '100') < 0 &&
+    compareExactDecimals(decimalTimesMillion(burnUsd), addExactIntegers(totalTokens, totalTokens)) >= 0
+  ) {
+    return { id: 'priority-lane', label: 'PRIORITY LANE', tone: 'hot' }
+  }
+  if (
+    compareExactIntegers(totalTokens, '1000000000') >= 0 &&
+    compareExactDecimals(burnUsd, '50') < 0
+  ) {
+    return { id: 'free-tier-freak', label: 'FREE TIER FREAK', tone: 'cache' }
+  }
+  if (cachePercent >= 98 && compareExactIntegers(totalTokens, '50000000') >= 0) {
+    return { id: 'groundhog-day', label: 'GROUNDHOG DAY', tone: 'cache' }
+  }
   if (cachePercent >= 90 && compareExactIntegers(totalTokens, '10000000') >= 0) {
     return { id: 'cache-goblin', label: 'CACHE GOBLIN', tone: 'cache' }
+  }
+  if (
+    compareExactIntegers(outputTokens, '25000000') >= 0 ||
+    (outputPercent >= 25 && compareExactIntegers(totalTokens, '1000000') >= 0)
+  ) {
+    return { id: 'yapper', label: 'YAPPER', tone: 'output' }
   }
   if (
     compareExactIntegers(outputTokens, '5000000') >= 0 ||
@@ -438,11 +498,29 @@ export function tokenPersona(input: {
   ) {
     return { id: 'output-demon', label: 'OUTPUT DEMON', tone: 'output' }
   }
+  if (compareExactIntegers(totalTokens, '5000000000') >= 0) {
+    return { id: 'token-black-hole', label: 'TOKEN BLACK HOLE', tone: 'hot' }
+  }
+  if (modelCount >= 10) {
+    return { id: 'commitment-issues', label: 'COMMITMENT ISSUES', tone: 'neutral' }
+  }
   if (modelCount >= 5) {
     return { id: 'model-hopper', label: 'MODEL HOPPER', tone: 'neutral' }
   }
+  if (clientCount >= 3) {
+    return { id: 'botnet', label: 'BOTNET', tone: 'neutral' }
+  }
+  if (agentCount >= 4) {
+    return { id: 'zookeeper', label: 'ZOOKEEPER', tone: 'neutral' }
+  }
   if (cachePercent <= 10 && compareExactIntegers(totalTokens, '10000000') >= 0) {
     return { id: 'raw-dogger', label: 'RAW DOGGER', tone: 'hot' }
+  }
+  if (modelCount === 1 && activeDays >= 14) {
+    return { id: 'ride-or-die', label: 'RIDE OR DIE', tone: 'neutral' }
+  }
+  if (activeDays >= 28) {
+    return { id: 'touch-grass', label: 'TOUCH GRASS', tone: 'hot' }
   }
   if (compareExactIntegers(totalTokens, '50000000') >= 0) {
     return { id: 'token-furnace', label: 'TOKEN FURNACE', tone: 'hot' }
@@ -541,7 +619,10 @@ export function buildTokenBoard(source: TokenLeaderboardRpcRow[]): TokenBoard {
         totalTokens,
         outputTokens,
         cachePercent,
-        modelCount: models.length
+        modelCount: models.length,
+        activeDays,
+        clientCount,
+        agentCount: agents.length
       })
     }
   })
