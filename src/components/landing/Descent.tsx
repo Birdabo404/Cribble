@@ -10,7 +10,7 @@
 // ScrollSmoother transforms #smooth-content and position:fixed dies inside
 // a transform, so every fixed overlay must be a sibling of #smooth-wrapper.
 
-import { CSSProperties, RefObject, useEffect, useState } from 'react'
+import { CSSProperties, RefObject, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   landingSmoother,
@@ -48,8 +48,17 @@ export function DescentHud({
 }) {
   const [visible, setVisible] = useState(false)
   const [barVisible, setBarVisible] = useState(false)
-  const [alt, setAlt] = useState(100)
   const [active, setActive] = useState<string>('arena')
+
+  // Altitude is written straight to the DOM, never through React: the
+  // scrub updates every scrolled frame, and a setState here re-rendered
+  // the whole HUD (rail + bar + ladder) per frame — the single biggest
+  // scroll→React hot path on the page. The readouts dedupe on the
+  // formatted 0.1km string and the bar animates scaleX (compositor) in
+  // place of width (layout).
+  const barFillRef = useRef<HTMLDivElement>(null)
+  const chipAltRef = useRef<HTMLSpanElement>(null)
+  const railAltRef = useRef<HTMLSpanElement>(null)
 
   // Active-section ladder: IntersectionObserver, deliberately independent
   // of the motion chunk (IO measures visual rects, so it stays correct
@@ -79,6 +88,19 @@ export function DescentHud({
   useEffect(() => {
     if (prefersReducedMotion()) return
     let triggers: ScrollTriggerInstance[] = []
+    // Deduped on the formatted 0.1km string, so a sub-decimal scroll delta
+    // writes nothing at all.
+    let lastAltText = ''
+    const writeAlt = (alt: number) => {
+      const text = alt.toFixed(1).padStart(5, '0')
+      if (text === lastAltText) return
+      lastAltText = text
+      if (barFillRef.current) {
+        barFillRef.current.style.transform = `scaleX(${((100 - alt) / 100).toFixed(4)})`
+      }
+      if (chipAltRef.current) chipAltRef.current.textContent = `ALT ${text} KM`
+      if (railAltRef.current) railAltRef.current.textContent = text
+    }
     const off = onLandingRuntime(({ motion }) => {
       const root = rootRef.current
       if (!root || triggers.length) return
@@ -100,13 +122,13 @@ export function DescentHud({
           trigger: root,
           start: 'top top',
           end: 'bottom bottom',
-          onUpdate: (self) => setAlt(Math.max(0, 100 - self.progress * 100))
+          onUpdate: (self) => writeAlt(Math.max(0, 100 - self.progress * 100))
         })
       ]
       // seed — callbacks only fire on change after this point
       setVisible(triggers[0].isActive)
       setBarVisible(triggers[1].isActive)
-      setAlt(Math.max(0, 100 - triggers[2].progress * 100))
+      writeAlt(Math.max(0, 100 - triggers[2].progress * 100))
     })
     return () => {
       off()
@@ -129,10 +151,16 @@ export function DescentHud({
       }}
     >
       <div className="h-[2px] w-full bg-zinc-900/60">
+        {/* full-width fill scaled by progress: scaleX composites where the
+            old width % relaid out the bar every scrolled frame; the
+            gradient spans the element box either way, so the paint is
+            identical */}
         <div
-          className="h-full"
+          ref={barFillRef}
+          className="h-full w-full"
           style={{
-            width: `${100 - alt}%`,
+            transform: 'scaleX(0)',
+            transformOrigin: '0 50%',
             background:
               'linear-gradient(90deg, rgb(var(--accent-rgb) / 0.4), var(--accent))',
             boxShadow: '0 0 12px rgb(var(--accent-rgb) / 0.7)'
@@ -151,6 +179,7 @@ export function DescentHud({
       }}
     >
       <span
+        ref={chipAltRef}
         className="block rounded-md border px-2 py-1.5 text-[9px] leading-none tabular-nums tracking-[0.2em] [font-family:var(--font-pixel)]"
         style={{
           color: 'var(--accent)',
@@ -161,7 +190,7 @@ export function DescentHud({
           WebkitBackdropFilter: 'blur(6px)'
         }}
       >
-        ALT {alt.toFixed(1).padStart(5, '0')} KM
+        ALT 100.0 KM
       </span>
     </div>
 
@@ -174,10 +203,11 @@ export function DescentHud({
       <div className="flex flex-col items-end gap-1">
         <span className="text-[8px] tracking-[0.4em] text-zinc-600">ALT</span>
         <span
+          ref={railAltRef}
           className="leading-none tabular-nums [font-family:var(--font-pixel)] text-[13px]"
           style={{ color: 'var(--accent)', textShadow: '0 0 12px rgb(var(--accent-rgb) / 0.5)' }}
         >
-          {alt.toFixed(1).padStart(5, '0')}
+          100.0
         </span>
         <span className="text-[8px] tracking-[0.4em] text-zinc-600">KM</span>
       </div>

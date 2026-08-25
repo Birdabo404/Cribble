@@ -100,9 +100,21 @@ async function importLandingMotion() {
   const { CustomEase } = customEaseModule
   const { Flip } = flipModule
   const { ScrambleTextPlugin } = scrambleTextModule
-  // spring() is v4.5's name for the deprecated createSpring()
-  const { createTimer, animate, stagger, spring, createScope, engine } =
-    animeModule
+  // spring() is v4.5's name for the deprecated createSpring().
+  // cubicBezier rides along because v4.5 removed the 'cubicBezier(...)'
+  // ease STRING (the parser warns and falls back to linear) — consumers
+  // needing the site curve must call the function with CRIBBLE_EASE's
+  // numbers instead.
+  const {
+    createTimer,
+    createTimeline,
+    animate,
+    stagger,
+    spring,
+    createScope,
+    engine,
+    cubicBezier
+  } = animeModule
 
   // The memoized module-level promise below guarantees this runs once.
   gsap.registerPlugin(
@@ -125,11 +137,13 @@ async function importLandingMotion() {
     Flip,
     ScrambleTextPlugin,
     createTimer,
+    createTimeline,
     animate,
     stagger,
     spring,
     createScope,
-    engine
+    engine,
+    cubicBezier
   }
 }
 

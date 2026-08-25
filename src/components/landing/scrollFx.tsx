@@ -392,23 +392,41 @@ export function CountUp({
 }) {
   const live = useStageLive()
   const [v, setV] = useState(to) // SSR/no-JS/no-runtime shows the final value
+  const spanRef = useRef<HTMLSpanElement>(null)
+  // Ref'd so an inline `format` prop can't retrigger (and restart) the
+  // count-up on unrelated parent re-renders.
+  const formatRef = useRef(format)
+  formatRef.current = format
 
   // A gsap tween on a proxy object — driven by gsap's single ticker, no
   // private rAF loop. The reset to 0 happens only once the runtime is in
-  // hand, so a failed chunk can never park the value at zero.
+  // hand, so a failed chunk can never park the value at zero. Mid-flight
+  // frames write textContent directly: a React commit per odometer tick
+  // is main-thread work the descent scroll can feel, and the DOM string
+  // is the only thing that changes. State syncs at the endpoints so any
+  // parent-driven re-render paints the right value.
   useEffect(() => {
     if (!live || prefersReducedMotion()) return
     let tween: TweenInstance | null = null
     const off = onLandingRuntime(({ motion }) => {
       if (tween) return
       const proxy = { v: 0 }
+      let painted = ''
       setV(0)
       tween = motion.gsap.to(proxy, {
         v: to,
         duration: duration / 1000,
         delay: delay / 1000,
         ease: 'expo.out',
-        onUpdate: () => setV(Math.round(proxy.v))
+        onUpdate: () => {
+          const span = spanRef.current
+          if (!span) return
+          const text = formatRef.current(Math.round(proxy.v))
+          if (text === painted) return
+          painted = text
+          span.textContent = text
+        },
+        onComplete: () => setV(to)
       })
     })
     return () => {
@@ -417,7 +435,11 @@ export function CountUp({
     }
   }, [live, to, duration, delay])
 
-  return <span className={className}>{format(v)}</span>
+  return (
+    <span ref={spanRef} className={className}>
+      {format(v)}
+    </span>
+  )
 }
 
 /* ------------------------------------------------------------------ */
@@ -445,7 +467,12 @@ export function TickerCounter({
 }) {
   const [display, setDisplay] = useState(value)
   const displayRef = useRef(value)
+  const spanRef = useRef<HTMLSpanElement>(null)
   const motionRef = useRef<LandingMotion | null>(null)
+  // Ref'd for the same reason as CountUp: arena rows pass inline
+  // formatters, and their identity must not gate anything.
+  const formatterRef = useRef(formatter)
+  formatterRef.current = formatter
 
   useEffect(
     () =>
@@ -455,6 +482,12 @@ export function TickerCounter({
     []
   )
 
+  // The arena renders dozens of these and retargets them every shuffle;
+  // a React commit per odometer frame across ~20 counters was a periodic
+  // main-thread storm. Mid-tween frames now write textContent straight to
+  // the span (deduped on the formatted string); state only syncs at the
+  // endpoints, so React's picture matches the DOM whenever a shuffle
+  // re-renders the board.
   useEffect(() => {
     const from = displayRef.current
     if (from === value) return
@@ -465,13 +498,23 @@ export function TickerCounter({
       return
     }
     const proxy = { v: from }
+    let painted = ''
     const tween = motion.gsap.to(proxy, {
       v: value,
       duration: duration / 1000,
       ease: 'power2.out',
       onUpdate: () => {
         displayRef.current = proxy.v
-        setDisplay(proxy.v)
+        const span = spanRef.current
+        if (!span) return
+        const text = formatterRef.current(proxy.v)
+        if (text === painted) return
+        painted = text
+        span.textContent = text
+      },
+      onComplete: () => {
+        displayRef.current = value
+        setDisplay(value)
       }
     })
     return () => {
@@ -479,7 +522,11 @@ export function TickerCounter({
     }
   }, [value, duration])
 
-  return <span className={className}>{formatter(display)}</span>
+  return (
+    <span ref={spanRef} className={className}>
+      {formatter(display)}
+    </span>
+  )
 }
 
 /* ------------------------------------------------------------------ */
@@ -818,7 +865,11 @@ function armLandingRuntime(
       wrapper: els.wrapper,
       content: els.content,
       smooth: 1.15,
-      effects: true,
+      // No data-speed/data-lag consumers exist (the globe's data-lag="0"
+      // was only ever an opt-out), so the effects pipeline is pure
+      // per-frame overhead. Flip this back on when a real parallax node
+      // lands.
+      effects: false,
       // native scroll on touch: better perf, no iOS URL-bar fights
       smoothTouch: 0,
       ignoreMobileResize: true,
@@ -857,17 +908,22 @@ function armLandingRuntime(
 /**
  * The one velocity write per frame everything else reads. --vel is the
  * lerp-smoothed |velocity| normalized to 0..1 over 0..3000 px/s (the film
- * grain thickens with it, star streaks ride it). It lives on <html> and
- * defaults to 0 for every consumer via var() fallbacks. The signed --skew
- * companion is retired with the section shear it fed (see globals.css) —
- * nothing else consumed it.
+ * grain thickens with it). It is written on the grain sheet itself, NOT
+ * <html>: a custom-property write on the root dirties style for the whole
+ * document every frame while scrolling, while a write on the sole
+ * consumer invalidates one fixed element. Consumers keep their var()
+ * fallback of 0, so a missing grain node (or the write landing on the
+ * html fallback) renders identically. The signed --skew companion is
+ * retired with the section shear it fed (see globals.css) — nothing else
+ * consumed it.
  */
 function startVelocityFeedback(
   motion: LandingMotion,
   smoother: ScrollSmootherInstance
 ): () => void {
   const { gsap } = motion
-  const html = document.documentElement
+  const grain =
+    document.querySelector<HTMLElement>('.lx-grain') ?? document.documentElement
   const VELOCITY_RANGE = 3000 // px/s that maps to the full 0..1 band
   const FOLLOW = 0.12 // per-frame lerp factor
   let value = 0
@@ -881,36 +937,40 @@ function startVelocityFeedback(
     if (target === 0 && Math.abs(value) < 0.002) value = 0
     if (value === 0 && settled) return // idle — skip redundant style writes
     settled = value === 0
-    html.style.setProperty('--vel', Math.abs(value).toFixed(3))
+    grain.style.setProperty('--vel', Math.abs(value).toFixed(3))
   }
   gsap.ticker.add(tick)
   return () => {
     gsap.ticker.remove(tick)
-    html.style.removeProperty('--vel')
+    grain.style.removeProperty('--vel')
   }
 }
 
 /**
- * One page-spanning scrub writes --alt (0 at orbit, 1 at touchdown) on
- * <html>. Consumers are pure CSS in globals.css: the fixed .lx-atmo
- * gradient layers cross-fade by opacity (compositor-friendly — no giant
- * background repaints) and the star tiles thin out as atmosphere thickens.
- * html.light has zero --alt consumers, so the dossier theme ignores the
- * variable completely.
+ * One page-spanning scrub writes --alt (0 at orbit, 1 at touchdown).
+ * Consumers are pure CSS in globals.css: the fixed .lx-atmo gradient
+ * layers cross-fade by opacity (compositor-friendly — no giant background
+ * repaints) and the star tiles thin out as atmosphere thickens. The write
+ * lands on the .lx-atmo stack root, not <html> — every consumer is a
+ * child, inheritance carries the value, and the per-scroll-frame style
+ * invalidation stays scoped to five fixed layers instead of the whole
+ * document. html.light has zero --alt consumers, so the dossier theme
+ * ignores the variable completely.
  */
 function startAtmosphereScrub(motion: LandingMotion): () => void {
   const { ScrollTrigger } = motion
-  const html = document.documentElement
+  const atmo =
+    document.querySelector<HTMLElement>('.lx-atmo') ?? document.documentElement
   const trigger = ScrollTrigger.create({
     start: 0,
     end: 'max',
     onUpdate: (self) => {
-      html.style.setProperty('--alt', self.progress.toFixed(4))
+      atmo.style.setProperty('--alt', self.progress.toFixed(4))
     }
   })
-  html.style.setProperty('--alt', trigger.progress.toFixed(4))
+  atmo.style.setProperty('--alt', trigger.progress.toFixed(4))
   return () => {
     trigger.kill()
-    html.style.removeProperty('--alt')
+    atmo.style.removeProperty('--alt')
   }
 }

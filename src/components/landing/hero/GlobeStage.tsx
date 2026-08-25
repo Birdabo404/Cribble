@@ -5,6 +5,7 @@
 // Extracted verbatim from src/app/page.tsx.
 
 import dynamic from 'next/dynamic'
+import { useEffect, useRef } from 'react'
 import type { GlobeHandle } from '@/components/Globe'
 import { PILOTS } from '../pilots'
 
@@ -28,55 +29,104 @@ export function GlobeStage({
   // the stacked hero leaves room for the headline above the fold.
   const ORBIT_SIZE = 'var(--orbit)'
 
-  return (
-    <div className="globe-stage relative w-full flex items-center justify-center">
-      {/* outer thin orbit ring */}
-      <div
-        aria-hidden
-        className="absolute inset-0 m-auto rounded-full pointer-events-none"
-        style={{
-          width: ORBIT_SIZE,
-          height: ORBIT_SIZE,
-          border: '1px dashed rgb(var(--star-rgb) / 0.06)'
-        }}
-      />
+  const stageRef = useRef<HTMLDivElement>(null)
 
-      {/* soft blue atmospheric spill behind the Earth — sized to catch the
-          shader's exospheric haze where the canvas edge cuts it off */}
+  // The satellites' orbit/tumble/beacon keyframes run forever, and their
+  // will-change promotions hold compositor layers even when the hero is
+  // scrolled far above the descent. Park them whenever the stage leaves
+  // the viewport: paused CSS animations hold their clock, so resuming
+  // mid-cycle on the way back up is seamless.
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return
+    const io = new IntersectionObserver(([entry]) => {
+      stage.classList.toggle('stage-parked', !entry.isIntersecting)
+    })
+    io.observe(stage)
+    return () => io.disconnect()
+  }, [])
+
+  return (
+    <div
+      ref={stageRef}
+      className="globe-stage relative w-full flex items-center justify-center"
+    >
+      {/* data-burst carriers: the pinned entry's disassembly (hero/
+          heroBurst.ts) flings the ring, both satellites and the glow by
+          tweening these wrappers, so the CSS keyframe orbits inside keep
+          running mid-flight. Each carrier is inset-0 over the same
+          containing block as what it wraps, so the inner coordinates are
+          unchanged — and each must carry NO transform/opacity/z-index at
+          rest: any of those creates a stacking context, which would
+          flatten the polar sat's z-index limb trick below. heroBurst
+          strips its inline styles back to nothing at p = 0. */}
+
       <div
         aria-hidden
-        className="absolute inset-0 m-auto rounded-full blur-3xl opacity-30 pointer-events-none transition-[background] duration-700"
-        style={{
-          width: 'calc(var(--orbit) * 0.915)',
-          height: 'calc(var(--orbit) * 0.915)',
-          background: 'radial-gradient(circle, rgb(var(--globe-glow-rgb) / 0.19), transparent 70%)'
-        }}
-      />
+        data-burst="ring"
+        className="absolute inset-0 m-auto pointer-events-none"
+      >
+        {/* outer thin orbit ring */}
+        <div
+          aria-hidden
+          className="absolute inset-0 m-auto rounded-full pointer-events-none"
+          style={{
+            width: ORBIT_SIZE,
+            height: ORBIT_SIZE,
+            border: '1px dashed rgb(var(--star-rgb) / 0.06)'
+          }}
+        />
+      </div>
+
+      <div
+        aria-hidden
+        data-burst="glow"
+        className="absolute inset-0 m-auto pointer-events-none"
+      >
+        {/* soft blue atmospheric spill behind the Earth — sized to catch the
+            shader's exospheric haze where the canvas edge cuts it off */}
+        <div
+          aria-hidden
+          className="absolute inset-0 m-auto rounded-full blur-3xl opacity-30 pointer-events-none transition-[background] duration-700"
+          style={{
+            width: 'calc(var(--orbit) * 0.915)',
+            height: 'calc(var(--orbit) * 0.915)',
+            background: 'radial-gradient(circle, rgb(var(--globe-glow-rgb) / 0.19), transparent 70%)'
+          }}
+        />
+      </div>
 
       {/* SATELLITE — sits on the top of the orbit ring; the wrapper spins
           to carry it around the dashed circle while the craft itself slowly
-          tumbles about its own axis. */}
+          tumbles about its own axis. The burst carrier flings the whole
+          spinning assembly, so the orbit becomes a corkscrew exit. */}
       <div
         aria-hidden
-        className="cribble-satellite absolute inset-0 m-auto pointer-events-none"
-        style={{
-          width: ORBIT_SIZE,
-          height: ORBIT_SIZE
-        }}
+        data-burst="sat-equatorial"
+        className="absolute inset-0 m-auto pointer-events-none"
       >
-        {/* motion trail — orbit runs clockwise, so it streams off to the
-            left of the craft at the top of the ring */}
         <div
-          className="absolute top-0 left-1/2 h-px w-16"
+          aria-hidden
+          className="cribble-satellite absolute inset-0 m-auto pointer-events-none"
           style={{
-            transform: 'translate(calc(-100% - 22px), -50%)',
-            background:
-              'linear-gradient(to right, transparent, rgb(var(--star-rgb) / 0.5))'
+            width: ORBIT_SIZE,
+            height: ORBIT_SIZE
           }}
-        />
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2">
-          <div className="cribble-sat-spin cribble-sat-spin-slow">
-            <SatelliteMark />
+        >
+          {/* motion trail — orbit runs clockwise, so it streams off to the
+              left of the craft at the top of the ring */}
+          <div
+            className="absolute top-0 left-1/2 h-px w-16"
+            style={{
+              transform: 'translate(calc(-100% - 22px), -50%)',
+              background:
+                'linear-gradient(to right, transparent, rgb(var(--star-rgb) / 0.5))'
+            }}
+          />
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2">
+            <div className="cribble-sat-spin cribble-sat-spin-slow">
+              <SatelliteMark />
+            </div>
           </div>
         </div>
       </div>
@@ -92,17 +142,25 @@ export function GlobeStage({
           top of the Earth, sweeps down the face growing as it nears the
           viewer, swings around below, recedes, and slips behind the planet
           again. Track radius stays inside the dashed ring so it never meets
-          the first satellite. */}
+          the first satellite. Its burst carrier is ESPECIALLY bare on
+          purpose: those z-index keyframes only interleave with the canvas
+          while the carrier has no stacking context of its own. */}
       <div
         aria-hidden
-        className="cribble-polar-sat absolute left-1/2 top-1/2 pointer-events-none"
+        data-burst="sat-polar"
+        className="absolute inset-0 pointer-events-none"
       >
-        {/* velocity-matched motion trail: always streams opposite the
-            flight direction and stretches with projected speed, so it
-            collapses to nothing at the turnarounds and hides the flip */}
-        <div className="cribble-polar-trail" />
-        <div className="cribble-sat-spin">
-          <SatelliteMark />
+        <div
+          aria-hidden
+          className="cribble-polar-sat absolute left-1/2 top-1/2 pointer-events-none"
+        >
+          {/* velocity-matched motion trail: always streams opposite the
+              flight direction and stretches with projected speed, so it
+              collapses to nothing at the turnarounds and hides the flip */}
+          <div className="cribble-polar-trail" />
+          <div className="cribble-sat-spin">
+            <SatelliteMark />
+          </div>
         </div>
       </div>
 
@@ -470,6 +528,21 @@ export function GlobeStage({
           to {
             transform: rotate(360deg);
           }
+        }
+        /* Offscreen park (IntersectionObserver above): freeze every
+           infinite satellite animation and release the layer promotions
+           while the hero is scrolled away — zero animation or compositor
+           cost during the descent, invisible either way. */
+        .globe-stage.stage-parked .cribble-satellite,
+        .globe-stage.stage-parked .cribble-satellite-beacon,
+        .globe-stage.stage-parked .cribble-sat-spin,
+        .globe-stage.stage-parked .cribble-polar-sat,
+        .globe-stage.stage-parked .cribble-polar-trail {
+          animation-play-state: paused;
+        }
+        .globe-stage.stage-parked .cribble-satellite,
+        .globe-stage.stage-parked .cribble-polar-sat {
+          will-change: auto;
         }
         @media (prefers-reduced-motion: reduce) {
           .cribble-satellite,

@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { useTheme } from 'next-themes'
 import {
+  CANVAS_BLEED,
   createStylizedEarthRenderer,
   type EarthRenderer,
   type PinScreenPosition,
@@ -16,16 +17,23 @@ import {
 } from '@/components/stylizedEarthRenderer'
 import { PILOTS } from '@/components/landing/pilots'
 import { ACCENT, accentA } from '@/lib/theme'
+import type { BurstChannels } from '@/lib/globeBurst'
 
 /**
- * Imperative scroll-pose handle for the pinned hero entry. Calls are safe
- * at any lifecycle point: before the WebGL renderer has initialized the
- * value is remembered and applied on init, and after disposal calls are
- * no-ops.
+ * Imperative handle for the pinned hero entry: the scroll-pose scrub and
+ * the burst-channel attachment. Calls are safe at any lifecycle point:
+ * before the WebGL renderer has initialized the values are remembered
+ * and replayed on init, and after disposal calls are no-ops.
  */
 export interface GlobeHandle {
   /** 0 = resting orbit (exactly today's look), 1 = full hero push-in. */
   setScrollPose: (p: number) => void
+  /**
+   * Attaches the scroll-burst channel object (lib/globeBurst.ts). The
+   * renderer reads the live values every frame, so the choreography
+   * tweens the numbers in place; all-zero renders identical to today.
+   */
+  setBurstChannels: (channels: BurstChannels) => void
 }
 
 interface GlobeProps {
@@ -52,18 +60,38 @@ const DARK_MARKER: RGB = [0.008, 0.996, 0.004]
 const LIGHT_MARKER: RGB = [1, 0.37, 0]
 // How long each pilot chip stays up before cycling to the next front pin.
 const CHIP_CYCLE_MS = 4000
+// The canvas bleeds CANVAS_BLEED× past the square globe footprint (the
+// component's layout box) as an off-planet flight area for the scroll
+// burst — the renderer scales its frustum by the same factor, so the
+// resting globe renders pixel-identical to a footprint-sized canvas.
+// Negative offsets keep the bleed out of layout. The canvas MUST carry an
+// explicit CSS size: a replaced element with `inset` alone falls back to
+// its intrinsic (attribute) size, and since resize() writes the attributes
+// from clientWidth × DPR, the ResizeObserver would feed that back into the
+// element size — a ×DPR runaway that flings the globe off-screen.
+const BLEED_INSET = `${((1 - CANVAS_BLEED) / 2) * 100}%`
+const BLEED_SIZE = `${CANVAS_BLEED * 100}%`
 
-const mixRGB = (from: RGB, to: RGB, amount: number): RGB => [
-  from[0] + (to[0] - from[0]) * amount,
-  from[1] + (to[1] - from[1]) * amount,
-  from[2] + (to[2] - from[2]) * amount,
-]
+// In-place mix: the draw loop needs an accent tuple every frame, and
+// returning a fresh array each time was steady GC litter (the renderer
+// also latches on component equality, so a stable tuple lets an
+// unchanged theme skip uniform uploads entirely).
+const mixRGBInto = (out: RGB, from: RGB, to: RGB, amount: number): RGB => {
+  out[0] = from[0] + (to[0] - from[0]) * amount
+  out[1] = from[1] + (to[1] - from[1]) * amount
+  out[2] = from[2] + (to[2] - from[2]) * amount
+  return out
+}
 
 const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
   { className = '', size = 400, onReady }: GlobeProps,
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  // Drag-to-spin STARTS on a dedicated circular hit element over the
+  // planet disk: the bled canvas overlaps the hero copy column, so the
+  // canvas itself is pointer-events: none and must never own pointerdown.
+  const hitRef = useRef<HTMLDivElement>(null)
   const [renderStatus, setRenderStatus] = useState<RenderStatus>('loading')
   const { resolvedTheme } = useTheme()
   const isLight = resolvedTheme === 'light'
@@ -82,14 +110,20 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
   // and the time-driven drift (time frozen at 0 in the draw loop).
   const rendererRef = useRef<EarthRenderer | null>(null)
   const scrollPoseRef = useRef(0)
+  const burstChannelsRef = useRef<BurstChannels | null>(null)
   // One stable handle for the whole component lifetime, shared by the
   // forwarded ref and the onReady callback. It only stores/forwards a
-  // number — the existing draw loop's render() call applies the pose, so
-  // scrubbing it every scroll tick costs nothing extra.
+  // number and a reference — the existing draw loop's render() call
+  // applies the pose and reads the channels, so scrubbing them every
+  // scroll tick costs nothing extra.
   const handleRef = useRef<GlobeHandle>({
     setScrollPose: (p: number) => {
       scrollPoseRef.current = p
       rendererRef.current?.setScrollPose(p)
+    },
+    setBurstChannels: (channels: BurstChannels) => {
+      burstChannelsRef.current = channels
+      rendererRef.current?.setBurstChannels(channels)
     },
   })
 
@@ -116,7 +150,7 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
     const endDrag = () => {
       if (grabX.current === null) return
       grabX.current = null
-      if (canvasRef.current) canvasRef.current.style.cursor = 'grab'
+      if (hitRef.current) hitRef.current.style.cursor = 'grab'
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', endDrag)
@@ -140,12 +174,19 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
 
     let renderer: EarthRenderer | null = null
     let resizeObserver: ResizeObserver | null = null
+    let intersectionObserver: IntersectionObserver | null = null
     let animationFrame = 0
     let disposed = false
     let onVisibilityChange: (() => void) | null = null
     let phi = 2.6
     let previousTime = performance.now()
     let liveLightMode = targetLightMode.current
+    const liveAccent: RGB = [0, 0, 0]
+    // Loop gates: the draw loop runs only while the tab is visible AND
+    // the canvas is near the viewport (see setLoopRunning below).
+    let pageVisible = !document.hidden
+    let nearViewport = true
+    let loopRunning = false
     const reduceMotion = window.matchMedia(
       '(prefers-reduced-motion: reduce)',
     ).matches
@@ -161,11 +202,21 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
 
         renderer = createdRenderer
         rendererRef.current = createdRenderer
-        // replay whatever pose the scroll timeline set while we loaded
+        // replay whatever pose and channels the timeline set while we loaded
         createdRenderer.setScrollPose(scrollPoseRef.current)
+        if (burstChannelsRef.current) {
+          createdRenderer.setBurstChannels(burstChannelsRef.current)
+        }
         resizeObserver = new ResizeObserver(() => renderer?.resize())
         resizeObserver.observe(canvas)
         setRenderStatus('ready')
+
+        // Chip style latches: on most idle-spin frames the projected pin
+        // moves less than the 0.1px quantum the transform is written at —
+        // skip the style write (and its string mint) on those frames.
+        let chipQX = Number.NaN
+        let chipQY = Number.NaN
+        let chipShown: boolean | null = null
 
         const draw = (time: number) => {
           if (!renderer || disposed) return
@@ -188,13 +239,25 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
           const themeFollow = 1 - Math.pow(1 - THEME_LERP, frameScale)
           liveLightMode +=
             (targetLightMode.current - liveLightMode) * themeFollow
+          // Snap the asymptotic tail onto the target: without this, `day`
+          // drifts in float dust for hundreds of frames after a theme
+          // switch, and the renderer's theme latch (which skips all theme
+          // uniform work while `day` holds still) never engages.
+          if (Math.abs(targetLightMode.current - liveLightMode) < 0.001) {
+            liveLightMode = targetLightMode.current
+          }
 
           renderer.render({
             phi: phi + rot.current,
             theta: 0.25,
             time: reduceMotion ? 0 : time / 1000,
             lightMode: liveLightMode,
-            accent: mixRGB(DARK_MARKER, LIGHT_MARKER, liveLightMode),
+            accent: mixRGBInto(
+              liveAccent,
+              DARK_MARKER,
+              LIGHT_MARKER,
+              liveLightMode,
+            ),
           })
 
           // Project the pins and steer the pilot chip: it rides its pin
@@ -205,29 +268,61 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
           if (chip) {
             const pin = positions[activePinRef.current]
             if (pin?.front) {
-              chip.style.transform = `translate(${pin.x.toFixed(1)}px, ${pin.y.toFixed(1)}px)`
-              chip.style.visibility = 'visible'
-            } else {
+              const qx = Math.round(pin.x * 10)
+              const qy = Math.round(pin.y * 10)
+              if (qx !== chipQX || qy !== chipQY) {
+                chipQX = qx
+                chipQY = qy
+                chip.style.transform = `translate(${qx / 10}px, ${qy / 10}px)`
+              }
+              if (chipShown !== true) {
+                chipShown = true
+                chip.style.visibility = 'visible'
+              }
+            } else if (chipShown !== false) {
+              chipShown = false
               chip.style.visibility = 'hidden'
             }
           }
 
-          animationFrame = window.requestAnimationFrame(draw)
+          if (loopRunning) animationFrame = window.requestAnimationFrame(draw)
         }
 
-        animationFrame = window.requestAnimationFrame(draw)
-
-        // Pause the render loop while the tab is hidden; resume (with a
-        // fresh frame clock) when it becomes visible again.
-        onVisibilityChange = () => {
-          if (document.hidden) {
-            window.cancelAnimationFrame(animationFrame)
-          } else if (!disposed) {
+        // The loop runs only while the tab is visible AND the canvas is
+        // near the viewport: once the hero pin releases and the descent
+        // begins, no globe pixel is on screen, and a full WebGL render per
+        // scrolled frame down there competes directly with the descent's
+        // own scroll work. The observer margin resumes it a beat before
+        // re-entry, and setScrollPose / the burst channels keep absorbing
+        // writes while parked, so the first resumed frame is already
+        // correct.
+        const setLoopRunning = () => {
+          const shouldRun = pageVisible && nearViewport && !disposed
+          if (shouldRun && !loopRunning) {
+            loopRunning = true
             previousTime = performance.now()
             animationFrame = window.requestAnimationFrame(draw)
+          } else if (!shouldRun && loopRunning) {
+            loopRunning = false
+            window.cancelAnimationFrame(animationFrame)
           }
         }
+        setLoopRunning()
+
+        onVisibilityChange = () => {
+          pageVisible = !document.hidden
+          setLoopRunning()
+        }
         document.addEventListener('visibilitychange', onVisibilityChange)
+
+        intersectionObserver = new IntersectionObserver(
+          ([entry]) => {
+            nearViewport = entry.isIntersecting
+            setLoopRunning()
+          },
+          { rootMargin: '25% 0px 25% 0px' },
+        )
+        intersectionObserver.observe(canvas)
       })
       .catch(() => {
         if (disposed) return
@@ -240,6 +335,7 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
       if (onVisibilityChange) {
         document.removeEventListener('visibilitychange', onVisibilityChange)
       }
+      intersectionObserver?.disconnect()
       resizeObserver?.disconnect()
       renderer?.destroy()
       rendererRef.current = null // handle calls after disposal become no-ops
@@ -280,10 +376,12 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
   return (
     // data-lag="0" pins the globe (canvas + chip overlay) out of GSAP
     // ScrollSmoother's effects lag, so smoothing never desyncs the canvas
-    // from the pointer. Inert without ScrollSmoother.
+    // from the pointer. Inert without ScrollSmoother. aspect-square: the
+    // canvas left the flow for its burst bleed, so the root must reserve
+    // the square footprint itself.
     <div
       data-lag="0"
-      className={`relative flex w-full items-center justify-center ${className}`}
+      className={`relative flex aspect-square w-full items-center justify-center ${className}`}
       style={{ maxWidth: size }}
     >
       {renderStatus === 'fallback' && (
@@ -298,39 +396,57 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
           }}
         />
       )}
+      {/* Bled canvas (see BLEED_INSET): its overhang covers the hero copy
+          column, so it must be pointer-events: none — clicks, selection
+          and the CTA under it stay live, and the hit circle below owns
+          the drag start instead. */}
       <canvas
         ref={canvasRef}
         aria-label="A stylized rotating Earth showing Cribble users worldwide"
         role="img"
+        style={{
+          position: 'absolute',
+          left: BLEED_INSET,
+          top: BLEED_INSET,
+          width: BLEED_SIZE,
+          height: BLEED_SIZE,
+          pointerEvents: 'none',
+        }}
+        width={size * 2}
+        height={size * 2}
+        className={`transition-opacity duration-700 ${
+          renderStatus === 'ready' ? 'opacity-100' : 'opacity-0'
+        }`}
+      />
+
+      {/* Drag hit surface — a circle over the planet disk (disk + hills
+          reach ~76% of the footprint). pointermove/up live on window, so
+          a drag that leaves the circle keeps spinning until release. */}
+      <div
+        ref={hitRef}
+        aria-hidden
+        className="absolute inset-[12%] rounded-full"
+        style={{ cursor: 'grab', touchAction: 'pan-y' }}
         onPointerDown={(e) => {
           if (e.button !== 0) return
           grabX.current = e.clientX
           rotAtGrab.current = rot.current
           targetRot.current = rot.current
           vel.current = 0
-          if (canvasRef.current) canvasRef.current.style.cursor = 'grabbing'
+          if (hitRef.current) hitRef.current.style.cursor = 'grabbing'
         }}
-        style={{
-          width: '100%',
-          height: 'auto',
-          aspectRatio: '1',
-          cursor: 'grab',
-          touchAction: 'pan-y',
-        }}
-        width={size * 2}
-        height={size * 2}
-        className={`relative transition-opacity duration-700 ${
-          renderStatus === 'ready' ? 'opacity-100' : 'opacity-0'
-        }`}
       />
 
       {/* Cycling pilot chip — anchored to the projected pin position. The
           outer node is steered per-frame by the render loop; the keyed
-          remount replays the enter animation on every pilot change. */}
+          remount replays the enter animation on every pilot change. The
+          overlay shares the canvas's bleed insets so the canvas-relative
+          pin coordinates map 1:1 with no offset math. */}
       {renderStatus === 'ready' && activePilot && (
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 overflow-hidden"
+          className="pointer-events-none absolute overflow-hidden"
+          style={{ inset: BLEED_INSET }}
         >
           <div
             key={activePin}

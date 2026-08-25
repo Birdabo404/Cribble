@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import ConicPolygonGeometry from 'three-conic-polygon-geometry'
 import { PILOTS } from '@/components/landing/pilots'
+import { BURST_SHARD_COUNT, type BurstChannels } from '@/lib/globeBurst'
 
 export type RGB = [number, number, number]
 
@@ -37,6 +38,14 @@ export interface EarthRenderer {
    * synced to scroll. Never schedules a frame of its own.
    */
   setScrollPose: (progress: number) => void
+  /**
+   * Attaches the scroll-burst channel object (see lib/globeBurst.ts for
+   * the contract). Only the reference is stored — render() reads the
+   * live values every frame, so the choreography tweens the numbers in
+   * place at zero plumbing cost. Never attaching (or all-zero channels)
+   * renders byte-identical to a renderer without a burst.
+   */
+  setBurstChannels: (channels: BurstChannels) => void
 }
 
 /* ────────────────────────────────────────────────────────────────────────
@@ -64,20 +73,98 @@ const HILL_NOISE_OCTAVES = 4
 const HILL_SHAPING = 1.35 // >1 flattens valleys while ridges stay bold
 const AXIAL_TILT = (23.5 * Math.PI) / 180 // leans the pole to the right
 const CAMERA_ELEVATION = 0.35 // radians of overhead tilt (isometric feel)
-const FRUSTUM_HALF_HEIGHT = 1.42 // ortho half-extent; planet disk ≈ 72% of canvas
+// The globe COMPOSITION is authored against this half-extent (planet disk
+// ≈ 72% of the footprint; the island orbits, atmosphere and aurora all
+// budget against it below). It used to be the whole frustum — and thus
+// the canvas edge, which is exactly where the scroll-burst pieces used
+// to pop out of existence mid-flight.
+const FOOTPRINT_HALF_EXTENT = 1.42
+// Burst bleed: the canvas element is CANVAS_BLEED× the globe footprint
+// on every side (Globe.tsx positions it with negative insets, so the
+// layout box — and the DOM orbit ring/satellites around it — never
+// move), and the frustum scales by the same factor, so pixels per world
+// unit and the whole resting look are identical. The bleed exists purely
+// so the bursting clouds and islands fly across the hero instead of
+// vanishing at the old footprint edge.
+export const CANVAS_BLEED = 2.25
+const FRUSTUM_HALF_HEIGHT = FOOTPRINT_HALF_EXTENT * CANVAS_BLEED // 3.195
 
 // Scroll pose — the hero pinned-entry push-in, driven externally through
 // setScrollPose(p). The camera is orthographic, so "push-in" is frustum
 // zoom (the ortho equivalent of dollying closer): p 0→1 ramps camera.zoom
-// 1→SCROLL_ZOOM_MAX (planet reads ~16% closer; the frustum tightens
-// ~14%). Alongside the zoom, the whole tilt assembly pitches forward
+// 1→SCROLL_ZOOM_MAX (planet reads ~70% closer; the frustum tightens
+// ~41%). Alongside the zoom, the whole tilt assembly pitches forward
 // about the screen-horizontal axis and a small extra yaw rides on top of
 // frame.phi, so the planet rolls away beneath the viewer. Both rotations
 // are ADDITIVE offsets — drag-to-spin and idle auto-spin keep working
 // under the pose. p = 0 is byte-identical to the renderer without a pose.
-const SCROLL_ZOOM_MAX = 1.16
-const SCROLL_PITCH_MAX = 0.3 // rad about screen X at p = 1 (~17°)
-const SCROLL_YAW_MAX = 0.42 // rad added to frame.phi at p = 1 (~24°)
+const SCROLL_ZOOM_MAX = 1.7 // visible half-extent 3.195/1.7 ≈ 1.88 still clears the resting island band (max reach ≈ 1.38) and the limb + hills (~1.075); past ~2.3 the islands would crop
+const SCROLL_PITCH_MAX = 0.52 // rad about screen X at p = 1 (~30°)
+const SCROLL_YAW_MAX = 0.75 // rad added to frame.phi at p = 1 (~43°)
+
+// Scroll burst — the hero disassembly, driven externally through
+// setBurstChannels() (lib/globeBurst.ts holds the channel contract).
+// Channels arrive UNCLAMPED: the choreography's anticipation eases dip
+// slightly negative before the fling, which renders as a small inward
+// suck; anything that cannot go negative (scales, opacities, the tree
+// wave) is clamped here. All-zero channels render byte-identical to a
+// renderer without a burst, and every burst write is either an exact
+// arithmetic identity at zero or latched so idle frames do no work.
+//
+// Clouds fling SCREEN-radially, not world-radially — a world-radial
+// fling would push front-facing puffs along +Z straight at the ortho
+// camera without ever leaving the frame. The holders live inside
+// cloudSpin (which keeps turning with time) under the scroll-pitched
+// tilt, so the escape heading re-derives every bursting frame from the
+// puff's CURRENT resting point projected to the screen plane; it is
+// then mapped back into holder space, so the screen travel is exactly
+// channel × CLOUD_ESCAPE_DIST from any spin angle or pitch.
+const CLOUD_ESCAPE_DIST = 7.2 // screen units at channel 1 — covers the bled canvas corner (3.195·√2 ≈ 4.5) plus puff extent from anywhere
+const CLOUD_ESCAPE_BIAS = 0.12 // build-time radial blended into the live projection: keeps the heading stable and seeded when a resting point drifts over the screen center (a bare normalize would flip there)
+const CLOUD_ESCAPE_Z_VAR = 0.35 // ± seeded view-axis component — depth crossing that never alters the screen path under the ortho camera
+const CLOUD_BURST_TUMBLE = 2.6 // rad of extra puff yaw at channel 1
+const CLOUD_BURST_GROW = 0.3 // fractional puff scale-up at channel 1
+const CLOUD_BURST_SEED = 96173
+const TREE_BURST_SEED = 50923 // separate PRNG — the resting scatter stays untouched
+const TREE_BURST_DELAY_MAX = 0.6 // latest seeded launch delay, in treeWave units
+const TREE_BURST_WINDOW = 0.4 // per-tree launch duration (delay + window ≤ 1, so every tree finishes by wave 1)
+const TREE_BURST_LIFT = 0.55 // rise along the surface normal at full progress
+const TREE_BURST_TUMBLE_MIN = 3.0 // rad about the seeded per-tree axis…
+const TREE_BURST_TUMBLE_MAX = 7.0 // …at full progress
+const SHARD_SEED = 78241
+const SHARD_MAX_LAT = 55 // keep the crust rip-outs on the visible temperate band
+const SHARD_MIN_POLYGON_AREA = 80 // cos-weighted deg² — only sizable landmasses shed shards
+const SHARD_ROCK_RADIUS = 0.075
+const SHARD_ROCK_DEPTH = 0.11 // inverted-cone root hanging below the grass line
+const SHARD_CAP_RADIUS = 0.085 // slight grass lip over the rock rim
+const SHARD_CAP_SQUASH = 0.42 // hemisphere → low grass dome
+const SHARD_GROW_END = 0.25 // channel value where a shard reaches full size — grows fast, then rides the lift
+const SHARD_LIFT = 0.5 // rise along the surface normal at channel 1
+const SHARD_DRIFT = 0.25 // seeded tangent drift so the shards separate as they rip out
+const SHARD_TUMBLE_MIN = 1.2 // rad about the seeded per-shard axis…
+const SHARD_TUMBLE_MAX = 3.2 // …at channel 1
+const SHARD_SIZE_MIN = 0.7 // seeded per-shard size range
+const SHARD_SIZE_MAX = 1.3
+const ISLAND_ESCAPE_RADIUS_GAIN = 3.6 // orbitRadius × (1 + channel·gain): 1.11 → 5.1 at channel 1, past the bled canvas corner (≈ 4.5) plus island extent
+const ISLAND_ESCAPE_SPIN = 3.5 // rad of extra self-spin at channel 1 — the spiral-out reads as a fling, not a slide
+const ATMO_BURST_GROW = 0.6 // shell scale 1 → 1.6 while uStrength fades to 0
+const AURORA_BURST_LIFT = 0.5 // curtain rise along the tilted polar axis
+const AURORA_BURST_GROW = 0.35
+// The fade outruns the lift. This began as a workaround for the risen
+// curtain slicing on the old footprint-sized canvas edge; the bled
+// canvas clears it easily now (curtain top ≈ 2.3 < 3.195 even before
+// the zoom is at full push), so the early dissolve — alpha 0 by channel
+// ≈ 0.56 while the lift keeps carrying the invisible mesh — survives
+// purely as a pacing choice: the sky empties before the shell blows.
+const AURORA_BURST_FADE = 1.8
+const RUMBLE_MAX = 0.012 // peak screen-space jitter of the tilt assembly
+// two incommensurate sines per axis — cheap deterministic noise that is
+// exactly zero whenever the channel is (and under frozen time)
+const RUMBLE_FREQ_XA = 23.7
+const RUMBLE_FREQ_XB = 41.3
+const RUMBLE_FREQ_YA = 29.1
+const RUMBLE_FREQ_YB = 47.9
+const BURST_MIN_SCALE = 0.0001 // burst scales clamp here — matrices stay decomposable at "gone"
 
 // Ocean — a smooth-shaded sphere painted per-VERTEX (vertex colors under
 // a white-day / cool-night multiplier material), unlike the land which
@@ -263,9 +350,13 @@ const CLOUD_PLACEMENTS: Array<{
 // worldY = screenY / cos(CAMERA_ELEVATION), worldZ = 0 — so orbit math
 // reads directly in canvas units: center = (R·cos a, R·sin a).
 //
-// Frustum worst case (square canvas, FRUSTUM_HALF_HEIGHT 1.42): at the
-// top/side orbit extremes the island center reaches R on one axis, so
-//   R + extent·scale + bobAmp·cos(elev) ≤ 1.42 − margin.
+// Composition worst case (FOOTPRINT_HALF_EXTENT 1.42): at the top/side
+// orbit extremes the island center reaches R on one axis, so
+//   R + extent·scale + bobAmp·cos(elev) ≤ 1.42 − margin
+// keeps the resting orbits inside the globe footprint. Since the canvas
+// grew its burst bleed this is a composition budget, not a clipping
+// constraint (the canvas edge now sits at 3.195) — but the footprint is
+// still the frame the resting hero is composed in, so the numbers stay.
 // Worst-case screen extents measured per-vertex over every self-turn yaw
 // (.cursor-artifacts/globe-orbit/measure-islands.mjs):
 //   FloatingIslandLarge 1.681 local units (the debris ring reaches far
@@ -302,7 +393,7 @@ const ISLAND_PLACEMENTS: Array<{
     orbitRadius: 1.11,
     orbitStart: -2.384, // atan2(-1.06, -1.12) — the old bottom-left park
     orbitSpeed: 0.03,
-    scale: 0.15, // trimmed from 0.16 so the ring clears the frustum top
+    scale: 0.15, // trimmed from 0.16 so the ring clears the footprint top
     yaw: 0.9,
     lean: -0.05,
     spinSpeed: 0.05,
@@ -336,6 +427,14 @@ const ISLAND_MODEL_URLS = {
 
 const GEOJSON_URL = '/geo/countries-110m.geojson'
 const UP = new THREE.Vector3(0, 1, 0)
+
+// Screen basis under the fixed ortho camera (the same mapping the island
+// orbits use): screen X is world X, screen Y is (0, cos e, −sin e), and
+// the view axis is (0, −sin e, −cos e). Factored out for the burst math.
+const SCREEN_Y_WORLD_Y = Math.cos(CAMERA_ELEVATION)
+const SCREEN_Y_WORLD_Z = -Math.sin(CAMERA_ELEVATION)
+const VIEW_WORLD_Y = -Math.sin(CAMERA_ELEVATION)
+const VIEW_WORLD_Z = -Math.cos(CAMERA_ELEVATION)
 
 type Ring = number[][]
 type PolygonCoords = Ring[]
@@ -389,6 +488,8 @@ function nightVariant(dayColor: string): THREE.Color {
 }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t
+
+const clamp01 = (x: number) => Math.min(1, Math.max(0, x))
 
 const smoothstep = (edge0: number, edge1: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)))
@@ -835,6 +936,17 @@ function oceanNightTint(): THREE.Color {
   return new THREE.Color(night.r / mid.r, night.g / mid.g, night.b / mid.b)
 }
 
+/** Per-tree resting composition inputs + seeded launch data (burst). */
+interface BurstTree {
+  position: THREE.Vector3
+  direction: THREE.Vector3
+  align: THREE.Quaternion
+  scale: number
+  delay: number
+  tumbleAxis: THREE.Vector3
+  tumbleRate: number
+}
+
 async function loadCountries(): Promise<CountryFeature[]> {
   const response = await fetch(GEOJSON_URL)
   if (!response.ok) {
@@ -894,7 +1006,8 @@ export async function createStylizedEarthRenderer(
          │  │          horizontal axis, so the tilted assembly pitches
          │  │          away beneath the viewer)
          │  ├─ planetSpin (rotation.y = frame.phi + scroll-pose yaw) —
-         │  │              ocean, continents, trees, city dots, user pins
+         │  │              ocean, continents, trees, city dots, user
+         │  │              pins, dormant burst shards
          │  ├─ cloudSpin (time-driven drift only, ignores drag) — puffs
          │  └─ aurora curtain (leans with the axis, never spins)
          ├─ floating islands (fixed screen corners, bob + slow self-turn)
@@ -1270,6 +1383,16 @@ export async function createStylizedEarthRenderer(
       }
     }
 
+    // Burst wavefront state. The resting composition inputs persist (they
+    // used to be composed once and discarded) so scrubbing the wave back
+    // to 0 recomposes the exact original matrices; the per-tree launch
+    // data is seeded by its own PRNG so the scatter above stays untouched.
+    let treeBurst: {
+      trunk: THREE.InstancedMesh
+      canopy: THREE.InstancedMesh
+      trees: BurstTree[]
+    } | null = null
+
     if (treeSpots.length > 0) {
       const trunkGeometry = track(
         new THREE.CylinderGeometry(
@@ -1295,11 +1418,13 @@ export async function createStylizedEarthRenderer(
         new THREE.InstancedMesh(canopyGeometry, canopyMaterial, treeSpots.length),
       )
 
+      const treeBurstRandom = mulberry32(TREE_BURST_SEED)
       const treeMatrix = new THREE.Matrix4()
       const treeAlign = new THREE.Quaternion()
       const treeYaw = new THREE.Quaternion()
       const treeScale = new THREE.Vector3()
       const canopyTint = new THREE.Color()
+      const burstTrees: BurstTree[] = []
       treeSpots.forEach((spot, index) => {
         const direction = latLngToVector3(spot.lat, spot.lng, 1)
         const surface = hillRadius(spot.lng, spot.lat) - TREE_SINK
@@ -1307,22 +1432,142 @@ export async function createStylizedEarthRenderer(
         treeYaw.setFromAxisAngle(UP, spot.yaw)
         treeAlign.multiply(treeYaw)
         treeScale.setScalar(spot.scale)
-        treeMatrix.compose(
-          direction.multiplyScalar(surface),
-          treeAlign,
-          treeScale,
-        )
+        const position = direction.clone().multiplyScalar(surface)
+        treeMatrix.compose(position, treeAlign, treeScale)
         trunkMesh.setMatrixAt(index, treeMatrix)
         canopyMesh.setMatrixAt(index, treeMatrix)
         canopyMesh.setColorAt(
           index,
           canopyTint.set(TREE_CANOPY_COLORS[spot.colorIndex]),
         )
+
+        const tumbleAxis = new THREE.Vector3(
+          treeBurstRandom() * 2 - 1,
+          treeBurstRandom() * 2 - 1,
+          treeBurstRandom() * 2 - 1,
+        )
+        if (tumbleAxis.lengthSq() < 1e-6) tumbleAxis.set(0, 1, 0)
+        tumbleAxis.normalize()
+        burstTrees.push({
+          position,
+          direction,
+          align: treeAlign.clone(),
+          scale: spot.scale,
+          delay: treeBurstRandom() * TREE_BURST_DELAY_MAX,
+          tumbleAxis,
+          tumbleRate:
+            TREE_BURST_TUMBLE_MIN +
+            treeBurstRandom() * (TREE_BURST_TUMBLE_MAX - TREE_BURST_TUMBLE_MIN),
+        })
       })
       trunkMesh.instanceMatrix.needsUpdate = true
       canopyMesh.instanceMatrix.needsUpdate = true
       if (canopyMesh.instanceColor) canopyMesh.instanceColor.needsUpdate = true
       planetSpin.add(trunkMesh, canopyMesh)
+      treeBurst = { trunk: trunkMesh, canopy: canopyMesh, trees: burstTrees }
+    }
+
+    // ── Continental shards (scroll-burst crust rip-outs) ───────────────
+    // Dormant "newborn floating islands": an inverted rock cone under a
+    // low grass dome. The rock reuses the continent side-wall material —
+    // the shard IS torn crust, so its cliffs must match the coastline
+    // cliffs it ripped out of. Seeded onto sizable temperate landmasses
+    // via the same polygon test as the other scatters, resting flush in
+    // the hill field, invisible and scale-ε until their channel rips
+    // them out (grow fast, lift along the normal, tumble, drift apart).
+    // They ride planetSpin, inheriting the ground spin they were part of.
+    const shardGrassMaterial = themedMaterial(LAND_GRASS)
+    const shardRockGeometry = track(
+      new THREE.ConeGeometry(SHARD_ROCK_RADIUS, SHARD_ROCK_DEPTH, 7),
+    )
+    shardRockGeometry.rotateX(Math.PI) // apex down — the torn root
+    shardRockGeometry.translate(0, -SHARD_ROCK_DEPTH / 2, 0) // rim at y = 0
+    const shardCapGeometry = track(
+      new THREE.SphereGeometry(SHARD_CAP_RADIUS, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2),
+    )
+    shardCapGeometry.scale(1, SHARD_CAP_SQUASH, 1)
+
+    const shardRandom = mulberry32(SHARD_SEED)
+    const shardLands: PreparedPolygon[] = []
+    for (const feature of countries) {
+      if (ICE_ISO_CODES.has(feature.properties?.iso ?? '')) continue
+      for (const polygon of featurePolygons(feature)) {
+        const prepared = preparePolygon(polygon)
+        if (prepared.area < SHARD_MIN_POLYGON_AREA) continue
+        if (prepared.minLat > SHARD_MAX_LAT || prepared.maxLat < -SHARD_MAX_LAT)
+          continue
+        shardLands.push(prepared)
+      }
+    }
+    const shardRigs: Array<{
+      node: THREE.Group
+      direction: THREE.Vector3
+      surfaceRadius: number
+      restingAlign: THREE.Quaternion
+      tangent: THREE.Vector3
+      tumbleAxis: THREE.Vector3
+      tumbleRate: number
+      size: number
+      lastChannel: number
+    }> = []
+    for (let shard = 0; shard < BURST_SHARD_COUNT && shardLands.length; shard++) {
+      let lng = 0
+      let lat = 0
+      let found = false
+      for (let attempt = 0; attempt < 40 && !found; attempt++) {
+        const prepared =
+          shardLands[Math.floor(shardRandom() * shardLands.length)]
+        const sampleLng =
+          prepared.minLng + shardRandom() * (prepared.maxLng - prepared.minLng)
+        const sampleLat =
+          prepared.minLat + shardRandom() * (prepared.maxLat - prepared.minLat)
+        if (Math.abs(sampleLat) > SHARD_MAX_LAT) continue
+        if (!pointInPolygon(sampleLng, sampleLat, prepared.rings)) continue
+        lng = sampleLng
+        lat = sampleLat
+        found = true
+      }
+      if (!found) continue // channels tolerate a short rig list
+
+      const direction = latLngToVector3(lat, lng, 1)
+      // |lat| ≤ SHARD_MAX_LAT keeps direction well away from ±UP, so the
+      // cross product below can never degenerate
+      const tangent = new THREE.Vector3()
+        .crossVectors(direction, UP)
+        .normalize()
+        .applyAxisAngle(direction, shardRandom() * Math.PI * 2)
+      const tumbleAxis = new THREE.Vector3(
+        shardRandom() * 2 - 1,
+        shardRandom() * 2 - 1,
+        shardRandom() * 2 - 1,
+      )
+      if (tumbleAxis.lengthSq() < 1e-6) tumbleAxis.set(0, 1, 0)
+      tumbleAxis.normalize()
+
+      const holder = new THREE.Group()
+      holder.add(
+        new THREE.Mesh(shardRockGeometry, sideMaterial),
+        new THREE.Mesh(shardCapGeometry, shardGrassMaterial),
+      )
+      const surfaceRadius = hillRadius(lng, lat)
+      holder.quaternion.setFromUnitVectors(UP, direction)
+      holder.position.copy(direction).multiplyScalar(surfaceRadius)
+      holder.scale.setScalar(BURST_MIN_SCALE)
+      holder.visible = false
+      planetSpin.add(holder)
+      shardRigs.push({
+        node: holder,
+        direction,
+        surfaceRadius,
+        restingAlign: holder.quaternion.clone(),
+        tangent,
+        tumbleAxis,
+        tumbleRate:
+          SHARD_TUMBLE_MIN +
+          shardRandom() * (SHARD_TUMBLE_MAX - SHARD_TUMBLE_MIN),
+        size: SHARD_SIZE_MIN + shardRandom() * (SHARD_SIZE_MAX - SHARD_SIZE_MIN),
+        lastChannel: 0,
+      })
     }
 
     // ── User pins ──────────────────────────────────────────────────────
@@ -1408,18 +1653,31 @@ export async function createStylizedEarthRenderer(
     // Clouds: tangent-oriented clones riding cloudSpin at a fixed altitude
     // band, one holder group per placement so each can bob independently.
     const cloudRandom = mulberry32(CLOUD_SEED)
+    const cloudBurstRandom = mulberry32(CLOUD_BURST_SEED)
     const cloudRigs: Array<{
       node: THREE.Object3D
+      puff: THREE.Object3D
+      /** Placement index — rigs skip missing GLTF kinds, channels don't. */
+      channelIndex: number
       direction: THREE.Vector3
       bobSpeed: number
       bobPhase: number
+      baseYaw: number
+      baseScale: number
+      /** Seeded view-axis escape component (depth crossing). */
+      escapeZ: number
+      /** Build-time screen radial — stabilizes the live escape heading. */
+      escapeBiasX: number
+      escapeBiasY: number
+      burstActive: boolean
     }> = []
-    for (const placement of CLOUD_PLACEMENTS) {
+    for (const [channelIndex, placement] of CLOUD_PLACEMENTS.entries()) {
       // draw PRNG values unconditionally so placements keep their look
       // even if one cloud kind is missing from the file
       const puffYaw = cloudRandom() * Math.PI * 2
       const bobSpeed = 0.35 + cloudRandom() * 0.4
       const bobPhase = cloudRandom() * Math.PI * 2
+      const escapeZ = (cloudBurstRandom() * 2 - 1) * CLOUD_ESCAPE_Z_VAR
       const source = cloudsGltf?.scene.getObjectByName(placement.kind)
       if (!source) continue
 
@@ -1430,12 +1688,42 @@ export async function createStylizedEarthRenderer(
       puff.scale.y *= CLOUD_PROP_SQUASH
 
       const direction = latLngToVector3(placement.lat, placement.lng, 1)
+      // Screen radial of the resting point at build (cloudSpin at 0, only
+      // the fixed axial tilt applied) — the CLOUD_ESCAPE_BIAS anchor.
+      const resting = direction
+        .clone()
+        .multiplyScalar(CLOUD_ALTITUDE)
+        .applyAxisAngle(new THREE.Vector3(0, 0, 1), -AXIAL_TILT)
+      let escapeBiasX = resting.x
+      let escapeBiasY =
+        resting.y * SCREEN_Y_WORLD_Y + resting.z * SCREEN_Y_WORLD_Z
+      const biasLength = Math.hypot(escapeBiasX, escapeBiasY)
+      escapeBiasX =
+        biasLength > 1e-5
+          ? (escapeBiasX / biasLength) * CLOUD_ESCAPE_BIAS
+          : CLOUD_ESCAPE_BIAS
+      escapeBiasY =
+        biasLength > 1e-5 ? (escapeBiasY / biasLength) * CLOUD_ESCAPE_BIAS : 0
+
       const holder = new THREE.Group()
       holder.quaternion.setFromUnitVectors(UP, direction)
       holder.position.copy(direction).multiplyScalar(CLOUD_ALTITUDE)
       holder.add(puff)
       cloudSpin.add(holder)
-      cloudRigs.push({ node: holder, direction, bobSpeed, bobPhase })
+      cloudRigs.push({
+        node: holder,
+        puff,
+        channelIndex,
+        direction,
+        bobSpeed,
+        bobPhase,
+        baseYaw: puffYaw,
+        baseScale: placement.scale,
+        escapeZ,
+        escapeBiasX,
+        escapeBiasY,
+        burstActive: false,
+      })
     }
 
     // Floating islands: slow screen-plane orbits around the planet (scene
@@ -1449,9 +1737,11 @@ export async function createStylizedEarthRenderer(
     const islandScreenYToWorld = 1 / Math.cos(CAMERA_ELEVATION)
     const islandRigs: Array<{
       node: THREE.Group
+      /** Placement index — rigs skip missing GLTFs, channels don't. */
+      channelIndex: number
       placement: (typeof ISLAND_PLACEMENTS)[number]
     }> = []
-    for (const placement of ISLAND_PLACEMENTS) {
+    for (const [channelIndex, placement] of ISLAND_PLACEMENTS.entries()) {
       const source = islandSources[placement.kind]?.scene.getObjectByName(
         placement.kind,
       )
@@ -1473,7 +1763,7 @@ export async function createStylizedEarthRenderer(
       )
       holder.add(island)
       scene.add(holder)
-      islandRigs.push({ node: holder, placement })
+      islandRigs.push({ node: holder, channelIndex, placement })
     }
 
     // ── Atmosphere rim ─────────────────────────────────────────────────
@@ -1662,6 +1952,48 @@ export async function createStylizedEarthRenderer(
     const cloudEmissiveNight = new THREE.Color(CLOUD_EMISSIVE_NIGHT)
     const projected = new THREE.Vector3()
     const worldDirection = new THREE.Vector3()
+    // Pooled getPinScreenPositions results — the draw loop calls it every
+    // frame, and fresh objects per pin per frame is steady GC pressure for
+    // identical shapes. Callers read the pool in place and must not hold
+    // entries across frames.
+    const pinPositions: PinScreenPosition[] = pinAnchors.map((_, index) => ({
+      index,
+      x: 0,
+      y: 0,
+      front: false,
+    }))
+    // Scroll-burst scratch (reused sequentially across clouds, trees and
+    // shards — zero per-frame allocation) plus restore-once latches so a
+    // finished scrub snaps everything back to rest exactly once, after
+    // which idle frames skip all burst work.
+    const burstWorldQuat = new THREE.Quaternion()
+    const burstInverseQuat = new THREE.Quaternion()
+    const burstVec = new THREE.Vector3()
+    const burstQuat = new THREE.Quaternion()
+    const burstScale = new THREE.Vector3()
+    const burstMatrix = new THREE.Matrix4()
+    let burstChannels: BurstChannels | null = null
+    let lastTreeWave = 0
+    let treeBuffersDynamic = false
+    let lastAtmoBurst = 0
+    let lastAuroraBurst = 0
+    let rumbleActive = false
+    // Theme latch: every light/material/uniform write below is a pure
+    // function of (day, accent), which are constant except during the
+    // ~1s theme crossfade. NaN seeds force the first frame to write.
+    let lastDay = Number.NaN
+    let lastAccentR = Number.NaN
+    let lastAccentG = Number.NaN
+    let lastAccentB = Number.NaN
+    let lastAtmoStrength = Number.NaN
+    let lastAuroraOpacity = Number.NaN
+    // Resting scissor: with the bleed, ~80% of the canvas is empty flight
+    // area that only the burst ever touches. Whenever the pose and every
+    // burst channel sit at exact rest (the composition budget keeps all
+    // resting content inside FOOTPRINT_HALF_EXTENT), the scissor clips
+    // clear + raster to the central footprint — the idle spin stops
+    // paying for the bleed it isn't using.
+    let scissorActive = false
     // Canvas CSS size, cached by resize(). getPinScreenPositions runs every
     // animation frame, and reading canvas.clientWidth/Height there forces a
     // synchronous whole-document layout each frame (the landing page also
@@ -1672,13 +2004,32 @@ export async function createStylizedEarthRenderer(
     let viewHeight = 1
 
     const resize = () => {
-      const pixelRatio = Math.min(window.devicePixelRatio || 1, 2)
+      // DPR cap 1.5, down from 2: the bled canvas is CANVAS_BLEED× per
+      // side, so the backing store grows with the SQUARE of the bleed —
+      // at DPR 2 a 400px globe would carry a 1800² backing (5× the
+      // pre-bleed store, before MSAA multiplies it again). 1.5 holds the
+      // growth under 3×; the resting globe trades a little retina
+      // sharpness, which the scroll push-in (ortho zoom) wins back.
+      const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.5)
       const width = Math.max(1, canvas.clientWidth)
       const height = Math.max(1, canvas.clientHeight)
       viewWidth = width
       viewHeight = height
       renderer.setPixelRatio(pixelRatio)
       renderer.setSize(width, height, false)
+
+      // Resting scissor rect: the centered footprint square plus a small
+      // apron (rumble jitter is ≤0.012 world units — px-scale). Height is
+      // the ortho camera's fixed axis, so px-per-world-unit — and with it
+      // the footprint's pixel size — derives from height on BOTH axes.
+      // setScissor is inert state until render() flips setScissorTest on.
+      const footprint = Math.ceil(height / CANVAS_BLEED) + 8
+      renderer.setScissor(
+        Math.floor((width - footprint) / 2),
+        Math.floor((height - footprint) / 2),
+        footprint,
+        footprint,
+      )
 
       const halfWidth = FRUSTUM_HALF_HEIGHT * (width / height)
       camera.left = -halfWidth
@@ -1702,6 +2053,12 @@ export async function createStylizedEarthRenderer(
       scrollPose = Math.min(1, Math.max(0, progress))
     }
 
+    // Burst channels: only the reference is stored — the choreography
+    // tweens the numbers in place and render() reads them every frame.
+    const setBurstChannels = (channels: BurstChannels) => {
+      burstChannels = channels
+    }
+
     const render = ({ phi, time, lightMode, accent }: EarthFrame) => {
       const day = Math.min(1, Math.max(0, lightMode))
 
@@ -1709,6 +2066,35 @@ export async function createStylizedEarthRenderer(
       // instead of overwriting them
       planetSpin.rotation.y = phi + scrollPose * SCROLL_YAW_MAX
       tiltGroup.rotation.x = scrollPose * SCROLL_PITCH_MAX
+
+      const burst = burstChannels
+
+      // Rumble rides tiltGroup.position — the rotation writes above own
+      // tiltGroup.rotation, so there is no contention. Exactly zero the
+      // moment the channel is, with a one-time snap back to the origin.
+      const rumbleAmp = burst ? clamp01(burst.rumble) * RUMBLE_MAX : 0
+      if (rumbleAmp > 0) {
+        const jitterX =
+          (0.62 * Math.sin(time * RUMBLE_FREQ_XA) +
+            0.38 * Math.sin(time * RUMBLE_FREQ_XB)) *
+          rumbleAmp
+        const jitterY =
+          (0.62 * Math.sin(time * RUMBLE_FREQ_YA) +
+            0.38 * Math.sin(time * RUMBLE_FREQ_YB)) *
+          rumbleAmp
+        // screen-plane jitter: x maps straight through, y along the
+        // screen-Y world axis so the shake never reads as a depth wobble
+        tiltGroup.position.set(
+          jitterX,
+          jitterY * SCREEN_Y_WORLD_Y,
+          jitterY * SCREEN_Y_WORLD_Z,
+        )
+        rumbleActive = true
+      } else if (rumbleActive) {
+        rumbleActive = false
+        tiltGroup.position.set(0, 0, 0)
+      }
+
       const zoom = 1 + (SCROLL_ZOOM_MAX - 1) * scrollPose
       if (zoom !== appliedZoom) {
         appliedZoom = zoom
@@ -1718,72 +2104,288 @@ export async function createStylizedEarthRenderer(
 
       // clouds ignore phi entirely: dragging spins the ground, not the sky
       cloudSpin.rotation.y = time * CLOUD_ROTATE_SPEED
+      let cloudWorldReady = false
       for (const cloud of cloudRigs) {
-        // constant offset when time is frozen at 0 (reduced motion)
+        // constant offset when time is frozen at 0 (reduced motion) —
+        // and the bob keeps breathing under the burst displacement below
         const altitude =
           CLOUD_ALTITUDE +
           Math.sin(time * cloud.bobSpeed + cloud.bobPhase) *
             CLOUD_BOB_AMPLITUDE
         cloud.node.position.copy(cloud.direction).multiplyScalar(altitude)
+
+        const channel = burst ? (burst.clouds[cloud.channelIndex] ?? 0) : 0
+        if (channel !== 0) {
+          if (!cloudWorldReady) {
+            // one world-rotation fetch per bursting frame: cloudSpin keeps
+            // turning with time, so the escape heading must re-derive from
+            // the CURRENT frame (see the CLOUD_ESCAPE_DIST block)
+            cloudWorldReady = true
+            cloudSpin.getWorldQuaternion(burstWorldQuat)
+            burstInverseQuat.copy(burstWorldQuat).invert()
+          }
+          // resting point → screen plane; the seeded build-time bias keeps
+          // the heading stable when the point drifts over the screen center
+          burstVec
+            .copy(cloud.direction)
+            .multiplyScalar(CLOUD_ALTITUDE)
+            .applyQuaternion(burstWorldQuat)
+          const screenX = burstVec.x + cloud.escapeBiasX
+          const screenY =
+            burstVec.y * SCREEN_Y_WORLD_Y +
+            burstVec.z * SCREEN_Y_WORLD_Z +
+            cloud.escapeBiasY
+          const radial = Math.hypot(screenX, screenY) || 1
+          const radialX = screenX / radial
+          const radialY = screenY / radial
+          // world-space fling: unit screen radial + seeded depth, mapped
+          // back into the holder's parent space so the screen travel is
+          // exactly channel × CLOUD_ESCAPE_DIST
+          burstVec
+            .set(
+              radialX,
+              radialY * SCREEN_Y_WORLD_Y + cloud.escapeZ * VIEW_WORLD_Y,
+              radialY * SCREEN_Y_WORLD_Z + cloud.escapeZ * VIEW_WORLD_Z,
+            )
+            .applyQuaternion(burstInverseQuat)
+          cloud.node.position.addScaledVector(
+            burstVec,
+            channel * CLOUD_ESCAPE_DIST,
+          )
+          cloud.puff.rotation.y = cloud.baseYaw + channel * CLOUD_BURST_TUMBLE
+          cloud.puff.scale.setScalar(
+            Math.max(
+              BURST_MIN_SCALE,
+              cloud.baseScale * (1 + channel * CLOUD_BURST_GROW),
+            ),
+          )
+          cloud.puff.scale.y *= CLOUD_PROP_SQUASH
+          cloud.burstActive = true
+        } else if (cloud.burstActive) {
+          cloud.burstActive = false
+          cloud.puff.rotation.y = cloud.baseYaw
+          cloud.puff.scale.setScalar(cloud.baseScale)
+          cloud.puff.scale.y *= CLOUD_PROP_SQUASH
+        }
       }
       for (const island of islandRigs) {
         // same contract: frozen time yields a fixed pose (the old corner
         // angles), not a snap to 0 — and drag (phi) never moves an orbit
         const { placement } = island
+        // spiral-out: radius grows and self-spin accelerates with the
+        // channel (×1 and +0 at rest — exact identities, no branch needed)
+        const channel = burst ? (burst.islands[island.channelIndex] ?? 0) : 0
+        const orbitRadius =
+          placement.orbitRadius * (1 + channel * ISLAND_ESCAPE_RADIUS_GAIN)
         const angle = placement.orbitStart + time * placement.orbitSpeed
-        island.node.rotation.y = placement.yaw + time * placement.spinSpeed
+        island.node.rotation.y =
+          placement.yaw + time * placement.spinSpeed + channel * ISLAND_ESCAPE_SPIN
         island.node.position.set(
-          placement.orbitRadius * Math.cos(angle),
-          placement.orbitRadius * Math.sin(angle) * islandScreenYToWorld +
+          orbitRadius * Math.cos(angle),
+          orbitRadius * Math.sin(angle) * islandScreenYToWorld +
             Math.sin(time * placement.bobSpeed + placement.bobPhase) *
               placement.bobAmp,
           0,
         )
       }
 
-      keyLight.color.lerpColors(keyNightColor, keyDayColor, day)
-      keyLight.intensity = lerp(KEY_NIGHT.intensity, KEY_DAY.intensity, day)
-      fillLight.color.lerpColors(fillNightColor, fillDayColor, day)
-      fillLight.intensity = lerp(FILL_NIGHT.intensity, FILL_DAY.intensity, day)
-      hemiLight.color.lerpColors(hemiNightSky, hemiDaySky, day)
-      hemiLight.groundColor.lerpColors(hemiNightGround, hemiDayGround, day)
-      hemiLight.intensity = lerp(HEMI_NIGHT.intensity, HEMI_DAY.intensity, day)
-
-      for (const themed of themedMaterials) {
-        themed.material.color.lerpColors(themed.night, themed.day, day)
+      // Tree wavefront: the 2×340 matrix recomposes happen ONLY on frames
+      // where the (clamped) wave moved; when it returns to 0 one final
+      // pass restores the exact resting matrices, then the block idles.
+      if (treeBurst) {
+        const wave = burst ? clamp01(burst.treeWave) : 0
+        if (wave !== lastTreeWave) {
+          lastTreeWave = wave
+          const { trunk, canopy, trees } = treeBurst
+          if (!treeBuffersDynamic) {
+            treeBuffersDynamic = true
+            trunk.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+            canopy.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+          }
+          for (let index = 0; index < trees.length; index++) {
+            const tree = trees[index]
+            const progress = smoothstep(0, TREE_BURST_WINDOW, wave - tree.delay)
+            if (progress === 0) {
+              burstScale.setScalar(tree.scale)
+              burstMatrix.compose(tree.position, tree.align, burstScale)
+            } else {
+              burstVec
+                .copy(tree.direction)
+                .multiplyScalar(progress * TREE_BURST_LIFT)
+                .add(tree.position)
+              burstQuat
+                .setFromAxisAngle(tree.tumbleAxis, progress * tree.tumbleRate)
+                .multiply(tree.align)
+              burstScale.setScalar(
+                Math.max(BURST_MIN_SCALE, tree.scale * (1 - progress)),
+              )
+              burstMatrix.compose(burstVec, burstQuat, burstScale)
+            }
+            trunk.setMatrixAt(index, burstMatrix)
+            canopy.setMatrixAt(index, burstMatrix)
+          }
+          trunk.instanceMatrix.needsUpdate = true
+          canopy.instanceMatrix.needsUpdate = true
+        }
       }
-      // clouds get an extra emissive lift after dark so they stay white
-      cloudMaterial.emissive.lerpColors(cloudEmissiveNight, cloudEmissiveDay, day)
 
-      accentColor.setRGB(accent[0], accent[1], accent[2], THREE.SRGBColorSpace)
-      pinMaterial.color.copy(accentColor)
+      // Shards recompose only when their channel moved, and stay invisible
+      // (not merely scale-ε) whenever it is ≤ 0.
+      for (let index = 0; index < shardRigs.length; index++) {
+        const shard = shardRigs[index]
+        const channel = burst ? (burst.shards[index] ?? 0) : 0
+        if (channel === shard.lastChannel) continue
+        shard.lastChannel = channel
+        if (channel > 0) {
+          shard.node.visible = true
+          shard.node.position
+            .copy(shard.direction)
+            .multiplyScalar(shard.surfaceRadius + channel * SHARD_LIFT)
+            .addScaledVector(shard.tangent, channel * SHARD_DRIFT)
+          shard.node.quaternion
+            .setFromAxisAngle(shard.tumbleAxis, channel * shard.tumbleRate)
+            .multiply(shard.restingAlign)
+          shard.node.scale.setScalar(
+            Math.max(
+              BURST_MIN_SCALE,
+              smoothstep(0, SHARD_GROW_END, channel) * shard.size,
+            ),
+          )
+        } else {
+          shard.node.visible = false
+          shard.node.position
+            .copy(shard.direction)
+            .multiplyScalar(shard.surfaceRadius)
+          shard.node.quaternion.copy(shard.restingAlign)
+          shard.node.scale.setScalar(BURST_MIN_SCALE)
+        }
+      }
 
-      cityDotMaterial.opacity = CITY_DOT_OPACITY * (1 - day)
-      cityDots.visible = day < 0.985
+      // Theme + accent: every write in this block is a pure function of
+      // (day, accent), which are constant outside the ~1s theme crossfade
+      // — Globe.tsx snaps its lightMode lerp onto the target, so `day`
+      // reaches an exact fixed point instead of a float tail, and the
+      // idle spin uploads zero theme uniforms.
+      const themeMoved = day !== lastDay
+      const accentMoved =
+        accent[0] !== lastAccentR ||
+        accent[1] !== lastAccentG ||
+        accent[2] !== lastAccentB
+      if (themeMoved) {
+        lastDay = day
+        keyLight.color.lerpColors(keyNightColor, keyDayColor, day)
+        keyLight.intensity = lerp(KEY_NIGHT.intensity, KEY_DAY.intensity, day)
+        fillLight.color.lerpColors(fillNightColor, fillDayColor, day)
+        fillLight.intensity = lerp(FILL_NIGHT.intensity, FILL_DAY.intensity, day)
+        hemiLight.color.lerpColors(hemiNightSky, hemiDaySky, day)
+        hemiLight.groundColor.lerpColors(hemiNightGround, hemiDayGround, day)
+        hemiLight.intensity = lerp(HEMI_NIGHT.intensity, HEMI_DAY.intensity, day)
 
-      auroraUniforms.uTime.value = time
-      auroraUniforms.uOpacity.value = AURORA_STRENGTH * (1 - day)
-      aurora.visible = day < 0.985
-
-      atmoNight
-        .copy(accentColor)
-        .lerp(atmoNightBase, 1 - ATMO_NIGHT_ACCENT_MIX)
-      atmoUniforms.uColor.value.lerpColors(atmoNight, atmoDay, day)
-      atmoUniforms.uStrength.value = lerp(
-        ATMO_NIGHT_STRENGTH,
-        ATMO_DAY_STRENGTH,
-        day,
-      )
-
-      if (oceanShader) {
-        ;(oceanShader.uniforms.uRimColor.value as THREE.Color).lerpColors(
-          oceanRimNight,
-          oceanRimDay,
+        for (const themed of themedMaterials) {
+          themed.material.color.lerpColors(themed.night, themed.day, day)
+        }
+        // clouds get an extra emissive lift after dark so they stay white
+        cloudMaterial.emissive.lerpColors(
+          cloudEmissiveNight,
+          cloudEmissiveDay,
           day,
+        )
+
+        cityDotMaterial.opacity = CITY_DOT_OPACITY * (1 - day)
+        cityDots.visible = day < 0.985
+
+        if (oceanShader) {
+          ;(oceanShader.uniforms.uRimColor.value as THREE.Color).lerpColors(
+            oceanRimNight,
+            oceanRimDay,
+            day,
+          )
+        }
+      }
+      if (accentMoved) {
+        lastAccentR = accent[0]
+        lastAccentG = accent[1]
+        lastAccentB = accent[2]
+        accentColor.setRGB(accent[0], accent[1], accent[2], THREE.SRGBColorSpace)
+        pinMaterial.color.copy(accentColor)
+      }
+      if (themeMoved || accentMoved) {
+        atmoNight
+          .copy(accentColor)
+          .lerp(atmoNightBase, 1 - ATMO_NIGHT_ACCENT_MIX)
+        atmoUniforms.uColor.value.lerpColors(atmoNight, atmoDay, day)
+      }
+
+      // burst: the curtain fade composes with the day/night factor (×1 at
+      // rest — exact), while lift + scale write only when the channel moved
+      const auroraBurst = burst ? burst.aurora : 0
+      const auroraFade = 1 - clamp01(auroraBurst * AURORA_BURST_FADE)
+      const auroraOpacity = AURORA_STRENGTH * (1 - day) * auroraFade
+      if (auroraOpacity !== lastAuroraOpacity) {
+        lastAuroraOpacity = auroraOpacity
+        auroraUniforms.uOpacity.value = auroraOpacity
+        aurora.visible = day < 0.985 && auroraFade > 0
+      }
+      // the sway/shimmer needs live time, but only while the curtain draws
+      if (aurora.visible) auroraUniforms.uTime.value = time
+      if (auroraBurst !== lastAuroraBurst) {
+        lastAuroraBurst = auroraBurst
+        aurora.position.y = auroraBurst * AURORA_BURST_LIFT
+        aurora.scale.setScalar(
+          Math.max(BURST_MIN_SCALE, 1 + auroraBurst * AURORA_BURST_GROW),
         )
       }
 
+      // burst: the shell blows off — strength to 0 (×1 at rest — exact)
+      // while the mesh scales up, written only when the value moved
+      const atmoBurst = burst ? burst.atmosphere : 0
+      const atmoStrength =
+        lerp(ATMO_NIGHT_STRENGTH, ATMO_DAY_STRENGTH, day) *
+        (1 - clamp01(atmoBurst))
+      if (atmoStrength !== lastAtmoStrength) {
+        lastAtmoStrength = atmoStrength
+        atmoUniforms.uStrength.value = atmoStrength
+      }
+      if (atmoBurst !== lastAtmoBurst) {
+        lastAtmoBurst = atmoBurst
+        atmosphere.scale.setScalar(
+          Math.max(BURST_MIN_SCALE, 1 + atmoBurst * ATMO_BURST_GROW),
+        )
+      }
+
+      // Resting scissor: exact rest only — any pose or burst motion
+      // renders unclipped across the full bleed.
+      const atRest = scrollPose === 0 && burstAtRest(burst)
+      if (atRest !== scissorActive) {
+        scissorActive = atRest
+        renderer.setScissorTest(atRest)
+      }
+
       renderer.render(scene, camera)
+    }
+
+    /** Exact-rest test for the scissor: every channel at its build-time
+     *  zero. 25 number compares — cheaper than one cleared bleed frame. */
+    function burstAtRest(channels: BurstChannels | null): boolean {
+      if (!channels) return true
+      if (
+        channels.rumble !== 0 ||
+        channels.treeWave !== 0 ||
+        channels.atmosphere !== 0 ||
+        channels.aurora !== 0
+      ) {
+        return false
+      }
+      for (let i = 0; i < channels.clouds.length; i++) {
+        if (channels.clouds[i] !== 0) return false
+      }
+      for (let i = 0; i < channels.islands.length; i++) {
+        if (channels.islands[i] !== 0) return false
+      }
+      for (let i = 0; i < channels.shards.length; i++) {
+        if (channels.shards[i] !== 0) return false
+      }
+      return true
     }
 
     const getPinScreenPositions = (): PinScreenPosition[] => {
@@ -1791,18 +2393,16 @@ export async function createStylizedEarthRenderer(
       const width = viewWidth
       const height = viewHeight
 
-      return pinAnchors.map((anchor, index) => {
-        projected.copy(anchor).applyMatrix4(planetSpin.matrixWorld)
+      for (let index = 0; index < pinAnchors.length; index++) {
+        const entry = pinPositions[index]
+        projected.copy(pinAnchors[index]).applyMatrix4(planetSpin.matrixWorld)
         worldDirection.copy(projected).normalize()
-        const front = worldDirection.dot(cameraForward) < PIN_FRONT_DOT
+        entry.front = worldDirection.dot(cameraForward) < PIN_FRONT_DOT
         projected.project(camera)
-        return {
-          index,
-          x: (projected.x * 0.5 + 0.5) * width,
-          y: (0.5 - projected.y * 0.5) * height,
-          front,
-        }
-      })
+        entry.x = (projected.x * 0.5 + 0.5) * width
+        entry.y = (0.5 - projected.y * 0.5) * height
+      }
+      return pinPositions
     }
 
     const destroy = () => {
@@ -1815,7 +2415,14 @@ export async function createStylizedEarthRenderer(
     }
 
     resize()
-    return { render, resize, destroy, getPinScreenPositions, setScrollPose }
+    return {
+      render,
+      resize,
+      destroy,
+      getPinScreenPositions,
+      setScrollPose,
+      setBurstChannels,
+    }
   } catch (error) {
     for (const resource of disposables) resource.dispose()
     renderer.dispose()
