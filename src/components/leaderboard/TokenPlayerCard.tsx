@@ -334,10 +334,10 @@ export function TokenPlayerCard({
           <div className="px-6 py-5">
             <div className="text-[9px] tracking-[0.34em] text-zinc-500">PRIMARY STACK</div>
             <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-[rgb(var(--lb-panel-edge)/0.1)] bg-[rgb(var(--lb-panel-edge)/0.025)] p-3">
-              <TokenAgentIcon agent={row.topAgent} size={22} />
+              <TokenAgentIcon agent={row.topAgent} size={22} mixed={row.agents.length > 1} />
               <div className="min-w-0 flex-1">
                 <div className="truncate font-display text-[13px] font-medium text-zinc-100">
-                  {topAgent ?? 'Agent not reported'}
+                  {topAgent ?? (row.agents.length > 1 ? 'Mixed agents' : 'Agent not reported')}
                 </div>
                 <div className="mt-1 truncate text-[10px] text-zinc-500">
                   {topModel ?? 'Model not reported'}

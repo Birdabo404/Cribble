@@ -549,7 +549,7 @@ function TokenRow({
               role="img"
               aria-label={row.persona.label}
             />
-            <TokenAgentIcon agent={row.topAgent} size={12} bare />
+            <TokenAgentIcon agent={row.topAgent} size={12} bare mixed={row.agents.length > 1} />
             <span className="min-w-0 truncate text-[10px] leading-none text-zinc-300">
               <span className="font-medium">
                 {agentLabel ?? (row.agents.length > 1 ? 'Mixed' : 'Unknown')}
@@ -577,7 +577,7 @@ function TokenRow({
       </button>
 
       <div className="hidden min-w-0 items-center gap-2.5 md:flex" title={agentTitle}>
-        <TokenAgentIcon agent={row.topAgent} size={18} />
+        <TokenAgentIcon agent={row.topAgent} size={18} mixed={row.agents.length > 1} />
         <span className="min-w-0">
           <span className="block truncate text-[10px] font-medium text-zinc-300">
             {agentLabel ?? (row.agents.length > 1 ? 'Mixed' : 'Unknown')}
