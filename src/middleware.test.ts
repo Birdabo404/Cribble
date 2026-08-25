@@ -94,15 +94,18 @@ describe('middleware site lock', () => {
     expect(rewriteTarget('/roadmap')).toBe('/maintenance')
   })
 
-  it('keeps settings APIs reachable while the hub is session-gated', () => {
+  it('keeps dashboard and settings APIs reachable while the app shell is session-gated', () => {
     vi.stubEnv('SITE_LOCKED', '1')
     // Pages are session-gated (below); the data lanes still need to answer
     // once a pilot is in — they enforce real auth themselves.
     expect(middleware(request('/api/user/settings')).status).toBe(200)
     expect(middleware(request('/api/user/agent-keys')).status).toBe(200)
     expect(middleware(request('/api/user/agent-sharing')).status).toBe(200)
+    expect(middleware(request('/api/user/token-usage')).status).toBe(200)
+    expect(middleware(request('/api/user/token-usage/')).status).toBe(200)
     expect(middleware(request('/api/user/delete')).status).toBe(200)
     expect(middleware(request('/api/user/agent-sharing-extra')).status).toBe(404)
+    expect(middleware(request('/api/user/token-usage-extra')).status).toBe(404)
   })
 
   it('opens only the exact agent usage API while locked', () => {

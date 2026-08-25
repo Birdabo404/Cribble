@@ -70,9 +70,11 @@ export function isAllowedDuringLock(pathname: string, hasSession = false): boole
   if (pathname === '/api/season') return true
   if (pathname === '/api/cron/season') return true
   if (pathname === '/api/cron/insights-rollup') return true
-  // settings, agent key management, and delete ride the settings hub;
-  // cosmetics stays on its own lane below with the shop/billing paths.
-  if (/^\/api\/user\/(onboarding|me|tools|activity|follow|profile|achievements|notifications|referral|settings|agent-keys|agent-sharing|delete)\/?$/.test(pathname)) return true
+  // Dashboard/settings reads, agent key management, and delete ride the
+  // signed-in app shell; cosmetics stays on its own lane below with the
+  // shop/billing paths. Keep this exact so similarly prefixed user routes
+  // do not bypass the private-beta lock.
+  if (/^\/api\/user\/(onboarding|me|tools|activity|follow|profile|achievements|notifications|referral|settings|agent-keys|agent-sharing|token-usage|delete)\/?$/.test(pathname)) return true
   // Agent token ingest is one exact API lane. Do not open the rest of the
   // /api/agent namespace while the private-beta lock is active.
   if (/^\/api\/agent\/usage\/?$/.test(pathname)) return true
