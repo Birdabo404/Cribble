@@ -20,6 +20,7 @@ describe('evaluateExtensionGate', () => {
     enabled: true,
     signedIn: true,
     accountType: 'solo',
+    countMode: null,
     capableBrowser: true,
     detected: false,
     linked: false
@@ -78,6 +79,25 @@ describe('evaluateExtensionGate', () => {
       name: 'team account with the feature off stays allowed',
       input: { accountType: 'team', enabled: false },
       expected: 'allow'
+    },
+    // Tokens-only accounts track burn through the agent CLI — the browser
+    // extension is software they have no use for, so the wall never
+    // applies. 'browser' and 'both' still need it, and an unset count_mode
+    // (every pre-redesign account) keeps gating as browser.
+    {
+      name: 'tokens-only account on a capable browser passes without a handshake',
+      input: { countMode: 'tokens' },
+      expected: 'allow'
+    },
+    {
+      name: 'browser count mode still hits the wall',
+      input: { countMode: 'browser' },
+      expected: 'install'
+    },
+    {
+      name: "'both' count mode still needs the extension",
+      input: { countMode: 'both' },
+      expected: 'install'
     },
     // Non-capable browsers can never install — capable means a desktop
     // browser whose store listing is live (Chrome today, Firefox once its

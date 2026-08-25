@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { MobileExtensionModal } from '@/components/extension/MobileExtensionModal'
 import { fetchMe } from '@/lib/client/fetchMe'
+import { parseCountMode } from '@/lib/countMode'
 import { requestExtensionIdentity } from '@/lib/extensionBridge'
 import {
   evaluateExtensionGate,
@@ -47,6 +48,14 @@ function readAccountType(
     (metadata as Record<string, unknown>).account_type === 'team'
     ? 'team'
     : 'solo'
+}
+
+// Same trust posture for count_mode: only a valid literal unlocks the
+// tokens-only lane; absent or malformed metadata gates as a browser
+// account — the strict default.
+function readCountMode(metadata: unknown): ExtensionGateInput['countMode'] {
+  if (typeof metadata !== 'object' || metadata === null) return null
+  return parseCountMode((metadata as Record<string, unknown>).count_mode)
 }
 
 // off → holding (first client paint, capable browsers only)
@@ -147,6 +156,7 @@ export function ExtensionGate({ children }: { children: React.ReactNode }) {
         enabled: GATE_ENABLED,
         signedIn: true,
         accountType: readAccountType(data.metadata),
+        countMode: readCountMode(data.metadata),
         capableBrowser,
         detected,
         linked: data.extensionLinked === true

@@ -203,7 +203,7 @@ function StrokeIcon({ d, className = 'h-3.5 w-3.5' }: { d: string; className?: s
 /**
  * Feed glyph. Follow events show the follower's face (with monogram
  * fallback) — a person, not a category, is the signal. Achievement
- * unlocks render their own pixel badge in the rarity hue (matching the
+ * unlocks render their own self-colored pixel trophy (matching the
  * achievements page) and premium grants render the pixel blue check;
  * every other type keeps its stroke icon — graph for rank, trophy for
  * milestones, flag for season updates. Read rows dim their tile so
@@ -262,7 +262,7 @@ function NotificationGlyph({
     const def = ACHIEVEMENTS_BY_ID.get(String(notification.data?.achievementId ?? ''))
     if (def) {
       return (
-        <span className={tileCls} style={{ color: `rgb(var(--r-${def.rarity}))` }}>
+        <span className={tileCls}>
           <PixelIcon name={def.icon} size={18} />
         </span>
       )

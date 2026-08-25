@@ -1,3 +1,4 @@
+import type { CountMode } from '@/lib/countMode'
 import type { ActiveDevice, MeUser } from '@/types/dashboard'
 
 // Chrome Web Store listing URL. Null until the listing is live — every
@@ -108,6 +109,11 @@ export interface ExtensionGateInput {
   /** From onboarding metadata.account_type; anything but a literal
    *  'team' counts as solo. */
   accountType: 'solo' | 'team'
+  /** From onboarding metadata.count_mode. 'tokens' accounts measure burn
+   *  through the agent CLI, not the browser, so the wall never applies to
+   *  them. Null (unset — every pre-redesign account) gates as a browser
+   *  account, the strict default. */
+  countMode: CountMode | null
   capableBrowser: boolean
   /** Live postMessage handshake result; only consulted on capable browsers. */
   detected: boolean
@@ -123,7 +129,10 @@ export interface ExtensionGateInput {
 // Team buyer accounts are never walled: they track nothing (checkout
 // already leaves the wizard), so demanding the tracker would gate them
 // on software they have no use for. Affiliated pilots sign up solo and
-// still hit the wall. Capable browsers must pass the live handshake
+// still hit the wall. Tokens-only accounts are never walled either: they
+// asked Cribble to count agent tokens (CLI), not browser time, so the
+// extension is software they have no use for — 'browser' and 'both' still
+// need it. Capable browsers must pass the live handshake
 // (this is what catches "I removed the extension"; past linkage doesn't
 // count). Browsers that can't install the extension are never gated:
 // capable means a desktop browser whose store listing is live (Chrome
@@ -139,6 +148,7 @@ export function evaluateExtensionGate(
 ): ExtensionGateVerdict {
   if (!input.enabled || !input.signedIn) return 'allow'
   if (input.accountType === 'team') return 'allow'
+  if (input.countMode === 'tokens') return 'allow'
   if (input.capableBrowser) return input.detected ? 'allow' : 'install'
   return 'allow'
 }

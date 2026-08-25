@@ -2,7 +2,7 @@
 //
 // The catalog is code, not data: each definition owns its unlock target and
 // a `current(stats)` reading, so adding an achievement is one entry here
-// (plus a 12x12 pixel icon in components/achievements/pixelIcons.ts).
+// (plus a 16x16 pixel icon in components/achievements/pixelIcons.ts).
 // Unlocks are persisted server-side in user_achievements (migration 011)
 // by src/lib/achievementsServer.ts — this module stays client-safe.
 
@@ -18,12 +18,18 @@ export const ACHIEVEMENT_CATEGORIES = [
   'milestones',
   'streaks',
   'arsenal',
-  'operations'
+  'operations',
+  'burn'
 ] as const
 
 export type AchievementCategory = (typeof ACHIEVEMENT_CATEGORIES)[number]
 
-export type AchievementRarity = 'common' | 'rare' | 'epic' | 'legendary'
+export type AchievementRarity =
+  | 'common'
+  | 'rare'
+  | 'epic'
+  | 'legendary'
+  | 'mythic'
 
 /** Keys into the pixel-art icon set (components/achievements/pixelIcons.ts). */
 export type AchievementIcon =
@@ -32,7 +38,7 @@ export type AchievementIcon =
   | 'planet'
   | 'starfield'
   | 'comet'
-  | 'diamond'
+  | 'odometer'
   | 'bolt'
   | 'terminal'
   | 'hourglass'
@@ -51,9 +57,54 @@ export type AchievementIcon =
   | 'stopwatch'
   | 'wings'
   | 'crown'
+  | 'spark'
+  | 'coins'
+  | 'goblin'
+  | 'hound'
+  | 'frog'
+  | 'demon'
+  | 'furnace'
+  | 'banknote'
+
+/**
+ * Lifetime aggregates from the agent token pipeline (agent_usage_daily,
+ * read through the agent_usage_achievement_stats RPC). The token libs use
+ * exact string arithmetic; conversion to plain number happens exactly once
+ * at the RPC boundary in achievementsServer.ts — safe because achievement
+ * thresholds top out at 5e7, far inside Number.MAX_SAFE_INTEGER.
+ */
+export interface AchievementTokenStats {
+  /** Lifetime total tokens. */
+  tokenTotal: number
+  /** Lifetime output tokens. */
+  tokenOutput: number
+  /** Lifetime estimated cost in USD. */
+  tokenBurnUsd: number
+  /** (cache_creation + cache_read) / total * 100; 0 when no tokens. */
+  tokenCachePercent: number
+  /** Distinct models ever reported. */
+  tokenModels: number
+  /** Distinct agents ever reported. */
+  tokenAgents: number
+  /** Distinct dates with any tokens. */
+  tokenActiveDays: number
+  /** Max single-day token total. */
+  tokenBestDayTokens: number
+}
+
+export const EMPTY_ACHIEVEMENT_TOKEN_STATS: AchievementTokenStats = {
+  tokenTotal: 0,
+  tokenOutput: 0,
+  tokenBurnUsd: 0,
+  tokenCachePercent: 0,
+  tokenModels: 0,
+  tokenAgents: 0,
+  tokenActiveDays: 0,
+  tokenBestDayTokens: 0
+}
 
 /** Everything an achievement condition is allowed to read. */
-export interface AchievementStats {
+export interface AchievementStats extends AchievementTokenStats {
   totalScore: number
   /** Leaderboard position (1 = first). Null when unranked / unknown. */
   rank: number | null
@@ -73,6 +124,7 @@ export interface AchievementStats {
 }
 
 export const EMPTY_ACHIEVEMENT_STATS: AchievementStats = {
+  ...EMPTY_ACHIEVEMENT_TOKEN_STATS,
   totalScore: 0,
   rank: null,
   longestStreak: 0,
@@ -92,6 +144,9 @@ export type AchievementUnit =
   | 'visits'
   | 'sessions'
   | 'duration'
+  | 'tokens'
+  | 'usd'
+  | 'models'
   | 'none'
 
 export interface AchievementDef {
@@ -150,7 +205,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     name: 'DEEP SPACE',
     description: 'Cross 100,000 lifetime points.',
     category: 'milestones',
-    rarity: 'epic',
+    rarity: 'rare',
     icon: 'starfield',
     target: 100_000,
     current: (s) => s.totalScore,
@@ -173,7 +228,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     description: 'One million lifetime points.',
     category: 'milestones',
     rarity: 'legendary',
-    icon: 'diamond',
+    icon: 'odometer',
     target: 1_000_000,
     current: (s) => s.totalScore,
     unit: 'points'
@@ -207,7 +262,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     name: 'LONG HAUL',
     description: 'Hold a fourteen-day streak.',
     category: 'streaks',
-    rarity: 'epic',
+    rarity: 'rare',
     icon: 'hourglass',
     target: 14,
     current: (s) => s.longestStreak,
@@ -381,6 +436,98 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     target: 1,
     current: (s) => (s.rank !== null && s.rank <= 1 ? 1 : 0),
     unit: 'none'
+  },
+
+  // ---- BURN — agent token pipeline -----------------------------------
+  {
+    id: 'burn_first',
+    name: 'COLD START',
+    description: 'Sync your first agent session from the terminal.',
+    category: 'burn',
+    rarity: 'common',
+    icon: 'spark',
+    target: 1,
+    current: (s) => (s.tokenTotal > 0 ? 1 : 0),
+    unit: 'none'
+  },
+  {
+    id: 'tokens_1m',
+    name: 'SEVEN FIGURES',
+    description: 'One million tokens through the pipe.',
+    category: 'burn',
+    rarity: 'common',
+    icon: 'coins',
+    target: 1_000_000,
+    current: (s) => s.tokenTotal,
+    unit: 'tokens'
+  },
+  {
+    id: 'model_hopper',
+    name: 'MODEL HOPPER',
+    description: 'Log usage on five different models.',
+    category: 'burn',
+    rarity: 'rare',
+    icon: 'frog',
+    target: 5,
+    current: (s) => s.tokenModels,
+    unit: 'models'
+  },
+  {
+    id: 'cache_goblin',
+    name: 'CACHE GOBLIN',
+    description: 'Hold a 90% cache rate across ten million tokens.',
+    category: 'burn',
+    rarity: 'rare',
+    icon: 'goblin',
+    target: 1,
+    current: (s) =>
+      s.tokenCachePercent >= 90 && s.tokenTotal >= 10_000_000 ? 1 : 0,
+    unit: 'none'
+  },
+  {
+    id: 'raw_dog',
+    name: 'RAW DOG',
+    description: 'Ten million tokens at under 10% cache. Full freight, every time.',
+    category: 'burn',
+    rarity: 'rare',
+    icon: 'hound',
+    target: 1,
+    current: (s) =>
+      s.tokenCachePercent <= 10 && s.tokenTotal >= 10_000_000 ? 1 : 0,
+    unit: 'none'
+  },
+  {
+    id: 'output_demon',
+    name: 'OUTPUT DEMON',
+    description: 'Five million output tokens. Generation, not conversation.',
+    category: 'burn',
+    rarity: 'epic',
+    icon: 'demon',
+    target: 5_000_000,
+    current: (s) => s.tokenOutput,
+    unit: 'tokens'
+  },
+  {
+    id: 'tokens_50m',
+    name: 'TOKEN FURNACE',
+    description: 'Fifty million lifetime tokens. The pipe glows.',
+    category: 'burn',
+    rarity: 'epic',
+    icon: 'furnace',
+    target: 50_000_000,
+    current: (s) => s.tokenTotal,
+    unit: 'tokens'
+  },
+  {
+    id: 'burn_500',
+    name: 'FINANCIAL INCIDENT',
+    description: 'Five hundred dollars of estimated burn. Someone check on the card.',
+    category: 'burn',
+    rarity: 'mythic',
+    icon: 'banknote',
+    target: 500,
+    current: (s) => s.tokenBurnUsd,
+    unit: 'usd'
   }
 ]
 
@@ -439,7 +586,12 @@ export function longestStreakFromDayKeys(dayKeys: Iterable<string>): number {
 
 export function computeAchievementStats(
   events: AchievementEvent[],
-  context: { totalScore: number; rank: number | null }
+  context: {
+    totalScore: number
+    rank: number | null
+    /** Token-pipeline aggregates; zeros when absent (e.g. no CLI usage). */
+    tokens?: AchievementTokenStats
+  }
 ): AchievementStats {
   const dayEvents: Record<string, AchievementEvent[]> = {}
   const dayActiveMs: Record<string, number> = {}
@@ -477,6 +629,7 @@ export function computeAchievementStats(
   const activeDayKeys = Object.keys(dayScore).filter((key) => dayScore[key] > 0)
 
   return {
+    ...(context.tokens ?? EMPTY_ACHIEVEMENT_TOKEN_STATS),
     totalScore: Math.max(0, Math.round(context.totalScore)),
     rank: context.rank,
     longestStreak: longestStreakFromDayKeys(activeDayKeys),

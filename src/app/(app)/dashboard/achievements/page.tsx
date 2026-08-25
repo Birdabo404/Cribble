@@ -1,8 +1,9 @@
 'use client'
 
 // Achievements — the pilot's service record. Every badge is a hand-drawn
-// 12x12 pixel bitmap tinted by rarity; unlocks are evaluated server-side
-// after every extension sync and backfilled when this page loads.
+// 16x16 self-colored pixel trophy; rarity lives in the frame material,
+// never in the artwork. Unlocks are evaluated server-side after every
+// extension sync and backfilled when this page loads.
 
 import { memo, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -38,7 +39,13 @@ const ASCII_ACHIEVEMENTS = String.raw` █████╗  ██████╗
 ██║  ██║╚██████╗██║  ██║██║███████╗ ╚████╔╝ ███████╗██║ ╚═╝ ██║███████╗██║ ╚████║   ██║   ███████║
 ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝╚══════╝  ╚═══╝  ╚══════╝╚═╝     ╚═╝╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝`
 
-const RARITY_ORDER: AchievementRarity[] = ['common', 'rare', 'epic', 'legendary']
+const RARITY_ORDER: AchievementRarity[] = [
+  'common',
+  'rare',
+  'epic',
+  'legendary',
+  'mythic'
+]
 
 /* Rarity hues resolve through the --r-* vars set in the page-level styles,
    so common/rare/epic/legendary stay legible in both themes. */
@@ -53,7 +60,8 @@ const CATEGORY_META: Record<
   milestones: { label: 'MILESTONES', blurb: 'LIFETIME SCORE' },
   streaks: { label: 'STREAKS', blurb: 'CONSISTENCY' },
   arsenal: { label: 'ARSENAL', blurb: 'TOOLS & SORTIES' },
-  operations: { label: 'OPERATIONS', blurb: 'FIELD CONDUCT' }
+  operations: { label: 'OPERATIONS', blurb: 'FIELD CONDUCT' },
+  burn: { label: 'BURN', blurb: 'AGENT TELEMETRY' }
 }
 
 const FRESH_UNLOCK_WINDOW_MS = 48 * 3_600_000
@@ -61,13 +69,17 @@ const FRESH_UNLOCK_WINDOW_MS = 48 * 3_600_000
 function formatProgressValue(unit: AchievementUnit, value: number): string {
   switch (unit) {
     case 'points':
+    case 'tokens':
       return formatCompact(Math.round(value))
     case 'duration':
       return formatDuration(value)
+    case 'usd':
+      return `$${Math.round(value).toLocaleString('en-US')}`
     case 'days':
     case 'tools':
     case 'visits':
     case 'sessions':
+    case 'models':
       return Math.round(value).toLocaleString('en-US')
     case 'none':
       return ''
@@ -98,7 +110,7 @@ function CornerBrackets() {
   )
 }
 
-// Memoized: 24 cards render once from a single fetch; nothing per-card
+// Memoized: 32 cards render once from a single fetch; nothing per-card
 // changes afterwards. The card uses the .glass-lite material (no
 // backdrop-filter) so a full grid stays cheap on integrated GPUs.
 const AchievementCard = memo(function AchievementCard({ row }: { row: AchievementRow }) {
@@ -108,7 +120,12 @@ const AchievementCard = memo(function AchievementCard({ row }: { row: Achievemen
   const ratio = row.target > 0 ? Math.min(1, row.current / row.target) : 0
   const filledSegments = unlocked ? 12 : Math.min(11, Math.floor(ratio * 12))
   const color = rarityColor(row.rarity)
+  const rare = unlocked && row.rarity === 'rare'
+  const epic = unlocked && row.rarity === 'epic'
   const legendary = unlocked && row.rarity === 'legendary'
+  const mythic = unlocked && row.rarity === 'mythic'
+  // the two crown tiers get the heavier chrome (chip glow, brighter ring)
+  const exalted = legendary || mythic
 
   return (
     <div
@@ -116,13 +133,25 @@ const AchievementCard = memo(function AchievementCard({ row }: { row: Achievemen
       style={
         unlocked
           ? {
+              // sprites are self-colored; currentColor only drives the
+              // frame chrome (corner brackets) now
               color,
-              boxShadow: `inset 0 0 0 1px ${rarityColorA(row.rarity, legendary ? 0.5 : 0.3)}`
+              boxShadow: mythic
+                ? `inset 0 0 0 1px ${rarityColorA('mythic', 0.55)}, inset 0 0 22px ${rarityColorA('mythic', 0.07)}`
+                : `inset 0 0 0 1px ${rarityColorA(row.rarity, legendary ? 0.5 : 0.3)}`
             }
           : undefined
       }
     >
       {unlocked && <CornerBrackets />}
+      {/* RARE — polished: one static specular band, no motion */}
+      {rare && (
+        <span aria-hidden className="rare-specular pointer-events-none absolute inset-0" />
+      )}
+      {/* EPIC — prismatic: a masked dual-hue rim, epic pink into rare blue */}
+      {epic && (
+        <span aria-hidden className="epic-rim pointer-events-none absolute inset-0 rounded-2xl" />
+      )}
       {legendary && (
         <>
           {/* faint gold pinstripes across the whole card */}
@@ -131,20 +160,37 @@ const AchievementCard = memo(function AchievementCard({ row }: { row: Achievemen
           <span aria-hidden className="legendary-sweep pointer-events-none absolute top-0 left-0 h-px w-2/5" />
         </>
       )}
+      {/* MYTHIC — iridescent: legendary's structure in white-violet, slower */}
+      {mythic && (
+        <>
+          <span aria-hidden className="mythic-stripes pointer-events-none absolute inset-0" />
+          <span aria-hidden className="mythic-sweep pointer-events-none absolute top-0 left-0 h-px w-2/5" />
+        </>
+      )}
 
       <div className="relative flex items-start gap-3.5">
-        {/* icon tile — pixel badge under a faint scanline film */}
+        {/* icon tile — self-colored pixel trophy under a faint scanline
+            film; locked renders the engraved void silhouette */}
         <div
           className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-lg glass-inset-lite"
           style={{
-            color: unlocked ? color : 'rgb(var(--z600))',
-            borderColor: unlocked ? rarityColorA(row.rarity, legendary ? 0.55 : 0.3) : undefined
+            borderColor: unlocked ? rarityColorA(row.rarity, exalted ? 0.55 : 0.3) : undefined
           }}
         >
+          {unlocked && (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-0 rounded-lg"
+              style={{
+                background: `radial-gradient(circle at 50% 45%, ${rarityColorA(row.rarity, 0.15)}, transparent 72%)`
+              }}
+            />
+          )}
           <PixelIcon
             name={row.icon}
-            size={38}
-            className={unlocked ? 'pixel-glow' : 'opacity-55'}
+            size={48}
+            locked={!unlocked}
+            className={unlocked ? 'relative pixel-glow' : 'relative'}
           />
           <div aria-hidden className="pixel-scanlines absolute inset-0 rounded-lg" />
         </div>
@@ -174,9 +220,9 @@ const AchievementCard = memo(function AchievementCard({ row }: { row: Achievemen
           className="shrink-0 rounded border px-1.5 py-0.5 text-[8px] tracking-[0.25em]"
           style={{
             color: unlocked ? color : 'rgb(var(--z600))',
-            borderColor: unlocked ? rarityColorA(row.rarity, legendary ? 0.7 : 0.4) : 'rgb(var(--z800))',
-            backgroundColor: unlocked ? rarityColorA(row.rarity, legendary ? 0.14 : 0.07) : 'transparent',
-            boxShadow: legendary ? `0 0 10px ${rarityColorA(row.rarity, 0.35)}` : undefined
+            borderColor: unlocked ? rarityColorA(row.rarity, exalted ? 0.7 : 0.4) : 'rgb(var(--z800))',
+            backgroundColor: unlocked ? rarityColorA(row.rarity, exalted ? 0.14 : 0.07) : 'transparent',
+            boxShadow: exalted ? `0 0 10px ${rarityColorA(row.rarity, 0.35)}` : undefined
           }}
         >
           {row.rarity.toUpperCase()}
@@ -444,9 +490,47 @@ export default function AchievementsPage() {
           opacity: 0.55;
         }
 
+        /* Rarity-as-material frames. The artwork is self-colored, so each
+           tier states itself through the frame: matte → polished →
+           prismatic → gold → iridescent. Everything below is plain
+           gradients / masks / compositor-only transforms — no filters,
+           no backdrop-filter. */
+
+        /* RARE: polished — one static diagonal specular band. */
+        .rare-specular {
+          background: linear-gradient(
+            120deg,
+            transparent 32%,
+            rgb(var(--r-rare) / 0.05) 44%,
+            rgb(var(--r-rare) / 0.11) 50%,
+            rgb(var(--r-rare) / 0.05) 56%,
+            transparent 68%
+          );
+        }
+
+        /* EPIC: prismatic — a 1px dual-hue rim (epic pink into rare blue)
+           via the masked-gradient border trick. */
+        .epic-rim {
+          padding: 1px;
+          background: linear-gradient(
+            135deg,
+            rgb(var(--r-epic) / 0.6),
+            rgb(var(--r-epic) / 0.2) 45%,
+            rgb(var(--r-rare) / 0.25) 60%,
+            rgb(var(--r-rare) / 0.6)
+          );
+          -webkit-mask:
+            linear-gradient(#000 0 0) content-box,
+            linear-gradient(#000 0 0);
+          -webkit-mask-composite: xor;
+          mask:
+            linear-gradient(#000 0 0) content-box,
+            linear-gradient(#000 0 0);
+          mask-composite: exclude;
+        }
+
         /* LEGENDARY: faint gold pinstripes + a light bead tracing the top
-           edge. Both are plain gradients / compositor-only transforms —
-           no filters. */
+           edge. */
         .legendary-stripes {
           background: repeating-linear-gradient(
             135deg,
@@ -474,16 +558,43 @@ export default function AchievementsPage() {
             transform: translateX(350%);
           }
         }
+
+        /* MYTHIC: iridescent — legendary's structure in white-violet,
+           finer pinstripes and a slower bead. A tier above gold without
+           shouting over the artwork. */
+        .mythic-stripes {
+          background: repeating-linear-gradient(
+            135deg,
+            rgb(var(--r-mythic) / 0.055) 0px,
+            rgb(var(--r-mythic) / 0.055) 1px,
+            transparent 1px,
+            transparent 7px
+          );
+        }
+        .mythic-sweep {
+          background: linear-gradient(
+            90deg,
+            transparent,
+            rgb(var(--r-mythic) / 0.95) 50%,
+            transparent
+          );
+          animation: legendary-sweep 6400ms cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
         @media (prefers-reduced-motion: reduce) {
-          .legendary-sweep {
+          .legendary-sweep,
+          .mythic-sweep {
             animation: none;
             opacity: 0;
           }
         }
 
-        /* unlocked badge bitmaps glow in their rarity hue */
+        /* unlocked trophies get a soft neutral lift; the rarity hue lives
+           in the radial wash behind the tile, never on the sprite */
         .pixel-glow {
-          filter: drop-shadow(0 0 5px currentColor);
+          filter: drop-shadow(0 0 4px rgb(255 255 255 / 0.22));
+        }
+        html.light .pixel-glow {
+          filter: drop-shadow(0 0 4px rgb(0 0 0 / 0.16));
         }
 
         /* faint CRT film over each badge tile */

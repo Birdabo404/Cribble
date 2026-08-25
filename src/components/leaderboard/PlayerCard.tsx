@@ -44,7 +44,6 @@ import {
   type PlayerProfile
 } from './types'
 
-const rarityColor = (rarity: string) => `rgb(var(--r-${rarity}))`
 const rarityColorA = (rarity: string, alpha: number) =>
   `rgb(var(--r-${rarity}) / ${alpha})`
 
@@ -660,16 +659,11 @@ export function PlayerCard({
                       title={`${badge.name} — ${badge.description}`}
                       className="flex aspect-square items-center justify-center rounded-lg"
                       style={{
-                        color: rarityColor(badge.rarity),
                         background: rarityColorA(badge.rarity, 0.07),
                         border: `1px solid ${rarityColorA(badge.rarity, 0.3)}`
                       }}
                     >
-                      <PixelIcon
-                        name={badge.icon}
-                        size={20}
-                        className="[filter:drop-shadow(0_0_4px_currentColor)]"
-                      />
+                      <PixelIcon name={badge.icon} size={20} />
                     </div>
                   ))}
                   {badges.length > 15 && (

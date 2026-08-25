@@ -19,15 +19,18 @@
     "setup:polar:check": "vite-node scripts/setup-polar.ts --check"
   },
   "dependencies": {
+    "@gsap/react": "^2.1.2",
     "@paper-design/shaders-react": "^0.0.77",
     "@polar-sh/nextjs": "^0.9.6",
     "@polar-sh/sdk": "^0.48.1",
     "@supabase/supabase-js": "^2.50.0",
     "@types/uuid": "^10.0.0",
     "@vercel/analytics": "^1.5.0",
+    "animejs": "^4.5.0",
     "clsx": "^2.1.1",
     "d3-scale": "^4.0.2",
     "d3-shape": "^3.2.0",
+    "gsap": "^3.15.0",
     "motion": "^13.1.0",
     "next": "15.5.22",
     "next-themes": "^0.4.6",

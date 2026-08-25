@@ -279,7 +279,8 @@ export const RARITY_COLOR: Record<string, string> = {
   common: 'rgb(var(--r-common))',
   rare: 'rgb(var(--r-rare))',
   epic: 'rgb(var(--r-epic))',
-  legendary: 'rgb(var(--r-legendary))'
+  legendary: 'rgb(var(--r-legendary))',
+  mythic: 'rgb(var(--r-mythic))'
 }
 
 /* ------------------------------------------------------------------ */
@@ -315,7 +316,7 @@ export const ROADMAP_PHASES: RoadmapPhase[] = [
         detail: 'ChatGPT, Claude, Cursor, Gemini, Perplexity and the rest, tallied without a sound.'
       },
       {
-        title: 'Profiles, plates & 25 medals',
+        title: 'Profiles, plates & 32 medals',
         detail: 'Trading-card profiles, equippable nameplates, and a service record no credit card can shortcut.'
       },
       {

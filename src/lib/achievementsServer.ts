@@ -9,9 +9,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   ACHIEVEMENTS,
   computeAchievementStats,
+  EMPTY_ACHIEVEMENT_TOKEN_STATS,
   isAchievementUnlocked,
   type AchievementEvent,
-  type AchievementStats
+  type AchievementStats,
+  type AchievementTokenStats
 } from './achievements'
 import { insertMissingNotifications } from './notifications'
 import { fetchAllUserEvents } from './scoring'
@@ -87,6 +89,52 @@ async function grantChampionPlate(
   ])
 }
 
+function rpcNumber(value: unknown): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+}
+
+/** Lifetime BURN stats from the agent token pipeline (migration 053).
+ *  The RPC's bigint/numeric aggregates may arrive as strings; they are
+ *  converted to plain numbers exactly once here. Degrades to all zeros
+ *  on any failure — including the RPC not existing in an un-migrated
+ *  environment — so browser achievements always evaluate. */
+async function fetchTokenAchievementStats(
+  supabase: SupabaseClient,
+  userId: number
+): Promise<AchievementTokenStats> {
+  try {
+    const { data, error } = await supabase.rpc(
+      'agent_usage_achievement_stats',
+      { p_user_id: userId }
+    )
+
+    if (error) {
+      console.warn('[Achievements] Token stats lookup failed:', error.message)
+      return EMPTY_ACHIEVEMENT_TOKEN_STATS
+    }
+
+    const row = Array.isArray(data) ? data[0] : data
+    if (!row) return EMPTY_ACHIEVEMENT_TOKEN_STATS
+
+    const tokenTotal = rpcNumber(row.total_tokens)
+    const cacheTokens = rpcNumber(row.cache_tokens)
+    return {
+      tokenTotal,
+      tokenOutput: rpcNumber(row.output_tokens),
+      tokenBurnUsd: rpcNumber(row.cost_usd),
+      tokenCachePercent: tokenTotal > 0 ? (cacheTokens / tokenTotal) * 100 : 0,
+      tokenModels: rpcNumber(row.model_count),
+      tokenAgents: rpcNumber(row.agent_count),
+      tokenActiveDays: rpcNumber(row.active_days),
+      tokenBestDayTokens: rpcNumber(row.best_day_tokens)
+    }
+  } catch (error) {
+    console.warn('[Achievements] Token stats lookup failed:', error)
+    return EMPTY_ACHIEVEMENT_TOKEN_STATS
+  }
+}
+
 async function fetchScoreAndRank(
   supabase: SupabaseClient,
   userId: number
@@ -129,13 +177,14 @@ export async function evaluateAchievements(
   userId: number
 ): Promise<AchievementEvaluation | null> {
   try {
-    const [events, scoreAndRank] = await Promise.all([
+    const [events, scoreAndRank, tokens] = await Promise.all([
       fetchUserEvents(supabase, userId),
-      fetchScoreAndRank(supabase, userId)
+      fetchScoreAndRank(supabase, userId),
+      fetchTokenAchievementStats(supabase, userId)
     ])
     if (events === null) return null
 
-    const stats = computeAchievementStats(events, scoreAndRank)
+    const stats = computeAchievementStats(events, { ...scoreAndRank, tokens })
 
     const { data: existingRows, error: existingError } = await supabase
       .from('user_achievements')

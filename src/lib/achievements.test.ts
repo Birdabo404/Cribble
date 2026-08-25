@@ -1,16 +1,19 @@
 import { describe, expect, it } from 'vitest'
+import { PIXEL_RAMPS } from '@/components/achievements/palette'
 import { PIXEL_GRIDS } from '@/components/achievements/pixelIcons'
 import {
   ACHIEVEMENTS,
   ACHIEVEMENTS_BY_ID,
   ACHIEVEMENT_CATEGORIES,
   EMPTY_ACHIEVEMENT_STATS,
+  EMPTY_ACHIEVEMENT_TOKEN_STATS,
   computeAchievementStats,
   isAchievementUnlocked,
   longestStreakFromDayKeys,
   unlockedAchievementIds,
   type AchievementEvent,
-  type AchievementStats
+  type AchievementStats,
+  type AchievementTokenStats
 } from './achievements'
 import { scoreFromEvents } from './scoring'
 
@@ -25,8 +28,13 @@ const def = (id: string) => {
   return found
 }
 
+/** Slot chars per declared ramp: '1'-'4' → ramps[0], '5'-'8' → ramps[1],
+ * '9','a','b','c' → ramps[2]. Mirrors the PixelIcon renderer contract. */
+const RAMP_SLOT_CHARS = ['1234', '5678', '9abc'] as const
+
 describe('achievement catalog integrity', () => {
-  it('has unique ids and positive targets', () => {
+  it('has unique ids and positive targets across all 32 achievements', () => {
+    expect(ACHIEVEMENTS).toHaveLength(32)
     const ids = ACHIEVEMENTS.map((a) => a.id)
     expect(new Set(ids).size).toBe(ids.length)
     for (const a of ACHIEVEMENTS) {
@@ -35,15 +43,38 @@ describe('achievement catalog integrity', () => {
     }
   })
 
-  it('references only icons that exist as valid 12x12 pixel grids', () => {
+  it('references only icons that exist in the sprite set', () => {
     for (const a of ACHIEVEMENTS) {
-      const grid = PIXEL_GRIDS[a.icon]
-      expect(grid, `missing grid for icon "${a.icon}"`).toBeDefined()
-      expect(grid).toHaveLength(12)
-      for (const row of grid) {
-        expect(row).toHaveLength(12)
-        expect(row).toMatch(/^[.Xo]{12}$/)
+      expect(PIXEL_GRIDS[a.icon], `missing sprite for icon "${a.icon}"`).toBeDefined()
+    }
+  })
+
+  it('declares 1-3 ramps per sprite, all present in the palette', () => {
+    for (const [name, sprite] of Object.entries(PIXEL_GRIDS)) {
+      expect(sprite.ramps.length, `"${name}" ramp count`).toBeGreaterThanOrEqual(1)
+      expect(sprite.ramps.length, `"${name}" ramp count`).toBeLessThanOrEqual(3)
+      for (const ramp of sprite.ramps) {
+        expect(PIXEL_RAMPS[ramp], `"${name}" uses unknown ramp "${ramp}"`).toBeDefined()
       }
+    }
+  })
+
+  it('draws every sprite as a 16x16 grid of slot chars valid for its ramps', () => {
+    for (const [name, sprite] of Object.entries(PIXEL_GRIDS)) {
+      expect(sprite.grid, `"${name}" row count`).toHaveLength(16)
+      const allowed = new Set([
+        '.',
+        ...sprite.ramps.flatMap((_, i) => RAMP_SLOT_CHARS[i].split(''))
+      ])
+      sprite.grid.forEach((row, y) => {
+        expect(row, `"${name}" row ${y} width`).toHaveLength(16)
+        for (const ch of row) {
+          expect(
+            allowed.has(ch),
+            `"${name}" row ${y}: char "${ch}" needs a ramp the sprite does not declare`
+          ).toBe(true)
+        }
+      })
     }
   })
 
@@ -75,6 +106,77 @@ describe('unlock conditions', () => {
 
   it('unlocks first_sync from a single event', () => {
     expect(isAchievementUnlocked(def('first_sync'), statsWith({ totalEvents: 1 }))).toBe(true)
+  })
+})
+
+describe('burn unlock conditions', () => {
+  it('unlocks token volume milestones at their thresholds', () => {
+    expect(isAchievementUnlocked(def('tokens_1m'), statsWith({ tokenTotal: 999_999 }))).toBe(false)
+    expect(isAchievementUnlocked(def('tokens_1m'), statsWith({ tokenTotal: 1_000_000 }))).toBe(true)
+    expect(isAchievementUnlocked(def('tokens_50m'), statsWith({ tokenTotal: 49_999_999 }))).toBe(false)
+    expect(isAchievementUnlocked(def('tokens_50m'), statsWith({ tokenTotal: 50_000_000 }))).toBe(true)
+  })
+
+  it('unlocks burn_first from the very first token', () => {
+    expect(isAchievementUnlocked(def('burn_first'), statsWith({ tokenTotal: 0 }))).toBe(false)
+    expect(isAchievementUnlocked(def('burn_first'), statsWith({ tokenTotal: 1 }))).toBe(true)
+  })
+
+  it('holds FINANCIAL INCIDENT until the full $500', () => {
+    expect(isAchievementUnlocked(def('burn_500'), statsWith({ tokenBurnUsd: 499.99 }))).toBe(false)
+    expect(isAchievementUnlocked(def('burn_500'), statsWith({ tokenBurnUsd: 500 }))).toBe(true)
+  })
+
+  it('unlocks model_hopper at five distinct models', () => {
+    expect(isAchievementUnlocked(def('model_hopper'), statsWith({ tokenModels: 4 }))).toBe(false)
+    expect(isAchievementUnlocked(def('model_hopper'), statsWith({ tokenModels: 5 }))).toBe(true)
+  })
+
+  it('unlocks output_demon at five million output tokens', () => {
+    expect(isAchievementUnlocked(def('output_demon'), statsWith({ tokenOutput: 4_999_999 }))).toBe(false)
+    expect(isAchievementUnlocked(def('output_demon'), statsWith({ tokenOutput: 5_000_000 }))).toBe(true)
+  })
+
+  it('requires both legs of the cache_goblin composite', () => {
+    expect(
+      isAchievementUnlocked(
+        def('cache_goblin'),
+        statsWith({ tokenCachePercent: 90, tokenTotal: 10_000_000 })
+      )
+    ).toBe(true)
+    expect(
+      isAchievementUnlocked(
+        def('cache_goblin'),
+        statsWith({ tokenCachePercent: 90, tokenTotal: 9_900_000 })
+      )
+    ).toBe(false)
+    expect(
+      isAchievementUnlocked(
+        def('cache_goblin'),
+        statsWith({ tokenCachePercent: 89, tokenTotal: 10_000_000 })
+      )
+    ).toBe(false)
+  })
+
+  it('requires both legs of the raw_dog composite', () => {
+    expect(
+      isAchievementUnlocked(
+        def('raw_dog'),
+        statsWith({ tokenCachePercent: 10, tokenTotal: 10_000_000 })
+      )
+    ).toBe(true)
+    expect(
+      isAchievementUnlocked(
+        def('raw_dog'),
+        statsWith({ tokenCachePercent: 10, tokenTotal: 9_900_000 })
+      )
+    ).toBe(false)
+    expect(
+      isAchievementUnlocked(
+        def('raw_dog'),
+        statsWith({ tokenCachePercent: 11, tokenTotal: 10_000_000 })
+      )
+    ).toBe(false)
   })
 })
 
@@ -185,5 +287,31 @@ describe('computeAchievementStats', () => {
     expect(stats.bestDayScore).toBe(0)
     // but they still count as synced sessions
     expect(stats.totalEvents).toBe(2)
+  })
+
+  it('passes the token pipeline aggregates through the tokens context', () => {
+    const tokens: AchievementTokenStats = {
+      tokenTotal: 12_000_000,
+      tokenOutput: 900_000,
+      tokenBurnUsd: 42.5,
+      tokenCachePercent: 91,
+      tokenModels: 3,
+      tokenAgents: 2,
+      tokenActiveDays: 14,
+      tokenBestDayTokens: 2_500_000
+    }
+    const stats = computeAchievementStats([event({})], {
+      totalScore: 100,
+      rank: 7,
+      tokens
+    })
+    expect(stats).toMatchObject(tokens)
+    expect(stats.totalScore).toBe(100)
+    expect(stats.totalEvents).toBe(1)
+  })
+
+  it('zeroes token stats when the tokens context is omitted', () => {
+    const stats = computeAchievementStats([event({})], { totalScore: 100, rank: 7 })
+    expect(stats).toMatchObject(EMPTY_ACHIEVEMENT_TOKEN_STATS)
   })
 })

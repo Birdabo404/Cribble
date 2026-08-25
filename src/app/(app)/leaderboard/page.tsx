@@ -11,7 +11,9 @@
 // server-persisted rank movement arrows (migration 012), score-gain pops,
 // and chase/defend gap read-outs on the sticky "you" bar.
 
+import { useSearchParams } from 'next/navigation'
 import {
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -87,12 +89,29 @@ const STANDINGS_WINDOWS: { id: StandingsWindow; label: string }[] = [
 const isStandingsView = (v: BoardView): v is StandingsWindow =>
   v === 'season' || v === 'alltime'
 
+/** Deep-link guard for ?view= — anything unrecognized lands on the race. */
+const isBoardView = (v: string | null): v is BoardView =>
+  v === 'season' || v === 'alltime' || v === 'tokens' || v === 'ai' || v === 'teams'
+
 /** One score-gain pop: the points gained between two polls, a per-pop tilt
  *  so repeat pops don't stamp identically, and a stamp that remounts the
  *  span (key change) so the CSS animation restarts on back-to-back gains. */
 type ScoreFlash = { amount: number; tilt: number; stamp: number }
 
-export default function LeaderboardArena() {
+// Thin page shell: useSearchParams in a client page must sit under a
+// Suspense boundary or the build bails the whole route out of static
+// rendering. The arena itself is unchanged one level down.
+export default function LeaderboardPage() {
+  return (
+    <Suspense fallback={null}>
+      <LeaderboardArena />
+    </Suspense>
+  )
+}
+
+function LeaderboardArena() {
+  const searchParams = useSearchParams()
+
   const [rows, setRows] = useState<LeaderRow[]>([])
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
@@ -101,7 +120,12 @@ export default function LeaderboardArena() {
   const [showPodium, setShowPodium] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(null)
-  const [view, setView] = useState<BoardView>('season')
+  // ?view= is read once at mount (deep links like /leaderboard?view=tokens);
+  // tab clicks after that stay client state only.
+  const [view, setView] = useState<BoardView>(() => {
+    const requested = searchParams.get('view')
+    return isBoardView(requested) ? requested : 'season'
+  })
   const [seasonMeta, setSeasonMeta] = useState<SeasonState | null>(null)
 
   // The poll callbacks read the current view through a ref so the
@@ -110,8 +134,11 @@ export default function LeaderboardArena() {
   viewRef.current = view
 
   // Whichever standings window was live last, so the top SEASON tab
-  // returns to it after a detour through TOKENS / AI / TEAMS.
-  const lastStandingsView = useRef<StandingsWindow>('season')
+  // returns to it after a detour through TOKENS / AI / TEAMS. Seeded
+  // from the deep link so ?view=alltime survives that round trip.
+  const lastStandingsView = useRef<StandingsWindow>(
+    isStandingsView(view) ? view : 'season'
+  )
 
   // Pilot chrome (stat bar, podium, standings, refresh) only exists on
   // the standings views — AI and TEAMS hide all of it.

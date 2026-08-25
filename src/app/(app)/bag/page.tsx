@@ -5,7 +5,7 @@
 // live with whichever plate is selected, next to the full 15-plate
 // catalog with ownership overlays, filters and the EQUIP action — a
 // partial PATCH to /api/user/profile, which only touches keys present in
-// the body and validates ownership server-side. BADGES tab: the 24
+// the body and validates ownership server-side. BADGES tab: the 32
 // achievements as a collection, lazily fetched on first open; the deep
 // progress view stays alive at /dashboard/achievements.
 //
@@ -225,13 +225,17 @@ const NEUTRAL_BADGES: AchievementRow[] = ACHIEVEMENTS.map((def) => ({
 function formatProgressValue(unit: AchievementUnit, value: number): string {
   switch (unit) {
     case 'points':
+    case 'tokens':
       return formatCompact(Math.round(value))
     case 'duration':
       return formatDuration(value)
+    case 'usd':
+      return `$${Math.round(value).toLocaleString('en-US')}`
     case 'days':
     case 'tools':
     case 'visits':
     case 'sessions':
+    case 'models':
       return Math.round(value).toLocaleString('en-US')
     case 'none':
       return ''
@@ -697,14 +701,23 @@ function BadgeStage({ row }: { row: AchievementRow }) {
 
   return (
     <div className="lb-panel rounded-2xl p-5">
-      <div
-        className="lb-inset flex items-center justify-center rounded-xl py-10"
-        style={{ color }}
-      >
+      {/* self-colored trophy; a faint rarity wash sits behind it, locked
+          shows the engraved void silhouette */}
+      <div className="lb-inset relative flex items-center justify-center overflow-hidden rounded-xl py-10">
+        {unlocked && (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background: `radial-gradient(circle at 50% 48%, ${rarityColorA(row.rarity, 0.14)}, transparent 70%)`
+            }}
+          />
+        )}
         <PixelIcon
           name={row.icon}
           size={128}
-          className={unlocked ? 'bag-pixel-glow' : 'opacity-55'}
+          locked={!unlocked}
+          className={unlocked ? 'relative bag-pixel-glow' : 'relative'}
         />
       </div>
 
@@ -793,12 +806,12 @@ function BadgeTile({
           ? 'ring-2 ring-accent/70 shadow-[0_0_14px_rgb(var(--accent-rgb)/0.25)]'
           : 'hover:ring-1 hover:ring-zinc-600'
       }`}
-      style={{ color: unlocked ? rarityColor(row.rarity) : 'rgb(var(--z600))' }}
     >
       <PixelIcon
         name={row.icon}
         size={36}
-        className={unlocked ? 'bag-pixel-glow' : 'opacity-55'}
+        locked={!unlocked}
+        className={unlocked ? 'bag-pixel-glow' : ''}
       />
       <span
         className={`text-center text-[8px] leading-relaxed tracking-[0.2em] ${
@@ -1220,9 +1233,13 @@ export default function BagPage() {
           }
         }
 
-        /* unlocked badge bitmaps glow in their rarity hue */
+        /* unlocked trophies get a soft neutral lift — the art is
+           self-colored, rarity stays in rings/chips/washes */
         .bag-pixel-glow {
-          filter: drop-shadow(0 0 5px currentColor);
+          filter: drop-shadow(0 0 4px rgb(255 255 255 / 0.22));
+        }
+        html.light .bag-pixel-glow {
+          filter: drop-shadow(0 0 4px rgb(0 0 0 / 0.16));
         }
 
         @media (prefers-reduced-motion: reduce) {

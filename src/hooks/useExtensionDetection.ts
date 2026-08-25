@@ -23,9 +23,13 @@ export function useExtensionDetection(enabled: boolean): {
 
     let cancelled = false
     let timer: number | undefined
+    let inFlight = false
 
     const poll = async () => {
+      if (inFlight) return
+      inFlight = true
       const identity = await requestExtensionIdentity()
+      inFlight = false
       if (cancelled) return
       setChecked(true)
       if (identity) {
@@ -37,10 +41,27 @@ export function useExtensionDetection(enabled: boolean): {
       }, POLL_GAP_MS)
     }
 
+    // Coming back from the Web Store tab shouldn't wait out the gap:
+    // skip whatever remains of it and attempt right away. The inFlight
+    // guard keeps attempts sequential — a wake during an attempt is
+    // simply absorbed by it.
+    const wake = () => {
+      if (document.visibilityState === 'hidden' || inFlight) return
+      if (timer !== undefined) {
+        window.clearTimeout(timer)
+        timer = undefined
+      }
+      void poll()
+    }
+
+    window.addEventListener('focus', wake)
+    document.addEventListener('visibilitychange', wake)
     void poll()
 
     return () => {
       cancelled = true
+      window.removeEventListener('focus', wake)
+      document.removeEventListener('visibilitychange', wake)
       if (timer !== undefined) window.clearTimeout(timer)
     }
   }, [enabled, detected])

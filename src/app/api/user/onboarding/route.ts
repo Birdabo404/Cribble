@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseCountMode } from '@/lib/countMode'
 import { grantBetaTesterPlate } from '@/lib/entitlementGrant'
 import { isRoleId } from '@/lib/roles'
 import { createServiceClient } from '@/lib/supabaseServer'
@@ -22,9 +23,18 @@ const TOOLS = [
   'chatgpt',
   'claude',
   'gemini',
+  'grok',
   'perplexity',
+  'deepseek',
   'cursor',
+  'claude-code',
+  'codex',
   'copilot',
+  'windsurf',
+  'v0',
+  'lovable',
+  'bolt',
+  'replit',
   'midjourney',
   'other'
 ] as const
@@ -39,6 +49,7 @@ interface OnboardingPayload {
   goal?: Goal | null
   topTools?: string[]
   accountType?: AccountType | null
+  countMode?: string | null
   referralSource?: string | null
   newsletter?: boolean
 }
@@ -113,6 +124,11 @@ export async function POST(req: NextRequest) {
       ? body.accountType
       : 'solo'
 
+  // Unlike the fields above, count_mode is only written when the body
+  // carries a valid value: clients predating the count stage don't send
+  // it, and their saves must not clobber a previously stored choice.
+  const countMode = parseCountMode(body.countMode)
+
   const referralSource = sanitizeString(body.referralSource, 60)
   const newsletter = body.newsletter === true
 
@@ -133,7 +149,8 @@ export async function POST(req: NextRequest) {
     account_type: accountType,
     referral_source: referralSource,
     newsletter,
-    onboarding_version: 2
+    onboarding_version: 2,
+    ...(countMode !== null ? { count_mode: countMode } : {})
   }
 
   const { error: updateError } = await supabase

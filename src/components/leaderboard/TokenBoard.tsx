@@ -1,5 +1,7 @@
 'use client'
 
+import { useGSAP } from '@gsap/react'
+import gsap from 'gsap'
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AnimatedCounter from '@/components/AnimatedCounter'
@@ -19,6 +21,7 @@ import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { fetchMe as requestMe } from '@/lib/client/fetchMe'
 import { isProTier } from '@/lib/entitlements'
+import { prefersReducedMotion } from '@/lib/motion'
 import {
   decimalToApproxNumber,
   exactIntegerToSafeNumber,
@@ -35,6 +38,8 @@ import type {
   TokenBoardWindowId,
   TokenPersonaTone
 } from '@/lib/tokenLeaderboard'
+
+gsap.registerPlugin(useGSAP)
 
 const WINDOWS: { id: TokenBoardWindowId; label: string }[] = [
   { id: 'season', label: 'SEASON' },
@@ -129,6 +134,11 @@ export function TokenBoard() {
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null)
   const fetchSeq = useRef(0)
 
+  // Arrival spotlight (?welcome=1 from onboarding): your row's <li> plus a
+  // latch so the ignition can only ever fire on the first data landing.
+  const myRowRef = useRef<HTMLLIElement | null>(null)
+  const spotlightDone = useRef(false)
+
   const load = useCallback(async (requestedWindow: TokenBoardWindowId = windowId) => {
     const seq = ++fetchSeq.current
     try {
@@ -181,6 +191,51 @@ export function TokenBoard() {
     await Promise.all([load(windowId), new Promise((resolve) => setTimeout(resolve, 500))])
     setRefreshing(false)
   }, [load, windowId])
+
+  // Fresh from onboarding (?welcome=1): the moment the board AND your
+  // identity have both landed, scroll your row center-stage and play a
+  // one-time ignition pulse on it. The latch trips on that first landing
+  // whatever it holds, so refetches and window flips can never re-fire it.
+  // Not opted in / empty board → your row isn't there → nothing happens.
+  useGSAP(
+    () => {
+      if (spotlightDone.current || rows === null || currentUserId === null) return
+      spotlightDone.current = true
+      if (new URLSearchParams(window.location.search).get('welcome') !== '1') return
+      const el = myRowRef.current
+      if (!el) return
+
+      const reduced =
+        prefersReducedMotion() || document.documentElement.dataset.motion === 'reduced'
+      el.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' })
+      if (reduced) return
+
+      // Ignition: flare in the Burn Board orange, then decay. clearProps
+      // hands the row back to its class-based YOU wash at the end.
+      const idle = '0 0 0 0px rgba(251,146,60,0), inset 0 0 0 0px rgba(251,146,60,0)'
+      gsap
+        .timeline({ delay: 0.35 })
+        .fromTo(
+          el,
+          { backgroundColor: 'rgba(251,146,60,0)', boxShadow: idle },
+          {
+            backgroundColor: 'rgba(251,146,60,0.16)',
+            boxShadow:
+              '0 0 36px 2px rgba(251,146,60,0.3), inset 0 0 0 1px rgba(251,146,60,0.65)',
+            duration: 0.35,
+            ease: 'power2.out'
+          }
+        )
+        .to(el, {
+          backgroundColor: 'rgba(251,146,60,0)',
+          boxShadow: idle,
+          duration: 1.25,
+          ease: 'power2.inOut',
+          clearProps: 'backgroundColor,boxShadow'
+        })
+    },
+    { dependencies: [rows, currentUserId] }
+  )
 
   const loading = rows === null && !failed
   const leader = rows?.[0] ?? null
@@ -365,6 +420,7 @@ export function TokenBoard() {
                   row={row}
                   index={index}
                   isMe={row.userId === currentUserId}
+                  rowRef={row.userId === currentUserId ? myRowRef : undefined}
                   onSelect={() => setSelectedUserId(row.userId)}
                 />
               ))}
@@ -414,11 +470,13 @@ function TokenRow({
   row,
   index,
   isMe,
+  rowRef,
   onSelect
 }: {
   row: TokenBoardRow
   index: number
   isMe: boolean
+  rowRef?: React.Ref<HTMLLIElement>
   onSelect: () => void
 }) {
   const medal = medalFor(row.rank)
@@ -432,6 +490,7 @@ function TokenRow({
 
   return (
     <li
+      ref={rowRef}
       className={`lbt-row-in ${ROW_GRID} border-b border-[rgb(var(--lb-panel-edge)/0.05)] py-4 last:border-b-0 ${
         isMe ? 'bg-orange-400/[0.035]' : ''
       }`}
