@@ -75,6 +75,19 @@ interface UserRow {
   user_devices: { is_active: boolean; last_sync_at: string | null }[] | null
 }
 
+/** Live boards select from user_scores so score ordering and LIMIT apply to
+ *  players, not to an embedded relation on an otherwise unordered user set. */
+interface ScoreBackedUserRow {
+  user_id: number
+  total_score: number | null
+  today_score: number | null
+  week_score: number | null
+  season_score?: number | null
+  last_calculated_at: string | null
+  top_tools?: unknown
+  users: Omit<UserRow, 'user_scores'> | null
+}
+
 /** Final standing archived by season_tick() at close. */
 interface FrozenStanding {
   rank: number
@@ -173,7 +186,7 @@ async function assembleBoard(
   const scoresSelect = seasonReady
     ? 'total_score, today_score, week_score, season_score, last_calculated_at, top_tools'
     : 'total_score, today_score, week_score, last_calculated_at, top_tools'
-  const usersSelect = `
+  const userProfileSelect = `
       id,
       twitter_username,
       twitter_name,
@@ -183,7 +196,6 @@ async function assembleBoard(
       subscription_tier,
       user_type,
       metadata,
-      user_scores(${scoresSelect}),
       user_devices(is_active, last_sync_at)
     `
 
@@ -214,39 +226,66 @@ async function assembleBoard(
     if (frozenByUser.size === 0) return []
   }
 
-  // Batch query: all users with scores and devices in one query.
-  // Banned and suspended accounts are filtered in the query itself so
-  // they never occupy one of the 100 board slots (status is NULL on
-  // rows that predate migration 003 — treated as active). The filter
-  // happens before the sort/limit, so ranks are assigned over
-  // eligible players only. The frozen board instead loads exactly the
-  // archived users — the archive is history and keeps rendering
-  // whoever earned a place on it.
-  let usersQuery = supabase.from('users').select(usersSelect)
+  // Live boards MUST query user_scores as the top-level resource. Ordering an
+  // embedded user_scores relation on a users query only orders that embedded
+  // object; the parent LIMIT would select 100 arbitrary accounts first. That
+  // started dropping real leaders as soon as open signup took us past 100
+  // active accounts. Frozen boards still load the exact archived user ids.
+  let userRows: UserRow[]
   if (frozenByUser) {
-    usersQuery = usersQuery.in('id', [...frozenByUser.keys()])
+    const { data: users, error: usersError } = await supabase
+      .from('users')
+      .select(userProfileSelect)
+      .in('id', [...frozenByUser.keys()])
+
+    if (usersError) {
+      console.error('[Leaderboard] Users query error:', usersError)
+      throw new Error(BOARD_LOAD_FAILED)
+    }
+    userRows = (users || []).map((user) => ({
+      ...(user as unknown as Omit<UserRow, 'user_scores'>),
+      user_scores: null
+    }))
   } else {
-    usersQuery = usersQuery
-      .or('status.is.null,status.eq.active')
+    let scoresQuery = supabase
+      .from('user_scores')
+      .select(`
+        user_id,
+        ${scoresSelect},
+        users!inner(${userProfileSelect})
+      `)
+      .or('status.is.null,status.eq.active', { referencedTable: 'users' })
       .order(liveSeasonBoard ? 'season_score' : 'total_score', {
         ascending: false,
-        referencedTable: 'user_scores',
         nullsFirst: false
       })
+      .order('user_id', { ascending: true })
       .limit(100)
+
+    if (liveSeasonBoard) {
+      scoresQuery = scoresQuery.gte(
+        'last_calculated_at',
+        seasonState.current!.startsAt
+      )
+    }
+
+    const { data: scoreRows, error: scoresError } = await scoresQuery
+    if (scoresError) {
+      console.error('[Leaderboard] Scores query error:', scoresError)
+      throw new Error(BOARD_LOAD_FAILED)
+    }
+    userRows = ((scoreRows || []) as unknown as ScoreBackedUserRow[])
+      .filter(
+        (row): row is ScoreBackedUserRow & { users: Omit<UserRow, 'user_scores'> } =>
+          row.users !== null
+      )
+      .map(({ users: user, user_id: _userId, ...scores }) => ({
+        ...user,
+        user_scores: scores
+      }))
   }
-  const { data: users, error: usersError } = await usersQuery
 
-  if (usersError) {
-    console.error('[Leaderboard] Users query error:', usersError)
-    throw new Error(BOARD_LOAD_FAILED)
-  }
-
-  if (!users || users.length === 0) return []
-
-  // The select string is composed at runtime, so the client can't infer
-  // a row type — same unknown hop the rest of the codebase uses.
-  const userRows = users as unknown as UserRow[]
+  if (userRows.length === 0) return []
   const userIds = userRows.map((u) => u.id)
 
   // Owned plates and team affiliations for the whole board — one

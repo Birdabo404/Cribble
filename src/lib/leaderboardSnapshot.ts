@@ -25,13 +25,12 @@ import {
 } from './notifications'
 import { fetchSeasonState } from './seasonServer'
 
-interface SnapshotUserRow {
-  id: number
-  user_scores: {
-    total_score: number | null
-    season_score?: number | null
-    last_calculated_at: string | null
-  } | null
+interface SnapshotScoreRow {
+  user_id: number
+  total_score: number | null
+  season_score?: number | null
+  last_calculated_at: string | null
+  users: { id: number } | null
 }
 
 /**
@@ -58,25 +57,38 @@ export async function refreshLeaderboardSnapshot(
     // Same eligibility + ordering as the board's users query: banned /
     // suspended accounts never hold a slot.
     const scoresSelect = seasonReady
-      ? 'total_score, season_score, last_calculated_at'
-      : 'total_score, last_calculated_at'
-    const { data: users, error: usersError } = await supabase
-      .from('users')
-      .select(`id, user_scores(${scoresSelect})`)
-      .or('status.is.null,status.eq.active')
+      ? 'user_id, total_score, season_score, last_calculated_at'
+      : 'user_id, total_score, last_calculated_at'
+    // user_scores is the top-level resource so ORDER/LIMIT rank score rows.
+    // Applying referencedTable ordering to an embedded relation would limit
+    // an arbitrary set of users before ranking once the account count > 100.
+    let scoresQuery = supabase
+      .from('user_scores')
+      .select(`${scoresSelect}, users!inner(id)`)
+      .or('status.is.null,status.eq.active', { referencedTable: 'users' })
       .order(liveSeasonBoard ? 'season_score' : 'total_score', {
         ascending: false,
-        referencedTable: 'user_scores',
         nullsFirst: false
       })
+      .order('user_id', { ascending: true })
       .limit(100)
 
-    if (usersError) {
-      console.warn('[Leaderboard] Snapshot standings read failed:', usersError.message)
+    if (liveSeasonBoard) {
+      scoresQuery = scoresQuery.gte(
+        'last_calculated_at',
+        seasonState.current!.startsAt
+      )
+    }
+
+    const { data: scoreRows, error: scoresError } = await scoresQuery
+    if (scoresError) {
+      console.warn('[Leaderboard] Snapshot standings read failed:', scoresError.message)
       return
     }
 
-    const rows = (users || []) as unknown as SnapshotUserRow[]
+    const rows = ((scoreRows || []) as unknown as SnapshotScoreRow[]).filter(
+      (row) => row.users !== null
+    )
     if (rows.length === 0) return
 
     // A score row last recalculated before the season started can only
@@ -86,19 +98,19 @@ export async function refreshLeaderboardSnapshot(
       : 0
 
     const standings = rows
-      .map((user) => {
+      .map((row) => {
         let score: number
         if (liveSeasonBoard) {
-          const lastCalc = user.user_scores?.last_calculated_at || null
+          const lastCalc = row.last_calculated_at || null
           const lastCalcMs = lastCalc ? new Date(lastCalc).getTime() : 0
           score =
             lastCalcMs >= seasonStartMs
-              ? Math.round(user.user_scores?.season_score || 0)
+              ? Math.round(row.season_score || 0)
               : 0
         } else {
-          score = Math.round(user.user_scores?.total_score || 0)
+          score = Math.round(row.total_score || 0)
         }
-        return { userId: Number(user.id), score }
+        return { userId: Number(row.user_id), score }
       })
       // userId tiebreak keeps equal scores in a stable order, exactly
       // like the board render — otherwise tied players would flip-flop
