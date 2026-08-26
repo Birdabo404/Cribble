@@ -24,7 +24,7 @@ export async function GET(
     const supabase = createServiceClient()
     const { data: ad, error } = await supabase
       .from('billboard_ads')
-      .select('id, link_url, status, paid_at, clicks')
+      .select('id, link_url, placement, status, paid_at, clicks')
       .eq('id', adId)
       .maybeSingle()
 
@@ -32,10 +32,36 @@ export async function GET(
       console.error('[Billboard] Click lookup failed:', error)
       return NextResponse.json({ error: 'Failed to resolve ad' }, { status: 500 })
     }
-    // Clicks only count for ads that were approved and paid. The live
-    // window deliberately isn't checked: a shared or bookmarked ad link
-    // keeps resolving after the 7 days end.
-    if (!ad || ad.status !== 'APPROVED' || !ad.paid_at) {
+    if (!ad || ad.status !== 'APPROVED') {
+      return NextResponse.json({ error: 'Ad not found' }, { status: 404 })
+    }
+
+    // Flipper/rail payment lives on billboard_ads.paid_at. Leaderboard
+    // creatives deliberately leave that field NULL: each Polar payment
+    // is a PAID contribution in leaderboard_sponsor_bids instead. Accept
+    // either product's verified money trail so the shared click URL works
+    // for all three placements. Merely APPROVED leaderboard creative is
+    // not enough — it must have a non-refunded payment behind it.
+    let hasVerifiedPayment = Boolean(ad.paid_at)
+    if (!hasVerifiedPayment && ad.placement === 'leaderboard') {
+      const { data: paidBid, error: paidBidError } = await supabase
+        .from('leaderboard_sponsor_bids')
+        .select('id')
+        .eq('ad_id', adId)
+        .eq('status', 'PAID')
+        .not('paid_at', 'is', null)
+        .limit(1)
+        .maybeSingle()
+
+      if (paidBidError) {
+        console.error('[Billboard] Leaderboard click payment lookup failed:', paidBidError)
+        return NextResponse.json({ error: 'Failed to resolve ad' }, { status: 500 })
+      }
+      hasVerifiedPayment = Boolean(paidBid)
+    }
+    // The live window deliberately isn't checked: a shared or bookmarked
+    // ad link keeps resolving after its 7-day or 24-hour exposure ends.
+    if (!hasVerifiedPayment) {
       return NextResponse.json({ error: 'Ad not found' }, { status: 404 })
     }
 
