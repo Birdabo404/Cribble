@@ -5,8 +5,8 @@
 // treatment, TeamBadge, TeamMiniLogo, VerifiedBadge). No screenshots, no
 // mock art: if the real components change, this page changes with them.
 //
-// The specimens are display-only. Team/pilot names are fictional and the
-// faces come from local /avatars assets — never external URLs.
+// The specimens are display-only. Faces are local /avatars mirrors of the
+// real X profiles — never hotlinked.
 
 import { Avatar } from '@/components/leaderboard/Avatar'
 import { TeamBadge } from '@/components/premium/TeamBadge'
@@ -20,12 +20,11 @@ import { GoldPanel, SectionHead } from './chrome'
 // React 19. Keeps TeamMiniLogo's real <a> from tabbing anywhere.
 const INERT = { inert: '' } as unknown as React.HTMLAttributes<HTMLDivElement>
 
-/** Fictional company. logo:null exercises the production monogram-tile
- *  fallback — exactly what a fresh team looks like before branding. */
+/** House team — @cribble_ai, the account that actually flies colors. */
 const DEMO_TEAM: TeamRef = {
-  username: 'vectornorth',
-  name: 'Vector North',
-  logo: null
+  username: 'cribble_ai',
+  name: 'CRIBBLE 🫆',
+  logo: '/avatars/cribble_ai.jpg'
 }
 
 interface DemoPilot {
@@ -40,19 +39,19 @@ interface DemoPilot {
 const DEMO_PILOTS: DemoPilot[] = [
   {
     rank: 12,
-    name: 'Rin Osaka',
-    handle: 'rinosaka',
-    avatar: '/avatars/robj3d3.jpg',
+    name: 'emma ☆',
+    handle: 'emzerielo',
+    avatar: '/avatars/emzerielo.jpg',
     score: '48,102',
     affiliate: true
   },
   {
     rank: 13,
-    name: 'Dax Meridian',
-    handle: 'daxmeridian',
-    avatar: '/avatars/marc_louvion.jpg',
+    name: 'ius',
+    handle: 'rice4o4',
+    avatar: '/avatars/rice4o4.jpg',
     score: '46,377',
-    affiliate: false
+    affiliate: true
   }
 ]
 
@@ -110,7 +109,7 @@ export function TeamsProofStrip() {
             </span>
             <div aria-hidden {...INERT} className="mt-4 flex items-center gap-3.5">
               <Avatar
-                src={null}
+                src={DEMO_TEAM.logo}
                 char={DEMO_TEAM.name[0] ?? '?'}
                 imgClassName="h-12 w-12 shrink-0 rounded-md border border-[rgb(var(--lb-gold)/0.45)] object-cover"
                 fallbackClassName="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-[rgb(var(--lb-gold)/0.45)] bg-zinc-900 font-display text-[17px] font-semibold text-zinc-100"
