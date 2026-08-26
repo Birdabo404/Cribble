@@ -189,7 +189,7 @@ const loadTeamBoard = unstable_cache(
       generatedAt: new Date().toISOString()
     }
   },
-  ['team-leaderboard-v2'],
+  ['team-leaderboard-v3'],
   { revalidate: REVALIDATE_SECONDS }
 )
 

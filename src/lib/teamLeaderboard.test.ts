@@ -180,14 +180,26 @@ describe('buildTeamBoard', () => {
       noCalendar
     )
 
-    expect(totals).toEqual({ teams: 2, members: 3, topScore: 200 })
+    expect(totals).toEqual({
+      teams: 2,
+      members: 3,
+      topScore: 200,
+      burnUsd: '0',
+      burnPilots: 0
+    })
   })
 
   it('returns an empty board when no teams qualify', () => {
     const board = buildTeamBoard([], [], noCalendar)
 
     expect(board.rows).toEqual([])
-    expect(board.totals).toEqual({ teams: 0, members: 0, topScore: 0 })
+    expect(board.totals).toEqual({
+      teams: 0,
+      members: 0,
+      topScore: 0,
+      burnUsd: '0',
+      burnPilots: 0
+    })
   })
 })
 
@@ -248,8 +260,51 @@ describe('buildTeamBoard burn column', () => {
       new Map()
     )
     expect(withEmptyMap.rows[0]).toMatchObject({ burnUsd: '0', burnPilots: 0 })
+    expect(withEmptyMap.rows[0].members[0].burnUsd).toBeNull()
 
     const withoutMap = buildTeamBoard([team(1)], [member(1, 11, 100)], noCalendar)
     expect(withoutMap.rows[0]).toMatchObject({ burnUsd: '0', burnPilots: 0 })
+    expect(withoutMap.rows[0].members[0].burnUsd).toBeNull()
+  })
+
+  it('exposes per-member burn — mapped members carry exact values, unmapped read null', () => {
+    const { rows } = buildTeamBoard(
+      [team(1)],
+      [member(1, 11, 200), member(1, 12, 100)],
+      noCalendar,
+      // Trailing zeros normalize away: '3.50' is stored as '3.5'.
+      new Map([[11, '3.50']])
+    )
+
+    expect(rows[0].members.map((m) => m.burnUsd)).toEqual(['3.5', null])
+    expect(rows[0]).toMatchObject({ burnUsd: '3.5', burnPilots: 1 })
+  })
+
+  it('keeps an opted-in zero burner visible — a mapped $0 is not the same as unmapped', () => {
+    const { rows } = buildTeamBoard(
+      [team(1)],
+      [member(1, 11, 100)],
+      noCalendar,
+      new Map([[11, '0']])
+    )
+
+    expect(rows[0].members[0].burnUsd).toBe('0')
+    expect(rows[0].burnPilots).toBe(1)
+  })
+
+  it('totals burn across the whole board — exact sums and pilot counts', () => {
+    const { totals } = buildTeamBoard(
+      [team(1), team(2)],
+      [member(1, 11, 100), member(1, 12, 100), member(2, 21, 50)],
+      noCalendar,
+      new Map([
+        [11, '0.1'],
+        [12, '0.2'],
+        [21, '5']
+      ])
+    )
+
+    expect(totals.burnUsd).toBe('5.3')
+    expect(totals.burnPilots).toBe(3)
   })
 })

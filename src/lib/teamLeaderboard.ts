@@ -21,6 +21,10 @@ export interface TeamBoardMember {
    *  so a team's shares sum to exactly 100; all 0 when the team total
    *  is 0. */
   share: number
+  /** Display-only exact-decimal USD burn for this member, or null when
+   *  they never opted into token sharing (absent from the burn map).
+   *  A mapped '0' is a real opted-in zero, not a null. */
+  burnUsd: string | null
 }
 
 /** One ranked team on the TEAMS board. */
@@ -50,6 +54,11 @@ export interface TeamBoardTotals {
   teams: number
   members: number
   topScore: number
+  /** Combined exact-decimal USD burn across every team ('0' when no
+   *  member anywhere opted in). Display-only, same rule as the rows. */
+  burnUsd: string
+  /** Total opted-in members contributing to burnUsd across the board. */
+  burnPilots: number
 }
 
 /** An approved team account, as selected by the route (identity only —
@@ -126,8 +135,9 @@ export function largestRemainderShares(scores: number[]): number[] {
  * flip-flop between reads. Members sort score desc inside their team.
  *
  * burnByUser (userId -> exact-decimal USD from the consent-gated token
- * RPC) only decorates: each team's burnUsd sums the ACTIVE members
- * present in the map with addExactDecimals. It never touches the sort.
+ * RPC) only decorates: each mapped ACTIVE member carries their own
+ * burnUsd, each team sums those with addExactDecimals, and the totals
+ * fold the teams. It never touches the sort.
  */
 export function buildTeamBoard(
   teams: TeamBoardTeamInput[],
@@ -146,6 +156,7 @@ export function buildTeamBoard(
     const roster = (membersByTeam.get(team.id) ?? [])
       .map((member) => {
         const username = member.twitter_username || `User${member.userId}`
+        const memberBurn = burnByUser.get(member.userId)
         return {
           userId: member.userId,
           username,
@@ -156,7 +167,8 @@ export function buildTeamBoard(
             member.season_score,
             member.last_calculated_at,
             seasonState
-          )
+          ),
+          burnUsd: memberBurn === undefined ? null : exactDecimal(memberBurn)
         }
       })
       .sort((a, b) => b.score - a.score || a.userId - b.userId)
@@ -167,9 +179,8 @@ export function buildTeamBoard(
     let burnUsd = '0'
     let burnPilots = 0
     for (const member of roster) {
-      const memberBurn = burnByUser.get(member.userId)
-      if (memberBurn === undefined) continue
-      burnUsd = addExactDecimals(burnUsd, exactDecimal(memberBurn))
+      if (member.burnUsd === null) continue
+      burnUsd = addExactDecimals(burnUsd, member.burnUsd)
       burnPilots += 1
     }
 
@@ -203,7 +214,9 @@ export function buildTeamBoard(
     totals: {
       teams: rows.length,
       members: rows.reduce((sum, row) => sum + row.memberCount, 0),
-      topScore: rows[0]?.score ?? 0
+      topScore: rows[0]?.score ?? 0,
+      burnUsd: rows.reduce((sum, row) => addExactDecimals(sum, row.burnUsd), '0'),
+      burnPilots: rows.reduce((sum, row) => sum + row.burnPilots, 0)
     }
   }
 }
