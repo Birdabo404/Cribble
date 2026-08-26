@@ -33,7 +33,8 @@ import {
 } from '@/lib/billboard'
 import {
   LEADERBOARD_SPONSOR_OPENING_CENTS,
-  formatSponsorUsd
+  formatSponsorUsd,
+  leaderboardMinTargetCents
 } from '@/lib/leaderboardSponsor'
 
 // Billboard queue: review paid ad submissions with an exact-render
@@ -120,6 +121,8 @@ interface BillboardData {
   awaiting: AdRow[]
   live: AdRow[]
   recent: AdRow[]
+  /** Current total a challenger must reach to take #1. */
+  leaderboardMinTargetCents: number
   liveCount: number
   maxLive: number
 }
@@ -267,7 +270,34 @@ function OwnerLine({ ad }: { ad: AdRow }) {
  *  same BillboardCard the public surfaces ship; leaderboard creatives
  *  have no card size, so they stage the sponsor face through the
  *  buyer page's compact preview stage instead. */
-function AdPreview({ ad }: { ad: AdRow }) {
+function AdPreview({
+  ad,
+  liveMinTargetCents
+}: {
+  ad: AdRow
+  liveMinTargetCents: number
+}) {
+  // A live creative renders its actual rank and total. An approved
+  // challenger with no contribution yet renders the state its minimum
+  // payment would buy: current minimum active at #1, followed by the
+  // next correctly incremented OUTBID target.
+  const leaderboardPreview =
+    ad.placement !== 'leaderboard'
+      ? undefined
+      : ad.leaderboard
+        ? {
+            rank: ad.leaderboard.rank,
+            clicks: ad.clicks,
+            activeCents: ad.leaderboard.activeCents,
+            minTargetCents: liveMinTargetCents
+          }
+        : {
+            rank: 1,
+            clicks: ad.clicks,
+            activeCents: liveMinTargetCents,
+            minTargetCents: leaderboardMinTargetCents(liveMinTargetCents)
+          }
+
   return (
     <div className="space-y-2">
       {ad.placement === 'leaderboard' ? (
@@ -279,6 +309,7 @@ function AdPreview({ ad }: { ad: AdRow }) {
           accentColor={ad.accent_color ?? null}
           placement="leaderboard"
           slot={null}
+          leaderboardPreview={leaderboardPreview}
         />
       ) : (
         <BillboardCard
@@ -656,7 +687,10 @@ export default function AdminBillboardPage() {
                         <BillingEmailLine ad={ad} />
                         <MetaDate label="submitted" value={ad.created_at} />
                       </div>
-                      <AdPreview ad={ad} />
+                      <AdPreview
+                        ad={ad}
+                        liveMinTargetCents={data.leaderboardMinTargetCents}
+                      />
                       {ad.status === 'CHANGES_REQUESTED' && ad.review_note && (
                         <p className="text-[12.5px] leading-5 text-sky-600">
                           <span className="mr-1.5 font-data text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--st-text-faint)]">
@@ -731,7 +765,10 @@ export default function AdminBillboardPage() {
                         <BillingEmailLine ad={ad} />
                         <MetaDate label="approved" value={ad.reviewed_at} />
                       </div>
-                      <AdPreview ad={ad} />
+                      <AdPreview
+                        ad={ad}
+                        liveMinTargetCents={data.leaderboardMinTargetCents}
+                      />
                       {isOwner && (
                         <div className="flex flex-wrap items-center gap-2">
                           {ad.placement === 'leaderboard' ? (
@@ -825,7 +862,10 @@ export default function AdminBillboardPage() {
                           {ad.clicks.toLocaleString('en-US')} click{ad.clicks === 1 ? '' : 's'}
                         </span>
                       </div>
-                      <AdPreview ad={ad} />
+                      <AdPreview
+                        ad={ad}
+                        liveMinTargetCents={data.leaderboardMinTargetCents}
+                      />
                       {isOwner && (
                         <div className="flex flex-wrap items-center gap-2">
                           <AdminButton

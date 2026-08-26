@@ -49,6 +49,15 @@ export interface BillboardPreviewStageProps {
   density?: 'full' | 'compact'
   /** Optional note under the caption, e.g. 'Previewing with your avatar'. */
   note?: string | null
+  /** Live or prospective leaderboard money shown inside the sponsor
+   *  face. Omit outside live-board-aware surfaces to keep the opening
+   *  $6.66 example used by the submission composer. */
+  leaderboardPreview?: {
+    rank: number
+    clicks: number
+    activeCents: number
+    minTargetCents: number
+  }
   className?: string
 }
 
@@ -89,6 +98,7 @@ export function BillboardPreviewStage({
   slot,
   density = 'full',
   note = null,
+  leaderboardPreview,
   className = ''
 }: BillboardPreviewStageProps): JSX.Element {
   const card: StageCard = { title, text, logoUrl, accentColor }
@@ -99,7 +109,7 @@ export function BillboardPreviewStage({
         <div className={WELL}>
           <div className="flex min-h-[240px] items-center justify-center">
             {placement === 'leaderboard' ? (
-              <LeaderboardSponsorFace card={card} />
+              <LeaderboardSponsorFace card={card} preview={leaderboardPreview} />
             ) : (
               <BillboardCard {...card} size={cardSizeFor(placement)} className="max-w-full" />
             )}
@@ -122,7 +132,12 @@ export function BillboardPreviewStage({
         </span>
       </div>
       <div className={`mt-1.5 ${WELL}`}>
-        <StageViewport placement={placement} slot={slot} card={card} />
+        <StageViewport
+          placement={placement}
+          slot={slot}
+          card={card}
+          leaderboardPreview={leaderboardPreview}
+        />
       </div>
       <Caption placement={placement} slot={slot} />
       <p className={FINE_PRINT}>
@@ -159,11 +174,13 @@ function cardSizeFor(placement: Exclude<BillboardPlacement, 'leaderboard'>): 'lg
 function StageViewport({
   placement,
   slot,
-  card
+  card,
+  leaderboardPreview
 }: {
   placement: BillboardPlacement
   slot: RailSlot | null
   card: StageCard
+  leaderboardPreview?: BillboardPreviewStageProps['leaderboardPreview']
 }) {
   switch (placement) {
     case 'flipper':
@@ -171,7 +188,7 @@ function StageViewport({
     case 'rail':
       return <RailViewport card={card} slot={slot} />
     case 'leaderboard':
-      return <LeaderboardViewport card={card} />
+      return <LeaderboardViewport card={card} preview={leaderboardPreview} />
     default: {
       const exhaustive: never = placement
       throw new Error(`Unhandled placement: ${String(exhaustive)}`)
@@ -292,7 +309,13 @@ function GhostPlate() {
  *  the sponsor face exactly where the stat panel sits (the flip mounts
  *  around StatBar — stats and the #1 sponsor alternate on one
  *  footprint), and ghost board rows below for context and scale. */
-function LeaderboardViewport({ card }: { card: StageCard }) {
+function LeaderboardViewport({
+  card,
+  preview
+}: {
+  card: StageCard
+  preview?: BillboardPreviewStageProps['leaderboardPreview']
+}) {
   return (
     <div className="flex min-h-[240px] flex-col sm:min-h-[280px]">
       {/* Title lockup stub — enough of the arena chrome (gold season
@@ -316,7 +339,7 @@ function LeaderboardViewport({ card }: { card: StageCard }) {
 
       {/* The sponsor face on the stat panel's footprint. */}
       <div className="mt-3">
-        <LeaderboardSponsorFace card={card} />
+        <LeaderboardSponsorFace card={card} preview={preview} />
       </div>
 
       {/* Ghost board rows — unmistakably stubs, filling the viewport so
@@ -330,18 +353,27 @@ function LeaderboardViewport({ card }: { card: StageCard }) {
   )
 }
 
-/** The leaderboard sponsor face, staged at its opening state: the
- *  buyer's creative wearing #1 with the $6.66 opening total and the
- *  OUTBID CTA priced by the real increment helper — the same hierarchy
- *  the flip panel airs (rank, logo, identity lines, clicks, active
- *  total, CTA). The numbers are illustrative: the stage has no live
- *  board, so it shows the face a first bid buys. Inert by design —
- *  nothing here navigates. Same dead-logo stance as BillboardCard: a
- *  failed load drops the <img> instead of painting the broken glyph. */
-function LeaderboardSponsorFace({ card }: { card: StageCard }) {
+/** The leaderboard sponsor face. Live-board-aware parents pass the
+ *  actual standing or the prospective standing a fresh minimum bid
+ *  would buy; other preview surfaces fall back to the opening example.
+ *  Inert by design — nothing here navigates. Same dead-logo stance as
+ *  BillboardCard: a failed load drops the <img> instead of painting
+ *  the broken glyph. */
+function LeaderboardSponsorFace({
+  card,
+  preview
+}: {
+  card: StageCard
+  preview?: BillboardPreviewStageProps['leaderboardPreview']
+}) {
   const { title, text, logoUrl, accentColor } = card
   const [logoDead, setLogoDead] = useState(false)
   useEffect(() => setLogoDead(false), [logoUrl])
+  const rank = preview?.rank ?? 1
+  const clicks = preview?.clicks ?? 0
+  const activeCents = preview?.activeCents ?? LEADERBOARD_SPONSOR_OPENING_CENTS
+  const minTargetCents =
+    preview?.minTargetCents ?? leaderboardMinTargetCents(LEADERBOARD_SPONSOR_OPENING_CENTS)
 
   return (
     <div className="relative w-full overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/80 px-3 py-2.5 sm:px-4 sm:py-3">
@@ -364,7 +396,7 @@ function LeaderboardSponsorFace({ card }: { card: StageCard }) {
           className="shrink-0 text-[14px] leading-none [font-family:var(--font-pixel)]"
           style={{ color: WELL_GOLD }}
         >
-          #1
+          #{rank}
         </span>
         {logoUrl && !logoDead && (
           // eslint-disable-next-line @next/next/no-img-element
@@ -391,16 +423,17 @@ function LeaderboardSponsorFace({ card }: { card: StageCard }) {
         </span>
       </div>
 
-      {/* The money row: clicks, the active total, and the challenge CTA
-          at the fresh minimum — leaderboardMinTargetCents against the
-          opening, never math re-derived here. */}
+      {/* The money row: clicks, active total, and the board's fresh
+          challenge target. */}
       <div className="relative mt-2.5 flex min-w-0 items-center gap-2 border-t border-white/[0.06] pt-2 text-[11px] leading-4">
-        <span className="tabular-nums text-zinc-500">0 clicks</span>
+        <span className="tabular-nums text-zinc-500">
+          {clicks.toLocaleString('en-US')} click{clicks === 1 ? '' : 's'}
+        </span>
         <span aria-hidden className="text-zinc-700">
           ·
         </span>
         <span className="font-data tabular-nums" style={{ color: WELL_GOLD }}>
-          {formatSponsorUsd(LEADERBOARD_SPONSOR_OPENING_CENTS)}
+          {formatSponsorUsd(activeCents)}
         </span>
         <span className="text-zinc-500">active</span>
         {/* The real face's CTA chrome (gold-bordered, gold ink) — one
@@ -417,7 +450,7 @@ function LeaderboardSponsorFace({ card }: { card: StageCard }) {
         >
           OUTBID ·{' '}
           <span className="font-data tabular-nums">
-            {formatSponsorUsd(leaderboardMinTargetCents(LEADERBOARD_SPONSOR_OPENING_CENTS))}
+            {formatSponsorUsd(minTargetCents)}
           </span>
         </span>
       </div>

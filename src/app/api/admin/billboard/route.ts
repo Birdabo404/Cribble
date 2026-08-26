@@ -6,7 +6,10 @@ import {
   type BillboardStatus,
   type RailSlot
 } from '@/lib/billboard'
-import type { LeaderboardSponsorEntry } from '@/lib/leaderboardSponsor'
+import {
+  leaderboardMinTargetCents,
+  type LeaderboardSponsorEntry
+} from '@/lib/leaderboardSponsor'
 import { loadSponsorBoard } from '@/lib/leaderboardSponsorServer'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
 import { getStaffUser } from '@/lib/staffAuth'
@@ -257,6 +260,12 @@ export async function GET(request: NextRequest) {
       awaiting,
       live,
       recent,
+      // One live pricing value for every admin preview. Awaiting
+      // leaderboard creatives use it as the total their first payment
+      // must reach; live creatives use it as the board-wide OUTBID CTA.
+      leaderboardMinTargetCents: leaderboardMinTargetCents(
+        sponsorBoard[0]?.activeCents ?? 0
+      ),
       // The dashboard's occupancy KPI reads this against maxLive (the
       // flipper cap) — leaderboard creatives have no cap and are
       // excluded from the count; the live ARRAY above still carries
