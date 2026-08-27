@@ -366,6 +366,9 @@ const TOKEN_AGENT_LABELS: Record<string, string> = {
   'github-copilot': 'GitHub Copilot',
   hermes: 'Hermes',
   'hermes-agent': 'Hermes',
+  pi: 'Pi',
+  'pi-agent': 'Pi',
+  'pi-coding-agent': 'Pi',
   opencode: 'OpenCode',
   'open-code': 'OpenCode'
 }

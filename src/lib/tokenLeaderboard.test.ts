@@ -236,6 +236,9 @@ describe('token agent labels', () => {
     // Must collapse to 'Hermes' (not the title-cased 'Hermes Agent') so it
     // hits the brand mark + accent keyed by that label in TokenAgentIcon.
     expect(tokenAgentLabel('hermes-agent')).toBe('Hermes')
+    expect(tokenAgentLabel('pi')).toBe('Pi')
+    expect(tokenAgentLabel('pi-agent')).toBe('Pi')
+    expect(tokenAgentLabel('pi-coding-agent')).toBe('Pi')
     expect(tokenAgentLabel('my-new-agent')).toBe('My New Agent')
     expect(tokenAgentLabel(null)).toBeNull()
   })
