@@ -28,7 +28,12 @@ These files are copied into `public/agents`; the application never hotlinks bran
 ```sh
 file public/agents/pi.svg public/agents/opencode.svg
 sha256sum public/agents/pi.svg public/agents/opencode.svg
-grep -E '<script|href=|url\(' public/agents/pi.svg public/agents/opencode.svg
+npm run validate:agent-svgs
+npm test -- --run scripts/validate-agent-svgs.test.ts
 ```
 
-The final command must produce no matches; neither SVG contains scripts or external references.
+The validator permits only same-document fragment references such as `url(#clip-id)` and
+`href="#symbol-id"`. It rejects scripts, `foreignObject`, event-handler attributes, external
+`href`/`src` values, and every non-fragment `url(...)` value (including HTTP(S),
+protocol-relative, `data:`, and `javascript:` references). The test command verifies both
+shipped official assets plus adversarial unsafe fixtures.
