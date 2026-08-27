@@ -232,6 +232,10 @@ describe('token agent labels', () => {
     expect(tokenAgentLabel('claude-code')).toBe('Claude Code')
     expect(tokenAgentLabel('openai_codex')).toBe('Codex')
     expect(tokenAgentLabel('gemini-cli')).toBe('Gemini CLI')
+    expect(tokenAgentLabel('hermes')).toBe('Hermes')
+    // Must collapse to 'Hermes' (not the title-cased 'Hermes Agent') so it
+    // hits the brand mark + accent keyed by that label in TokenAgentIcon.
+    expect(tokenAgentLabel('hermes-agent')).toBe('Hermes')
     expect(tokenAgentLabel('my-new-agent')).toBe('My New Agent')
     expect(tokenAgentLabel(null)).toBeNull()
   })

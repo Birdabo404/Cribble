@@ -16,7 +16,12 @@ import {
   IconTrophy,
   IconUsers
 } from '@/components/leaderboard/icons'
-import { medalA, medalFor, medalGlow } from '@/components/leaderboard/types'
+import {
+  personaChipStyle,
+  personaDotStyle,
+  tokenPersonaVisual
+} from '@/components/leaderboard/tokenPersonaVisual'
+import { medalA, medalFor, medalGlow, type Medal } from '@/components/leaderboard/types'
 import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { useSettingsModal } from '@/components/settings/SettingsModalContext'
@@ -36,8 +41,7 @@ import type {
   TokenBoardRow,
   TokenBoardTotals,
   TokenBoardWindow,
-  TokenBoardWindowId,
-  TokenPersonaTone
+  TokenBoardWindowId
 } from '@/lib/tokenLeaderboard'
 
 gsap.registerPlugin(useGSAP)
@@ -84,7 +88,7 @@ function UsdValue({ value, animated = false }: { value: string; animated?: boole
   return (
     <>
       {display.tiny ? '<' : null}
-      <span className="text-[#39ff88]">$</span>
+      <span className="lbt-money">$</span>
       {canAnimate ? (
         <AnimatedCounter value={approximate} duration={1100} formatter={formatUsdNumber} />
       ) : (
@@ -105,22 +109,6 @@ function TokenValue({ value, animated = false }: { value: string; animated?: boo
   ) : (
     <>{formatCompactTokenCount(value)}</>
   )
-}
-
-function personaStyle(tone: TokenPersonaTone): React.CSSProperties {
-  const colors: Record<TokenPersonaTone, string> = {
-    danger: '248 113 113',
-    hot: '251 146 60',
-    cache: '52 211 153',
-    output: '192 132 252',
-    neutral: '161 161 170'
-  }
-  const rgb = colors[tone]
-  return {
-    color: `rgb(${rgb})`,
-    borderColor: `rgb(${rgb} / 0.35)`,
-    background: `rgb(${rgb} / 0.07)`
-  }
 }
 
 export function TokenBoard() {
@@ -283,6 +271,14 @@ export function TokenBoard() {
               icon={<IconCrown size={11} className="text-[rgb(var(--lb-gold)/0.8)]" />}
               label="TOP BURNER"
               hint={leader ? formatUsd(leader.burnUsd) : undefined}
+              valueStyle={
+                leader
+                  ? {
+                      color: 'rgb(var(--lb-gold))',
+                      textShadow: '0 0 12px rgb(var(--lb-gold) / calc(0.4 * var(--lb-glow, 1)))'
+                    }
+                  : undefined
+              }
             >
               {leader ? (
                 <span className="block truncate">@{leader.username.toUpperCase()}</span>
@@ -371,7 +367,9 @@ export function TokenBoard() {
             <div className="hidden text-right text-orange-300 md:block">TOKENS BURNED</div>
             <div className="text-right">
               <span className="text-orange-300 md:hidden">TOKENS BURNED</span>
-              <span className="hidden md:inline">EST. COST</span>
+              <span className="lbt-money hidden whitespace-nowrap tracking-[0.18em] md:inline">
+                MONEY BURNED
+              </span>
             </div>
           </div>
 
@@ -422,6 +420,7 @@ export function TokenBoard() {
                   key={row.userId}
                   row={row}
                   index={index}
+                  leaderBurnUsd={(leader ?? row).burnUsd}
                   isMe={row.userId === currentUserId}
                   rowRef={row.userId === currentUserId ? myRowRef : undefined}
                   onSelect={() => setSelectedUserId(row.userId)}
@@ -460,9 +459,154 @@ export function TokenBoard() {
         @keyframes lbt-row-enter {
           from { opacity: 0; transform: translateY(8px); }
         }
+
+        /* Persona visuals: chips/dots author --pv-hue (bright) and --pv-ink
+           (deep) inline; the theme picks which one --pv resolves to here in
+           CSS — an inline --pv would win the cascade and never swap. */
+        .lbt-pv {
+          --pv: var(--pv-hue);
+          --pv2: var(--pv2-hue);
+        }
+        html.light .lbt-pv {
+          --pv: var(--pv-ink);
+          --pv2: var(--pv2-ink, var(--pv-ink));
+        }
+
+        /* Money-green — the hero hue for the sort key. Neon on dark,
+           AA green ink on white (glows already drop via --lb-glow). */
+        .lbt-money { color: rgb(57 255 136); }
+        html.light .lbt-money { color: rgb(21 128 61); }
+
+        /* --- top-3 regalia (adapted from the season board's RankRegalia,
+           lbt- prefixed since that component never mounts here) --- */
+        .lbt-ring-spin {
+          animation: lbt-ring-spin 10s linear infinite;
+        }
+        @keyframes lbt-ring-spin {
+          to { transform: rotate(360deg); }
+        }
+        /* #2 — light catching polished platinum: one sweep, then rest */
+        .lbt-glint {
+          animation: lbt-glint-sweep 7.2s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+        }
+        @keyframes lbt-glint-sweep {
+          0% { transform: rotate(0deg); }
+          24%, 100% { transform: rotate(360deg); }
+        }
+        .lbt-aura {
+          animation: lbt-aura-breathe 5.2s ease-in-out infinite;
+        }
+        @keyframes lbt-aura-breathe {
+          0%, 100% { opacity: 0.55; transform: scale(1); }
+          50% { opacity: 1; transform: scale(1.07); }
+        }
+        /* #3 — warm ember breathe, slower and dimmer than the champion */
+        .lbt-ember-ring {
+          animation: lbt-ember-ring-breathe 4.5s ease-in-out infinite;
+        }
+        @keyframes lbt-ember-ring-breathe {
+          0%, 100% { opacity: 0.3; }
+          50% { opacity: 0.95; }
+        }
+        /* #1's flame — pinned at the base so the flicker licks upward */
+        .lbt-flame {
+          transform-origin: 50% 100%;
+          animation: lbt-flame-flicker 2.4s ease-in-out infinite;
+        }
+        html.light .lbt-flame { color: rgb(234 88 12); }
+        @keyframes lbt-flame-flicker {
+          0%, 100% { transform: scale(1) rotate(-4deg); opacity: 0.92; }
+          30% { transform: scale(1.12) rotate(3deg); opacity: 1; }
+          55% { transform: scale(0.93) rotate(-2deg); opacity: 0.8; }
+          80% { transform: scale(1.05) rotate(4deg); opacity: 1; }
+        }
+        /* #1's rank plate — slow specular sweep; opacity rides --lb-glow
+           so the white flash never smears on light panels */
+        .lbt-shimmer {
+          pointer-events: none;
+          background: linear-gradient(115deg, transparent 25%, rgb(255 255 255 / 0.3) 50%, transparent 75%);
+          transform: translateX(-120%);
+          animation: lbt-shimmer-sweep 5.8s ease-in-out 1.4s infinite;
+          opacity: var(--lb-glow, 1);
+        }
+        @keyframes lbt-shimmer-sweep {
+          0%, 58% { transform: translateX(-120%); }
+          82%, 100% { transform: translateX(120%); }
+        }
+
+        /* Relative burn bar — scaleX so the reveal stays compositor-only;
+           it grows out of the rank gutter just after its row lands. */
+        .lbt-burnbar {
+          transform-origin: left center;
+          animation: lbt-bar-grow 720ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+          animation-delay: calc(var(--rd, 0ms) + 180ms);
+        }
+        @keyframes lbt-bar-grow {
+          from { transform: scaleX(0); }
+        }
+
+        /* Ember drift — row #1 only, 4 tiny dots rising on GPU transforms.
+           Dark mode only: on white they'd read as dirt, not fire. */
+        .lbt-embers {
+          position: absolute;
+          inset: 0;
+          overflow: hidden;
+          pointer-events: none;
+        }
+        .lbt-embers span {
+          position: absolute;
+          bottom: -4px;
+          width: 3px;
+          height: 3px;
+          border-radius: 9999px;
+          background: rgb(251 146 60);
+          opacity: 0;
+          animation: lbt-ember-rise 5.2s linear infinite;
+        }
+        .lbt-embers span:nth-child(1) { left: 6%; }
+        .lbt-embers span:nth-child(2) {
+          left: 16%;
+          width: 2px;
+          height: 2px;
+          background: rgb(255 214 68);
+          animation-delay: 1.6s;
+          animation-duration: 6.4s;
+        }
+        .lbt-embers span:nth-child(3) {
+          left: 30%;
+          animation-delay: 3.1s;
+          animation-duration: 5.8s;
+        }
+        .lbt-embers span:nth-child(4) {
+          left: 42%;
+          width: 2px;
+          height: 2px;
+          background: rgb(249 115 22);
+          animation-delay: 4.4s;
+          animation-duration: 7s;
+        }
+        @keyframes lbt-ember-rise {
+          0% { transform: translate(0, 0); opacity: 0; }
+          12% { opacity: 0.85; }
+          60% { opacity: 0.4; }
+          100% { transform: translate(6px, -64px); opacity: 0; }
+        }
+        html.light .lbt-embers { display: none; }
+
         @media (prefers-reduced-motion: reduce) {
           .lbt-reveal,
-          .lbt-row-in { animation: none; }
+          .lbt-row-in,
+          .lbt-ring-spin,
+          .lbt-glint,
+          .lbt-aura,
+          .lbt-ember-ring,
+          .lbt-flame,
+          .lbt-shimmer,
+          .lbt-burnbar { animation: none; }
+          /* motion-only artifacts — static rings and bars stay */
+          .lbt-glint,
+          .lbt-shimmer { opacity: 0; }
+          .lbt-embers { display: none; }
         }
       `}</style>
     </>
@@ -472,17 +616,20 @@ export function TokenBoard() {
 function TokenRow({
   row,
   index,
+  leaderBurnUsd,
   isMe,
   rowRef,
   onSelect
 }: {
   row: TokenBoardRow
   index: number
+  leaderBurnUsd: string
   isMe: boolean
   rowRef?: React.Ref<HTMLLIElement>
   onSelect: () => void
 }) {
   const medal = medalFor(row.rank)
+  const personaVisual = tokenPersonaVisual(row.persona)
   const agentLabel = tokenAgentLabel(row.topAgent)
   const modelLabel = tokenModelLabel(row.topModel)
   const agentTitle = agentLabel
@@ -491,26 +638,57 @@ function TokenRow({
       ? `No clear top agent reported (${row.agents.map((agent) => tokenAgentLabel(agent)).filter(Boolean).join(', ')})`
       : 'Agent not reported'
 
+  // Relative burn bar — sqrt compresses the leader's runaway lead so
+  // mid-board rows keep a visible bar instead of a 1px sliver.
+  const leaderBurn = decimalToApproxNumber(leaderBurnUsd)
+  const burnRatio =
+    leaderBurn > 0
+      ? Math.sqrt(Math.min(decimalToApproxNumber(row.burnUsd) / leaderBurn, 1))
+      : 0
+
   return (
     <li
       ref={rowRef}
-      className={`lbt-row-in ${ROW_GRID} border-b border-[rgb(var(--lb-panel-edge)/0.05)] py-4 last:border-b-0 ${
-        isMe ? 'bg-orange-400/[0.035]' : ''
-      }`}
-      style={{ ['--rd' as string]: `${Math.min(index, 12) * 34}ms` }}
+      className={`lbt-row-in ${ROW_GRID} relative border-b border-[rgb(var(--lb-panel-edge)/0.05)] transition-colors last:border-b-0 hover:bg-orange-400/[0.03] ${
+        medal ? 'py-[1.15rem]' : 'py-4'
+      } ${isMe ? 'bg-orange-400/[0.035]' : ''}`}
+      style={{
+        ['--rd' as string]: `${Math.min(index, 12) * 34}ms`,
+        // Medal wash: strongest in the rank gutter, gone by mid-row, plus a
+        // 2px edge bar in the medal hue. Inline background wins over the
+        // hover/me tints — champion rows carry their own weather.
+        ...(medal
+          ? {
+              background: `linear-gradient(90deg, ${medalA(medal.rgb, 0.09)}, ${medalA(medal.rgb, 0.03)} 22%, transparent 45%)`,
+              boxShadow: `inset 2px 0 0 ${medalA(medal.rgb, 0.7)}`
+            }
+          : null)
+      }}
     >
+      {row.rank === 1 && (
+        <span aria-hidden className="lbt-embers">
+          <span />
+          <span />
+          <span />
+          <span />
+        </span>
+      )}
+
       <div className="flex items-center">
         {medal ? (
           <span
-            className="inline-flex h-8 w-8 items-center justify-center text-[11px] [font-family:var(--font-pixel)]"
+            className={`lbt-rankplate relative inline-flex items-center justify-center overflow-hidden [font-family:var(--font-pixel)] ${
+              row.rank === 1 ? 'h-9 w-9 text-[14px]' : 'h-8 w-8 text-[13px]'
+            }`}
             style={{
               color: medal.fg,
               border: `1px solid ${medalA(medal.rgb, 0.5)}`,
               background: medalA(medal.rgb, 0.08),
-              textShadow: `0 0 10px ${medalGlow(medal.rgb, 0.55)}`
+              textShadow: `0 0 10px ${medalGlow(medal.rgb, 0.65)}, 0 0 24px ${medalGlow(medal.rgb, 0.3)}`
             }}
           >
             {row.rank}
+            {row.rank === 1 && <span aria-hidden className="lbt-shimmer absolute inset-0" />}
           </span>
         ) : (
           <span className="inline-flex h-8 w-8 items-center justify-center text-[11px] tabular-nums text-zinc-500 [font-family:var(--font-pixel)]">
@@ -525,14 +703,7 @@ function TokenRow({
         aria-label={`Open token profile for ${row.displayName}`}
         className="group flex min-w-0 items-center gap-2.5 text-left md:gap-3"
       >
-        <span className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full border border-zinc-800 bg-zinc-900 md:h-9 md:w-9">
-          <Avatar
-            src={row.profileImage}
-            char={(row.displayName || row.username).charAt(0).toUpperCase()}
-            imgClassName="h-full w-full object-cover"
-            fallbackClassName="flex h-full w-full items-center justify-center text-[11px] font-semibold text-zinc-400"
-          />
-        </span>
+        <TokenRankAvatar row={row} medal={medal} />
         <span className="min-w-0">
           <span className="flex min-w-0 items-center gap-2">
             <span className="truncate font-display text-[13px] font-medium tracking-tight text-zinc-100 transition-colors group-hover:text-orange-300">
@@ -547,8 +718,8 @@ function TokenRow({
               shows in the tap-through player card. */}
           <span className="mt-1 flex min-w-0 items-center gap-1.5 md:hidden" title={agentTitle}>
             <span
-              className="h-[5px] w-[5px] shrink-0 rounded-full"
-              style={{ background: personaStyle(row.persona.tone).color }}
+              className="lbt-pv h-[5px] w-[5px] shrink-0 rounded-full"
+              style={personaDotStyle(personaVisual)}
               role="img"
               aria-label={row.persona.label}
             />
@@ -562,9 +733,10 @@ function TokenRow({
           </span>
           <span className="mt-1 hidden min-w-0 items-center gap-1.5 md:flex">
             <span
-              className="shrink-0 border px-1.5 py-0.5 text-[7px] font-semibold tracking-[0.14em]"
-              style={personaStyle(row.persona.tone)}
+              className="lbt-pv inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[8px] font-semibold tracking-[0.14em]"
+              style={personaChipStyle(personaVisual)}
             >
+              {personaVisual.flame && <IconFlame size={8} className="shrink-0" />}
               {row.persona.label}
             </span>
             {row.provisional && (
@@ -621,12 +793,21 @@ function TokenRow({
           >
             {formatCompactTokenCount(row.totalTokens)}
           </span>
-          <span className="hidden text-zinc-200 md:inline">
+          {/* Money is the sort key, so it's the hero: money-green pixel
+              numerals with a glow the orange tokens now defer to. */}
+          <span
+            className="lbt-money hidden text-[16px] md:inline"
+            style={{
+              textShadow: medal
+                ? '0 0 14px rgb(57 255 136 / calc(0.45 * var(--lb-glow, 1)))'
+                : '0 0 9px rgb(57 255 136 / calc(0.22 * var(--lb-glow, 1)))'
+            }}
+          >
             <UsdValue value={row.burnUsd} />
           </span>
         </div>
         <div className="mt-1 flex items-center justify-end gap-1.5 text-[7px] tracking-[0.1em] text-zinc-600">
-          <span className="text-[10px] leading-none tabular-nums tracking-normal text-zinc-400 md:hidden">
+          <span className="lbt-money text-[10px] leading-none tabular-nums tracking-normal md:hidden">
             <UsdValue value={row.burnUsd} />
             <span
               className="ml-1 text-[7px] tracking-[0.1em] text-zinc-600"
@@ -638,7 +819,98 @@ function TokenRow({
           <span className="hidden md:inline">ESTIMATE</span>
         </div>
       </div>
+
+      <span
+        aria-hidden
+        className="lbt-burnbar pointer-events-none absolute bottom-0 left-0 h-[2px]"
+        style={{
+          width: `${(burnRatio * 100).toFixed(2)}%`,
+          background:
+            'linear-gradient(90deg, rgb(239 68 68 / 0.85), rgb(249 115 22 / 0.9) 45%, rgb(255 214 68 / 0.95))',
+          boxShadow: '0 0 6px rgb(249 115 22 / calc(0.45 * var(--lb-glow, 1)))'
+        }}
+      />
     </li>
+  )
+}
+
+/** Row avatar with burn-native medal regalia for the top three. The ring
+ *  band is RankRegalia's clip trick — an oversized conic layer clipped by
+ *  the overflow-hidden ring wrapper, with the opaque avatar covering the
+ *  interior so only a 2px band shows. #1 spins slowly under a breathing
+ *  aura and wears this board's flickering flame instead of the season
+ *  crown; #2 gets a platinum glint sweep; #3 a bronze ember breathe. */
+function TokenRankAvatar({ row, medal }: { row: TokenBoardRow; medal: Medal | null }) {
+  const char = (row.displayName || row.username).charAt(0).toUpperCase()
+
+  if (!medal) {
+    return (
+      <span className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full border border-zinc-800 bg-zinc-900 md:h-9 md:w-9">
+        <Avatar
+          src={row.profileImage}
+          char={char}
+          imgClassName="h-full w-full object-cover"
+          fallbackClassName="flex h-full w-full items-center justify-center text-[11px] font-semibold text-zinc-400"
+        />
+      </span>
+    )
+  }
+
+  const champion = row.rank === 1
+  const ring = champion
+    ? `conic-gradient(from 0deg, ${medalA(medal.rgb, 0.35)}, ${medalA(medal.rgb, 0.95)} 80deg, ${medalA(medal.rgb, 1)} 120deg, ${medalA(medal.rgb, 0.4)} 200deg, ${medalA(medal.rgb, 0.85)} 290deg, ${medalA(medal.rgb, 0.35)})`
+    : `conic-gradient(from 210deg, ${medalA(medal.rgb, 0.85)}, ${medalA(medal.rgb, 0.22)}, ${medalA(medal.rgb, 0.85)})`
+
+  return (
+    <span className="relative h-8 w-8 shrink-0 md:h-9 md:w-9">
+      {champion && (
+        <span
+          aria-hidden
+          className="lbt-aura absolute -inset-1 rounded-full"
+          style={{ boxShadow: `0 0 14px 3px ${medalGlow(medal.rgb, 0.5)}` }}
+        />
+      )}
+      {row.rank === 3 && (
+        <span
+          aria-hidden
+          className="lbt-ember-ring absolute -inset-1 rounded-full"
+          style={{ boxShadow: `0 0 12px 2px ${medalGlow(medal.rgb, 0.55)}` }}
+        />
+      )}
+      <span
+        aria-hidden
+        className="absolute -inset-[2px] overflow-hidden rounded-full"
+        style={{ boxShadow: `0 0 10px ${medalGlow(medal.rgb, champion ? 0.4 : 0.25)}` }}
+      >
+        <span
+          className={`absolute -inset-[30%] ${champion ? 'lbt-ring-spin' : ''}`}
+          style={{ background: ring }}
+        />
+        {row.rank === 2 && (
+          <span
+            className="lbt-glint absolute -inset-[30%]"
+            style={{
+              background: `conic-gradient(from 0deg, transparent 328deg, ${medalA(medal.rgb, 0.95)} 348deg, transparent 360deg)`
+            }}
+          />
+        )}
+      </span>
+      <Avatar
+        src={row.profileImage}
+        char={char}
+        imgClassName="absolute inset-0 h-full w-full rounded-full object-cover"
+        fallbackClassName="absolute inset-0 flex items-center justify-center rounded-full bg-zinc-900 text-[11px] font-semibold text-zinc-400"
+      />
+      {champion && (
+        <span
+          aria-hidden
+          className="lbt-flame absolute -right-[6px] -top-[9px] text-orange-400"
+          style={{ filter: 'drop-shadow(0 0 4px rgb(249 115 22 / calc(0.8 * var(--lb-glow, 1))))' }}
+        >
+          <IconFlame size={11} className="block" />
+        </span>
+      )}
+    </span>
   )
 }
 
