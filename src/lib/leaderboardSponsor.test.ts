@@ -3,6 +3,7 @@ import {
   LEADERBOARD_FLIP_SPONSOR_HOLD_MS,
   LEADERBOARD_FLIP_STATS_HOLD_MS,
   LEADERBOARD_FLIP_TRANSITION_MS,
+  LEADERBOARD_SPONSOR_GRACE_MS,
   LEADERBOARD_SPONSOR_INCREMENT_RATE,
   LEADERBOARD_SPONSOR_MAX_TARGET_CENTS,
   LEADERBOARD_SPONSOR_MIN_CHECKOUT_CENTS,
@@ -11,6 +12,7 @@ import {
   LEADERBOARD_SPONSOR_PENDING_TTL_MS,
   LEADERBOARD_SPONSOR_POLL_MS,
   LEADERBOARD_SPONSOR_WINDOW_MS,
+  classifySponsorRun,
   formatSponsorUsd,
   leaderboardBidIncrementCents,
   leaderboardChargeCents,
@@ -287,6 +289,59 @@ describe('rankLeaderboardSponsors', () => {
       [4, 1, minTarget],
       [2, 2, 1000]
     ])
+  })
+})
+
+describe('classifySponsorRun', () => {
+  const lastPaidAt = Date.parse('2026-08-25T12:00:00Z')
+  const windowEnds = lastPaidAt + LEADERBOARD_SPONSOR_WINDOW_MS
+  const graceEnds = windowEnds + LEADERBOARD_SPONSOR_GRACE_MS
+
+  it('never paid (null) is bidding_open, whatever the clock says', () => {
+    expect(classifySponsorRun(null, lastPaidAt)).toBe('bidding_open')
+    expect(classifySponsorRun(null, lastPaidAt + 365 * 24 * 3_600_000)).toBe(
+      'bidding_open'
+    )
+  })
+
+  it('is live from the payment instant until the last ms of the window', () => {
+    expect(classifySponsorRun(lastPaidAt, lastPaidAt)).toBe('live')
+    expect(classifySponsorRun(lastPaidAt, windowEnds - 1)).toBe('live')
+  })
+
+  it('flips to run_complete at exactly the window boundary — the same instant the ranker drops the contribution', () => {
+    expect(classifySponsorRun(lastPaidAt, windowEnds)).toBe('run_complete')
+    // The consistency the admin buckets rest on: the moment the board
+    // loses the creative, the classifier already says run_complete.
+    expect(
+      rankLeaderboardSponsors(
+        [{ adId: 1, amountCents: 666, paidAtMs: lastPaidAt }],
+        windowEnds
+      )
+    ).toEqual([])
+    expect(
+      rankLeaderboardSponsors(
+        [{ adId: 1, amountCents: 666, paidAtMs: lastPaidAt }],
+        windowEnds - 1
+      )
+    ).toHaveLength(1)
+  })
+
+  it('stays run_complete through the last ms of the grace period', () => {
+    expect(classifySponsorRun(lastPaidAt, graceEnds - 1)).toBe('run_complete')
+  })
+
+  it('is finished at exactly window + grace and forever after', () => {
+    expect(classifySponsorRun(lastPaidAt, graceEnds)).toBe('finished')
+    expect(classifySponsorRun(lastPaidAt, graceEnds + 24 * 3_600_000)).toBe('finished')
+  })
+
+  it('a future paid_at (clock skew) still reads as live, never as a negative-age artifact', () => {
+    expect(classifySponsorRun(lastPaidAt + 60_000, lastPaidAt)).toBe('live')
+  })
+
+  it('the grace period is 24h, matching the product spec', () => {
+    expect(LEADERBOARD_SPONSOR_GRACE_MS).toBe(24 * 3_600_000)
   })
 })
 

@@ -28,8 +28,15 @@ export { AdminList, AdminListRow } from './AdminList'
 export type { AdminListProps, AdminListRowProps } from './AdminList'
 export { AdminTable } from './AdminTable'
 export type { AdminTableColumn, AdminTableProps } from './AdminTable'
+export { AdminTabs } from './AdminTabs'
+export type { AdminTabItem, AdminTabsProps } from './AdminTabs'
 export { AdminAvatar } from './AdminAvatar'
 export type { AdminAvatarProps } from './AdminAvatar'
 export { AdminSkeletonList } from './AdminSkeletonList'
 export type { AdminSkeletonListProps } from './AdminSkeletonList'
 export { ReasonDialog } from './ReasonDialog'
+export { SponsorshipBoardPreview } from './SponsorshipBoardPreview'
+export type {
+  SponsorshipBoardPreviewAd,
+  SponsorshipBoardPreviewProps
+} from './SponsorshipBoardPreview'

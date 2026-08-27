@@ -10,7 +10,12 @@
 // The dark well is always dark in both themes because the
 // surfaces it mocks (ticker, rails, the arena) are always dark — the one
 // sanctioned exception to the page's --st-* token rule; the caption,
-// fine print and note render outside it in page tokens. Prices derive
+// fine print and note render outside it in page tokens. Because the
+// Tailwind zinc/white scales are theme-mapped (tailwind.config points
+// them at CSS variables that MIRROR under html.light), every ink inside
+// the well is written as a literal hex of its dark-theme value — a
+// themed class here would flip the mock chrome light against the
+// always-dark ground (washed-out gold, invisible stubs). Prices derive
 // from the @/lib/billboard and @/lib/leaderboardSponsor constants here
 // — parents never pass prices.
 //
@@ -65,7 +70,7 @@ export interface BillboardPreviewStageProps {
 type StageCard = Pick<BillboardPreviewStageProps, 'title' | 'text' | 'logoUrl' | 'accentColor'>
 
 // The always-dark ticker ground both densities stage the card on.
-const WELL = 'overflow-hidden rounded-xl border border-white/10 bg-[#09090b] p-3 sm:p-4'
+const WELL = 'overflow-hidden rounded-xl border border-[#fff]/10 bg-[#09090b] p-3 sm:p-4'
 
 const FINE_PRINT = 'mt-1 text-[12px] leading-5 text-[color:var(--st-text-faint)]'
 
@@ -206,16 +211,16 @@ function FlipperViewport({ card }: { card: StageCard }) {
           as the current page since that's the viewport being mocked. */}
       <div
         aria-hidden
-        className="flex h-8 shrink-0 items-center justify-between gap-3 border-b border-white/[0.06]"
+        className="flex h-8 shrink-0 items-center justify-between gap-3 border-b border-[#fff]/[0.06]"
       >
-        <div className="font-display text-[13px] font-semibold leading-none tracking-tight text-zinc-100">
+        <div className="font-display text-[13px] font-semibold leading-none tracking-tight text-[#f4f4f5]">
           Cribble<span className="text-accent">.</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="rounded-full border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-[10px] leading-none text-zinc-400">
+          <div className="rounded-full border border-[#fff]/[0.08] bg-[#fff]/[0.05] px-2.5 py-1 text-[10px] leading-none text-[#a1a1aa]">
             Dashboard
           </div>
-          <div className="rounded-full border border-white/[0.06] px-2.5 py-1 text-[10px] leading-none text-zinc-600">
+          <div className="rounded-full border border-[#fff]/[0.06] px-2.5 py-1 text-[10px] leading-none text-[#52525b]">
             Leaderboard
           </div>
         </div>
@@ -227,16 +232,16 @@ function FlipperViewport({ card }: { card: StageCard }) {
       </div>
 
       {/* The ticker's per-item countdown, looping (see globals.css). */}
-      <div aria-hidden className="mt-2 h-[2px] overflow-hidden rounded-full bg-white/[0.12]">
-        <div className="billboard-stage-sweep h-full w-full bg-zinc-200" />
+      <div aria-hidden className="mt-2 h-[2px] overflow-hidden rounded-full bg-[#fff]/[0.12]">
+        <div className="billboard-stage-sweep h-full w-full bg-[#e4e4e7]" />
       </div>
 
       {/* Ghost content panels — unmistakably stubs. They fill the rest
           of the viewport so the strip reads as "first thing under the
           nav, above your content", not a banner floating in the dark. */}
       <div aria-hidden className="mt-3 grid min-h-[40px] flex-1 grid-cols-[3fr_2fr] gap-3">
-        <div className="rounded-lg border border-white/[0.05] bg-white/[0.015]" />
-        <div className="rounded-lg border border-white/[0.05] bg-white/[0.015]" />
+        <div className="rounded-lg border border-[#fff]/[0.05] bg-[#fff]/[0.015]" />
+        <div className="rounded-lg border border-[#fff]/[0.05] bg-[#fff]/[0.015]" />
       </div>
     </div>
   )
@@ -262,13 +267,13 @@ function RailViewport({ card, slot }: { card: StageCard; slot: RailSlot | null }
           content well. Low-contrast on purpose: clearly a stub. */}
       <div aria-hidden className="flex min-w-0 flex-1 flex-col sm:order-2">
         <div className="flex shrink-0 items-center gap-2.5">
-          <div className="h-9 w-9 shrink-0 rounded-full border border-white/[0.08] bg-white/[0.05]" />
+          <div className="h-9 w-9 shrink-0 rounded-full border border-[#fff]/[0.08] bg-[#fff]/[0.05]" />
           <div className="flex min-w-0 flex-col gap-1.5">
-            <div className="h-2 w-28 max-w-full rounded-full bg-white/[0.08]" />
-            <div className="h-2 w-16 max-w-full rounded-full bg-white/[0.05]" />
+            <div className="h-2 w-28 max-w-full rounded-full bg-[#fff]/[0.08]" />
+            <div className="h-2 w-16 max-w-full rounded-full bg-[#fff]/[0.05]" />
           </div>
         </div>
-        <div className="mt-3 min-h-[56px] flex-1 rounded-lg border border-white/[0.05]" />
+        <div className="mt-3 min-h-[56px] flex-1 rounded-lg border border-[#fff]/[0.05]" />
       </div>
 
       <div
@@ -294,11 +299,11 @@ function GhostPlate() {
           'repeating-linear-gradient(-45deg, rgb(255 255 255 / 0.03) 0 1px, transparent 1px 8px)'
       }}
     >
-      <div className="absolute left-1.5 top-1.5 h-2.5 w-2.5 border-l border-t border-white/15" />
-      <div className="absolute right-1.5 top-1.5 h-2.5 w-2.5 border-r border-t border-white/15" />
-      <div className="absolute bottom-1.5 left-1.5 h-2.5 w-2.5 border-b border-l border-white/15" />
-      <div className="absolute bottom-1.5 right-1.5 h-2.5 w-2.5 border-b border-r border-white/15" />
-      <div className="font-data text-[9px] font-medium uppercase tracking-[0.3em] text-zinc-600">
+      <div className="absolute left-1.5 top-1.5 h-2.5 w-2.5 border-l border-t border-[#fff]/15" />
+      <div className="absolute right-1.5 top-1.5 h-2.5 w-2.5 border-r border-t border-[#fff]/15" />
+      <div className="absolute bottom-1.5 left-1.5 h-2.5 w-2.5 border-b border-l border-[#fff]/15" />
+      <div className="absolute bottom-1.5 right-1.5 h-2.5 w-2.5 border-b border-r border-[#fff]/15" />
+      <div className="font-data text-[9px] font-medium uppercase tracking-[0.3em] text-[#52525b]">
         Open slot
       </div>
     </div>
@@ -332,7 +337,7 @@ function LeaderboardViewport({
             style={{ background: `linear-gradient(to left, transparent, ${WELL_GOLD}80)` }}
           />
         </div>
-        <div className="text-[13px] leading-none text-zinc-100 [font-family:var(--font-pixel)]">
+        <div className="text-[13px] leading-none text-[#f4f4f5] [font-family:var(--font-pixel)]">
           LEADERBOARD
         </div>
       </div>
@@ -345,9 +350,9 @@ function LeaderboardViewport({
       {/* Ghost board rows — unmistakably stubs, filling the viewport so
           the face reads as "the panel above the standings". */}
       <div aria-hidden className="mt-3 flex min-h-[40px] flex-1 flex-col gap-2">
-        <div className="min-h-[16px] flex-1 rounded-lg border border-white/[0.05] bg-white/[0.015]" />
-        <div className="min-h-[16px] flex-1 rounded-lg border border-white/[0.05] bg-white/[0.015]" />
-        <div className="min-h-[16px] flex-1 rounded-lg border border-white/[0.05] bg-white/[0.015]" />
+        <div className="min-h-[16px] flex-1 rounded-lg border border-[#fff]/[0.05] bg-[#fff]/[0.015]" />
+        <div className="min-h-[16px] flex-1 rounded-lg border border-[#fff]/[0.05] bg-[#fff]/[0.015]" />
+        <div className="min-h-[16px] flex-1 rounded-lg border border-[#fff]/[0.05] bg-[#fff]/[0.015]" />
       </div>
     </div>
   )
@@ -376,7 +381,7 @@ function LeaderboardSponsorFace({
     preview?.minTargetCents ?? leaderboardMinTargetCents(LEADERBOARD_SPONSOR_OPENING_CENTS)
 
   return (
-    <div className="relative w-full overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/80 px-3 py-2.5 sm:px-4 sm:py-3">
+    <div className="relative w-full overflow-hidden rounded-lg border border-[#27272a] bg-[#09090b]/80 px-3 py-2.5 sm:px-4 sm:py-3">
       {/* Wash + stripe — the lg-card accent machinery, 0x1A ≈ 10% alpha. */}
       {accentColor && (
         <span
@@ -387,7 +392,7 @@ function LeaderboardSponsorFace({
       )}
       <span
         aria-hidden
-        className={`absolute inset-y-0 left-0 w-[3px] ${accentColor ? '' : 'bg-zinc-700'}`}
+        className={`absolute inset-y-0 left-0 w-[3px] ${accentColor ? '' : 'bg-[#3f3f46]'}`}
         style={accentColor ? { background: accentColor } : undefined}
       />
 
@@ -413,29 +418,29 @@ function LeaderboardSponsorFace({
           />
         )}
         <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
-          <span className="truncate text-[11px] font-semibold uppercase leading-4 tracking-[0.2em] text-zinc-50">
+          <span className="truncate text-[11px] font-semibold uppercase leading-4 tracking-[0.2em] text-[#fafafa]">
             {title}
           </span>
-          <span className="truncate text-sm leading-5 text-zinc-200">{text}</span>
+          <span className="truncate text-sm leading-5 text-[#e4e4e7]">{text}</span>
         </span>
-        <span className="shrink-0 self-start text-[9px] tracking-[0.3em] text-zinc-500">
+        <span className="shrink-0 self-start text-[9px] tracking-[0.3em] text-[#71717a]">
           SPONSOR
         </span>
       </div>
 
       {/* The money row: clicks, active total, and the board's fresh
           challenge target. */}
-      <div className="relative mt-2.5 flex min-w-0 items-center gap-2 border-t border-white/[0.06] pt-2 text-[11px] leading-4">
-        <span className="tabular-nums text-zinc-500">
+      <div className="relative mt-2.5 flex min-w-0 items-center gap-2 border-t border-[#fff]/[0.06] pt-2 text-[11px] leading-4">
+        <span className="tabular-nums text-[#71717a]">
           {clicks.toLocaleString('en-US')} click{clicks === 1 ? '' : 's'}
         </span>
-        <span aria-hidden className="text-zinc-700">
+        <span aria-hidden className="text-[#3f3f46]">
           ·
         </span>
         <span className="font-data tabular-nums" style={{ color: WELL_GOLD }}>
           {formatSponsorUsd(activeCents)}
         </span>
-        <span className="text-zinc-500">active</span>
+        <span className="text-[#71717a]">active</span>
         {/* The real face's CTA chrome (gold-bordered, gold ink) — one
             of the product's own surfaces, so the page's gold rule
             defers to fidelity inside the well. Inert: a preview never

@@ -19,6 +19,20 @@ vi.mock('@/lib/supabaseServer', () => ({
   createServiceClient: () => ({
     rpc: rpcMock,
     from: (table: string) => {
+      if (table === 'billboard_ads') {
+        // The piggybacked sponsor sweep's eligibility read — served
+        // empty so the sweep no-ops here; its real behavior is covered
+        // in leaderboardSponsorServer.test.ts.
+        const sweepBuilder = {
+          select: () => sweepBuilder,
+          eq: () => sweepBuilder,
+          then: (
+            onFulfilled: (value: { data: never[]; error: null }) => unknown,
+            onRejected?: (reason: unknown) => unknown
+          ) => Promise.resolve({ data: [], error: null }).then(onFulfilled, onRejected)
+        }
+        return sweepBuilder
+      }
       if (table !== 'leaderboard_ranks') {
         throw new Error(`Unexpected table: ${table}`)
       }

@@ -211,22 +211,36 @@ function NeedsAttentionSection() {
     const load = async () => {
       const res = await fetch('/api/admin/billboard', { credentials: 'include' })
       const data = await res.json().catch(() => null)
+      if (!res.ok || !Array.isArray(data?.queue)) {
+        setCounts(null)
+        setLoaded(true)
+        return
+      }
+      // The server-computed counts object is the single number source
+      // shared with the sponsorship page — rendered verbatim so the two
+      // pages can never disagree. Awaiting includes leaderboard
+      // creatives with bidding open, same as the sponsorship page's
+      // bucket. The live KPI is windowed occupancy (flipper + rail
+      // against the flipper cap); leaderboard creatives have no cap to
+      // meter. A cached pre-counts response falls back to the legacy
+      // fields it carried.
+      const serverCounts = data.counts
       setCounts(
-        res.ok && Array.isArray(data?.queue)
+        serverCounts && typeof serverCounts === 'object'
           ? {
+              queue: Number(serverCounts.queue) || 0,
+              awaiting: Number(serverCounts.awaiting) || 0,
+              live:
+                (Number(serverCounts.flipperLive) || 0) +
+                (Number(serverCounts.railLive) || 0),
+              maxLive: Number(serverCounts.maxFlipper) || 0
+            }
+          : {
               queue: data.queue.length,
-              // Leaderboard creatives sit in awaiting only while their
-              // self-serve Polar bidding is open — nothing for the
-              // operator to work, so they don't count as attention.
-              awaiting: Array.isArray(data.awaiting)
-                ? data.awaiting.filter(
-                    (ad: { placement?: string }) => ad?.placement !== 'leaderboard'
-                  ).length
-                : 0,
+              awaiting: Array.isArray(data.awaiting) ? data.awaiting.length : 0,
               live: Number(data.liveCount) || 0,
               maxLive: Number(data.maxLive) || 0
             }
-          : null
       )
       setLoaded(true)
     }
@@ -266,7 +280,7 @@ function NeedsAttentionSection() {
             href="/admin/sponsorship"
             label="Awaiting payment"
             number={String(counts.awaiting)}
-            clause="Approved ads waiting on manual payment"
+            clause="Approved ads on manual payment or open bidding"
             numberClass={
               counts.awaiting > 0
                 ? 'text-[color:var(--ad-attention)]'

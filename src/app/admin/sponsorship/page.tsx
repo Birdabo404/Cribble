@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import {
   AdminAvatar,
@@ -9,13 +9,15 @@ import {
   AdminEmpty,
   AdminList,
   AdminNotice,
-  AdminPageHeader,
   AdminSection,
   AdminSkeletonList,
+  AdminTabs,
   ReasonDialog,
+  SponsorshipBoardPreview,
   formatDate,
   useAdmin,
-  type AdminChipTone
+  type AdminChipTone,
+  type AdminTabItem
 } from '@/components/admin'
 import { BillboardCard } from '@/components/billboard/BillboardCard'
 import { BillboardPreviewStage } from '@/components/billboard/BillboardPreviewStage'
@@ -37,34 +39,43 @@ import {
   leaderboardMinTargetCents
 } from '@/lib/leaderboardSponsor'
 
-// Billboard queue: review paid ad submissions with an exact-render
-// preview (the same components the public surfaces ship). Acceptance
-// (approve / reject / request changes) is moderator-floor work
-// (billboard.review); the money levers — mark paid + go live, renew,
-// archive — render for the owner only, matching the owner-only
-// billboard.activate gate on their route. Three
-// products share the queue. Flipper ads (capped at 8 concurrent) and
-// profile-rail ads (one live ad per slot) close payment manually:
-// approving emails the payment instructions to the ad's billing_email
-// (X DM is the backup channel — the approve notice says which one to
-// work); once payment closes, mark paid + go live. Rail activation
-// picks a free slot from a picker whose occupancy derives client-side
-// from the live bucket's rail_slot values — the server re-checks and
-// answers 409 if the slot filled meanwhile. A rail ad may carry the
-// buyer's requested_rail_slot — surfaced as a WANTS chip and
-// preselected in the picker while free, but never binding: first
-// confirmed payment wins the slot. Expired ads surface in Recent
-// decisions with the same activate controls relabelled as a renewal —
-// payment is collected manually again and the activate route stamps a
-// fresh window, keeping paid_at. Leaderboard creatives (migration 055)
-// need review ONLY: approval opens self-serve Polar bidding and
-// liveness derives from paid contributions in the rolling 24h window —
-// no activate lever, no 7-day window, no slot. Their rows show the
-// board standing the list route decorates them with (rank + active
-// total), and archive stays the takedown. Buyer-controlled fields
-// (text, link_url, logo_url) are untrusted: text renders as plain text
-// and link_url is shown verbatim for inspection, never as a clickable
-// link.
+// Billboard queue: a tabbed workspace over the buckets GET
+// /api/admin/billboard serves — Review / Awaiting payment / Live /
+// History, one on screen at a time under a sticky header carrying the
+// server-computed counts (the same numbers the Overview KPIs render,
+// so the two pages can never disagree) and flipper/rail occupancy.
+// Acceptance (approve / reject / request changes) is moderator-floor
+// work (billboard.review); the money levers — mark paid + go live,
+// renew, archive — render for the owner only, matching the owner-only
+// billboard.activate gate on their route. Three products share the
+// queue. Flipper ads (capped at 8 concurrent) and profile-rail ads
+// (one live ad per slot) close payment manually: approving emails the
+// payment instructions to the ad's billing_email (X DM is the backup
+// channel — the approve notice says which one to work); once payment
+// closes, mark paid + go live. Rail activation picks a free slot from
+// a picker whose occupancy derives client-side from the live bucket's
+// rail_slot values — the server re-checks and answers 409 if the slot
+// filled meanwhile. A rail ad may carry the buyer's
+// requested_rail_slot — surfaced as a WANTS chip and preselected in
+// the picker while free, but never binding: first confirmed payment
+// wins the slot. Expired ads surface in History with the same
+// activate controls relabelled as a renewal — payment is collected
+// manually again and the activate route stamps a fresh window,
+// keeping paid_at. Leaderboard creatives (migration 055) need review
+// ONLY: approval opens self-serve Polar bidding and liveness derives
+// from paid contributions in the rolling 24h window — no activate
+// lever, no 7-day window, no slot. Their rows show the board standing
+// the list route decorates them with (rank + active total), and
+// archive stays the takedown; when every contribution has expired
+// they ride the run-complete grace window at the top of History until
+// the sweep archives them. The Review tab adds batch approval (the
+// review-batch endpoint, one rate-limit hit for the whole selection)
+// and a whole-board context preview staging queued creatives against
+// what's live. Data silently refreshes every 60s and on window focus,
+// paused while an action or dialog is in flight so form state never
+// gets clobbered. Buyer-controlled fields (text, link_url, logo_url)
+// are untrusted: text renders as plain text and link_url is shown
+// verbatim for inspection, never as a clickable link.
 
 interface AdOwner {
   userId: number
@@ -107,7 +118,8 @@ interface AdRow {
   /** Sponsor-board standing for leaderboard creatives — rank, active
    *  contribution total and the expiry pair, decorated by the list
    *  route from the same derivation the public board serves. Null
-   *  while off the board; always null on flipper/rail ads. */
+   *  while off the board (and on every leaderboard row when the board
+   *  read degraded); always null on flipper/rail ads. */
   leaderboard: {
     rank: number
     activeCents: number
@@ -116,15 +128,38 @@ interface AdRow {
   } | null
 }
 
+/** A leaderboard creative inside the run-complete grace window: still
+ *  APPROVED and biddable, archived automatically at autoArchivesAt
+ *  unless a new paid bid lands first. */
+interface RunCompleteAdRow extends AdRow {
+  autoArchivesAt: string
+}
+
+/** The server-computed number source both admin pages render verbatim. */
+interface BillboardCounts {
+  queue: number
+  awaiting: number
+  live: number
+  runComplete: number
+  flipperLive: number
+  railLive: number
+  maxFlipper: number
+  maxRail: number
+}
+
 interface BillboardData {
   queue: AdRow[]
   awaiting: AdRow[]
   live: AdRow[]
+  runComplete: RunCompleteAdRow[]
   recent: AdRow[]
+  /** The sponsor-board decoration failed to load: bucketing is still
+   *  correct (it derives from the bids aggregate) but leaderboard rows
+   *  carry leaderboard: null — no rank facts. */
+  boardDegraded: boolean
   /** Current total a challenger must reach to take #1. */
   leaderboardMinTargetCents: number
-  liveCount: number
-  maxLive: number
+  counts: BillboardCounts
 }
 
 type DialogState =
@@ -132,7 +167,26 @@ type DialogState =
   | { kind: 'request_changes'; ad: AdRow }
   | { kind: 'archive'; ad: AdRow }
 
+type BucketTab = 'review' | 'awaiting' | 'live' | 'history'
+
+/** Why a fetch is running — initial paint owns the skeletons, action
+ *  reloads surface errors, background refreshes stay silent. */
+type LoadMode = 'initial' | 'action' | 'background'
+
+/** Per-ad outcome roll-up of one review-batch call. */
+interface BatchOutcome {
+  approved: number
+  emailsSent: number
+  emailsFailed: number
+  failures: Array<{ adId: number; error: string }>
+}
+
 const PAGE_DESCRIPTION = `Paid ad slots, three placements — the flipper train on the dashboard + leaderboard ($${BILLBOARD_PRICE_CENTS / 100}/wk, max ${BILLBOARD_MAX_LIVE} live), the always-on profile rails ($${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}–$${RAIL_SLOT_PRICE_CENTS.L1 / 100}/wk by row, ${RAIL_SLOTS.length} fixed slots), and the leaderboard sponsor board (rolling 24h Polar bids from ${formatSponsorUsd(LEADERBOARD_SPONSOR_OPENING_CENTS)}). Flipper + rail close payment manually: approving emails the instructions to the ad's billing address (X DM @${BILLBOARD_PAYMENT_X_HANDLE} as backup), then mark paid + go live — rail ads take their slot at activation. Leaderboard creatives only need review: bidding, payment and liveness run themselves.`
+
+/** Mirrors the review-batch route's per-request ceiling. */
+const BATCH_APPROVE_MAX = 25
+
+const REFRESH_INTERVAL_MS = 60_000
 
 function adChipMeta(ad: AdRow, expired: boolean): { label: string; tone: AdminChipTone } {
   if (expired) return { label: 'EXPIRED', tone: 'neutral' }
@@ -358,6 +412,33 @@ function OccupancyMeter({ label, used, max }: { label: string; used: number; max
   )
 }
 
+/** One cell of the sticky header's KPI strip: microlabel + tabular
+ *  number, colored only when the number demands attention. */
+function KpiStat({
+  label,
+  value,
+  numberClass
+}: {
+  label: string
+  value: number
+  numberClass?: string
+}) {
+  return (
+    <span className="inline-flex items-baseline gap-1.5">
+      <span className="font-data text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--st-text-faint)]">
+        {label}
+      </span>
+      <span
+        className={`font-data text-[13px] font-semibold tabular-nums ${
+          numberClass ?? 'text-[color:var(--st-text)]'
+        }`}
+      >
+        {value}
+      </span>
+    </span>
+  )
+}
+
 const railFullMsg = `All ${RAIL_SLOTS.length} rail slots are occupied — archive one or wait for a window to end.`
 
 /** Narrows the review response's emailStatus. Anything unexpected reads
@@ -370,13 +451,105 @@ function emailStatusOf(payload: unknown): 'sent' | 'failed' | 'skipped' {
   return value === 'sent' || value === 'failed' ? value : 'skipped'
 }
 
+/** Fills the buckets and counts a cached pre-redesign response may
+ *  lack, so a mid-deploy fetch degrades to derived numbers instead of
+ *  crashing — the fresh API always carries them. */
+function shapeBillboardData(payload: Record<string, unknown>): BillboardData {
+  const queue = (Array.isArray(payload.queue) ? payload.queue : []) as AdRow[]
+  const awaiting = (Array.isArray(payload.awaiting) ? payload.awaiting : []) as AdRow[]
+  const live = (Array.isArray(payload.live) ? payload.live : []) as AdRow[]
+  const runComplete = (
+    Array.isArray(payload.runComplete) ? payload.runComplete : []
+  ) as RunCompleteAdRow[]
+  const recent = (Array.isArray(payload.recent) ? payload.recent : []) as AdRow[]
+  const counts =
+    payload.counts && typeof payload.counts === 'object'
+      ? (payload.counts as BillboardCounts)
+      : {
+          queue: queue.length,
+          awaiting: awaiting.length,
+          live: live.length,
+          runComplete: runComplete.length,
+          flipperLive: live.filter((ad) => ad.placement === 'flipper').length,
+          railLive: live.filter((ad) => ad.placement === 'rail').length,
+          maxFlipper: Number(payload.maxLive) || BILLBOARD_MAX_LIVE,
+          maxRail: RAIL_SLOTS.length
+        }
+  return {
+    queue,
+    awaiting,
+    live,
+    runComplete,
+    recent,
+    boardDegraded: payload.boardDegraded === true,
+    leaderboardMinTargetCents:
+      Number(payload.leaderboardMinTargetCents) || LEADERBOARD_SPONSOR_OPENING_CENTS,
+    counts
+  }
+}
+
+function tabLabel(tab: BucketTab): string {
+  switch (tab) {
+    case 'review':
+      return 'Review'
+    case 'awaiting':
+      return 'Awaiting payment'
+    case 'live':
+      return 'Live'
+    case 'history':
+      return 'History'
+    default: {
+      const exhaustive: never = tab
+      return exhaustive
+    }
+  }
+}
+
+function tabCount(tab: BucketTab, data: BillboardData): number {
+  switch (tab) {
+    case 'review':
+      return data.counts.queue
+    case 'awaiting':
+      return data.counts.awaiting
+    case 'live':
+      return data.counts.live
+    case 'history':
+      return data.counts.runComplete + data.recent.length
+    default: {
+      const exhaustive: never = tab
+      return exhaustive
+    }
+  }
+}
+
+const BUCKET_TABS: readonly BucketTab[] = ['review', 'awaiting', 'live', 'history']
+
+/** One line summarizing a batch approve; failures list separately. */
+function batchSummary(outcome: BatchOutcome): string {
+  const parts = [`${outcome.approved} ad${outcome.approved === 1 ? '' : 's'} approved`]
+  if (outcome.emailsSent > 0) {
+    parts.push(`${outcome.emailsSent} payment email${outcome.emailsSent === 1 ? '' : 's'} sent`)
+  }
+  if (outcome.emailsFailed > 0) {
+    parts.push(
+      `${outcome.emailsFailed} payment email${
+        outcome.emailsFailed === 1 ? '' : 's'
+      } failed — chase over X DM (@${BILLBOARD_PAYMENT_X_HANDLE})`
+    )
+  }
+  if (outcome.failures.length > 0) {
+    parts.push(`${outcome.failures.length} not approved`)
+  }
+  return parts.join(' · ')
+}
+
 /** The controls that put a paid ad on the board: rail ads get a slot
  *  picker (occupied slots disabled, defaulting to the ad's requested
  *  slot while it's free, else the first free one) plus the activate
  *  button, flipper ads just the button, disabled while the cap is
  *  full. Shared by Awaiting payment (first activation) and the expired
- *  rows of Recent decisions (renewal — the same route keeps paid_at
- *  and stamps a fresh window); only the button label differs. */
+ *  rows of History (renewal — the same route keeps paid_at and stamps
+ *  a fresh window); only the button label differs. */
 function ActivateControls({
   ad,
   label,
@@ -468,35 +641,88 @@ export default function AdminBillboardPage() {
   /** Per-ad slot choice for rail activations; unset falls back to the
    *  first free slot. */
   const [railSlotPick, setRailSlotPick] = useState<Record<number, RailSlot>>({})
+  const [tab, setTab] = useState<BucketTab>('review')
+  /** Review-tab multi-select for batch approval. */
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [batchWorking, setBatchWorking] = useState(false)
+  const [batchOutcome, setBatchOutcome] = useState<BatchOutcome | null>(null)
+  const [showBoardPreview, setShowBoardPreview] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+  // The silent-refresh loop reads these through refs so the interval
+  // survives without re-arming on every action.
+  const busyRef = useRef(false)
+  const hasDataRef = useRef(false)
+
+  const load = useCallback(async (mode: LoadMode) => {
+    if (mode === 'initial') setLoading(true)
+    if (mode !== 'background') setError(null)
     try {
       const res = await fetch('/api/admin/billboard', { credentials: 'include' })
       const payload = await res.json().catch(() => null)
       if (!res.ok || !Array.isArray(payload?.queue)) {
         throw new Error(payload?.error ?? 'Failed to load sponsor ads.')
       }
-      setData(payload as BillboardData)
+      setData(shapeBillboardData(payload as Record<string, unknown>))
     } catch (err) {
+      // A background refresh failing silently keeps the stale-but-
+      // usable data on screen; the next tick (or any action) retries.
+      if (mode === 'background') return
       setData(null)
       setError(err instanceof Error ? err.message : 'Failed to load sponsor ads.')
     } finally {
-      setLoading(false)
+      if (mode === 'initial') setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    load()
+    void load('initial')
   }, [load])
+
+  useEffect(() => {
+    busyRef.current = workingId !== null || batchWorking || dialog !== null
+  }, [workingId, batchWorking, dialog])
+
+  useEffect(() => {
+    hasDataRef.current = data !== null
+  }, [data])
+
+  // Freshness: refetch every 60s and on window focus — silently (no
+  // skeleton flash), and never while an action or dialog is in flight
+  // so in-progress form state can't get clobbered. A failed initial
+  // load stays on its Retry banner instead of quietly self-healing
+  // under a stale error.
+  useEffect(() => {
+    const refresh = () => {
+      if (busyRef.current || !hasDataRef.current) return
+      void load('background')
+    }
+    const intervalId = window.setInterval(refresh, REFRESH_INTERVAL_MS)
+    window.addEventListener('focus', refresh)
+    return () => {
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [load])
+
+  // Selection hygiene: drop ids that left the queue (approved,
+  // rejected, resubmitted elsewhere) so a recycled row can never
+  // arrive pre-checked.
+  useEffect(() => {
+    if (!data) return
+    setSelected((prev) => {
+      const queueIds = new Set(data.queue.map((ad) => ad.id))
+      const next = new Set([...prev].filter((id) => queueIds.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [data])
 
   /** One-click actions (approve / activate) — errors land in the banner. */
   const run = async (ad: AdRow, url: string, body: Record<string, unknown>, onOk: (data: unknown) => string) => {
-    if (workingId !== null) return
+    if (workingId !== null || batchWorking) return
     setWorkingId(ad.id)
     setError(null)
     setNotice(null)
+    setBatchOutcome(null)
     try {
       const res = await fetch(url, {
         method: 'POST',
@@ -512,14 +738,14 @@ export default function AdminBillboardPage() {
         if (res.status === 409) {
           const message =
             typeof payload?.error === 'string' ? payload.error : 'Action failed.'
-          await load()
+          await load('action')
           setError(message)
           return
         }
         throw new Error(payload?.error ?? 'Action failed.')
       }
       setNotice(onOk(payload))
-      await load()
+      await load('action')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed.')
     } finally {
@@ -578,6 +804,52 @@ export default function AdminBillboardPage() {
       }
     )
 
+  /** Fires the whole selection at the batch endpoint — one rate-limit
+   *  hit, per-ad results. Failed ads stay selected for an easy retry;
+   *  approved ones leave the queue on reload. */
+  const batchApprove = async () => {
+    if (!data || workingId !== null || batchWorking) return
+    const adIds = data.queue.filter((ad) => selected.has(ad.id)).map((ad) => ad.id)
+    if (adIds.length === 0 || adIds.length > BATCH_APPROVE_MAX) return
+    setBatchWorking(true)
+    setError(null)
+    setNotice(null)
+    setBatchOutcome(null)
+    try {
+      const res = await fetch('/api/admin/billboard/review-batch', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adIds })
+      })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok || !Array.isArray(payload?.results)) {
+        throw new Error(payload?.error ?? 'Batch approve failed.')
+      }
+      const results = payload.results as Array<{
+        adId: number
+        ok: boolean
+        emailStatus?: unknown
+        error?: string
+      }>
+      const failures = results
+        .filter((row) => !row.ok)
+        .map((row) => ({ adId: row.adId, error: row.error ?? 'Approve failed.' }))
+      setBatchOutcome({
+        approved: results.filter((row) => row.ok).length,
+        emailsSent: results.filter((row) => row.ok && row.emailStatus === 'sent').length,
+        emailsFailed: results.filter((row) => row.ok && row.emailStatus === 'failed').length,
+        failures
+      })
+      setSelected(new Set(failures.map((failure) => failure.adId)))
+      await load('action')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Batch approve failed.')
+    } finally {
+      setBatchWorking(false)
+    }
+  }
+
   /** Runs inside ReasonDialog: an error string keeps the dialog open. */
   const confirmDialog = async (state: DialogState, reason: string): Promise<string | null> => {
     const isArchive = state.kind === 'archive'
@@ -610,7 +882,7 @@ export default function AdminBillboardPage() {
         return exhaustive
       }
     }
-    await load()
+    await load('action')
     return null
   }
 
@@ -618,14 +890,15 @@ export default function AdminBillboardPage() {
   // activate route's billboard.activate gate still 403s moderators. The
   // review-queue decision buttons render for every staff member.
   const isOwner = me.role === 'owner'
-  // Occupancy derives client-side from the live bucket: flipper fullness
-  // against the 8-cap, rail occupancy from the live rail ads' slot codes.
-  // The activate route re-checks both and answers 409 on a race.
+  const counts = data?.counts ?? null
+  // Slot occupancy still derives client-side from the live bucket's
+  // rail_slot codes — the picker needs which slots, not just how many.
+  // The count KPIs render the server's counts verbatim. The activate
+  // route re-checks everything and answers 409 on a race.
   const liveList = data?.live ?? []
-  const flipperLiveCount = liveList.filter((ad) => ad.placement === 'flipper').length
-  const flipperFull = data !== null && flipperLiveCount >= data.maxLive
-  const flipperFullMsg = data
-    ? `All ${data.maxLive} flipper slots are live — archive one or wait for a window to end.`
+  const flipperFull = counts !== null && counts.flipperLive >= counts.maxFlipper
+  const flipperFullMsg = counts
+    ? `All ${counts.maxFlipper} flipper slots are live — archive one or wait for a window to end.`
     : ''
   const occupiedSlots = new Set<RailSlot>(
     liveList.flatMap((ad) => (ad.placement === 'rail' && ad.rail_slot ? [ad.rail_slot] : []))
@@ -637,100 +910,190 @@ export default function AdminBillboardPage() {
   const showRailWarn =
     firstFreeSlot === undefined && (data?.awaiting.some((ad) => ad.placement === 'rail') ?? false)
 
-  return (
-    <div className="space-y-6">
-      <AdminPageHeader title="Sponsorship" description={PAGE_DESCRIPTION} />
+  // Batch selection, intersected with the queue at render so a stale
+  // set can't inflate the button count between reload and prune.
+  const queueIds = data?.queue.map((ad) => ad.id) ?? []
+  const selectedIds = queueIds.filter((id) => selected.has(id))
+  const allSelected = queueIds.length > 0 && selectedIds.length === queueIds.length
+  const someSelected = selectedIds.length > 0 && !allSelected
 
-      {error && (
-        <AdminNotice tone="danger">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span>{error}</span>
-            <AdminButton variant="ghost" onClick={() => void load()}>
-              Retry
-            </AdminButton>
-          </div>
-        </AdminNotice>
-      )}
-      {notice && <AdminNotice tone="info">{notice}</AdminNotice>}
+  const tabItems: AdminTabItem<BucketTab>[] = BUCKET_TABS.map((id) => ({
+    id,
+    label: tabLabel(id),
+    count: data ? tabCount(id, data) : undefined
+  }))
 
-      {loading ? (
-        <>
-          {['Review queue', 'Awaiting payment', 'Live now', 'Recent decisions'].map((title) => (
-            <AdminSection key={title} title={title} flush>
-              <AdminSkeletonList rows={2} />
-            </AdminSection>
-          ))}
-        </>
-      ) : !data ? null : (
-        <>
-          <AdminSection title="Review queue" count={data.queue.length} flush>
-            {data.queue.length === 0 ? (
-              <AdminEmpty
-                title="Nothing waiting for review"
-                hint="New submissions from /sponsorship land here."
-              />
-            ) : (
-              <AdminList>
-                {data.queue.map((ad) => {
-                  const chip = adChipMeta(ad, false)
-                  const working = workingId === ad.id
-                  return (
-                    <li key={ad.id} className="space-y-3 px-4 py-4">
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
-                        <AdminChip tone={chip.tone}>{chip.label}</AdminChip>
-                        <PlacementChip ad={ad} />
-                        <RequestedSlotChip ad={ad} />
-                        <span className="font-data text-[12px] text-[color:var(--st-text-faint)]">
-                          #{ad.id}
-                        </span>
-                        <OwnerLine ad={ad} />
-                        <BillingEmailLine ad={ad} />
-                        <MetaDate label="submitted" value={ad.created_at} />
-                      </div>
-                      <AdPreview
-                        ad={ad}
-                        liveMinTargetCents={data.leaderboardMinTargetCents}
+  let tabPanel: ReactNode = null
+  if (loading) {
+    tabPanel = (
+      <AdminSection flush>
+        <AdminSkeletonList rows={4} />
+      </AdminSection>
+    )
+  } else if (data) {
+    switch (tab) {
+      case 'review':
+        tabPanel = (
+          <div className="space-y-6">
+            <AdminSection
+              title="Review queue"
+              count={data.queue.length}
+              action={
+                <AdminButton variant="ghost" onClick={() => setShowBoardPreview((v) => !v)}>
+                  {showBoardPreview ? 'Hide board preview' : 'Preview board with queue'}
+                </AdminButton>
+              }
+              flush
+            >
+              {data.queue.length === 0 ? (
+                <AdminEmpty
+                  title="Nothing waiting for review"
+                  hint="New submissions from /sponsorship land here."
+                />
+              ) : (
+                <>
+                  {/* Batch toolbar: approval is the only decision that
+                      batches — reject and request-changes need written
+                      reasons, so they stay per ad. */}
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-[color:var(--st-border)] bg-[color:var(--st-panel-hover)] px-4 py-2.5">
+                    <label className="inline-flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        ref={(el) => {
+                          if (el) el.indeterminate = someSelected
+                        }}
+                        disabled={batchWorking}
+                        onChange={() =>
+                          setSelected(allSelected ? new Set() : new Set(queueIds))
+                        }
+                        className="h-4 w-4 accent-[color:var(--st-accent)]"
                       />
-                      {ad.status === 'CHANGES_REQUESTED' && ad.review_note && (
-                        <p className="text-[12.5px] leading-5 text-sky-600">
-                          <span className="mr-1.5 font-data text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--st-text-faint)]">
-                            Sent back
-                          </span>
-                          {ad.review_note}
-                        </p>
-                      )}
-                      {/* Acceptance decisions sit at the moderator floor
-                          (billboard.review) — every staff member sees
-                          these; only the money levers below are owner
-                          gated. */}
-                      <div className="flex flex-wrap items-center gap-2">
-                        <AdminButton variant="good" pending={working} onClick={() => approve(ad)}>
-                          Approve
-                        </AdminButton>
-                        {ad.status === 'PENDING' && (
-                          <AdminButton
-                            variant="ghost"
-                            disabled={working}
-                            onClick={() => setDialog({ kind: 'request_changes', ad })}
-                          >
-                            Request changes
-                          </AdminButton>
-                        )}
-                        <AdminButton
-                          variant="danger"
-                          disabled={working}
-                          onClick={() => setDialog({ kind: 'reject', ad })}
-                        >
-                          Reject
-                        </AdminButton>
-                      </div>
-                    </li>
-                  )
-                })}
-              </AdminList>
-            )}
-          </AdminSection>
+                      <span className="font-data text-[11px] font-medium uppercase tracking-[0.08em] text-[color:var(--st-text-muted)]">
+                        Select all
+                      </span>
+                    </label>
+                    <AdminButton
+                      variant="good"
+                      pending={batchWorking}
+                      disabled={
+                        selectedIds.length === 0 ||
+                        workingId !== null ||
+                        selectedIds.length > BATCH_APPROVE_MAX
+                      }
+                      title={
+                        selectedIds.length > BATCH_APPROVE_MAX
+                          ? `Batch approve is capped at ${BATCH_APPROVE_MAX} ads per request.`
+                          : undefined
+                      }
+                      onClick={() => void batchApprove()}
+                    >
+                      Approve selected ({selectedIds.length})
+                    </AdminButton>
+                    <span className="text-[12px] leading-4 text-[color:var(--st-text-faint)]">
+                      Reject and request-changes stay per ad — they need a written reason.
+                    </span>
+                  </div>
+                  <AdminList>
+                    {data.queue.map((ad) => {
+                      const chip = adChipMeta(ad, false)
+                      const working = workingId === ad.id
+                      return (
+                        <li key={ad.id} className="flex gap-3 px-4 py-4">
+                          <input
+                            type="checkbox"
+                            checked={selected.has(ad.id)}
+                            disabled={batchWorking}
+                            onChange={() =>
+                              setSelected((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(ad.id)) next.delete(ad.id)
+                                else next.add(ad.id)
+                                return next
+                              })
+                            }
+                            aria-label={`Select ad #${ad.id} for batch approval`}
+                            className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--st-accent)]"
+                          />
+                          <div className="min-w-0 flex-1 space-y-3">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+                              <AdminChip tone={chip.tone}>{chip.label}</AdminChip>
+                              <PlacementChip ad={ad} />
+                              <RequestedSlotChip ad={ad} />
+                              <span className="font-data text-[12px] text-[color:var(--st-text-faint)]">
+                                #{ad.id}
+                              </span>
+                              <OwnerLine ad={ad} />
+                              <BillingEmailLine ad={ad} />
+                              <MetaDate label="submitted" value={ad.created_at} />
+                            </div>
+                            <AdPreview
+                              ad={ad}
+                              liveMinTargetCents={data.leaderboardMinTargetCents}
+                            />
+                            {ad.status === 'CHANGES_REQUESTED' && ad.review_note && (
+                              <p className="text-[12.5px] leading-5 text-sky-600">
+                                <span className="mr-1.5 font-data text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--st-text-faint)]">
+                                  Sent back
+                                </span>
+                                {ad.review_note}
+                              </p>
+                            )}
+                            {/* Acceptance decisions sit at the moderator floor
+                                (billboard.review) — every staff member sees
+                                these; only the money levers below are owner
+                                gated. */}
+                            <div className="flex flex-wrap items-center gap-2">
+                              <AdminButton
+                                variant="good"
+                                pending={working}
+                                disabled={batchWorking}
+                                onClick={() => approve(ad)}
+                              >
+                                Approve
+                              </AdminButton>
+                              {ad.status === 'PENDING' && (
+                                <AdminButton
+                                  variant="ghost"
+                                  disabled={working || batchWorking}
+                                  onClick={() => setDialog({ kind: 'request_changes', ad })}
+                                >
+                                  Request changes
+                                </AdminButton>
+                              )}
+                              <AdminButton
+                                variant="danger"
+                                disabled={working || batchWorking}
+                                onClick={() => setDialog({ kind: 'reject', ad })}
+                              >
+                                Reject
+                              </AdminButton>
+                            </div>
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </AdminList>
+                </>
+              )}
+            </AdminSection>
 
+            {showBoardPreview && (
+              <AdminSection
+                title="Board preview"
+                description="Each placement surface with queued and awaiting creatives staged against what's live — judge the whole board before approving."
+              >
+                <SponsorshipBoardPreview
+                  ads={{ queue: data.queue, awaiting: data.awaiting, live: data.live }}
+                  leaderboardMinTargetCents={data.leaderboardMinTargetCents}
+                />
+              </AdminSection>
+            )}
+          </div>
+        )
+        break
+      case 'awaiting':
+        tabPanel = (
           <AdminSection
             title="Awaiting payment"
             count={data.awaiting.length}
@@ -746,7 +1109,7 @@ export default function AdminBillboardPage() {
             {data.awaiting.length === 0 ? (
               <AdminEmpty
                 title="No approved ads waiting on payment"
-                hint="Approve a submission above to start a payment thread."
+                hint="Approve a submission in the Review tab to start a payment thread."
               />
             ) : (
               <AdminList>
@@ -811,21 +1174,11 @@ export default function AdminBillboardPage() {
               </AdminList>
             )}
           </AdminSection>
-
-          <AdminSection
-            title="Live now"
-            count={data.live.length}
-            action={
-              // The windowed products' occupancy, derived from the live
-              // list. Leaderboard has no cap to meter — its live rows
-              // carry their board rank instead.
-              <div className="flex flex-wrap items-center gap-4">
-                <OccupancyMeter label="Flipper" used={flipperLiveCount} max={data.maxLive} />
-                <OccupancyMeter label="Rail" used={occupiedSlots.size} max={RAIL_SLOTS.length} />
-              </div>
-            }
-            flush
-          >
+        )
+        break
+      case 'live':
+        tabPanel = (
+          <AdminSection title="Live now" count={data.live.length} flush>
             {data.live.length === 0 ? (
               <AdminEmpty
                 title="No ads live right now"
@@ -883,73 +1236,248 @@ export default function AdminBillboardPage() {
               </AdminList>
             )}
           </AdminSection>
-
-          <AdminSection title="Recent decisions" count={data.recent.length} flush>
-            {data.recent.length === 0 ? (
-              <AdminEmpty title="No past decisions yet" />
-            ) : (
-              <AdminList>
-                {data.recent.map((ad) => {
-                  // APPROVED rows only land here when their window ran
-                  // out — those get renew controls below. REJECTED and
-                  // ARCHIVED rows stay read-only.
-                  const expired = ad.status === 'APPROVED'
-                  const chip = adChipMeta(ad, expired)
-                  const working = workingId === ad.id
-                  return (
-                    <li key={ad.id} className="space-y-1.5 px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
-                        <AdminChip tone={chip.tone}>{chip.label}</AdminChip>
-                        <PlacementChip ad={ad} />
-                        {expired && <RequestedSlotChip ad={ad} />}
-                        <span className="font-data text-[12px] text-[color:var(--st-text-faint)]">
-                          #{ad.id}
-                        </span>
-                        <OwnerLine ad={ad} />
-                        <span className="font-data text-[12px] text-[color:var(--st-text-faint)]">
-                          {formatDate(ad.updated_at)}
-                        </span>
-                        {ad.clicks > 0 && (
-                          <span className="tabular-nums text-[color:var(--st-text-faint)]">
-                            {ad.clicks.toLocaleString('en-US')} click
-                            {ad.clicks === 1 ? '' : 's'}
+        )
+        break
+      case 'history':
+        tabPanel = (
+          <div className="space-y-6">
+            {data.runComplete.length > 0 && (
+              <AdminSection
+                title="Run complete"
+                count={data.runComplete.length}
+                description="Leaderboard runs whose last paid bid expired. Bidding stays open through a 24h grace window, then the sweep archives them automatically — or archive now."
+                flush
+              >
+                <AdminList>
+                  {data.runComplete.map((ad) => {
+                    const working = workingId === ad.id
+                    return (
+                      <li key={ad.id} className="space-y-1.5 px-4 py-3">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+                          <AdminChip tone="warn">RUN COMPLETE</AdminChip>
+                          <PlacementChip ad={ad} />
+                          <span className="font-data text-[12px] text-[color:var(--st-text-faint)]">
+                            #{ad.id}
                           </span>
-                        )}
-                      </div>
-                      <p className="break-words text-[13.5px] leading-5 text-[color:var(--st-text)]">
-                        {ad.text}
-                      </p>
-                      {ad.review_note && (
-                        <p className="text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
-                          {ad.review_note}
-                        </p>
-                      )}
-                      {isOwner && expired && (
-                        <div className="flex flex-wrap items-center gap-2 pt-1">
-                          <ActivateControls
-                            ad={ad}
-                            label="Renew — mark paid + go live"
-                            working={working}
-                            pick={railSlotPick[ad.id]}
-                            occupiedSlots={occupiedSlots}
-                            firstFreeSlot={firstFreeSlot}
-                            flipperFull={flipperFull}
-                            flipperFullMsg={flipperFullMsg}
-                            onPickSlot={(slot) =>
-                              setRailSlotPick((prev) => ({ ...prev, [ad.id]: slot }))
-                            }
-                            onActivate={activate}
-                          />
+                          <OwnerLine ad={ad} />
+                          <span className="text-[color:var(--st-text-faint)]">
+                            auto-archives{' '}
+                            <span className="font-data text-[12px]">
+                              {formatDate(ad.autoArchivesAt)}
+                            </span>{' '}
+                            unless a new bid lands
+                          </span>
+                          {ad.clicks > 0 && (
+                            <span className="tabular-nums text-[color:var(--st-text-faint)]">
+                              {ad.clicks.toLocaleString('en-US')} click
+                              {ad.clicks === 1 ? '' : 's'}
+                            </span>
+                          )}
                         </div>
-                      )}
-                    </li>
-                  )
-                })}
-              </AdminList>
+                        <p className="break-words text-[13.5px] leading-5 text-[color:var(--st-text)]">
+                          {ad.text}
+                        </p>
+                        {isOwner && (
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <AdminButton
+                              variant="ghost"
+                              disabled={working}
+                              onClick={() => setDialog({ kind: 'archive', ad })}
+                            >
+                              Archive now
+                            </AdminButton>
+                          </div>
+                        )}
+                      </li>
+                    )
+                  })}
+                </AdminList>
+              </AdminSection>
             )}
-          </AdminSection>
-        </>
-      )}
+
+            <AdminSection title="Recent decisions" count={data.recent.length} flush>
+              {data.recent.length === 0 ? (
+                <AdminEmpty title="No past decisions yet" />
+              ) : (
+                <AdminList>
+                  {data.recent.map((ad) => {
+                    // APPROVED rows only land here when their window ran
+                    // out — those get renew controls below. REJECTED and
+                    // ARCHIVED rows stay read-only.
+                    const expired = ad.status === 'APPROVED'
+                    const chip = adChipMeta(ad, expired)
+                    const working = workingId === ad.id
+                    return (
+                      <li key={ad.id} className="space-y-1.5 px-4 py-3">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+                          <AdminChip tone={chip.tone}>{chip.label}</AdminChip>
+                          <PlacementChip ad={ad} />
+                          {expired && <RequestedSlotChip ad={ad} />}
+                          <span className="font-data text-[12px] text-[color:var(--st-text-faint)]">
+                            #{ad.id}
+                          </span>
+                          <OwnerLine ad={ad} />
+                          <span className="font-data text-[12px] text-[color:var(--st-text-faint)]">
+                            {formatDate(ad.updated_at)}
+                          </span>
+                          {ad.clicks > 0 && (
+                            <span className="tabular-nums text-[color:var(--st-text-faint)]">
+                              {ad.clicks.toLocaleString('en-US')} click
+                              {ad.clicks === 1 ? '' : 's'}
+                            </span>
+                          )}
+                        </div>
+                        <p className="break-words text-[13.5px] leading-5 text-[color:var(--st-text)]">
+                          {ad.text}
+                        </p>
+                        {ad.review_note && (
+                          <p className="text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
+                            {ad.review_note}
+                          </p>
+                        )}
+                        {isOwner && expired && (
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <ActivateControls
+                              ad={ad}
+                              label="Renew — mark paid + go live"
+                              working={working}
+                              pick={railSlotPick[ad.id]}
+                              occupiedSlots={occupiedSlots}
+                              firstFreeSlot={firstFreeSlot}
+                              flipperFull={flipperFull}
+                              flipperFullMsg={flipperFullMsg}
+                              onPickSlot={(slot) =>
+                                setRailSlotPick((prev) => ({ ...prev, [ad.id]: slot }))
+                              }
+                              onActivate={activate}
+                            />
+                          </div>
+                        )}
+                      </li>
+                    )
+                  })}
+                </AdminList>
+              )}
+            </AdminSection>
+          </div>
+        )
+        break
+      default: {
+        const exhaustive: never = tab
+        tabPanel = exhaustive
+      }
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Sticky workspace header: title, the server-computed KPI strip,
+          action banners and the bucket tabs — pinned from md up (the
+          mobile console header already owns the small-screen top edge). */}
+      <div className="z-20 -mx-4 border-b border-[color:var(--st-border)] bg-[color:var(--st-canvas)] px-4 sm:-mx-6 sm:px-6 md:sticky md:top-0 md:-mx-8 md:px-8">
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3">
+          <h1 className="text-[21px] font-semibold leading-7 tracking-[-0.01em] text-[color:var(--st-text)]">
+            Sponsorship
+          </h1>
+          {counts && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+              <KpiStat
+                label="Queue"
+                value={counts.queue}
+                numberClass={
+                  counts.queue > 0
+                    ? 'text-[color:var(--ad-attention)]'
+                    : 'text-[color:var(--st-text-muted)]'
+                }
+              />
+              <KpiStat
+                label="Awaiting"
+                value={counts.awaiting}
+                numberClass={
+                  counts.awaiting > 0
+                    ? 'text-[color:var(--ad-attention)]'
+                    : 'text-[color:var(--st-text-muted)]'
+                }
+              />
+              <KpiStat
+                label="Live"
+                value={counts.live}
+                numberClass={
+                  counts.live > 0 ? 'text-accent' : 'text-[color:var(--st-text-muted)]'
+                }
+              />
+              <KpiStat
+                label="Run complete"
+                value={counts.runComplete}
+                numberClass={
+                  counts.runComplete > 0
+                    ? 'text-amber-600'
+                    : 'text-[color:var(--st-text-muted)]'
+                }
+              />
+              <OccupancyMeter
+                label="Flipper"
+                used={counts.flipperLive}
+                max={counts.maxFlipper}
+              />
+              <OccupancyMeter label="Rail" used={counts.railLive} max={counts.maxRail} />
+            </div>
+          )}
+        </div>
+
+        {(error || notice || batchOutcome || data?.boardDegraded) && (
+          <div className="space-y-2 pb-3">
+            {error && (
+              <AdminNotice tone="danger">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span>{error}</span>
+                  <AdminButton variant="ghost" onClick={() => void load('initial')}>
+                    Retry
+                  </AdminButton>
+                </div>
+              </AdminNotice>
+            )}
+            {notice && <AdminNotice tone="info">{notice}</AdminNotice>}
+            {batchOutcome && (
+              <AdminNotice tone={batchOutcome.failures.length > 0 ? 'warning' : 'info'}>
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span>{batchSummary(batchOutcome)}</span>
+                    <AdminButton variant="ghost" onClick={() => setBatchOutcome(null)}>
+                      Dismiss
+                    </AdminButton>
+                  </div>
+                  {batchOutcome.failures.map((failure) => (
+                    <p key={failure.adId} className="text-[12.5px] leading-5">
+                      <span className="font-data text-[12px]">#{failure.adId}</span> —{' '}
+                      {failure.error}
+                    </p>
+                  ))}
+                </div>
+              </AdminNotice>
+            )}
+            {data?.boardDegraded && (
+              <AdminNotice tone="warning">
+                Sponsor board standing unavailable — leaderboard rows shown without rank
+                facts.
+              </AdminNotice>
+            )}
+          </div>
+        )}
+
+        <AdminTabs
+          tabs={tabItems}
+          active={tab}
+          onSelect={setTab}
+          label="Sponsorship buckets"
+        />
+      </div>
+
+      {tabPanel}
+
+      <p className="text-[12.5px] leading-5 text-[color:var(--st-text-faint)]">
+        {PAGE_DESCRIPTION}
+      </p>
 
       {dialog?.kind === 'reject' && (
         <ReasonDialog

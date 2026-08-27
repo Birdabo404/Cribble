@@ -1,14 +1,20 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { PolarError } from '@polar-sh/sdk/models/errors/polarerror'
 import type { Order } from '@polar-sh/sdk/models/components/order'
+import { logAdminAction } from '@/lib/adminAudit'
 import type { BillboardStatus } from '@/lib/billboard'
 import {
   LEADERBOARD_SPONSOR_PENDING_TTL_MS,
   LEADERBOARD_SPONSOR_WINDOW_MS,
+  classifySponsorRun,
+  formatSponsorUsd,
+  leaderboardMinTargetCents,
   rankLeaderboardSponsors,
+  type LeaderboardContribution,
   type LeaderboardSponsorEntry,
   type LeaderboardStanding
 } from '@/lib/leaderboardSponsor'
+import { insertMissingNotifications, type NotificationInput } from '@/lib/notifications'
 import { getPolarClient, resolveLeaderboardBidProductId } from '@/lib/polar'
 
 // Server side of the leaderboard sponsor ranking (migration 055): the
@@ -325,6 +331,20 @@ export async function activateSponsorBidFromOrder(
     return 'refused'
   }
 
+  // The pre-activation board, read just before the guarded update so the
+  // outbid/spot-taken diff below sees the world this payment displaces.
+  // Best-effort: a failed read only skips the notices, never the money.
+  const activationTime = new Date()
+  let preBoard: LeaderboardSponsorEntry[] | null = null
+  try {
+    preBoard = await loadSponsorBoard(supabase, activationTime)
+  } catch (error) {
+    console.error(
+      `[LeaderboardSponsor] Pre-activation board read failed for bid ${row.id} — outbid notices skipped:`,
+      error
+    )
+  }
+
   const { data: updated, error: updateError } = await supabase
     .from('leaderboard_sponsor_bids')
     .update({
@@ -340,7 +360,30 @@ export async function activateSponsorBidFromOrder(
   if (updateError) {
     throw new Error(`Failed to activate bid ${row.id}: ${updateError.message}`)
   }
-  if (updated && updated.length > 0) return 'activated'
+  if (updated && updated.length > 0) {
+    // Best-effort fan-out to displaced sponsors and queued advertisers.
+    // A notification failure must never throw out of the payment path —
+    // the contribution is already live at this point.
+    if (preBoard !== null) {
+      try {
+        await notifySponsorBoardShift(supabase, {
+          preBoard,
+          activatedAdId: Number(row.ad_id),
+          payerUserId: Number(row.user_id),
+          amountCents: Number(row.amount_cents),
+          paidAtMs: order.createdAt.getTime(),
+          ledgerRowId: Number(row.id),
+          nowMs: activationTime.getTime()
+        })
+      } catch (error) {
+        console.error(
+          `[LeaderboardSponsor] Board-shift notifications failed for bid ${row.id}:`,
+          error
+        )
+      }
+    }
+    return 'activated'
+  }
 
   // A concurrent writer won the PENDING guard. Distinguish a duplicate
   // activation from a racing refund instead of telling the returning
@@ -570,4 +613,326 @@ export async function syncSponsorBidsFromPolar(
   }
 
   return activated
+}
+
+/* ------------------------------------------------------------------ *
+ * Lifecycle side effects — the outbid/spot-taken fan-out on activation
+ * and the run-complete/auto-archive sweep. Everything here is best-
+ * effort by contract: activation and archival are the writes that
+ * matter, notifications and audit rows never block them.
+ * ------------------------------------------------------------------ */
+
+type SponsorBoardShift = {
+  /** The board as loaded just BEFORE the activating update. */
+  preBoard: LeaderboardSponsorEntry[]
+  activatedAdId: number
+  payerUserId: number
+  amountCents: number
+  paidAtMs: number
+  /** The activated ledger row id — the outbid dedupe anchor, so a
+   *  webhook retry or a webhook/sync race can never double-notify. */
+  ledgerRowId: number
+  nowMs: number
+}
+
+/** UTC day bucket for the once-a-day price-move throttle. */
+function utcDayOf(nowMs: number): string {
+  return new Date(nowMs).toISOString().slice(0, 10)
+}
+
+/**
+ * After one bid activates: recompute the post-activation board in
+ * memory (pure rankLeaderboardSponsors over the pre-board's standings
+ * plus the new contribution), then notify
+ *   - OUTBID: every owner whose rank worsened, keyed on this ledger row;
+ *   - SPOT TAKEN / PRICE MOVED: owners of APPROVED leaderboard
+ *     creatives with no active contribution, whenever the top total
+ *     rose (a new bid always takes #1 — the checkout gate enforces it),
+ *     throttled to one notice per ad per UTC day. The quoted minimum is
+ *     informational only — checkout stays the sole pricing authority.
+ * The payer's own ads are always excluded. Throws propagate to the
+ * caller's catch — never past the payment path.
+ */
+async function notifySponsorBoardShift(
+  supabase: SupabaseClient,
+  shift: SponsorBoardShift
+): Promise<void> {
+  const { data, error } = await supabase
+    .from('billboard_ads')
+    .select('id, owner_user_id')
+    .eq('placement', 'leaderboard')
+    .eq('status', 'APPROVED')
+
+  if (error) {
+    console.error(
+      '[LeaderboardSponsor] Approved-creatives read failed — board-shift notices skipped:',
+      error.message
+    )
+    return
+  }
+  const ownerByAdId = new Map<number, number | null>()
+  for (const row of (data || []) as Array<{ id: number; owner_user_id: number | null }>) {
+    ownerByAdId.set(
+      Number(row.id),
+      row.owner_user_id === null ? null : Number(row.owner_user_id)
+    )
+  }
+  // A contribution to a non-approved creative never shows on the board,
+  // so nobody was displaced and no price moved.
+  if (!ownerByAdId.has(shift.activatedAdId)) return
+
+  // Each pre-board entry collapses to one synthetic contribution: its
+  // active total stamped at its first active paid_at (nextDropAt minus
+  // the window). Totals and tie-break evidence both survive, so ranking
+  // these reproduces the pre-board exactly — and adding the new
+  // contribution yields the post-activation board.
+  const contributions: LeaderboardContribution[] = shift.preBoard.map((entry) => ({
+    adId: entry.adId,
+    amountCents: entry.activeCents,
+    paidAtMs: Date.parse(entry.nextDropAt) - LEADERBOARD_SPONSOR_WINDOW_MS
+  }))
+  const postBoard = rankLeaderboardSponsors(
+    [
+      ...contributions,
+      {
+        adId: shift.activatedAdId,
+        amountCents: shift.amountCents,
+        paidAtMs: shift.paidAtMs
+      }
+    ],
+    shift.nowMs
+  )
+  const postRankByAdId = new Map(postBoard.map((standing) => [standing.adId, standing.rank]))
+  const preTopCents = shift.preBoard[0]?.activeCents ?? 0
+  const postTopCents = postBoard[0]?.activeCents ?? 0
+
+  const candidatesByOwner = new Map<number, (NotificationInput & { dedupeKey: string })[]>()
+  const queueFor = (
+    ownerUserId: number,
+    candidate: NotificationInput & { dedupeKey: string }
+  ) => {
+    const queued = candidatesByOwner.get(ownerUserId)
+    if (queued) queued.push(candidate)
+    else candidatesByOwner.set(ownerUserId, [candidate])
+  }
+
+  for (const entry of shift.preBoard) {
+    if (entry.adId === shift.activatedAdId) continue
+    const ownerUserId = ownerByAdId.get(entry.adId)
+    if (ownerUserId === null || ownerUserId === undefined) continue
+    if (ownerUserId === shift.payerUserId) continue
+    const postRank = postRankByAdId.get(entry.adId)
+    if (postRank === undefined || postRank <= entry.rank) continue
+    queueFor(ownerUserId, {
+      type: 'premium',
+      title: 'SPONSOR SPOT OUTBID',
+      body: `Your leaderboard spot dropped to #${postRank}. Bid again to retake it.`,
+      data: {
+        kind: 'leaderboard_sponsor',
+        result: 'outbid',
+        adId: entry.adId,
+        fromRank: entry.rank,
+        toRank: postRank
+      },
+      dedupeKey: `lb_outbid_${entry.adId}_bid_${shift.ledgerRowId}`
+    })
+  }
+
+  if (postTopCents > preTopCents) {
+    const minTargetCents = leaderboardMinTargetCents(postTopCents)
+    const day = utcDayOf(shift.nowMs)
+    const onBoard = new Set(postBoard.map((standing) => standing.adId))
+    for (const [adId, ownerUserId] of ownerByAdId) {
+      if (onBoard.has(adId)) continue
+      if (ownerUserId === null || ownerUserId === shift.payerUserId) continue
+      queueFor(ownerUserId, {
+        type: 'premium',
+        title: 'SPONSOR SPOT TAKEN',
+        body: `The sponsor spot was just taken — claiming #1 now starts from ${formatSponsorUsd(minTargetCents)}. Place your bid from the sponsorship page.`,
+        data: {
+          kind: 'leaderboard_sponsor',
+          result: 'price_move',
+          adId,
+          minTargetCents
+        },
+        // One nudge per ad per UTC day, however many bids land.
+        dedupeKey: `lb_price_move_${adId}_${day}`
+      })
+    }
+  }
+
+  for (const [ownerUserId, candidates] of candidatesByOwner) {
+    await insertMissingNotifications(supabase, ownerUserId, candidates)
+  }
+}
+
+export interface SponsorSweepSummary {
+  /** Finished runs archived this pass. */
+  archived: number
+  /** Creatives currently inside the run-complete grace window. */
+  runComplete: number
+}
+
+/**
+ * Archive every APPROVED leaderboard creative whose run is finished
+ * (last PAID contribution expired more than the grace period ago) and
+ * notify owners entering or leaving the grace window. Called lazily
+ * from the admin billboard GET and daily from the leaderboard-integrity
+ * cron. Creatives that never had a paid bid are untouched — bidding
+ * stays open forever.
+ *
+ * The archive itself is the guarded compare-and-set the manual archive
+ * route uses (.eq status APPROVED), so a concurrent admin action wins
+ * cleanly. The audit row follows the teamTripwire precedent for system
+ * actions: written best-effort AFTER the status flip (withAudit's
+ * fail-closed ordering would let an audit outage keep dead runs on the
+ * books), attributed to the ad's owner; ownerless ads skip the row and
+ * log to the console instead. NEVER throws — a sweep outage must not
+ * take down the admin queue or the cron ride-along.
+ */
+export async function sweepFinishedLeaderboardSponsorAds(
+  supabase: SupabaseClient,
+  now: Date = new Date()
+): Promise<SponsorSweepSummary> {
+  const summary: SponsorSweepSummary = { archived: 0, runComplete: 0 }
+  try {
+    const { data: adData, error: adsError } = await supabase
+      .from('billboard_ads')
+      .select('id, owner_user_id')
+      .eq('placement', 'leaderboard')
+      .eq('status', 'APPROVED')
+
+    if (adsError) {
+      console.error('[LeaderboardSponsor] Sweep ads read failed:', adsError.message)
+      return summary
+    }
+    const ads = ((adData || []) as Array<{ id: number; owner_user_id: number | null }>).map(
+      (row) => ({
+        adId: Number(row.id),
+        ownerUserId: row.owner_user_id === null ? null : Number(row.owner_user_id)
+      })
+    )
+    if (ads.length === 0) return summary
+
+    const { data: bidData, error: bidsError } = await supabase
+      .from('leaderboard_sponsor_bids')
+      .select('ad_id, paid_at')
+      .eq('status', 'PAID')
+      .in('ad_id', ads.map((ad) => ad.adId))
+
+    if (bidsError) {
+      console.error('[LeaderboardSponsor] Sweep bids read failed:', bidsError.message)
+      return summary
+    }
+
+    // Latest paid_at per creative — the classifier's single input.
+    const lastPaidAtByAdId = new Map<number, string>()
+    for (const row of (bidData || []) as Array<{ ad_id: number; paid_at: string }>) {
+      const adId = Number(row.ad_id)
+      const current = lastPaidAtByAdId.get(adId)
+      if (current === undefined || row.paid_at > current) {
+        lastPaidAtByAdId.set(adId, row.paid_at)
+      }
+    }
+
+    for (const { adId, ownerUserId } of ads) {
+      try {
+        const lastPaidAt = lastPaidAtByAdId.get(adId)
+        // Never paid = bidding_open: not the sweep's business.
+        if (lastPaidAt === undefined) continue
+        const state = classifySponsorRun(Date.parse(lastPaidAt), now.getTime())
+
+        switch (state) {
+          case 'bidding_open':
+          case 'live':
+            break
+
+          case 'run_complete': {
+            summary.runComplete++
+            if (ownerUserId !== null) {
+              // Keyed on the run's last payment: a re-bid then a later
+              // expiry notifies again, a re-run of the sweep cannot.
+              await insertMissingNotifications(supabase, ownerUserId, [
+                {
+                  type: 'premium',
+                  title: 'SPONSOR RUN COMPLETE',
+                  body: 'Your sponsor run is complete. Bid again within 24h to keep your spot, or it archives automatically.',
+                  data: { kind: 'leaderboard_sponsor', result: 'run_complete', adId },
+                  dedupeKey: `lb_runcomplete_${adId}_${lastPaidAt}`
+                }
+              ])
+            }
+            break
+          }
+
+          case 'finished': {
+            // The one write that matters, guarded exactly like the
+            // manual archive: a concurrent status change matches zero
+            // rows and this pass simply moves on.
+            const { data: archivedRows, error: archiveError } = await supabase
+              .from('billboard_ads')
+              .update({ status: 'ARCHIVED', updated_at: now.toISOString() })
+              .eq('id', adId)
+              .eq('status', 'APPROVED')
+              .select('id')
+
+            if (archiveError) {
+              console.error(
+                `[LeaderboardSponsor] Sweep failed to archive ad ${adId}:`,
+                archiveError.message
+              )
+              break
+            }
+            if (!archivedRows || archivedRows.length === 0) break
+            summary.archived++
+
+            if (ownerUserId !== null) {
+              try {
+                await logAdminAction(supabase, {
+                  adminUserId: ownerUserId,
+                  targetUserId: ownerUserId,
+                  action: 'billboard_auto_archive',
+                  oldValues: { ad_id: adId, status: 'APPROVED', last_paid_at: lastPaidAt },
+                  newValues: { ad_id: adId, status: 'ARCHIVED' },
+                  reason: 'Automatic: leaderboard run complete'
+                })
+              } catch (auditError) {
+                console.error(
+                  `[LeaderboardSponsor] Sweep audit write failed for ad ${adId}:`,
+                  auditError
+                )
+              }
+              await insertMissingNotifications(supabase, ownerUserId, [
+                {
+                  type: 'premium',
+                  title: 'SPONSOR RUN ARCHIVED',
+                  body: 'Your sponsor run ended and was archived. Submit again anytime.',
+                  data: { kind: 'leaderboard_sponsor', result: 'auto_archived', adId },
+                  dedupeKey: `lb_autoarchive_${adId}_${lastPaidAt}`
+                }
+              ])
+            } else {
+              // No owner to attribute the audit row to (external-sponsor
+              // ads) — the console line is the trail instead.
+              console.log(
+                `[LeaderboardSponsor] Auto-archived ownerless leaderboard ad ${adId} (run finished; no audit row)`
+              )
+            }
+            break
+          }
+
+          default: {
+            const exhaustive: never = state
+            return exhaustive
+          }
+        }
+      } catch (adError) {
+        // One creative failing must not strand the rest of the sweep.
+        console.error(`[LeaderboardSponsor] Sweep failed on ad ${adId}:`, adError)
+      }
+    }
+  } catch (error) {
+    console.error('[LeaderboardSponsor] Sweep failed:', error)
+  }
+  return summary
 }

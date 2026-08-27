@@ -2,40 +2,58 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   BILLBOARD_MAX_LIVE,
   isLiveAd,
+  RAIL_SLOTS,
   type BillboardPlacement,
   type BillboardStatus,
   type RailSlot
 } from '@/lib/billboard'
 import {
+  LEADERBOARD_SPONSOR_GRACE_MS,
+  LEADERBOARD_SPONSOR_WINDOW_MS,
+  classifySponsorRun,
   leaderboardMinTargetCents,
   type LeaderboardSponsorEntry
 } from '@/lib/leaderboardSponsor'
-import { loadSponsorBoard } from '@/lib/leaderboardSponsorServer'
+import {
+  loadSponsorBoard,
+  sweepFinishedLeaderboardSponsorAds
+} from '@/lib/leaderboardSponsorServer'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
 import { getStaffUser } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
 // Billboard admin overview — any staff (billboard.review, the same
 // moderator-floor gate as the review decisions, so moderators can work
-// the acceptance queue; only activation stays owner-only). One call
-// returns every bucket the queue page renders:
-//   queue    — PENDING + CHANGES_REQUESTED, oldest first (FIFO review)
-//   awaiting — APPROVED but not yet live: manual payment/activation
-//              pending (flipper/rail), or bidding open with no active
-//              contribution yet (leaderboard — self-serve Polar, nothing
-//              for the operator to work)
-//   live     — flipper/rail: APPROVED + paid + inside the 7-day window,
-//              ending soonest first; leaderboard: APPROVED + standing on
-//              the sponsor board (migration 055), in rank order after
-//              the windowed ads
-//   recent   — REJECTED / ARCHIVED / expired APPROVED, newest first
+// the acceptance queue; only activation stays owner-only). The finished-
+// run sweep runs lazily at the top of every GET, so the page can never
+// show a stale finished run. One call returns every bucket the queue
+// page renders:
+//   queue       — PENDING + CHANGES_REQUESTED, oldest first (FIFO review)
+//   awaiting    — APPROVED but not yet live: manual payment/activation
+//                 pending (flipper/rail), or bidding open with no paid
+//                 contribution yet (leaderboard — self-serve Polar,
+//                 nothing for the operator to work)
+//   live        — flipper/rail: APPROVED + paid + inside the 7-day
+//                 window, ending soonest first; leaderboard: APPROVED
+//                 with the last paid bid's 24h window still running, in
+//                 rank order after the windowed ads
+//   runComplete — leaderboard only: every contribution expired but the
+//                 24h grace is still open; each row carries
+//                 autoArchivesAt (when the sweep will archive it unless
+//                 a new bid lands)
+//   recent      — REJECTED / ARCHIVED / expired APPROVED, newest first
 // Windowed live/expired are derived with isLiveAd rather than stored,
-// matching migration 030. Leaderboard liveness is the sponsor-board
-// derivation instead — each leaderboard ad is decorated with its board
-// standing (rank, active total, expiry pair) so the queue can show the
-// money facts without a second call. Owner identity is FK-embedded;
-// owner_user_id NULL means an admin-inserted external-sponsor ad and
-// ships owner: null.
+// matching migration 030. Leaderboard lifecycle comes from
+// classifySponsorRun over a DIRECT aggregate of PAID bids (latest
+// paid_at per ad), so bucketing never depends on the board derivation
+// succeeding: when loadSponsorBoard fails, boardDegraded=true and live
+// leaderboard rows just lose their standing decoration (rank/total)
+// instead of misfiling into awaiting. If the bids aggregate itself
+// fails the route returns 500 — it would rather be down than lie.
+// The server-computed counts object is the single number source both
+// admin pages render, so their KPIs can never disagree. Owner identity
+// is FK-embedded; owner_user_id NULL means an admin-inserted external-
+// sponsor ad and ships owner: null.
 
 export const dynamic = 'force-dynamic'
 
@@ -83,12 +101,21 @@ interface AdminBillboardAd {
   } | null
   /** Sponsor-board standing for 'leaderboard' creatives (migration
    *  055), decorated from the same derivation the public board serves.
-   *  Null while the creative is off the board — and always null on
-   *  flipper/rail ads, whose liveness is the 7-day window instead. */
+   *  Null while the creative is off the board, null on every
+   *  leaderboard row when the board read failed (boardDegraded) — and
+   *  always null on flipper/rail ads, whose liveness is the 7-day
+   *  window instead. */
   leaderboard: Pick<
     LeaderboardSponsorEntry,
     'rank' | 'activeCents' | 'nextDropAt' | 'expiresAt'
   > | null
+}
+
+/** A leaderboard creative inside the run-complete grace window: still
+ *  APPROVED and biddable, archived automatically at autoArchivesAt
+ *  unless a new paid bid lands first. */
+interface AdminBillboardRunCompleteAd extends AdminBillboardAd {
+  autoArchivesAt: string
 }
 
 // PostgREST returns the FK-embedded owner as a single object (many-to-
@@ -167,7 +194,12 @@ export async function GET(request: NextRequest) {
 
   try {
     const now = new Date()
-    const [active, decided, sponsorBoard] = await Promise.all([
+
+    // Lazy sweep before the reads: finished runs archive (and notify)
+    // right now, so the buckets below never show one. Never throws.
+    await sweepFinishedLeaderboardSponsorAds(supabase, now)
+
+    const [active, decided, sponsorBoard, paidBids] = await Promise.all([
       supabase
         .from('billboard_ads')
         .select(AD_COLUMNS)
@@ -180,15 +212,18 @@ export async function GET(request: NextRequest) {
         .in('status', ['REJECTED', 'ARCHIVED'])
         .order('updated_at', { ascending: false })
         .limit(RECENT_LIMIT),
-      // Best-effort: the board here is admin decoration, not the paid
-      // product (the public routes keep the throwing stance) — a bids-
-      // table hiccup must not take the review queue down. Degrading to
-      // an empty board shows live leaderboard creatives as awaiting,
-      // minus their standing facts.
-      loadSponsorBoard(supabase, now).catch((err): LeaderboardSponsorEntry[] => {
+      // Best-effort DECORATION only (rank, totals, expiry): the board
+      // here is not what buckets ads anymore — the bids aggregate below
+      // is — so a bids-table hiccup degrades to standing-less rows plus
+      // boardDegraded: true instead of misfiling live ads.
+      loadSponsorBoard(supabase, now).catch((err): null => {
         console.error('[AdminBillboard] Sponsor board read failed:', err)
-        return []
-      })
+        return null
+      }),
+      // The bucketing source of truth for leaderboard lifecycle: every
+      // PAID bid's ad_id + paid_at, aggregated to latest-per-ad below.
+      // Kept independent of loadSponsorBoard on purpose.
+      supabase.from('leaderboard_sponsor_bids').select('ad_id, paid_at').eq('status', 'PAID')
     ])
 
     if (active.error || decided.error) {
@@ -198,11 +233,34 @@ export async function GET(request: NextRequest) {
       )
       return NextResponse.json({ error: 'Failed to load sponsor ads' }, { status: 500 })
     }
+    if (paidBids.error) {
+      // Without the bids aggregate the leaderboard buckets would be
+      // guesses — refuse to serve wrong ones.
+      console.error('[AdminBillboard] Paid bids query failed:', paidBids.error)
+      return NextResponse.json({ error: 'Failed to load sponsor bids' }, { status: 500 })
+    }
 
-    const boardByAdId = new Map(sponsorBoard.map((entry) => [entry.adId, entry]))
+    const boardDegraded = sponsorBoard === null
+    const boardByAdId = new Map(
+      (sponsorBoard ?? []).map((entry) => [entry.adId, entry])
+    )
+
+    // Latest paid_at per creative — classifySponsorRun's single input.
+    const lastPaidAtMsByAdId = new Map<number, number>()
+    for (const row of (paidBids.data ?? []) as Array<{ ad_id: number; paid_at: string }>) {
+      const adId = Number(row.ad_id)
+      const paidAtMs = Date.parse(row.paid_at)
+      if (!Number.isFinite(paidAtMs)) continue
+      const current = lastPaidAtMsByAdId.get(adId)
+      if (current === undefined || paidAtMs > current) {
+        lastPaidAtMsByAdId.set(adId, paidAtMs)
+      }
+    }
+
     const queue: AdminBillboardAd[] = []
     const awaiting: AdminBillboardAd[] = []
     const live: AdminBillboardAd[] = []
+    const runComplete: AdminBillboardRunCompleteAd[] = []
     const expired: AdminBillboardAd[] = []
 
     for (const row of active.data ?? []) {
@@ -211,15 +269,42 @@ export async function GET(request: NextRequest) {
         queue.push(ad)
       } else if (ad.placement === 'leaderboard') {
         // Leaderboard creatives have no 7-day window (migration 055):
-        // APPROVED with a board standing is showing on the leaderboard
-        // right now, so it buckets live; APPROVED without one is just
-        // open for self-serve bidding and sits with awaiting. Neither
-        // ever expires into recent — the total decays contribution by
-        // contribution instead.
-        if (ad.leaderboard) {
-          live.push(ad)
-        } else {
+        // their lifecycle is the run classifier over the latest paid
+        // bid. bidding_open sits with awaiting (self-serve, nothing to
+        // work), live is showing on the board right now, run_complete
+        // rides its own bucket with the auto-archive deadline. A
+        // 'finished' straggler (the sweep just failed) surfaces as
+        // run-complete with its already-past deadline rather than
+        // misfiling as awaiting.
+        const lastPaidAtMs = lastPaidAtMsByAdId.get(ad.id) ?? null
+        if (lastPaidAtMs === null) {
           awaiting.push(ad)
+        } else {
+          const runState = classifySponsorRun(lastPaidAtMs, now.getTime())
+          switch (runState) {
+            case 'bidding_open':
+              awaiting.push(ad)
+              break
+            case 'live':
+              live.push(ad)
+              break
+            case 'run_complete':
+            case 'finished': {
+              runComplete.push({
+                ...ad,
+                autoArchivesAt: new Date(
+                  lastPaidAtMs +
+                    LEADERBOARD_SPONSOR_WINDOW_MS +
+                    LEADERBOARD_SPONSOR_GRACE_MS
+                ).toISOString()
+              })
+              break
+            }
+            default: {
+              const exhaustive: never = runState
+              return exhaustive
+            }
+          }
         }
       } else if (isLiveAd(ad, now)) {
         live.push(ad)
@@ -236,7 +321,8 @@ export async function GET(request: NextRequest) {
     awaiting.sort(byCreatedAsc)
     // Windowed ads keep ending-soonest-first; leaderboard creatives (no
     // window) follow in board-rank order — one list, each product in
-    // its natural order.
+    // its natural order. (With a degraded board every leaderboard rank
+    // is unknown; they just group with the windowed sort.)
     live.sort((a, b) => {
       if ((a.leaderboard !== null) !== (b.leaderboard !== null)) {
         return a.leaderboard !== null ? 1 : -1
@@ -244,6 +330,7 @@ export async function GET(request: NextRequest) {
       if (a.leaderboard && b.leaderboard) return a.leaderboard.rank - b.leaderboard.rank
       return (a.ends_at ?? '').localeCompare(b.ends_at ?? '')
     })
+    runComplete.sort((a, b) => a.autoArchivesAt.localeCompare(b.autoArchivesAt))
 
     const recent = [
       ...(decided.data ?? []).map((row) =>
@@ -254,23 +341,46 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
       .slice(0, RECENT_LIMIT)
 
+    const flipperLive = live.filter((ad) => ad.placement === 'flipper').length
+    const railLive = live.filter((ad) => ad.placement === 'rail').length
+
     return NextResponse.json({
       success: true,
       queue,
       awaiting,
       live,
+      runComplete,
       recent,
+      // True when the sponsor-board decoration failed to load: live
+      // leaderboard rows are still bucketed correctly (the bids
+      // aggregate is what classifies them) but carry leaderboard: null,
+      // and leaderboardMinTargetCents below falls back to the opening
+      // price. The page renders a degraded banner off this.
+      boardDegraded,
       // One live pricing value for every admin preview. Awaiting
       // leaderboard creatives use it as the total their first payment
       // must reach; live creatives use it as the board-wide OUTBID CTA.
       leaderboardMinTargetCents: leaderboardMinTargetCents(
-        sponsorBoard[0]?.activeCents ?? 0
+        sponsorBoard?.[0]?.activeCents ?? 0
       ),
-      // The dashboard's occupancy KPI reads this against maxLive (the
-      // flipper cap) — leaderboard creatives have no cap and are
-      // excluded from the count; the live ARRAY above still carries
-      // them for the queue page.
-      liveCount: live.filter((ad) => ad.placement !== 'leaderboard').length,
+      // The single server-computed number source BOTH admin pages render
+      // verbatim — the overview/list count mismatch is impossible by
+      // construction.
+      counts: {
+        queue: queue.length,
+        awaiting: awaiting.length,
+        live: live.length,
+        runComplete: runComplete.length,
+        flipperLive,
+        railLive,
+        maxFlipper: BILLBOARD_MAX_LIVE,
+        maxRail: RAIL_SLOTS.length
+      },
+      // Legacy pair kept until the pages migrate to counts: the flipper/
+      // rail occupancy KPI against maxLive (leaderboard creatives have
+      // no cap and are excluded; the live ARRAY above still carries
+      // them for the queue page).
+      liveCount: flipperLive + railLive,
       maxLive: BILLBOARD_MAX_LIVE
     })
   } catch (err) {

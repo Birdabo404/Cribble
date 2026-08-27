@@ -44,6 +44,11 @@ export const LEADERBOARD_SPONSOR_MAX_TARGET_CENTS = 1_000_000
 /** How long one paid contribution counts for, from its paid_at. */
 export const LEADERBOARD_SPONSOR_WINDOW_MS = 24 * 3_600_000
 
+/** Grace period after a creative's LAST paid contribution expires
+ *  before its run auto-archives: bidding stays open the whole time, so
+ *  a returning sponsor can re-bid and go straight back to live. */
+export const LEADERBOARD_SPONSOR_GRACE_MS = 24 * 3_600_000
+
 /** How long a PENDING ledger row counts as an in-flight checkout.
  *  Polar hosted checkouts expire about an hour after creation, so a
  *  row still PENDING past this window belongs to an abandoned checkout
@@ -228,6 +233,38 @@ export function rankLeaderboardSponsors(
       expiresAtMs: entry.lastPaidAtMs + LEADERBOARD_SPONSOR_WINDOW_MS,
       firstPaidAtMs: entry.firstPaidAtMs
     }))
+}
+
+/* ------------------------------------------------------------------ *
+ * Run-state classification — the single source of truth for a
+ * leaderboard creative's lifecycle, keyed off its LAST paid
+ * contribution. Pure so the admin bucketing, the auto-archive sweep
+ * and the tests can never disagree on what "finished" means.
+ * ------------------------------------------------------------------ */
+
+/** Where one APPROVED leaderboard creative sits in its run:
+ *  - bidding_open — never had a paid contribution; bidding stays open
+ *    forever (never auto-archived).
+ *  - live — the last contribution's 24h window is still running.
+ *  - run_complete — every contribution expired, but the 24h grace is
+ *    still open: a new bid returns the creative straight to live.
+ *  - finished — the grace lapsed too; the sweep archives it. */
+export type SponsorRunState = 'bidding_open' | 'live' | 'run_complete' | 'finished'
+
+/** Classify a creative's run at `nowMs` from its latest paid_at (null
+ *  = never paid). Boundaries mirror rankLeaderboardSponsors: at
+ *  exactly lastPaidAtMs + WINDOW the contribution is already off the
+ *  board, so the state is run_complete, and at exactly + GRACE more
+ *  the run is finished. */
+export function classifySponsorRun(
+  lastPaidAtMs: number | null,
+  nowMs: number
+): SponsorRunState {
+  if (lastPaidAtMs === null) return 'bidding_open'
+  const windowEndsMs = lastPaidAtMs + LEADERBOARD_SPONSOR_WINDOW_MS
+  if (nowMs < windowEndsMs) return 'live'
+  if (nowMs < windowEndsMs + LEADERBOARD_SPONSOR_GRACE_MS) return 'run_complete'
+  return 'finished'
 }
 
 /* ------------------------------------------------------------------ *

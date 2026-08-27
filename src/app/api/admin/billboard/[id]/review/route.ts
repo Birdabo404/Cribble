@@ -1,18 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAudit } from '@/lib/adminAudit'
-import {
-  BILLBOARD_PAYMENT_EMAIL,
-  BILLBOARD_PAYMENT_X_HANDLE,
-  BILLBOARD_PRICE_CENTS,
-  BILLBOARD_RAIL_PRICE_MIN_CENTS,
-  isRailSlot,
-  RAIL_SLOT_PRICE_CENTS,
-  type BillboardPlacement,
-  type RailSlot
-} from '@/lib/billboard'
+import { approveBillboardAd } from '@/lib/billboardReview'
 import { insertMissingNotifications, type NotificationInput } from '@/lib/notifications'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
-import { isSponsorshipEmailConfigured, sendSponsorshipPaymentEmail } from '@/lib/sponsorshipEmail'
 import { cleanReason, getStaffUser } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
@@ -28,6 +18,9 @@ import { createServiceClient } from '@/lib/supabaseServer'
 //                     goes live through the activate route. The response
 //                     carries emailStatus ('sent' | 'failed' | 'skipped')
 //                     so the admin queue knows whether to chase on X.
+//                     The decision itself lives in lib/billboardReview
+//                     (approveBillboardAd), shared verbatim with the
+//                     batch endpoint at ../review-batch.
 //   reject          — PENDING/CHANGES_REQUESTED -> REJECTED. Requires a
 //                     written reason, stored in review_note so the buyer
 //                     sees it at /sponsorship.
@@ -45,20 +38,6 @@ import { createServiceClient } from '@/lib/supabaseServer'
 export const dynamic = 'force-dynamic'
 
 const supabase = createServiceClient()
-
-/** Names the exact ask in the approval notification: the flipper's flat
- *  price, the requested slot's ladder price + code, or the ladder floor
- *  when the buyer left the slot open. */
-function approvedPriceLine(
-  placement: BillboardPlacement,
-  requestedSlot: RailSlot | null
-): string {
-  if (placement !== 'rail') return `$${BILLBOARD_PRICE_CENTS / 100}/wk`
-  if (requestedSlot) {
-    return `$${RAIL_SLOT_PRICE_CENTS[requestedSlot] / 100}/wk · slot ${requestedSlot}`
-  }
-  return `from $${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}/wk`
-}
 
 type ReviewAction = 'approve' | 'reject' | 'request_changes'
 
@@ -115,15 +94,24 @@ export async function POST(
     )
   }
 
+  // Approve is the shared decision (lib/billboardReview) so this route
+  // and the batch endpoint can never drift apart.
+  if (action === 'approve') {
+    const result = await approveBillboardAd(supabase, adId, staff.staff.userId, reason)
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.httpStatus })
+    }
+    return NextResponse.json({
+      success: true,
+      status: result.status,
+      emailStatus: result.emailStatus
+    })
+  }
+
   try {
-    // placement + requested_rail_slot ride along so the approval
-    // notification and payment email can name the exact price (and
-    // slot) being asked for; billing_email is where that email goes.
     const { data: ad, error } = await supabase
       .from('billboard_ads')
-      .select(
-        'id, owner_user_id, status, review_note, reviewed_at, placement, requested_rail_slot, billing_email'
-      )
+      .select('id, owner_user_id, status, review_note, reviewed_at')
       .eq('id', adId)
       .maybeSingle()
 
@@ -137,14 +125,11 @@ export async function POST(
 
     const currentStatus = ad.status as string
     switch (action) {
-      case 'approve':
       case 'reject':
         if (currentStatus !== 'PENDING' && currentStatus !== 'CHANGES_REQUESTED') {
           return NextResponse.json(
             {
-              error: `Only pending or changes-requested ads can be ${
-                action === 'approve' ? 'approved' : 'rejected'
-              } — this ad is ${currentStatus}`
+              error: `Only pending or changes-requested ads can be rejected — this ad is ${currentStatus}`
             },
             { status: 400 }
           )
@@ -168,13 +153,9 @@ export async function POST(
     const ownerUserId = ad.owner_user_id === null ? null : Number(ad.owner_user_id)
     const reviewedAt = new Date().toISOString()
 
-    let nextStatus: 'APPROVED' | 'REJECTED' | 'CHANGES_REQUESTED'
+    let nextStatus: 'REJECTED' | 'CHANGES_REQUESTED'
     let auditAction: string
     switch (action) {
-      case 'approve':
-        nextStatus = 'APPROVED'
-        auditAction = 'billboard_approve'
-        break
       case 'reject':
         nextStatus = 'REJECTED'
         auditAction = 'billboard_reject'
@@ -188,10 +169,6 @@ export async function POST(
         return exhaustive
       }
     }
-
-    // Approval clears any stale redo note so the buyer page never shows
-    // old feedback next to an APPROVED ad; the other two surface it.
-    const nextNote = action === 'approve' ? null : reason
 
     await withAudit(
       supabase,
@@ -208,7 +185,7 @@ export async function POST(
         newValues: {
           ad_id: adId,
           status: nextStatus,
-          review_note: nextNote,
+          review_note: reason,
           reviewed_at: reviewedAt
         },
         reason
@@ -221,7 +198,7 @@ export async function POST(
           .from('billboard_ads')
           .update({
             status: nextStatus,
-            review_note: nextNote,
+            review_note: reason,
             reviewed_by: actorId,
             reviewed_at: reviewedAt,
             updated_at: reviewedAt
@@ -242,51 +219,6 @@ export async function POST(
       }
     )
 
-    // The exact ask, shared by the payment email and the approval
-    // notification below.
-    const placement: BillboardPlacement =
-      ad.placement === 'rail'
-        ? 'rail'
-        : ad.placement === 'leaderboard'
-          ? 'leaderboard'
-          : 'flipper'
-    const requestedSlot: RailSlot | null = isRailSlot(ad.requested_rail_slot)
-      ? ad.requested_rail_slot
-      : null
-    const priceLine = approvedPriceLine(placement, requestedSlot)
-    const billingEmail =
-      typeof ad.billing_email === 'string' && ad.billing_email ? ad.billing_email : null
-
-    // Best-effort payment email — the primary channel since migration
-    // 040. 'skipped' means there was nothing to send (no billing_email
-    // on file, or the email env is unset) and ops chases over X DM
-    // instead. The sender keys on ad id + reviewed_at, so a retried
-    // approve can't double-deliver. A failure never fails the approve —
-    // the admin queue reads emailStatus off the response and falls back
-    // to X.
-    // Leaderboard creatives never get the manual-payment ask: their
-    // payment is self-serve Polar bidding (migration 055), and approval
-    // just opens the bid button.
-    let emailStatus: 'sent' | 'failed' | 'skipped' = 'skipped'
-    if (
-      action === 'approve' &&
-      placement !== 'leaderboard' &&
-      billingEmail &&
-      isSponsorshipEmailConfigured()
-    ) {
-      const emailResult = await sendSponsorshipPaymentEmail({
-        to: billingEmail,
-        adId,
-        reviewedAt,
-        placement,
-        priceLine
-      })
-      emailStatus = emailResult.ok ? 'sent' : 'failed'
-      if (!emailResult.ok) {
-        console.error('[AdminBillboardReview] Payment email failed:', emailResult.error)
-      }
-    }
-
     // Best-effort: tell the buyer the outcome. Keyed on the decision
     // timestamp so a later re-review (after a resubmit) notifies again
     // while a double-submit cannot. External-sponsor ads have no account
@@ -294,36 +226,6 @@ export async function POST(
     if (ownerUserId !== null) {
       let notification: NotificationInput & { dedupeKey: string }
       switch (action) {
-        case 'approve': {
-          // Email-first: point at the thread that actually closes the
-          // deal when a send went out; otherwise (no billing_email, env
-          // unset, provider failure) name the public billing address
-          // instead of claiming an email that never landed. X DM stays
-          // the backup channel either way.
-          const paymentLine =
-            emailStatus === 'sent'
-              ? `Payment instructions (${priceLine}) were emailed to ${billingEmail} — reply there to complete payment, or DM @${BILLBOARD_PAYMENT_X_HANDLE} on X as backup.`
-              : `To complete payment (${priceLine}), email ${BILLBOARD_PAYMENT_EMAIL} — or DM @${BILLBOARD_PAYMENT_X_HANDLE} on X as backup.`
-          // Leaderboard approval opens self-serve bidding (migration
-          // 055) — no manual ask, no activation wait.
-          notification =
-            placement === 'leaderboard'
-              ? {
-                  type: 'premium',
-                  title: 'SPONSORSHIP AD APPROVED',
-                  body: 'Your leaderboard sponsor creative passed review. Bidding is open — place a bid from the sponsorship page and your spot activates the moment payment completes.',
-                  data: { kind: 'billboard_review', result: 'approved', adId },
-                  dedupeKey: `billboard_${adId}_approved_${reviewedAt}`
-                }
-              : {
-                  type: 'premium',
-                  title: 'SPONSORSHIP AD APPROVED',
-                  body: `Your sponsor ad passed review. ${paymentLine} Once it's confirmed, your ad is activated and goes live, usually within a few minutes to a few hours.`,
-                  data: { kind: 'billboard_review', result: 'approved', adId },
-                  dedupeKey: `billboard_${adId}_approved_${reviewedAt}`
-                }
-          break
-        }
         case 'reject':
           notification = {
             type: 'premium',
@@ -352,7 +254,7 @@ export async function POST(
 
     // emailStatus rides on every decision for a uniform shape; only an
     // approve can move it off 'skipped'.
-    return NextResponse.json({ success: true, status: nextStatus, emailStatus })
+    return NextResponse.json({ success: true, status: nextStatus, emailStatus: 'skipped' })
   } catch (err) {
     console.error('[AdminBillboardReview] Action failed:', err)
     return NextResponse.json({ error: 'Failed to apply review decision' }, { status: 500 })
