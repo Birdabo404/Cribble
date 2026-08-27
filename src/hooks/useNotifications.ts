@@ -46,12 +46,16 @@ export interface NotificationsApi {
  * NotificationsProvider ONLY — a second mount would restore the duplicate
  * polling the provider exists to remove.
  */
-export function useNotificationsSource(): NotificationsApi {
+export function useNotificationsSource(enabled = true): NotificationsApi {
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
+    if (!enabled) {
+      setLoading(false)
+      return
+    }
     try {
       const res = await fetch('/api/user/notifications', { credentials: 'include' })
       if (!res.ok) return
@@ -69,7 +73,7 @@ export function useNotificationsSource(): NotificationsApi {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [enabled])
 
   useEffect(() => {
     void refresh()
@@ -108,6 +112,7 @@ export function useNotificationsSource(): NotificationsApi {
   }, [refresh])
 
   const markAllRead = useCallback(async () => {
+    if (!enabled) return
     setUnreadCount(0)
     try {
       await fetch('/api/user/notifications', {
@@ -117,7 +122,7 @@ export function useNotificationsSource(): NotificationsApi {
         body: JSON.stringify({ all: true })
       })
     } catch {}
-  }, [])
+  }, [enabled])
 
   // Memoized so provider re-renders from above don't cascade into every
   // bell — the reference only changes when the feed state itself does.
