@@ -11,11 +11,13 @@
 // the server markup never disagrees with the localStorage-seeded prefs.
 
 import { useEffect, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { useNavPrefs } from '@/components/nav/NavPrefsContext'
 import { FeedbackModal } from './FeedbackModal'
 
 export function FeedbackLauncher() {
   const prefs = useNavPrefs()
+  const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
 
@@ -25,6 +27,14 @@ export function FeedbackLauncher() {
 
   const railOffset =
     prefs?.position === 'left' ? 'md:left-[calc(var(--nav-rail-w)_+_1.25rem)]' : ''
+  // At split-screen desktop widths the launcher enters the centered board and
+  // can cover its sticky current-user row. The board owns that bottom band, so
+  // yield one row only while those two geometries can intersect. Mobile keeps
+  // its established launcher position; wide desktop keeps the launcher in the
+  // otherwise-empty page gutter. CSS viewport breakpoints also make this hold
+  // under browser zoom.
+  const leaderboardClearance =
+    pathname === '/leaderboard' ? 'md:max-xl:bottom-24' : ''
 
   return (
     <>
@@ -33,7 +43,7 @@ export function FeedbackLauncher() {
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
         aria-label="Send feedback"
-        className={`group fixed bottom-5 left-5 z-[60] inline-flex h-9 items-center gap-2 rounded-full glass-pop px-4 font-mono text-[9px] tracking-[0.3em] text-zinc-300 [transition:left_560ms_var(--nav-ease),color_200ms_ease,box-shadow_300ms_ease] hover:text-zinc-50 hover:shadow-[var(--glass-shadow),inset_0_1px_0_var(--glass-highlight),0_0_18px_rgb(var(--accent-rgb)/0.18)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 ${railOffset}`}
+        className={`group fixed bottom-5 left-5 z-[60] inline-flex h-9 items-center gap-2 rounded-full glass-pop px-4 font-mono text-[9px] tracking-[0.3em] text-zinc-300 [transition:bottom_200ms_ease,left_560ms_var(--nav-ease),color_200ms_ease,box-shadow_300ms_ease] hover:text-zinc-50 hover:shadow-[var(--glass-shadow),inset_0_1px_0_var(--glass-highlight),0_0_18px_rgb(var(--accent-rgb)/0.18)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 ${railOffset} ${leaderboardClearance}`}
       >
         <svg
           viewBox="0 0 24 24"
