@@ -139,7 +139,7 @@ async function handle(request: NextRequest) {
   const checkedAt = new Date()
 
   try {
-    let [apiRows, canonicalRows, snapshotRows] = await Promise.all([
+    const [apiRows, canonicalRows, snapshotRows] = await Promise.all([
       loadApiRows(request, secret!),
       loadCanonicalRows(supabase),
       loadSnapshotRows(supabase)
@@ -154,9 +154,7 @@ async function handle(request: NextRequest) {
         loadApiRows(request, secret!),
         loadCanonicalRows(supabase)
       ])
-      apiRows = retriedApiRows
-      canonicalRows = retriedCanonicalRows
-      report = assessLeaderboardIntegrity(apiRows, canonicalRows, snapshotRows)
+      report = assessLeaderboardIntegrity(retriedApiRows, retriedCanonicalRows, snapshotRows)
     }
 
     if (!report.healthy) {
