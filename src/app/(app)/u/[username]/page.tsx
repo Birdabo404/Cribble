@@ -38,6 +38,7 @@ import {
   ToolIcon,
   type SocialKind
 } from '@/components/leaderboard/icons'
+import { TokenAgentIcon } from '@/components/leaderboard/TokenAgentIcon'
 import { medalA, medalFor, ROLE_META } from '@/components/leaderboard/types'
 import { BannerStudioModal } from '@/components/profile/BannerStudioModal'
 import { EditProfileModal, type EditableProfile } from '@/components/profile/EditProfileModal'
@@ -48,10 +49,12 @@ import { ReferralPlate } from '@/components/profile/ReferralPlate'
 import { TeamBadge } from '@/components/premium/TeamBadge'
 import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
+import { useSettingsModal } from '@/components/settings/SettingsModalContext'
 import { toast } from '@/components/Toaster'
 import { ACHIEVEMENTS } from '@/lib/achievements'
 import { fetchMe } from '@/lib/client/fetchMe'
 import { isApprovedTeam, isProTier } from '@/lib/entitlements'
+import { tokenAgentLabel } from '@/lib/tokenLeaderboard'
 import type { PublicProfileData } from '@/types/profile'
 import { ROLE_ICONS } from '@/components/roleIcons'
 
@@ -106,6 +109,7 @@ const PATH_LOCK =
 // Next 15: route params arrive as a Promise; unwrap with React.use().
 export default function PilotProfilePage({ params }: { params: Promise<{ username: string }> }) {
   const { username } = use(params)
+  const { openSettings } = useSettingsModal()
 
   const [profile, setProfile] = useState<PublicProfileData | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading')
@@ -709,8 +713,9 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
           {profile.restricted ? (
             <LockedPanel className="mt-4" hint={`Follow @${profile.username} to see their loadout.`} />
           ) : (
+          <>
           <div className="mt-4 space-y-3">
-            {profile.topTools.length === 0 && (
+            {profile.topTools.length === 0 && profile.topAgents.length === 0 && (
               <div className="py-4 text-center text-[10px] tracking-[0.2em] text-zinc-600">
                 NO FIELD DATA YET
               </div>
@@ -745,6 +750,57 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
               </div>
             ))}
           </div>
+          {profile.topAgents.length > 0 && (
+            <>
+              <div className="mt-4 h-px bg-white/[0.06]" />
+              <div className="mt-4 flex items-baseline justify-between text-[9px] tracking-[0.35em] text-zinc-500">
+                <span>AGENTIC</span>
+                <span className="tracking-[0.25em] text-zinc-700">SHARE OF TOKENS</span>
+              </div>
+              <div className="mt-3 space-y-3">
+                {profile.topAgents.map((agent, i) => (
+                  <div key={agent.name} className="flex items-center gap-3">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.02]">
+                      <TokenAgentIcon agent={agent.name} bare size={15} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="truncate font-display text-xs font-medium text-zinc-200">
+                          {tokenAgentLabel(agent.name)}
+                        </span>
+                        <span className="shrink-0 text-[10px] tabular-nums text-zinc-500">{agent.percent}%</span>
+                      </div>
+                      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/[0.06]">
+                        <div
+                          className="pf-bar h-full rounded-full"
+                          style={{
+                            width: `${Math.max(3, agent.percent)}%`,
+                            // Ember, the Burn Board's hue — tokens are a
+                            // different currency than the score bars above.
+                            background:
+                              i === 0
+                                ? 'linear-gradient(90deg, rgb(var(--ember-rgb) / 0.5), rgb(var(--ember-rgb)))'
+                                : 'linear-gradient(90deg, rgb(var(--z600)), rgb(var(--z400)))',
+                            animationDelay: `${200 + i * 120}ms`
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+          {isYou && profile.topAgents.length === 0 && (
+            <button
+              type="button"
+              onClick={() => openSettings('account')}
+              className="mt-4 block w-full text-center text-[9px] tracking-[0.3em] text-zinc-600 transition-colors hover:text-accent"
+            >
+              PUBLISH YOUR AGENTS →
+            </button>
+          )}
+          </>
           )}
         </section>
 

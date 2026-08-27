@@ -1,0 +1,194 @@
+import { timingSafeEqual } from 'node:crypto'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { NextRequest, NextResponse } from 'next/server'
+import {
+  alertLeaderboardIntegrity,
+  assessLeaderboardIntegrity,
+  leaderboardMonitorError,
+  type IntegrityStanding
+} from '@/lib/leaderboardIntegrity'
+import { createServiceClient } from '@/lib/supabaseServer'
+
+export const dynamic = 'force-dynamic'
+
+interface CanonicalRow {
+  user_id: number | string
+  rank: number | string
+  score: number | string
+}
+
+interface SnapshotRow {
+  user_id: number | string
+  rank: number | string
+  score?: number | string | null
+}
+
+function secretMatches(supplied: string | null): boolean {
+  const expected =
+    process.env.CRON_SECRET ??
+    (process.env.NODE_ENV !== 'production' ? 'dev-cron-secret' : null)
+  if (!expected || !supplied) return false
+
+  const suppliedBytes = Buffer.from(supplied)
+  const expectedBytes = Buffer.from(expected)
+  return (
+    suppliedBytes.length === expectedBytes.length &&
+    timingSafeEqual(suppliedBytes, expectedBytes)
+  )
+}
+
+function suppliedSecret(request: NextRequest): string | null {
+  return (
+    request.headers.get('x-cron-secret') ??
+    request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ??
+    null
+  )
+}
+
+function normalizeStanding(
+  userIdValue: unknown,
+  rankValue: unknown,
+  scoreValue: unknown,
+  source: string
+): IntegrityStanding {
+  const userId = Number(userIdValue)
+  const rank = Number(rankValue)
+  const score = Number(scoreValue ?? 0)
+  if (
+    !Number.isInteger(userId) ||
+    userId <= 0 ||
+    !Number.isInteger(rank) ||
+    rank <= 0 ||
+    !Number.isFinite(score)
+  ) {
+    throw new Error(`${source} returned a malformed standing`)
+  }
+  return { userId, rank, score }
+}
+
+async function loadCanonicalRows(
+  supabase: SupabaseClient
+): Promise<IntegrityStanding[]> {
+  const { data, error } = await supabase.rpc('leaderboard_standings', {
+    p_board: 'alltime',
+    p_limit: 100
+  })
+  if (error) {
+    throw new Error(`Canonical standings failed: ${error.message}`)
+  }
+  return ((data || []) as unknown as CanonicalRow[]).map((row) =>
+    normalizeStanding(row.user_id, row.rank, row.score, 'Canonical ranker')
+  )
+}
+
+async function loadSnapshotRows(
+  supabase: SupabaseClient
+): Promise<IntegrityStanding[]> {
+  const { data, error } = await supabase
+    .from('leaderboard_ranks')
+    .select('user_id, rank, score')
+    .order('rank', { ascending: true })
+  if (error) {
+    throw new Error(`Snapshot standings failed: ${error.message}`)
+  }
+  return ((data || []) as unknown as SnapshotRow[]).map((row) =>
+    normalizeStanding(row.user_id, row.rank, row.score, 'Snapshot ledger')
+  )
+}
+
+async function loadApiRows(
+  request: NextRequest,
+  cronSecret: string
+): Promise<IntegrityStanding[]> {
+  const endpoint = new URL('/api/leaderboard', request.url)
+  endpoint.searchParams.set('board', 'alltime')
+  endpoint.searchParams.set('integrity', '1')
+
+  const response = await fetch(endpoint, {
+    headers: { 'x-cron-secret': cronSecret },
+    cache: 'no-store'
+  })
+  if (!response.ok) {
+    throw new Error(`Leaderboard API probe returned HTTP ${response.status}`)
+  }
+
+  const payload = (await response.json()) as {
+    success?: unknown
+    data?: unknown
+  }
+  if (payload.success !== true || !Array.isArray(payload.data)) {
+    throw new Error('Leaderboard API probe returned a malformed payload')
+  }
+
+  return payload.data.map((value) => {
+    if (!value || typeof value !== 'object') {
+      throw new Error('Leaderboard API returned a malformed standing')
+    }
+    const row = value as Record<string, unknown>
+    return normalizeStanding(row.userId, row.rank, row.score, 'Leaderboard API')
+  })
+}
+
+async function handle(request: NextRequest) {
+  const secret = suppliedSecret(request)
+  if (!secretMatches(secret)) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const supabase = createServiceClient()
+  const checkedAt = new Date()
+
+  try {
+    let [apiRows, canonicalRows, snapshotRows] = await Promise.all([
+      loadApiRows(request, secret!),
+      loadCanonicalRows(supabase),
+      loadSnapshotRows(supabase)
+    ])
+    let report = assessLeaderboardIntegrity(apiRows, canonicalRows, snapshotRows)
+
+    // A score can commit between the independent API and monitor reads.
+    // Confirm a top mismatch once with two fresh reads before alerting;
+    // duplicate-rank findings do not need a retry.
+    if (report.issues.some((issue) => issue.code === 'top_mismatch')) {
+      const [retriedApiRows, retriedCanonicalRows] = await Promise.all([
+        loadApiRows(request, secret!),
+        loadCanonicalRows(supabase)
+      ])
+      apiRows = retriedApiRows
+      canonicalRows = retriedCanonicalRows
+      report = assessLeaderboardIntegrity(apiRows, canonicalRows, snapshotRows)
+    }
+
+    if (!report.healthy) {
+      console.error('[LeaderboardIntegrity] Check failed:', JSON.stringify(report))
+      await alertLeaderboardIntegrity(supabase, report, checkedAt)
+      return NextResponse.json(
+        { success: false, checkedAt: checkedAt.toISOString(), ...report },
+        { status: 500 }
+      )
+    }
+
+    return NextResponse.json({
+      success: true,
+      checkedAt: checkedAt.toISOString(),
+      healthy: true,
+      playersChecked: apiRows.length
+    })
+  } catch (error) {
+    const report = leaderboardMonitorError(error)
+    console.error('[LeaderboardIntegrity] Monitor failed:', error)
+    await alertLeaderboardIntegrity(supabase, report, checkedAt)
+    return NextResponse.json(
+      { success: false, checkedAt: checkedAt.toISOString(), ...report },
+      { status: 500 }
+    )
+  }
+}
+
+export async function GET(request: NextRequest) {
+  return handle(request)
+}
+
+export async function POST(request: NextRequest) {
+  return handle(request)
+}

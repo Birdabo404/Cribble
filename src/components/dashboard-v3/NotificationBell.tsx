@@ -21,6 +21,7 @@ import Link from 'next/link'
 import { PixelIcon } from '@/components/achievements/PixelIcon'
 import { Avatar } from '@/components/leaderboard/Avatar'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
+import { useSettingsModal } from '@/components/settings/SettingsModalContext'
 import { useNotifications } from '@/hooks/useNotifications'
 import { ACHIEVEMENTS_BY_ID } from '@/lib/achievements'
 import { followActor, teamActor } from '@/types/notifications'
@@ -576,6 +577,7 @@ export function NotificationBell({
   placement?: 'bottom' | 'side'
 }) {
   const { notifications, unreadCount, loading, refresh, markAllRead } = useNotifications()
+  const { openSettings } = useSettingsModal()
   const [open, setOpen] = useState(false)
   const [freshIds, setFreshIds] = useState<Set<number>>(new Set())
   const rootRef = useRef<HTMLDivElement>(null)
@@ -708,13 +710,17 @@ export function NotificationBell({
               {freshCount > 0 && (
                 <span className="text-[10px] text-zinc-400">{freshCount} new</span>
               )}
-              <Link
-                href="/settings/notifications"
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  openSettings('notifications')
+                }}
                 aria-label="Notification settings"
                 className="rounded text-zinc-500 transition-colors hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
               >
                 <StrokeIcon d={ICON_PATHS.settings} className="h-3.5 w-3.5" />
-              </Link>
+              </button>
             </div>
           </div>
 

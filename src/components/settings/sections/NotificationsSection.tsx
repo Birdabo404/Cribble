@@ -49,7 +49,7 @@ function LoadFailedRow({ onRetry }: { onRetry: () => void }) {
   )
 }
 
-export default function NotificationsSettingsPage() {
+export function NotificationsSection() {
   const [prefs, setPrefs] = useState<Preferences | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [attempt, setAttempt] = useState(0)

@@ -2,9 +2,10 @@
 // endpoints (/api/leaderboard/profile by id, /api/profile/[username]
 // by handle) so the leaderboard card and the full profile page can
 // never drift apart. Exposes only data already visible on the
-// leaderboard plus persisted achievement unlocks and the user's own
-// published profile fields (bio, location, website, socials) —
-// never tokens, emails, devices or admin fields.
+// leaderboard plus persisted achievement unlocks, the user's own
+// published profile fields (bio, location, website, socials), and —
+// strictly opt-in via the token-sharing consent — their agent CLI mix.
+// Never emails, devices or admin fields.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
@@ -19,6 +20,11 @@ import {
   isProTier,
   resolveEquippedPlate
 } from '@/lib/entitlements'
+import {
+  buildProfileAgents,
+  type AgentProfileRow,
+  type PublicProfileAgent
+} from '@/lib/profileAgents'
 import { getAffiliatedTeamsBatch } from '@/lib/teams'
 import {
   ensureUserStatsRollup,
@@ -83,6 +89,9 @@ export interface PublicProfile {
   longestStreak: number
   totalActiveMs: number
   topTools: PublicProfileTool[]
+  /** Opt-in agent CLI mix by share of lifetime tokens — empty unless the
+   *  owner enabled token sharing (consent v2). Never a ranking input. */
+  topAgents: PublicProfileAgent[]
   badges: PublicProfileBadge[]
   /** Account is in private mode (owner opted in via profile settings). */
   isPrivate: boolean
@@ -208,7 +217,7 @@ export async function loadPublicProfile(
   // rollup reads straight off the already-fetched user_scores columns;
   // only a row that predates migration 036 (stats_updated_at NULL) pays
   // a one-time events backfill here.
-  const [rankRes, snapshotRes, badgesRes, rollup, ownedPlateIds, affiliatedTeams] =
+  const [rankRes, snapshotRes, badgesRes, rollup, ownedPlateIds, affiliatedTeams, agentsRes] =
     await Promise.all([
       totalScore > 0
         ? supabase
@@ -228,7 +237,8 @@ export async function loadPublicProfile(
         .order('unlocked_at', { ascending: false }),
       ensureUserStatsRollup(supabase, row.id, row.user_scores ?? null),
       getOwnedPlateIds(supabase, row.id),
-      getAffiliatedTeamsBatch(supabase, [row.id])
+      getAffiliatedTeamsBatch(supabase, [row.id]),
+      supabase.rpc('agent_profile_agents', { p_user_id: row.id })
     ])
 
   const rank =
@@ -282,6 +292,21 @@ export async function loadPublicProfile(
       active_ms,
       percent
     }))
+
+  // Agent CLI mix — at most one consent-gated aggregate row; zero rows
+  // means not opted in, no usage, or not active. PGRST202/42883 mean
+  // migration 058 hasn't deployed yet (same tolerance as the tokens
+  // route); any error degrades to an empty block without failing the
+  // profile, since this is display-only decoration.
+  if (
+    agentsRes.error &&
+    agentsRes.error.code !== 'PGRST202' &&
+    agentsRes.error.code !== '42883'
+  ) {
+    console.error('[PublicProfile] Agent breakdown query error:', agentsRes.error)
+  }
+  const agentRows = (agentsRes.error ? [] : agentsRes.data ?? []) as AgentProfileRow[]
+  const topAgents = buildProfileAgents(agentRows[0] ?? null)
 
   const now = new Date()
   const lastCalc = row.user_scores?.last_calculated_at || null
@@ -370,6 +395,7 @@ export async function loadPublicProfile(
       longestStreak: rollup?.longestStreak ?? 0,
       totalActiveMs: rollup?.totalActiveMs ?? 0,
       topTools,
+      topAgents,
       badges,
       isPrivate: readAccountIsPrivate(meta),
       restricted: false
@@ -395,7 +421,7 @@ export function gateProfileForViewer(
   const canSee =
     !profile.isPrivate || viewer?.isYou === true || viewer?.isFollowing === true
   if (canSee) return profile
-  return { ...profile, topTools: [], badges: [], restricted: true }
+  return { ...profile, topTools: [], topAgents: [], badges: [], restricted: true }
 }
 
 /* ------------------------------------------------------------------ */

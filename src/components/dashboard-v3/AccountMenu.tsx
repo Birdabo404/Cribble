@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { tierAccent } from '@/components/dashboard-v2/format'
+import { useSettingsModal } from '@/components/settings/SettingsModalContext'
+import type { SettingsSectionId } from '@/components/settings/sectionIds'
 import type { ActiveDevice, MeUser } from '@/types/dashboard'
 
 /* ---------- icons (14px, stroke) ---------- */
@@ -48,7 +50,7 @@ export function AccountMenu({
 }: {
   user: MeUser
   /** Accepted for nav-shell API compatibility; the device panel now lives
-   *  at /settings/account. */
+   *  in the settings modal's Account section. */
   activeDevice: ActiveDevice | null
   onLogout: () => void
   /** 'pill' = avatar pill for the top bar; 'rail' = command-rail row with a
@@ -59,6 +61,13 @@ export function AccountMenu({
   const [isStaff, setIsStaff] = useState(false)
   const staffCheckedRef = useRef(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  const { openSettings } = useSettingsModal()
+
+  // Settings rows open the floating modal in place instead of navigating.
+  const openSettingsSection = (section: SettingsSectionId) => {
+    setOpen(false)
+    openSettings(section)
+  }
 
   // Staff check is lazy (first menu open only) and self-scoped: the
   // endpoint 403s for regular users and only ever reveals the caller's
@@ -280,9 +289,9 @@ export function AccountMenu({
                 <span className={arrowCls}>→</span>
               </Link>
             )}
-            <Link
-              href="/settings/account"
-              onClick={() => setOpen(false)}
+            <button
+              type="button"
+              onClick={() => openSettingsSection('account')}
               role="menuitem"
               className={itemCls}
             >
@@ -291,10 +300,10 @@ export function AccountMenu({
               </span>
               SETTINGS
               <span className={arrowCls}>→</span>
-            </Link>
-            <Link
-              href="/settings/billing"
-              onClick={() => setOpen(false)}
+            </button>
+            <button
+              type="button"
+              onClick={() => openSettingsSection('billing')}
               role="menuitem"
               className="group w-full flex items-center gap-3 px-3.5 py-2.5 text-left text-[11px] tracking-[0.2em] text-zinc-300 hover:text-zinc-50 hover:bg-amber-300/[0.06] transition-colors"
             >
@@ -303,7 +312,7 @@ export function AccountMenu({
               </span>
               CRIBBLE PREMIUM
               <span className={arrowCls}>→</span>
-            </Link>
+            </button>
             {/* Sponsor door — shares Premium's amber so the monetization
                 rows read as one cluster. */}
             <Link
@@ -318,9 +327,9 @@ export function AccountMenu({
               SPONSORSHIP
               <span className={arrowCls}>→</span>
             </Link>
-            <Link
-              href="/settings/privacy"
-              onClick={() => setOpen(false)}
+            <button
+              type="button"
+              onClick={() => openSettingsSection('privacy')}
               role="menuitem"
               className={itemCls}
             >
@@ -329,7 +338,7 @@ export function AccountMenu({
               </span>
               PRIVACY & SECURITY
               <span className={arrowCls}>→</span>
-            </Link>
+            </button>
             {isStaff && (
               <Link
                 href="/admin"

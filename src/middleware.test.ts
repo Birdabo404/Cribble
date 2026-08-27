@@ -128,6 +128,14 @@ describe('middleware site lock', () => {
     expect(middleware(request('/api/shop/checkout')).status).toBe(404)
   })
 
+  it('keeps operational cron routes reachable while locked', () => {
+    vi.stubEnv('SITE_LOCKED', '1')
+    expect(middleware(request('/api/cron/season')).status).toBe(200)
+    expect(middleware(request('/api/cron/insights-rollup')).status).toBe(200)
+    expect(middleware(request('/api/cron/leaderboard-integrity')).status).toBe(200)
+    expect(middleware(request('/api/cron/unknown')).status).toBe(404)
+  })
+
   it('leaves allowlisted pages alone while locked', () => {
     vi.stubEnv('SITE_LOCKED', '1')
     expect(rewriteTarget('/leaderboard')).toBeNull()

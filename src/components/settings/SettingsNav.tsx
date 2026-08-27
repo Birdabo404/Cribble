@@ -1,13 +1,13 @@
 'use client'
 
-// Settings section navigation: 220px sticky sidebar on md+, horizontally
-// scrollable pill tabs under the page header below md. Active state derives
-// from the pathname. The sidebar footer carries sign-out + build info.
+// Settings section navigation for the settings modal: 220px sidebar on
+// md+, horizontally scrollable pill tabs under the modal header below md.
+// Selection is plain component state owned by SettingsModal — no routes.
+// The sidebar footer carries sign-out + build info.
 
 import { useCallback, useState } from 'react'
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
+import type { SettingsSectionId } from './sectionIds'
 
 function IconBase({ children }: { children: ReactNode }) {
   return (
@@ -79,26 +79,26 @@ const ICON_SIGN_OUT = (
 )
 
 interface SettingsNavItem {
-  href: string
+  id: SettingsSectionId
   label: string
   icon: ReactNode
 }
 
 export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
-  { href: '/settings/account', label: 'Account', icon: ICON_USER },
-  { href: '/settings/profile', label: 'Profile', icon: ICON_ID_CARD },
-  { href: '/settings/appearance', label: 'Appearance', icon: ICON_SUN },
-  { href: '/settings/notifications', label: 'Notifications', icon: ICON_BELL },
-  { href: '/settings/privacy', label: 'Privacy', icon: ICON_SHIELD },
-  { href: '/settings/billing', label: 'Billing', icon: ICON_CARD }
+  { id: 'account', label: 'Account', icon: ICON_USER },
+  { id: 'profile', label: 'Profile', icon: ICON_ID_CARD },
+  { id: 'appearance', label: 'Appearance', icon: ICON_SUN },
+  { id: 'notifications', label: 'Notifications', icon: ICON_BELL },
+  { id: 'privacy', label: 'Privacy', icon: ICON_SHIELD },
+  { id: 'billing', label: 'Billing', icon: ICON_CARD }
 ]
 
-function isActive(pathname: string, href: string): boolean {
-  return pathname === href || pathname.startsWith(`${href}/`)
+export interface SettingsNavProps {
+  section: SettingsSectionId
+  onSelect: (section: SettingsSectionId) => void
 }
 
-export function SettingsSidebar() {
-  const pathname = usePathname() ?? ''
+export function SettingsSidebar({ section, onSelect }: SettingsNavProps) {
   const [signingOut, setSigningOut] = useState(false)
 
   // Mirrors useNavUser.logout, but with a hard navigation so every piece
@@ -114,71 +114,69 @@ export function SettingsSidebar() {
   }, [signingOut])
 
   return (
-    <aside className="hidden w-[220px] shrink-0 md:block">
-      <div className="sticky top-[calc(var(--st-sticky-top)+2.5rem)]">
-        <nav aria-label="Settings sections" className="flex flex-col gap-0.5">
-          {SETTINGS_NAV_ITEMS.map((item) => {
-            const active = isActive(pathname, item.href)
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? 'page' : undefined}
-                className={`flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13.5px] leading-5 transition-colors duration-150 ${
-                  active
-                    ? 'bg-[color:var(--st-panel-hover)] font-medium text-[color:var(--st-text)]'
-                    : 'text-[color:var(--st-text-muted)] hover:bg-[color:var(--st-panel-hover)] hover:text-[color:var(--st-text)]'
-                }`}
-              >
-                <span className="shrink-0">{item.icon}</span>
-                {item.label}
-              </Link>
-            )
-          })}
-        </nav>
+    <aside className="hidden w-[220px] shrink-0 flex-col overflow-y-auto border-r border-[color:var(--st-border)] p-3 md:flex">
+      <nav aria-label="Settings sections" className="flex flex-col gap-0.5">
+        {SETTINGS_NAV_ITEMS.map((item) => {
+          const active = item.id === section
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onSelect(item.id)}
+              aria-current={active ? 'true' : undefined}
+              className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13.5px] leading-5 transition-colors duration-150 ${
+                active
+                  ? 'bg-[color:var(--st-panel-hover)] font-medium text-[color:var(--st-text)]'
+                  : 'text-[color:var(--st-text-muted)] hover:bg-[color:var(--st-panel-hover)] hover:text-[color:var(--st-text)]'
+              }`}
+            >
+              <span className="shrink-0">{item.icon}</span>
+              {item.label}
+            </button>
+          )
+        })}
+      </nav>
 
-        <div className="mt-6 border-t border-[color:var(--st-border)] pt-3">
-          <button
-            type="button"
-            onClick={handleSignOut}
-            disabled={signingOut}
-            className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13.5px] leading-5 text-[color:var(--st-text-muted)] transition-colors duration-150 hover:bg-[color:var(--st-panel-hover)] hover:text-[color:var(--st-text)] disabled:cursor-wait disabled:opacity-60"
-          >
-            <span className="shrink-0">{ICON_SIGN_OUT}</span>
-            {signingOut ? 'Signing out…' : 'Sign out'}
-          </button>
-          <p className="mt-3 px-2.5 text-[11px] leading-4 text-[color:var(--st-text-faint)]">
-            v0.1.1 · Private beta
-          </p>
-        </div>
+      <div className="mt-auto border-t border-[color:var(--st-border)] pt-3">
+        <button
+          type="button"
+          onClick={handleSignOut}
+          disabled={signingOut}
+          className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13.5px] leading-5 text-[color:var(--st-text-muted)] transition-colors duration-150 hover:bg-[color:var(--st-panel-hover)] hover:text-[color:var(--st-text)] disabled:cursor-wait disabled:opacity-60"
+        >
+          <span className="shrink-0">{ICON_SIGN_OUT}</span>
+          {signingOut ? 'Signing out…' : 'Sign out'}
+        </button>
+        <p className="mt-3 px-2.5 text-[11px] leading-4 text-[color:var(--st-text-faint)]">
+          v0.1.1 · Private beta
+        </p>
       </div>
     </aside>
   )
 }
 
-export function SettingsMobileTabs() {
-  const pathname = usePathname() ?? ''
-
+export function SettingsMobileTabs({ section, onSelect }: SettingsNavProps) {
   return (
     <nav
       aria-label="Settings sections"
-      className="st-no-scrollbar sticky top-[var(--st-sticky-top)] z-20 -mx-4 flex snap-x gap-2 overflow-x-auto border-b border-[color:var(--st-border)] bg-[color:var(--st-canvas)] px-4 py-3 sm:-mx-6 sm:px-6 md:hidden"
+      className="st-no-scrollbar flex shrink-0 snap-x gap-2 overflow-x-auto border-b border-[color:var(--st-border)] px-4 py-3 sm:px-6 md:hidden"
     >
       {SETTINGS_NAV_ITEMS.map((item) => {
-        const active = isActive(pathname, item.href)
+        const active = item.id === section
         return (
-          <Link
-            key={item.href}
-            href={item.href}
-            aria-current={active ? 'page' : undefined}
-            className={`inline-flex min-h-11 snap-start items-center whitespace-nowrap rounded-full border px-3.5 py-1.5 text-[13px] font-medium leading-5 transition-colors duration-150 ${
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onSelect(item.id)}
+            aria-current={active ? 'true' : undefined}
+            className={`inline-flex min-h-11 shrink-0 snap-start items-center whitespace-nowrap rounded-full border px-3.5 py-1.5 text-[13px] font-medium leading-5 transition-colors duration-150 ${
               active
                 ? 'border-transparent bg-[color:var(--st-accent)] text-[color:var(--st-accent-contrast)]'
                 : 'border-[color:var(--st-border)] text-[color:var(--st-text-muted)] hover:text-[color:var(--st-text)]'
             }`}
           >
             {item.label}
-          </Link>
+          </button>
         )
       })}
     </nav>

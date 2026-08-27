@@ -276,10 +276,12 @@ export function Toaster() {
 
   // Always mounted (even when empty) so the aria-live region exists before
   // toasts arrive — screen readers announce additions reliably that way.
+  // z-[90] floats toasts above portal modals (z-[80]): the settings modal
+  // fires save/failure toasts that must stay visible over its backdrop.
   return (
     <div
       aria-live="polite"
-      className="pointer-events-none fixed bottom-5 right-5 z-[70] flex w-[min(92vw,360px)] flex-col"
+      className="pointer-events-none fixed bottom-5 right-5 z-[90] flex w-[min(92vw,360px)] flex-col"
     >
       {entries.map((entry) => (
         <ToastCard

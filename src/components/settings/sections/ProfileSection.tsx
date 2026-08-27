@@ -126,7 +126,7 @@ async function fetchProfile(): Promise<{
 const linkOutCls =
   'inline-flex h-11 shrink-0 items-center justify-center rounded-lg border border-[color:var(--st-border-strong)] px-3 text-[13px] font-medium leading-none text-[color:var(--st-text)] transition-colors duration-150 hover:bg-[color:var(--st-panel-hover)] md:h-8'
 
-export default function ProfileSettingsPage() {
+export function ProfileSection() {
   const [phase, setPhase] = useState<'loading' | 'error' | 'ready'>('loading')
   const [username, setUsername] = useState<string | null>(null)
   const [baseline, setBaseline] = useState<ProfileFormValues | null>(null)

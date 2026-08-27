@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto'
 import { unstable_cache } from 'next/cache'
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -30,6 +31,29 @@ type BoardKind = 'season' | 'alltime'
 /** Thrown (never returned) by the cached assembly so failures are not
  *  cached and the route can keep its original 500 message. */
 const BOARD_LOAD_FAILED = 'LEADERBOARD_LOAD_FAILED'
+
+/** The integrity cron asks for one uncached read so a healthy 15-second
+ *  cache window cannot look like rank drift. Invalid probes simply receive
+ *  the normal cached public response. */
+function isAuthorizedIntegrityProbe(request: NextRequest): boolean {
+  if (request.nextUrl.searchParams.get('integrity') !== '1') return false
+
+  const expected =
+    process.env.CRON_SECRET ??
+    (process.env.NODE_ENV !== 'production' ? 'dev-cron-secret' : null)
+  const supplied =
+    request.headers.get('x-cron-secret') ??
+    request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ??
+    null
+  if (!expected || !supplied) return false
+
+  const expectedBytes = Buffer.from(expected)
+  const suppliedBytes = Buffer.from(supplied)
+  return (
+    expectedBytes.length === suppliedBytes.length &&
+    timingSafeEqual(expectedBytes, suppliedBytes)
+  )
+}
 
 const normalizeTier = (
   t: string | null
@@ -75,17 +99,33 @@ interface UserRow {
   user_devices: { is_active: boolean; last_sync_at: string | null }[] | null
 }
 
-/** Live boards select from user_scores so score ordering and LIMIT apply to
- *  players, not to an embedded relation on an otherwise unordered user set. */
-interface ScoreBackedUserRow {
-  user_id: number
-  total_score: number | null
-  today_score: number | null
-  week_score: number | null
-  season_score?: number | null
+/** Row returned by migration 059's canonical database ranker. It includes
+ *  the profile fields needed to render the board so ranking and hydration
+ *  are read from one PostgreSQL statement/snapshot. */
+interface CanonicalStandingRow {
+  user_id: number | string
+  rank: number | string
+  score: number | string | null
+  total_score: number | string | null
+  today_score: number | string | null
+  week_score: number | string | null
+  season_score: number | string | null
   last_calculated_at: string | null
   top_tools?: unknown
-  users: Omit<UserRow, 'user_scores'> | null
+  twitter_username: string | null
+  twitter_name: string | null
+  twitter_profile_image: string | null
+  created_at: string
+  last_extension_sync: string | null
+  subscription_tier: string | null
+  user_type: string | null
+  metadata: Record<string, unknown> | null
+  device_last_sync_at: string | null
+}
+
+interface RankedUserRow extends UserRow {
+  canonicalRank: number
+  canonicalScore: number
 }
 
 /** Final standing archived by season_tick() at close. */
@@ -174,18 +214,11 @@ async function assembleBoard(
   const supabase = createServiceClient()
 
   const seasonReady = seasonState.current !== null
-  const liveSeasonBoard =
-    board === 'season' && seasonReady && seasonState.phase === 'active'
   const frozenBoard =
     board === 'season' && seasonReady && seasonState.phase === 'intermission'
 
-  // top_tools rides the same embedded select (migration 036): the podium's
-  // "top weapon" now costs zero extra queries. A row that hasn't been
-  // backfilled yet reads as an empty list — the board never lazy-backfills
-  // other users.
-  const scoresSelect = seasonReady
-    ? 'total_score, today_score, week_score, season_score, last_calculated_at, top_tools'
-    : 'total_score, today_score, week_score, last_calculated_at, top_tools'
+  // Frozen standings still need a profile lookup. Live standings receive
+  // these fields from the canonical ranking RPC in the same SQL snapshot.
   const userProfileSelect = `
       id,
       twitter_username,
@@ -226,12 +259,10 @@ async function assembleBoard(
     if (frozenByUser.size === 0) return []
   }
 
-  // Live boards MUST query user_scores as the top-level resource. Ordering an
-  // embedded user_scores relation on a users query only orders that embedded
-  // object; the parent LIMIT would select 100 arbitrary accounts first. That
-  // started dropping real leaders as soon as open signup took us past 100
-  // active accounts. Frozen boards still load the exact archived user ids.
-  let userRows: UserRow[]
+  // Migration 059's RPC ranks from user_scores before applying the top-100
+  // limit. The API does not derive order or assign ranks itself; the snapshot
+  // refresher calls this same function inside its transaction.
+  let userRows: RankedUserRow[]
   if (frozenByUser) {
     const { data: users, error: usersError } = await supabase
       .from('users')
@@ -244,46 +275,52 @@ async function assembleBoard(
     }
     userRows = (users || []).map((user) => ({
       ...(user as unknown as Omit<UserRow, 'user_scores'>),
-      user_scores: null
+      user_scores: null,
+      canonicalRank: frozenByUser!.get(Number(user.id))!.rank,
+      canonicalScore: frozenByUser!.get(Number(user.id))!.score
     }))
   } else {
-    let scoresQuery = supabase
-      .from('user_scores')
-      .select(`
-        user_id,
-        ${scoresSelect},
-        users!inner(${userProfileSelect})
-      `)
-      .or('status.is.null,status.eq.active', { referencedTable: 'users' })
-      .order(liveSeasonBoard ? 'season_score' : 'total_score', {
-        ascending: false,
-        nullsFirst: false
-      })
-      .order('user_id', { ascending: true })
-      .limit(100)
-
-    if (liveSeasonBoard) {
-      scoresQuery = scoresQuery.gte(
-        'last_calculated_at',
-        seasonState.current!.startsAt
-      )
-    }
-
-    const { data: scoreRows, error: scoresError } = await scoresQuery
-    if (scoresError) {
-      console.error('[Leaderboard] Scores query error:', scoresError)
+    const { data: standingRows, error: standingsError } = await supabase.rpc(
+      'leaderboard_standings',
+      { p_board: board, p_limit: 100 }
+    )
+    if (standingsError) {
+      console.error('[Leaderboard] Canonical standings query error:', standingsError)
       throw new Error(BOARD_LOAD_FAILED)
     }
-    userRows = ((scoreRows || []) as unknown as ScoreBackedUserRow[])
-      .filter(
-        (row): row is ScoreBackedUserRow & { users: Omit<UserRow, 'user_scores'> } =>
-          row.users !== null
-      )
-      .map(({ users: user, user_id: _userId, ...scores }) => ({
-        ...user,
-        user_scores: scores
-      }))
+
+    userRows = ((standingRows || []) as unknown as CanonicalStandingRow[]).map(
+      (row) => ({
+        id: Number(row.user_id),
+        twitter_username: row.twitter_username,
+        twitter_name: row.twitter_name,
+        twitter_profile_image: row.twitter_profile_image,
+        created_at: row.created_at,
+        last_extension_sync: row.last_extension_sync,
+        subscription_tier: row.subscription_tier,
+        user_type: row.user_type,
+        metadata: row.metadata,
+        user_scores: {
+          total_score: Number(row.total_score ?? 0),
+          today_score: Number(row.today_score ?? 0),
+          week_score: Number(row.week_score ?? 0),
+          season_score: Number(row.season_score ?? 0),
+          last_calculated_at: row.last_calculated_at,
+          top_tools: row.top_tools
+        },
+        user_devices: row.device_last_sync_at
+          ? [{ is_active: true, last_sync_at: row.device_last_sync_at }]
+          : [],
+        canonicalRank: Number(row.rank),
+        canonicalScore: Math.round(Number(row.score ?? 0))
+      })
+    )
   }
+
+  // Preserve the database-assigned rank order even if a transport or the
+  // separate frozen-profile lookup returns rows out of order. This never
+  // derives or changes a rank.
+  userRows.sort((a, b) => a.canonicalRank - b.canonicalRank)
 
   if (userRows.length === 0) return []
   const userIds = userRows.map((u) => u.id)
@@ -298,33 +335,13 @@ async function assembleBoard(
 
   const now = new Date()
 
-  // Live season ranks by season_score with a staleness guard: a score
-  // row last recalculated before the season started can only be carrying
-  // a previous season's value (the start-of-season zeroing makes this a
-  // no-op in practice, but it keeps the board honest if a tick was
-  // missed across the rollover).
-  const seasonStartMs = liveSeasonBoard
-    ? Date.parse(seasonState.current!.startsAt)
-    : 0
-
   // Build leaderboard data — no per-user DB calls
   const leaderboardData = userRows.map((user) => {
     // today/week scores are only trustworthy if the score row was
     // recalculated inside the window it claims to describe.
     const lastCalc = user.user_scores?.last_calculated_at || null
 
-    let score: number
-    if (frozenByUser) {
-      score = frozenByUser.get(user.id)?.score ?? 0
-    } else if (liveSeasonBoard) {
-      const lastCalcMs = lastCalc ? new Date(lastCalc).getTime() : 0
-      score =
-        lastCalcMs >= seasonStartMs
-          ? Math.round(user.user_scores?.season_score || 0)
-          : 0
-    } else {
-      score = Math.round(user.user_scores?.total_score || 0)
-    }
+    const score = user.canonicalScore
     const todayScore = sameUtcDay(lastCalc, now)
       ? Math.round(user.user_scores?.today_score || 0)
       : 0
@@ -425,26 +442,10 @@ async function assembleBoard(
       banner_frame: bannerImage ? parseBannerFrame(meta.banner_frame) : null,
       plate,
       socials,
-      role: user.user_type || null
+      role: user.user_type || null,
+      rank: user.canonicalRank
     }
   })
-    // Frozen boards keep their archived ranks verbatim; live boards
-    // re-rank on every read. The userId tiebreak keeps equal scores in a
-    // stable order — otherwise tied players flip-flop ranks between
-    // reads and spray bogus movement arrows.
-    .sort((a, b) => {
-      if (frozenByUser) {
-        return (
-          (frozenByUser.get(a.userId)?.rank ?? Infinity) -
-          (frozenByUser.get(b.userId)?.rank ?? Infinity)
-        )
-      }
-      return b.score - a.score || a.userId - b.userId
-    })
-    .map((user, idx) => ({
-      ...user,
-      rank: frozenByUser ? frozenByUser.get(user.userId)?.rank ?? idx + 1 : idx + 1
-    }))
 
   // Rank-movement pass — READ-ONLY: decorate every row with its
   // climb/drop delta and NEW status from the snapshots the score-write
@@ -494,7 +495,10 @@ export async function GET(request: NextRequest) {
     // immediately instead of after the cache window.
     const seasonState = await fetchSeasonState(supabase)
 
-    const boardRows = await loadBoardCached(board, seasonState)
+    const integrityProbe = isAuthorizedIntegrityProbe(request)
+    const boardRows = integrityProbe
+      ? await assembleBoard(board, seasonState)
+      : await loadBoardCached(board, seasonState)
 
     // Private-mode pass — per viewer, AFTER the shared cached read: tools
     // are follower-only for private accounts, so resolve who the viewer
@@ -524,9 +528,11 @@ export async function GET(request: NextRequest) {
     // The response only varies by viewer while private accounts hold
     // board slots; when it doesn't, let the CDN share it too. Otherwise
     // stay conservative — the unstable_cache layer is the real win.
-    const cacheControl = viewerIndependent
-      ? `public, s-maxage=${BOARD_REVALIDATE_SECONDS}, stale-while-revalidate=60`
-      : 'private, no-store'
+    const cacheControl = integrityProbe
+      ? 'private, no-store'
+      : viewerIndependent
+        ? `public, s-maxage=${BOARD_REVALIDATE_SECONDS}, stale-while-revalidate=60`
+        : 'private, no-store'
 
     return new NextResponse(
       JSON.stringify({

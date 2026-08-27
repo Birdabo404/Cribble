@@ -121,6 +121,9 @@ function LeaderboardArena() {
   const [showPodium, setShowPodium] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  // The AI board reports its ToolCard open/close so the arena freeze
+  // (which pauses every infinite animation) covers that modal too.
+  const [aiInspecting, setAiInspecting] = useState(false)
   // ?view= is read once at mount (deep links like /leaderboard?view=tokens);
   // tab clicks after that stay client state only.
   const [view, setView] = useState<BoardView>(() => {
@@ -367,7 +370,7 @@ function LeaderboardArena() {
 
       <div
         className={`page-zoom-out lb4-root relative mx-auto max-w-6xl px-4 sm:px-6 pb-16 pt-6 ${
-          selected ? 'lb4-freeze' : ''
+          selected || aiInspecting ? 'lb4-freeze' : ''
         }`}
       >
         {/* arena atmosphere — gold spotlight + faint synthwave side washes */}
@@ -496,7 +499,18 @@ function LeaderboardArena() {
           </div>
 
           {/* ---------- THE AI LEADERBOARD ---------- */}
-          {view === 'ai' && <AiBoard />}
+          {/* The viewer's faction seeds from their standings row (already
+              fetched on mount); unranked viewers resolve inside AiBoard
+              via the profile endpoint. */}
+          {view === 'ai' && (
+            <AiBoard
+              viewerUserId={currentUserId}
+              viewerTopTool={
+                me?.topTools?.[0]?.name ?? (loading ? undefined : null)
+              }
+              onInspectChange={setAiInspecting}
+            />
+          )}
 
           {/* ---------- THE TEAMS BOARD ---------- */}
           {view === 'teams' && <TeamBoard />}

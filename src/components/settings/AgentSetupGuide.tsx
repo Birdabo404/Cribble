@@ -1,9 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { formatRelative } from '@/components/dashboard-v2/format'
-import { AGENT_CLI_COMMANDS } from '@/lib/agentCli'
+import {
+  AGENT_CLI_COMMANDS,
+  AGENT_PLATFORMS,
+  DEFAULT_AGENT_PLATFORM,
+  agentPlatform,
+  detectAgentPlatform,
+  type AgentPlatformId
+} from '@/lib/agentCli'
 import { formatCompactTokenCount, usdDisplayParts } from '@/lib/tokenLeaderboard'
 import { TextField } from './Field'
 import { SettingsButton } from './SettingsButton'
@@ -59,6 +66,14 @@ export function AgentSetupGuide({
   createError
 }: AgentSetupGuideProps) {
   const atKeyCap = activeKeyCount >= 5
+  const [platform, setPlatform] = useState<AgentPlatformId>(DEFAULT_AGENT_PLATFORM)
+  const installTarget = agentPlatform(platform)
+
+  // After mount, never during render: detecting inline would let the
+  // server paint one chip and the browser hydrate another.
+  useEffect(() => {
+    setPlatform(detectAgentPlatform())
+  }, [])
 
   return (
     <div>
@@ -85,7 +100,15 @@ export function AgentSetupGuide({
           className={`space-y-5 px-4 pb-4 sm:px-5 ${linked ? 'pt-1' : 'pt-4'}`}
         >
           <SetupStep number={1} title="Install the CLI">
-            <CommandLine command={AGENT_CLI_COMMANDS.install} />
+            <PlatformPicker selected={platform} onSelect={setPlatform} />
+            {/* Keyed on the command so a platform switch clears "Copied" —
+                it must never vouch for a command they never copied. */}
+            <CommandLine key={installTarget.install} command={installTarget.install} />
+            {installTarget.beta && (
+              <p className="mt-1.5 text-[13px] leading-5 text-[color:var(--st-text-muted)]">
+                {installTarget.label} tracking is in beta. Every step below is identical.
+              </p>
+            )}
           </SetupStep>
 
           <SetupStep
@@ -163,7 +186,7 @@ export function AgentSetupGuide({
           <SetupStep number={3} title="Connect">
             <CommandLine command={AGENT_CLI_COMMANDS.connect} />
             <p className="mt-1.5 text-[13px] leading-5 text-[color:var(--st-text-muted)]">
-              Paste the key at the prompt. It is stored in your macOS Keychain.
+              Paste the key at the prompt. On macOS it is stored in your Keychain.
             </p>
           </SetupStep>
 
@@ -186,6 +209,51 @@ export function AgentSetupGuide({
           </SetupStep>
         </ol>
       )}
+    </div>
+  )
+}
+
+/**
+ * OS chips above the install command. Detection picks the opening chip,
+ * so this is mostly a correction affordance — its real job is telling a
+ * Linux or Windows user that a build exists for them at all.
+ */
+function PlatformPicker({
+  selected,
+  onSelect
+}: {
+  selected: AgentPlatformId
+  onSelect: (id: AgentPlatformId) => void
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Your operating system"
+      className="mt-2 flex flex-wrap items-center gap-1"
+    >
+      {AGENT_PLATFORMS.map((platform) => {
+        const active = platform.id === selected
+        return (
+          <button
+            key={platform.id}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onSelect(platform.id)}
+            className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[12.5px] font-medium leading-none transition-colors duration-150 ${
+              active
+                ? 'border-[color:var(--st-border-strong)] bg-[color:var(--st-panel-hover)] text-[color:var(--st-text)]'
+                : 'border-transparent text-[color:var(--st-text-muted)] hover:bg-[color:var(--st-panel-hover)] hover:text-[color:var(--st-text)]'
+            }`}
+          >
+            {platform.label}
+            {platform.beta && (
+              <span className="text-[10.5px] uppercase tracking-[0.08em] text-[color:var(--st-text-faint)]">
+                Beta
+              </span>
+            )}
+          </button>
+        )
+      })}
     </div>
   )
 }
