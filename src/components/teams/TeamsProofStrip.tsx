@@ -14,11 +14,11 @@ import { TeamMiniLogo, type TeamRef } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { GoldPanel, SectionHead } from './chrome'
 
-// React 18 renders unknown string-valued props as literal DOM attributes,
-// so `inert=""` lands in the markup and browsers disable the subtree
-// (clicks, focus, a11y tree) — the typed boolean prop only exists from
-// React 19. Keeps TeamMiniLogo's real <a> from tabbing anywhere.
-const INERT = { inert: '' } as unknown as React.HTMLAttributes<HTMLDivElement>
+// `inert` is a boolean attribute. An empty string used to emit `inert=""`
+// (which browsers treat as on); current React treats "" as false and warns.
+// The typed prop still isn't on our React 18 HTMLAttributes, so we cast.
+// Keeps TeamMiniLogo's real <a> from tabbing anywhere.
+const INERT = { inert: true } as unknown as React.HTMLAttributes<HTMLDivElement>
 
 /** House team — @cribble_ai, the account that actually flies colors. */
 const DEMO_TEAM: TeamRef = {

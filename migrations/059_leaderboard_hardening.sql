@@ -267,3 +267,8 @@ REVOKE ALL ON FUNCTION public.refresh_leaderboard_snapshot()
     FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.refresh_leaderboard_snapshot()
     TO service_role;
+
+-- PostgREST caches function signatures. CREATE OR REPLACE is not enough;
+-- without a reload, /api/leaderboard and snapshot refresh return PGRST202
+-- until the API restarts.
+NOTIFY pgrst, 'reload schema';

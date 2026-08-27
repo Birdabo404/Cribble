@@ -130,3 +130,8 @@ revoke all on function public.agent_profile_agents(integer)
   from public, anon, authenticated;
 grant execute on function public.agent_profile_agents(integer)
   to service_role;
+
+-- PostgREST caches function signatures. CREATE OR REPLACE is not enough;
+-- without a reload, profile agent RPC calls return PGRST202 until the API
+-- restarts.
+NOTIFY pgrst, 'reload schema';
