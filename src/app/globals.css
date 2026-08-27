@@ -772,6 +772,17 @@ body {
  */
 .liquid-glass {
   position: relative;
+  isolation: isolate;
+}
+
+/* The visual shell tilts behind a stable, untransformed content plane. */
+.liquid-glass::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
   background: linear-gradient(
     180deg,
     rgb(var(--glass-tint) / var(--glass-bg-top)),
@@ -784,8 +795,6 @@ body {
     var(--glass-shadow),
     inset 0 1px 0 var(--glass-highlight),
     inset 0 -1px 0 rgb(var(--glass-tint) / 0.04);
-  /* --tilt-x/--tilt-y are driven by GlassTilt (0deg at rest); the eased
-     transition makes the pane trail the cursor with a liquid lag. */
   transform: perspective(1100px) rotateX(var(--tilt-x, 0deg))
     rotateY(var(--tilt-y, 0deg));
   transition:
@@ -794,7 +803,7 @@ body {
     box-shadow 380ms ease;
 }
 
-/* Specular sheen — soft light pooling in the top-left corner */
+/* Specular sheen follows the shell without projecting readable descendants. */
 .liquid-glass::before {
   content: '';
   position: absolute;
@@ -806,6 +815,9 @@ body {
     transparent 55%
   );
   pointer-events: none;
+  transform: perspective(1100px) rotateX(var(--tilt-x, 0deg))
+    rotateY(var(--tilt-y, 0deg));
+  transition: transform 380ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Sheen-free variant — for sparse panels where the corner light reads as a
@@ -815,9 +827,7 @@ body {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .liquid-glass:hover {
-    /* lift + slight scale (the "lens" magnifying what's behind it),
-       keeping the cursor-driven tilt in the same transform */
+  .liquid-glass:hover::after {
     transform: perspective(1100px) rotateX(var(--tilt-x, 0deg))
       rotateY(var(--tilt-y, 0deg)) translateY(-3px) scale(1.006);
     border-color: var(--glass-border-hover);
@@ -826,13 +836,19 @@ body {
       inset 0 1px 0 var(--glass-highlight-hover),
       inset 0 -1px 0 rgb(var(--glass-tint) / 0.07);
   }
+  .liquid-glass:hover::before {
+    transform: perspective(1100px) rotateX(var(--tilt-x, 0deg))
+      rotateY(var(--tilt-y, 0deg)) translateY(-3px) scale(1.006);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .liquid-glass {
+  .liquid-glass::after,
+  .liquid-glass::before {
     transition: none;
   }
-  .liquid-glass:hover {
+  .liquid-glass:hover::after,
+  .liquid-glass:hover::before {
     transform: none;
   }
 }
