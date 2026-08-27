@@ -120,13 +120,23 @@ const dailyUsageSchema = z
 const eventUsageSchema = z
   .object({
     eventId: z.string().trim().min(1).max(128).regex(/^[A-Za-z0-9._:/-]+$/),
+    requestId: z.string().trim().min(1).max(128).regex(/^[A-Za-z0-9._:/-]+$/).optional(),
     occurredAt: z.string().datetime({ offset: true }),
     agent: usageNameSchema,
+    provider: usageNameSchema.optional(),
+    runtime: usageNameSchema.optional(),
     model: usageNameSchema,
-    ...tokenFields
+    provenance: z.array(usageNameSchema).min(1).max(16).optional(),
+    inputTokens: tokenCountSchema,
+    outputTokens: tokenCountSchema,
+    cacheCreationTokens: tokenCountSchema.optional(),
+    cacheReadTokens: tokenCountSchema.optional(),
+    reasoningTokens: tokenCountSchema.optional(),
+    totalTokens: tokenCountSchema.optional(),
+    costUsd: costUsdSchema.optional(),
+    billedCostUsd: z.literal(0).optional()
   })
   .strict()
-  .superRefine(validateTokenTotal)
 
 const provenanceSchema = z
   .object({
@@ -134,6 +144,11 @@ const provenanceSchema = z
     cliVersion: z.string().trim().min(1).max(64)
   })
   .strict()
+const eventProvenanceSchema = z.object({
+  source: z.literal('cribble-agent'),
+  sources: z.array(z.enum(['ccusage', 'prime-agent', 'ollama', 'hermes', 'opencode'])).min(1).max(16),
+  cliVersion: z.string().trim().min(1).max(64)
+}).strict()
 
 const dailyRowsSchema = z
   .array(dailyUsageSchema)
@@ -190,7 +205,7 @@ const ingestSchema = z.discriminatedUnion('schemaVersion', [
       clientId: z.string().uuid(),
       machineName: machineNameSchema,
       timezone: timezoneSchema,
-      provenance: provenanceSchema,
+      provenance: z.union([provenanceSchema, eventProvenanceSchema]),
       events: eventRowsSchema
     })
     .strict()
@@ -365,15 +380,20 @@ export async function POST(request: NextRequest) {
 
       records = parsed.data.events.map((row) => ({
         event_id: row.eventId,
+        request_id: row.requestId ?? row.eventId,
         occurred_at: row.occurredAt,
         agent: row.agent,
+        provider: row.provider ?? null,
+        runtime: row.runtime ?? null,
         model: row.model,
+        provenance: row.provenance ?? [parsed.data.provenance.source],
         input_tokens: row.inputTokens,
         output_tokens: row.outputTokens,
-        cache_creation_tokens: row.cacheCreationTokens,
-        cache_read_tokens: row.cacheReadTokens,
-        total_tokens: totalTokens(row),
-        cost_usd: row.costUsd
+        cache_creation_tokens: row.cacheCreationTokens ?? null,
+        cache_read_tokens: row.cacheReadTokens ?? null,
+        reasoning_tokens: row.reasoningTokens ?? null,
+        total_tokens: row.inputTokens + row.outputTokens + (row.cacheCreationTokens ?? 0) + (row.cacheReadTokens ?? 0),
+        cost_usd: row.billedCostUsd ?? row.costUsd ?? 0
       }))
     }
 
