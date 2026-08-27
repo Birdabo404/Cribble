@@ -35,5 +35,8 @@ npm test -- --run scripts/validate-agent-svgs.test.ts
 The validator permits only same-document fragment references such as `url(#clip-id)` and
 `href="#symbol-id"`. It rejects scripts, `foreignObject`, event-handler attributes, external
 `href`/`src` values, and every non-fragment `url(...)` value (including HTTP(S),
-protocol-relative, `data:`, and `javascript:` references). The test command verifies both
-shipped official assets plus adversarial unsafe fixtures.
+protocol-relative, `data:`, and `javascript:` references). Embedded and attribute CSS is
+fail-closed against markup, escapes, malformed comments, active `expression`/`behavior`/
+`-moz-binding` constructs, and all at-rules except the official Pi asset's passive `@media`
+rule; this includes quoted, `url(...)`, escaped, case-varied, and comment-obscured `@import`
+forms. The test command verifies both shipped official assets plus adversarial unsafe fixtures.
