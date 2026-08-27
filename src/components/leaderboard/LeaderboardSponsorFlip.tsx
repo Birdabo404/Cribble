@@ -56,11 +56,6 @@ import {
 } from '@/lib/leaderboardSponsor'
 import { formatCompact } from '@/components/dashboard-v2/format'
 
-// `inert` is a boolean attribute. An empty string used to emit `inert=""`
-// (which browsers treat as on); current React treats "" as false and warns.
-// The typed prop still isn't on our React 18 HTMLAttributes, so we cast.
-const INERT = { inert: true } as unknown as React.HTMLAttributes<HTMLDivElement>
-
 /** Integer cents -> '$6.66' / '$12' — whole-dollar amounts drop the
  *  cents so the CTA reads like a price tag, not an invoice line. */
 function formatUsd(cents: number): string {
@@ -186,7 +181,7 @@ export function LeaderboardSponsorFlip({ children }: { children: ReactNode }) {
         <div
           className="lsf-face lsf-face-stats"
           aria-hidden={flipped || undefined}
-          {...(flipped ? INERT : undefined)}
+          inert={flipped || undefined}
         >
           {children}
         </div>
@@ -198,7 +193,7 @@ export function LeaderboardSponsorFlip({ children }: { children: ReactNode }) {
           <div
             className="lb-panel lsf-face lsf-face-sponsor overflow-hidden"
             aria-hidden={!flipped || undefined}
-            {...(!flipped ? INERT : undefined)}
+            inert={!flipped || undefined}
           >
             {board.top ? (
               <SponsorCreativeFace entry={board.top} minTargetCents={board.minTargetCents} />

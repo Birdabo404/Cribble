@@ -14,12 +14,6 @@ import { TeamMiniLogo, type TeamRef } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { GoldPanel, SectionHead } from './chrome'
 
-// `inert` is a boolean attribute. An empty string used to emit `inert=""`
-// (which browsers treat as on); current React treats "" as false and warns.
-// The typed prop still isn't on our React 18 HTMLAttributes, so we cast.
-// Keeps TeamMiniLogo's real <a> from tabbing anywhere.
-const INERT = { inert: true } as unknown as React.HTMLAttributes<HTMLDivElement>
-
 /** House team — @cribble_ai, the account that actually flies colors. */
 const DEMO_TEAM: TeamRef = {
   username: 'cribble_ai',
@@ -107,7 +101,9 @@ export function TeamsProofStrip() {
             <span className="text-[9px] tracking-[0.35em] text-zinc-500">
               THE COMPANY ACCOUNT
             </span>
-            <div aria-hidden {...INERT} className="mt-4 flex items-center gap-3.5">
+            {/* inert keeps TeamMiniLogo's real <a> out of the tab order —
+                the specimen is display-only */}
+            <div aria-hidden inert className="mt-4 flex items-center gap-3.5">
               <Avatar
                 src={DEMO_TEAM.logo}
                 char={DEMO_TEAM.name[0] ?? '?'}
@@ -135,7 +131,7 @@ export function TeamsProofStrip() {
             <span className="text-[9px] tracking-[0.35em] text-zinc-500">
               EVERY AFFILIATE&apos;S ROW
             </span>
-            <div aria-hidden {...INERT} className="lb-inset mt-4 divide-y divide-white/[0.04] overflow-hidden rounded-xl">
+            <div aria-hidden inert className="lb-inset mt-4 divide-y divide-white/[0.04] overflow-hidden rounded-xl">
               {DEMO_PILOTS.map((pilot) => (
                 <BoardRow key={pilot.handle} pilot={pilot} />
               ))}
