@@ -1,6 +1,5 @@
 'use client'
 
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   useCallback,
@@ -13,6 +12,7 @@ import {
 import { useTheme } from 'next-themes'
 import { formatCompact, formatRelative } from '@/components/dashboard-v2/format'
 import { DashboardTabs } from '@/components/dashboard-v3/DashboardTabs'
+import { useSettingsModal } from '@/components/settings/SettingsModalContext'
 import { Area } from '@/components/dither-kit/area'
 import { AreaChart } from '@/components/dither-kit/area-chart'
 import type { ChartConfig, Margins } from '@/components/dither-kit/chart-context'
@@ -720,6 +720,7 @@ function ClientsPanel({
 }
 
 function EmptyUsage({ data }: { data: TokenUsageResponse }) {
+  const { openSettings } = useSettingsModal()
   const noKey = data.keys.status === 'none'
   const noUsageAnywhere = data.availableBounds === null
   return (
@@ -745,12 +746,13 @@ function EmptyUsage({ data }: { data: TokenUsageResponse }) {
             : `Usage is available from ${readableDate(data.availableBounds!.from)} to ${readableDate(data.availableBounds!.to)}. Choose a wider source-day range.`}
       </p>
       {noKey && (
-        <Link
-          href="/settings/account"
+        <button
+          type="button"
+          onClick={() => openSettings('account')}
           className="mt-6 inline-flex items-center rounded-lg border border-accent/30 bg-accent/[0.06] px-4 py-2.5 font-data text-[11px] tracking-[0.22em] text-accent transition-colors hover:bg-accent/[0.1]"
         >
           OPEN AGENT SETTINGS
-        </Link>
+        </button>
       )}
     </Panel>
   )

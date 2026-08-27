@@ -18,6 +18,7 @@ import {
   SkeletonRow,
   Switch
 } from '@/components/settings'
+import { useSettingsModal } from '../SettingsModalContext'
 
 function LoadFailedRow({ onRetry }: { onRetry: () => void }) {
   return (
@@ -35,7 +36,8 @@ function LoadFailedRow({ onRetry }: { onRetry: () => void }) {
 const inlineLinkCls =
   'font-medium text-[color:var(--st-text)] underline decoration-[color:var(--st-border-strong)] underline-offset-2 transition-colors duration-150 hover:decoration-[color:var(--st-text)]'
 
-export default function PrivacySettingsPage() {
+export function PrivacySection() {
+  const { openSettings } = useSettingsModal()
   const [isPrivate, setIsPrivate] = useState<boolean | null>(null)
   const [insightsIncluded, setInsightsIncluded] = useState<boolean | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
@@ -153,9 +155,13 @@ export default function PrivacySettingsPage() {
             <>
               Deleting your account erases your profile, scores, devices, and activity history —
               immediately and permanently, as required by GDPR Art. 17.{' '}
-              <Link href="/settings/account" className={inlineLinkCls}>
+              <button
+                type="button"
+                onClick={() => openSettings('account')}
+                className={inlineLinkCls}
+              >
                 Delete your account in Account settings →
-              </Link>
+              </button>
             </>
           }
         />

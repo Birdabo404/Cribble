@@ -457,8 +457,8 @@ export function AgentCliSection() {
         <>
           Your season score comes from the browser extension. Cribble Agent is a separate CLI
           that reads local coding-agent token burn (Claude Code, Cursor, and more via ccusage)
-          into your token dashboard — and the Burn Board only if you opt in. Requires macOS and
-          Node 18+.
+          into your token dashboard — and the Burn Board only if you opt in. Requires Node 18+
+          on macOS, with Linux and Windows in beta.
         </>
       }
     >

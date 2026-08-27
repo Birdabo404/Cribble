@@ -251,9 +251,9 @@ const NAV_OPTIONS: readonly SegmentedOption<NavPosition>[] = [
   { value: 'top', label: 'Top bar', icon: ICON_TOP_BAR }
 ]
 
-/* ---------- page ---------- */
+/* ---------- section ---------- */
 
-export default function AppearanceSettingsPage() {
+export function AppearanceSection() {
   const { theme, setTheme } = useTheme()
   const navPrefs = useNavPrefs()
   const music = useBackgroundMusic()

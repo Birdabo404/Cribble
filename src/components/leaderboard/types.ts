@@ -1,5 +1,6 @@
 import type { AchievementIcon, AchievementRarity } from '@/lib/achievements'
 import type { BannerFrame } from '@/lib/bannerFrame'
+import type { PublicProfileAgent } from '@/lib/profileAgents'
 import type { TeamRef } from '@/components/premium/TeamMiniLogo'
 import { ROLE_META } from '@/lib/roles'
 import type { Tier } from '@/types/dashboard'
@@ -96,6 +97,10 @@ export interface PlayerProfile {
   longestStreak: number
   totalActiveMs: number
   topTools: TopTool[]
+  /** Opt-in agent CLI mix by share of lifetime tokens — empty unless the
+   *  owner enabled token sharing. Optional so payloads that predate
+   *  migration 058 still satisfy this shape. */
+  topAgents?: PublicProfileAgent[]
   badges: PlayerBadge[]
   isPrivate?: boolean
   /** Viewer may not see tools/badges (private account, not following). */

@@ -56,11 +56,10 @@ import {
 } from '@/lib/leaderboardSponsor'
 import { formatCompact } from '@/components/dashboard-v2/format'
 
-// React 18 renders unknown string-valued props as literal DOM
-// attributes, so `inert=""` lands in the markup and browsers disable
-// the subtree (clicks, focus, a11y tree) — the typed boolean prop only
-// exists from React 19. (TeamsProofStrip's pattern.)
-const INERT = { inert: '' } as unknown as React.HTMLAttributes<HTMLDivElement>
+// `inert` is a boolean attribute. An empty string used to emit `inert=""`
+// (which browsers treat as on); current React treats "" as false and warns.
+// The typed prop still isn't on our React 18 HTMLAttributes, so we cast.
+const INERT = { inert: true } as unknown as React.HTMLAttributes<HTMLDivElement>
 
 /** Integer cents -> '$6.66' / '$12' — whole-dollar amounts drop the
  *  cents so the CTA reads like a price tag, not an invoice line. */

@@ -23,7 +23,9 @@ import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { ACHIEVEMENTS } from '@/lib/achievements'
 import { isProTier } from '@/lib/entitlements'
 import { prefersReducedMotion } from '@/lib/motion'
+import { tokenAgentLabel } from '@/lib/tokenLeaderboard'
 import { Avatar, SafeBannerImg } from './Avatar'
+import { TokenAgentIcon } from './TokenAgentIcon'
 import { ROLE_ICONS } from '@/components/roleIcons'
 import {
   IconClose,
@@ -185,6 +187,9 @@ export function PlayerCard({
 
   // ---- merged data (row renders instantly, profile enriches) --------
   const tools = profile?.topTools?.length ? profile.topTools : row.topTools || []
+  // No LeaderRow fallback here: /api/leaderboard carries no agent data,
+  // so the AGENTIC block simply appears on profile hydration.
+  const agents = profile?.topAgents ?? []
   const todayScore = profile?.todayScore ?? row.todayScore
   const weekScore = profile?.weekScore ?? row.weekScore
   const badges = profile?.badges ?? null
@@ -606,6 +611,55 @@ export function PlayerCard({
                 </div>
               ))}
             </div>
+            {agents.length > 0 && (
+              <>
+                <div className="mt-4 h-px bg-[rgb(var(--lb-panel-edge)/0.08)]" />
+                <div className="mt-4 flex items-center justify-between text-[9px] tracking-[0.35em] text-zinc-500">
+                  <span>AGENTIC</span>
+                  <span className="text-zinc-700">SHARE OF TOKENS</span>
+                </div>
+                {/* Only the #1 agent — the card is already tall, and the
+                    full mix lives on the profile page. */}
+                <div className="mt-2.5 space-y-2">
+                  {agents.slice(0, 1).map((agent) => (
+                    <div key={agent.name} className="flex items-center gap-3">
+                      <span
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+                        style={{
+                          background: 'rgb(var(--lb-panel-edge) / 0.045)',
+                          border: '1px solid rgb(var(--lb-panel-edge) / 0.1)'
+                        }}
+                      >
+                        <TokenAgentIcon agent={agent.name} bare size={14} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="truncate font-display text-xs font-medium text-zinc-200">
+                            {tokenAgentLabel(agent.name)}
+                          </span>
+                          <span className="shrink-0 text-[10px] tabular-nums text-zinc-500">
+                            {agent.percent}%
+                          </span>
+                        </div>
+                        <div className="mt-1 h-1 overflow-hidden rounded-full bg-[rgb(var(--lb-panel-edge)/0.06)]">
+                          <div
+                            className="pc-bar h-full rounded-full"
+                            style={{
+                              width: `${Math.max(3, agent.percent)}%`,
+                              // Ember, the Burn Board's hue — tokens are a
+                              // different currency than the score bars above.
+                              background:
+                                'linear-gradient(90deg, rgb(var(--ember-rgb) / 0.55), rgb(var(--ember-rgb)))',
+                              animationDelay: '180ms'
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           {/* ---------- badges ---------- */}

@@ -16,8 +16,8 @@ export function resolveNavPosition(stored: string | null | undefined): NavPositi
   return NAV_POSITION_DEFAULT
 }
 
-/** Reduce-motion preference ('reduced' | 'auto'), set from
- *  /settings/appearance and mirrored onto <html data-motion>. */
+/** Reduce-motion preference ('reduced' | 'auto'), set from the settings
+ *  modal's Appearance section and mirrored onto <html data-motion>. */
 export const MOTION_KEY = 'cribble.motion'
 
 /**

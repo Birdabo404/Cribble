@@ -11,7 +11,7 @@ import { AdminFrame } from '@/components/admin/AdminShell'
 
 // Loaded here (not the root layout) so the rest of the site keeps its
 // existing type stack; exposed to the scope as --font-settings — shared
-// with /settings, which loads the identical face.
+// with the settings modal, whose (app) layout loads the identical face.
 const geist = Geist({
   subsets: ['latin'],
   variable: '--font-settings',

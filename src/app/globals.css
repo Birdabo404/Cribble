@@ -2448,7 +2448,9 @@ html.light .dash-duotone {
 }
 
 /* ---------------------------------------------------------------------------
-   Settings hub — scoped monochrome design system (/settings only).
+   Settings hub — scoped monochrome design system (the settings modal and
+   /sponsorship; SettingsModal.tsx overrides the full-page min-height
+   inline since its panel sizes to the dialog, not the viewport).
 
    Same isolation pattern as .referral-scope: every settings component
    styles itself with the --st-* tokens below and NEVER with Tailwind
@@ -2458,7 +2460,7 @@ html.light .dash-duotone {
    reserved for danger, nothing else carries color).
 
    Dark is the default; html.light overrides to a true-white system.
-   Typography: Geist, injected by the settings layout as --font-settings.
+   Typography: Geist, injected by the (app) layout as --font-settings.
 --------------------------------------------------------------------------- */
 
 .settings-scope {
@@ -2755,7 +2757,8 @@ html.light .admin-scope {
 }
 
 /* ---------------------------------------------------------------------------
-   Reduce motion — in-app preference from /settings/appearance. Stored in
+   Reduce motion — in-app preference from the settings modal's Appearance
+   section. Stored in
    localStorage (cribble.motion) and seeded onto <html data-motion> before
    first paint by the nav boot script (navBoot.ts), so nothing animates on
    load. Complements the OS-level prefers-reduced-motion media query.

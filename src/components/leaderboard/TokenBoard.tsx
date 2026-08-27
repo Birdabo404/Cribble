@@ -2,7 +2,6 @@
 
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
-import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AnimatedCounter from '@/components/AnimatedCounter'
 import { formatCompact, formatNumber } from '@/components/dashboard-v2/format'
@@ -20,6 +19,7 @@ import {
 import { medalA, medalFor, medalGlow } from '@/components/leaderboard/types'
 import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
+import { useSettingsModal } from '@/components/settings/SettingsModalContext'
 import { fetchMe as requestMe } from '@/lib/client/fetchMe'
 import { isProTier } from '@/lib/entitlements'
 import { prefersReducedMotion } from '@/lib/motion'
@@ -651,18 +651,20 @@ function EmptyState({
   body: string
   showSettings: boolean
 }) {
+  const { openSettings } = useSettingsModal()
   return (
     <li className="flex flex-col items-center px-5 py-14 text-center">
       <IconFlame size={24} className="text-orange-400/55" />
       <p className="mt-4 text-[10px] tracking-[0.22em] text-zinc-400">{title}</p>
       <p className="mt-2 max-w-md text-[11px] leading-5 text-zinc-600">{body}</p>
       {showSettings && (
-        <Link
-          href="/settings/account"
+        <button
+          type="button"
+          onClick={() => openSettings('account')}
           className="mt-5 border border-orange-400/30 bg-orange-400/[0.05] px-3 py-2 text-[9px] tracking-[0.2em] text-orange-300 transition-colors hover:bg-orange-400/[0.1]"
         >
           JOIN THE BURN BOARD
-        </Link>
+        </button>
       )}
     </li>
   )

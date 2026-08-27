@@ -2,12 +2,12 @@
 
 // Floating FEEDBACK launcher, mounted once in the (app) layout so beta
 // testers can report from any page. Bottom-LEFT on purpose: the Toaster
-// stack owns the bottom-right corner (fixed bottom-5 right-5 z-[70]), so
+// stack owns the bottom-right corner (fixed bottom-5 right-5 z-[90]), so
 // the launcher takes the opposite one. When the left command rail is
 // active (md+ with position 'left') the button shifts past the rail via
 // --nav-rail-w, gliding with the rail's own duration/easing on expand.
-// z-[60] keeps it above page content but below toasts (z-[70]) and
-// portal modals (z-[80]). Like AppNav, renders nothing until mounted so
+// z-[60] keeps it above page content but below portal modals (z-[80])
+// and toasts (z-[90]). Like AppNav, renders nothing until mounted so
 // the server markup never disagrees with the localStorage-seeded prefs.
 
 import { useEffect, useState } from 'react'

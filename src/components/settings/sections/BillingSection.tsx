@@ -57,7 +57,7 @@ function isPaid(state: CosmeticsState): boolean {
   return state.isPro || state.tier.trim().toUpperCase() === 'TEAM'
 }
 
-export default function BillingSettingsPage() {
+export function BillingSection() {
   const [state, setState] = useState<CosmeticsState | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [attempt, setAttempt] = useState(0)

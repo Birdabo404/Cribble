@@ -70,6 +70,7 @@ export function isAllowedDuringLock(pathname: string, hasSession = false): boole
   if (pathname === '/api/season') return true
   if (pathname === '/api/cron/season') return true
   if (pathname === '/api/cron/insights-rollup') return true
+  if (pathname === '/api/cron/leaderboard-integrity') return true
   // Dashboard/settings reads, agent key management, and delete ride the
   // signed-in app shell; cosmetics stays on its own lane below with the
   // shop/billing paths. Keep this exact so similarly prefixed user routes

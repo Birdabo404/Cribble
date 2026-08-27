@@ -153,7 +153,7 @@ function DeviceRow({
   )
 }
 
-export default function AccountSettingsPage() {
+export function AccountSection() {
   const [me, setMe] = useState<MeState>({ phase: 'loading' })
   const [signingOut, setSigningOut] = useState(false)
 

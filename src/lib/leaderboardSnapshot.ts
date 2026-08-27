@@ -1,166 +1,78 @@
 // Rank-snapshot maintenance for the leaderboard, moved OFF the read path.
 //
-// The old /api/leaderboard GET diffed fresh standings against
-// leaderboard_ranks and wrote the result (plus demotion notifications) on
-// every read. Snapshots are now maintained where scores are written: the
-// extension sync route calls refreshLeaderboardSnapshot after a user's
-// user_scores row is recalculated. One user's score change can shift
-// everyone else's rank, so the whole top-100 standing is recomputed and
-// diffed in a single pass — same eligibility filters, staleness gates and
-// tie-break as the board itself. GET now only READS the snapshots, via
-// readRankMovements, to decorate rows with climb/drop/NEW state.
+// The extension sync route calls refreshLeaderboardSnapshot after a score
+// changes. The database RPC performs the canonical rank read, diff, stale-row
+// cleanup and writes in one advisory-locked transaction. This wrapper only
+// delivers the best-effort notifications and billboard events described by
+// the committed movement rows. GET remains read-only and uses
+// readRankMovements to decorate rows with climb/drop/NEW state.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { deriveHypeEvents, recordHypeEvents } from './hypeEvents'
 import {
-  diffStandings,
   MOVEMENT_WINDOW_MS,
   NEW_ENTRANT_WINDOW_MS,
   type RankMovement,
-  type RankSnapshotRow
+  type SnapshotUpdate
 } from './leaderboardEngine'
 import {
   evaluateDemotionNotifications,
   type DemotionEvent
 } from './notifications'
-import { fetchSeasonState } from './seasonServer'
 
-interface SnapshotScoreRow {
-  user_id: number
-  total_score: number | null
-  season_score?: number | null
-  last_calculated_at: string | null
-  users: { id: number } | null
+interface SnapshotRefreshRow {
+  user_id: number | string
+  rank: number | string
+  score: number | string
+  prev_rank: number | string | null
+  rank_moved_at: string | null
+  first_seen_at: string
+  updated_at: string
+  refreshed_at: string
 }
 
 /**
- * Recompute the season-board standing and persist the rank diff.
+ * Ask Postgres to recompute and persist the season-board rank diff.
  *
- * Mirrors the old read-path rules exactly: only the live season board
- * diffs (the frozen intermission board by definition does not move, and
- * a missing season calendar degrades the board to lifetime ordering, so
- * the snapshot follows it there too). Scores gate on last_calculated_at
- * the same way the board render does. Never throws — a failed refresh
- * must not break the sync that triggered it.
+ * public.refresh_leaderboard_snapshot() owns the transaction, advisory lock,
+ * canonical standings call and stale-row deletion. It returns only inserted
+ * or changed rows, all carrying one refreshed_at timestamp so the existing
+ * notification/hype derivation can identify movements from this pass.
+ * Never throws — a failed refresh must not break the sync that triggered it.
  */
 export async function refreshLeaderboardSnapshot(
   supabase: SupabaseClient
 ): Promise<void> {
   try {
-    const seasonState = await fetchSeasonState(supabase)
-    const seasonReady = seasonState.current !== null
-    // Intermission: the board serves archived season_results — no
-    // movement to record until the next season goes live.
-    if (seasonReady && seasonState.phase !== 'active') return
-    const liveSeasonBoard = seasonReady && seasonState.phase === 'active'
-
-    // Same eligibility + ordering as the board's users query: banned /
-    // suspended accounts never hold a slot.
-    const scoresSelect = seasonReady
-      ? 'user_id, total_score, season_score, last_calculated_at'
-      : 'user_id, total_score, last_calculated_at'
-    // user_scores is the top-level resource so ORDER/LIMIT rank score rows.
-    // Applying referencedTable ordering to an embedded relation would limit
-    // an arbitrary set of users before ranking once the account count > 100.
-    let scoresQuery = supabase
-      .from('user_scores')
-      .select(`${scoresSelect}, users!inner(id)`)
-      .or('status.is.null,status.eq.active', { referencedTable: 'users' })
-      .order(liveSeasonBoard ? 'season_score' : 'total_score', {
-        ascending: false,
-        nullsFirst: false
-      })
-      .order('user_id', { ascending: true })
-      .limit(100)
-
-    if (liveSeasonBoard) {
-      scoresQuery = scoresQuery.gte(
-        'last_calculated_at',
-        seasonState.current!.startsAt
-      )
-    }
-
-    const { data: scoreRows, error: scoresError } = await scoresQuery
-    if (scoresError) {
-      console.warn('[Leaderboard] Snapshot standings read failed:', scoresError.message)
+    const { data, error } = await supabase.rpc('refresh_leaderboard_snapshot')
+    if (error) {
+      console.warn('[Leaderboard] Transactional snapshot refresh failed:', error.message)
       return
     }
 
-    const rows = ((scoreRows || []) as unknown as SnapshotScoreRow[]).filter(
-      (row) => row.users !== null
-    )
+    const rows = (data || []) as unknown as SnapshotRefreshRow[]
     if (rows.length === 0) return
 
-    // A score row last recalculated before the season started can only
-    // carry a previous season's value — same guard as the board render.
-    const seasonStartMs = liveSeasonBoard
-      ? Date.parse(seasonState.current!.startsAt)
-      : 0
-
-    const standings = rows
-      .map((row) => {
-        let score: number
-        if (liveSeasonBoard) {
-          const lastCalc = row.last_calculated_at || null
-          const lastCalcMs = lastCalc ? new Date(lastCalc).getTime() : 0
-          score =
-            lastCalcMs >= seasonStartMs
-              ? Math.round(row.season_score || 0)
-              : 0
-        } else {
-          score = Math.round(row.total_score || 0)
-        }
-        return { userId: Number(row.user_id), score }
-      })
-      // userId tiebreak keeps equal scores in a stable order, exactly
-      // like the board render — otherwise tied players would flip-flop
-      // and spray bogus movement arrows.
-      .sort((a, b) => b.score - a.score || a.userId - b.userId)
-      .map((entry, idx) => ({ ...entry, rank: idx + 1 }))
-
-    const { data: snapshotRows, error: snapshotError } = await supabase
-      .from('leaderboard_ranks')
-      .select('user_id, rank, score, prev_rank, rank_moved_at, first_seen_at')
-
-    // Tolerates a missing leaderboard_ranks table (migration 012 not
-    // applied yet) by doing nothing, same as the old read-path pass.
-    if (snapshotError) {
-      console.warn('[Leaderboard] Snapshot read failed:', snapshotError.message)
+    const refreshedAtMs = Date.parse(rows[0].refreshed_at)
+    if (!Number.isFinite(refreshedAtMs)) {
+      console.warn('[Leaderboard] Snapshot refresh returned an invalid timestamp')
       return
     }
-
-    const previous = new Map<number, RankSnapshotRow>(
-      ((snapshotRows || []) as unknown as RankSnapshotRow[]).map((row) => [
-        Number(row.user_id),
-        { ...row, score: Number(row.score) }
-      ])
-    )
-
-    const now = new Date()
-    const { inserts, updates } = diffStandings(previous, standings, now)
-
-    // Inserts must not clobber a concurrent write; updates are idempotent
-    // (the same diff produces the same row values).
-    if (inserts.length > 0) {
-      const { error: insertError } = await supabase
-        .from('leaderboard_ranks')
-        .upsert(inserts, { onConflict: 'user_id', ignoreDuplicates: true })
-      if (insertError) {
-        console.warn('[Leaderboard] Snapshot insert failed:', insertError.message)
-      }
-    }
-    if (updates.length > 0) {
-      const { error: updateError } = await supabase
-        .from('leaderboard_ranks')
-        .upsert(updates, { onConflict: 'user_id' })
-      if (updateError) {
-        console.warn('[Leaderboard] Snapshot update failed:', updateError.message)
-      }
-    }
+    const now = new Date(refreshedAtMs)
+    const nowIso = now.toISOString()
+    const updates: SnapshotUpdate[] = rows.map((row) => ({
+      user_id: Number(row.user_id),
+      rank: Number(row.rank),
+      score: Number(row.score),
+      prev_rank: row.prev_rank === null ? null : Number(row.prev_rank),
+      rank_moved_at: row.rank_moved_at
+        ? new Date(row.rank_moved_at).toISOString()
+        : null,
+      updated_at: new Date(row.updated_at).toISOString()
+    }))
 
     // Demotion pass: rank_moved_at === now means the drop happened on
     // this diff (score-only updates keep their old timestamp).
-    const nowIso = now.toISOString()
     const demotions: DemotionEvent[] = []
     for (const update of updates) {
       if (

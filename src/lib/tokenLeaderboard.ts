@@ -335,7 +335,7 @@ export function usdDisplayParts(value: string): { tiny: boolean; number: string 
   return { tiny, number: `${formatExactInteger(whole)}${decimals}` }
 }
 
-function cleanBreakdown(
+export function cleanBreakdown(
   value: Array<{ name?: unknown; totalTokens?: unknown }> | null | undefined
 ): TokenBreakdownItem[] {
   if (!Array.isArray(value)) return []

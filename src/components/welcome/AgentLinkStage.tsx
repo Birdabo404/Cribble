@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { useGSAP } from '@gsap/react'
-import { AGENT_CLI_COMMANDS } from '@/lib/agentCli'
+import {
+  AGENT_CLI_COMMANDS,
+  AGENT_PLATFORMS,
+  DEFAULT_AGENT_PLATFORM,
+  agentPlatform,
+  detectAgentPlatform,
+  type AgentPlatformId
+} from '@/lib/agentCli'
 import {
   formatCompactTokenCount,
   tokenAgentLabel,
@@ -129,9 +136,11 @@ export function AgentLinkStage({
   const checkRef = useRef<HTMLSpanElement>(null)
   const tokensRef = useRef<HTMLSpanElement>(null)
   const usdRef = useRef<HTMLSpanElement>(null)
+  const lastPlatformRef = useRef<AgentPlatformId>(DEFAULT_AGENT_PLATFORM)
 
   const [installDone, setInstallDone] = useState(initialProgress.installDone)
   const [connectDone, setConnectDone] = useState(initialProgress.connectDone)
+  const [platform, setPlatform] = useState<AgentPlatformId>(DEFAULT_AGENT_PLATFORM)
   const [machineLabel, setMachineLabel] = useState('')
   const [minting, setMinting] = useState(false)
   const [mintedKey, setMintedKey] = useState<MintedKey | null>(null)
@@ -148,6 +157,14 @@ export function AgentLinkStage({
   useEffect(() => {
     onProgress({ installDone, connectDone, keySkipped })
   }, [installDone, connectDone, keySkipped, onProgress])
+
+  // Open on the command this visitor can actually run. Deliberately an
+  // effect: the server has no navigator, so detecting during render would
+  // hydrate a different chip than it painted. A manual pick outlives it —
+  // this only ever fires on mount.
+  useEffect(() => {
+    setPlatform(detectAgentPlatform())
+  }, [])
 
   const synced = preview !== null
   const phaseDone: Record<AgentPhase, boolean> = {
@@ -286,6 +303,24 @@ export function AgentLinkStage({
       })
     },
     { scope: rootRef, dependencies: [doneCount] }
+  )
+
+  // Wipe the install command when the platform actually changes, so the
+  // swap reads as a swap instead of a silent text substitution. Comparing
+  // against the last value (rather than a mounted flag) keeps the card's
+  // own entrance animation unaccompanied through StrictMode's remount.
+  useGSAP(
+    () => {
+      const previous = lastPlatformRef.current
+      lastPlatformRef.current = platform
+      if (previous === platform || welcomeMotionReduced()) return
+      gsap.fromTo(
+        '.agent-install',
+        { autoAlpha: 0, y: -6 },
+        { autoAlpha: 1, y: 0, duration: 0.35, ease: CRIBBLE_EASE }
+      )
+    },
+    { scope: rootRef, dependencies: [platform] }
   )
 
   // Radar pulse while listening. revertOnUpdate kills the loop the moment
@@ -427,6 +462,7 @@ export function AgentLinkStage({
     { scope: rootRef, dependencies: [preview] }
   )
 
+  const installTarget = agentPlatform(platform)
   const topAgentName = preview ? tokenAgentLabel(preview.topAgent) : null
   const maxKeysHit = mintError?.includes('Maximum of 5') === true
 
@@ -480,12 +516,23 @@ export function AgentLinkStage({
             done={phaseDone.install}
             active={activePhase === 'install'}
           >
-            <CommandBlock
-              id="install"
-              command={AGENT_CLI_COMMANDS.install}
-              copiedCommand={copiedCommand}
-              onCopy={copyCommand}
-            />
+            <PlatformPicker selected={platform} onSelect={setPlatform} />
+            <div className="agent-install mt-3">
+              {/* Keyed on the command text, not the platform: COPIED must
+                  never vouch for a line they haven't copied, but Linux and
+                  Windows share one command and shouldn't reset each other. */}
+              <CommandBlock
+                id={`install:${installTarget.install}`}
+                command={installTarget.install}
+                copiedCommand={copiedCommand}
+                onCopy={copyCommand}
+              />
+              <p className="mt-2 text-xs leading-relaxed text-zinc-600">
+                {installTarget.beta
+                  ? `Needs Node 18+. ${installTarget.label} tracking is in beta — every step after this one is identical.`
+                  : 'Needs Node 18+.'}
+              </p>
+            </div>
             {!phaseDone.install && (
               <MarkDoneButton onClick={() => setInstallDone(true)} />
             )}
@@ -831,6 +878,55 @@ function PhaseCard({
         <span className="text-sm font-semibold text-zinc-100">{title}</span>
       </div>
       <div className="mt-4 pl-8">{children}</div>
+    </div>
+  )
+}
+
+/**
+ * OS chips above the install command. Detection picks the opening chip,
+ * so most people never touch this — it exists so a Linux or Windows
+ * visitor sees a command that works instead of a macOS dead end.
+ */
+function PlatformPicker({
+  selected,
+  onSelect
+}: {
+  selected: AgentPlatformId
+  onSelect: (id: AgentPlatformId) => void
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Your operating system"
+      className="flex flex-wrap items-center gap-1.5"
+    >
+      {AGENT_PLATFORMS.map((platform) => {
+        const active = platform.id === selected
+        return (
+          <button
+            key={platform.id}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onSelect(platform.id)}
+            className={`press-scale inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 font-mono text-[9px] tracking-[0.25em] transition-colors duration-300 ${
+              active
+                ? 'border-ember/40 bg-ember/[0.07] text-ember'
+                : 'border-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-100'
+            }`}
+          >
+            {platform.label.toUpperCase()}
+            {platform.beta && (
+              <span
+                className={`rounded-full px-1.5 py-[3px] text-[8px] leading-none tracking-[0.2em] transition-colors duration-300 ${
+                  active ? 'bg-ember/15 text-ember' : 'bg-zinc-900 text-zinc-600'
+                }`}
+              >
+                BETA
+              </span>
+            )}
+          </button>
+        )
+      })}
     </div>
   )
 }
