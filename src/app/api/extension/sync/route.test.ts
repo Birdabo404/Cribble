@@ -604,7 +604,7 @@ describe('POST /api/extension/sync — deferred referral grant', () => {
   it('refreshes the leaderboard snapshot when a no-ingest sync newly grants points', async () => {
     bindActiveDevice()
     // Retry path succeeds: the referrer's total_score just moved, so the
-    // top-100 snapshot must be re-diffed even though processed === 0.
+    // board snapshot must be re-diffed even though processed === 0.
     vi.mocked(maybeGrantReferralReward).mockResolvedValueOnce(1500)
 
     const response = await POST(

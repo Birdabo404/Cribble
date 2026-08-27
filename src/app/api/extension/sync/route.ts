@@ -687,7 +687,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Rank buckets, score milestones, achievement unlocks, the referral
-    // reward, and the top-100 rank snapshot are all deduped server-side,
+    // reward, and the board rank snapshot are all deduped server-side,
     // safe to run on every sync — and none of them feeds this response,
     // which the dashboard's sync handshake blocks on. after() defers them
     // past the response. Score notifications and achievements read THIS
@@ -728,7 +728,7 @@ export async function POST(request: NextRequest) {
         try {
           // Rank snapshots + demotion notifications moved off the
           // leaderboard GET (which is now read-only): a fresh score can
-          // shift everyone's rank, so the whole top-100 standing is
+          // shift everyone's rank, so the whole board standing is
           // re-diffed here on the write path.
           await refreshLeaderboardSnapshot(supabase)
         } catch (error) {

@@ -63,6 +63,7 @@ vi.mock('@/lib/userStats', () => ({
   parseStoredTopTools: vi.fn(() => [])
 }))
 
+import { BOARD_LIMIT } from '@/lib/leaderboardEngine'
 import { GET } from './route'
 
 function scoreRow(userId: number, score: number) {
@@ -95,10 +96,12 @@ beforeEach(() => {
 })
 
 describe('GET /api/leaderboard', () => {
-  it('keeps the true leader when the score population exceeds 100 users', async () => {
+  it('serves every ranked player when the population exceeds 100 users', async () => {
     // The real leader is deliberately the 101st source row. The historical
     // users-first query limited this source to 100 parents before ordering
-    // the embedded scores, which dropped this player entirely.
+    // the embedded scores, which dropped this player entirely — and until
+    // migration 060 the board itself truncated at 100, hiding everyone
+    // ranked below.
     const source = Array.from({ length: 101 }, (_, index) => {
       const userId = index + 1
       return scoreRow(userId, userId === 101 ? 1_000_000 : 10_000 - userId)
@@ -125,16 +128,16 @@ describe('GET /api/leaderboard', () => {
     expect(response.status).toBe(200)
     expect(rpcMock).toHaveBeenCalledWith('leaderboard_standings', {
       p_board: 'season',
-      p_limit: 100
+      p_limit: BOARD_LIMIT
     })
-    expect(body.data).toHaveLength(100)
+    expect(body.data).toHaveLength(101)
     expect(body.data[0]).toMatchObject({
       userId: 101,
       username: 'pilot101',
       score: 1_000_000,
       rank: 1
     })
-    expect(body.data.some((row: { userId: number }) => row.userId === 101)).toBe(true)
-    expect(body.data.some((row: { userId: number }) => row.userId === 100)).toBe(false)
+    // The weakest player is no longer pushed off the board by the 101st.
+    expect(body.data.at(-1)).toMatchObject({ userId: 100, rank: 101 })
   })
 })

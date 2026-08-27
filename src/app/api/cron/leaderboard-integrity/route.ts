@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { BOARD_LIMIT } from '@/lib/leaderboardEngine'
 import {
   alertLeaderboardIntegrity,
   assessLeaderboardIntegrity,
@@ -72,7 +73,7 @@ async function loadCanonicalRows(
 ): Promise<IntegrityStanding[]> {
   const { data, error } = await supabase.rpc('leaderboard_standings', {
     p_board: 'alltime',
-    p_limit: 100
+    p_limit: BOARD_LIMIT
   })
   if (error) {
     throw new Error(`Canonical standings failed: ${error.message}`)

@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { parseBannerFrame, type BannerFrame } from '@/lib/bannerFrame'
 import { getOwnedPlateIdsBatch, isProTier, resolveEquippedPlate } from '@/lib/entitlements'
+import { BOARD_LIMIT } from '@/lib/leaderboardEngine'
 import { readRankMovements } from '@/lib/leaderboardSnapshot'
 import { isMissingFollowsTable, readAccountIsPrivate } from '@/lib/publicProfile'
 import { fetchSeasonState } from '@/lib/seasonServer'
@@ -242,7 +243,7 @@ async function assembleBoard(
       .select('user_id, final_rank, final_score')
       .eq('season_id', seasonState.current!.id)
       .order('final_rank', { ascending: true })
-      .limit(100)
+      .limit(BOARD_LIMIT)
 
     if (resultsError) {
       console.error('[Leaderboard] Season results query error:', resultsError)
@@ -259,7 +260,7 @@ async function assembleBoard(
     if (frozenByUser.size === 0) return []
   }
 
-  // Migration 059's RPC ranks from user_scores before applying the top-100
+  // Migration 059's RPC ranks from user_scores before applying the board
   // limit. The API does not derive order or assign ranks itself; the snapshot
   // refresher calls this same function inside its transaction.
   let userRows: RankedUserRow[]
@@ -282,7 +283,7 @@ async function assembleBoard(
   } else {
     const { data: standingRows, error: standingsError } = await supabase.rpc(
       'leaderboard_standings',
-      { p_board: board, p_limit: 100 }
+      { p_board: board, p_limit: BOARD_LIMIT }
     )
     if (standingsError) {
       console.error('[Leaderboard] Canonical standings query error:', standingsError)
@@ -326,8 +327,8 @@ async function assembleBoard(
   const userIds = userRows.map((u) => u.id)
 
   // Owned plates and team affiliations for the whole board — one
-  // user_cosmetics query and one team_affiliations join for all 100
-  // ranked users.
+  // user_cosmetics query and one team_affiliations join for every
+  // ranked user.
   const [ownedPlatesByUser, teamsByUser] = await Promise.all([
     getOwnedPlateIdsBatch(supabase, userIds),
     getAffiliatedTeamsBatch(supabase, userIds)

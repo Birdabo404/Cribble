@@ -60,6 +60,12 @@ export interface StandingsDiff {
   updates: SnapshotUpdate[]
 }
 
+/** Most players a board read serves — a payload safety valve, not a
+ *  product ceiling. Every ranked player appears until the population
+ *  passes this. Must stay within the validation ceiling of the
+ *  leaderboard_standings database function (migration 060). */
+export const BOARD_LIMIT = 1000
+
 /** How long a climb/drop arrow stays visible after the movement. */
 export const MOVEMENT_WINDOW_MS = 48 * 3_600_000
 
