@@ -26,6 +26,17 @@ const migration060 = readFileSync(
   join(process.cwd(), 'migrations/060_agent_usage_local_runtime_ingest.sql'),
   'utf8'
 )
+const migration061Path = join(
+  process.cwd(),
+  'migrations/061_agent_usage_local_runtime_sources.sql'
+)
+const migration061 = (() => {
+  try {
+    return readFileSync(migration061Path, 'utf8')
+  } catch {
+    return ''
+  }
+})()
 
 describe('Agent usage migrations', () => {
   it('keeps the production-recorded migration 046 in source control input', () => {
@@ -86,6 +97,23 @@ describe('Agent usage migrations', () => {
       expect(migration060).toContain(fact)
     }
     expect(migration060).toContain('create or replace function public.ingest_agent_usage')
+  })
+
+  it('constrains event and daily sources to ccusage or cribble-agent after migration 060', () => {
+    expect(migration061).toMatch(/begin;[\s\S]*commit;/i)
+    for (const constraint of [
+      'agent_usage_events_source_supported',
+      'agent_usage_daily_source_supported',
+    ]) {
+      expect(migration061).toContain(`drop constraint if exists ${constraint}`)
+      expect(migration061).toMatch(
+        new RegExp(
+          `constraint ${constraint}\\s+check \\(source (?:= any \\()?array\\['ccusage'::text, 'cribble-agent'::text\\]\\)?\\)`,
+          'i'
+        )
+      )
+    }
+    expect(migration061).not.toMatch(/drop constraint if exists[\s\S]*commit;[\s\S]*add constraint/i)
   })
 
   it('restores a legacy top-agent label without inventing token attribution', () => {
