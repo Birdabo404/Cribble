@@ -28,6 +28,7 @@ export type StaffAction =
   | 'audit.view'
   | 'feedback.view'
   | 'feedback.manage'
+  | 'abuse.review'
   | 'entitlement.grant_pro'
   | 'entitlement.revoke_pro'
   | 'entitlement.grant_plate'
@@ -59,6 +60,11 @@ export function minRoleFor(action: StaffAction): StaffRole {
     // badge. Billing is never touched on this path — rejection refunds
     // happen manually in Polar — so moderators work this queue too.
     case 'team.review':
+    // Fraud triage is review work of the same shape: judging the abuse
+    // signals on a flag and confirming or dismissing it. Confirming can
+    // suspend the account, which moderators can already do via
+    // user.set_status, so the queue sits at the moderator floor too.
+    case 'abuse.review':
       return 'moderator'
     case 'entitlement.grant_pro':
     case 'entitlement.revoke_pro':
