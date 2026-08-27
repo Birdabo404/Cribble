@@ -117,3 +117,8 @@ export function isAllowedDuringLock(pathname: string, hasSession = false): boole
   if (pathname.startsWith('/api/team/')) return true
   return false
 }
+
+/** Routes deliberately advertised before their implementation is live. */
+export function isKnownSealedPage(pathname: string): boolean {
+  return pathname === '/roadmap'
+}

@@ -94,6 +94,14 @@ describe('middleware site lock', () => {
     expect(rewriteTarget('/roadmap')).toBe('/maintenance')
   })
 
+  it('leaves unknown routes for the global 404 boundary while locked', () => {
+    vi.stubEnv('SITE_LOCKED', '1')
+
+    expect(rewriteTarget('/definitely-not-a-cribble-route')).toBeNull()
+    expect(rewriteTarget('/DEFINITELY-NOT-A-CRIBBLE-ROUTE')).toBeNull()
+    expect(middleware(request('/definitely-not-a-cribble-route')).status).toBe(200)
+  })
+
   it('keeps dashboard and settings APIs reachable while the app shell is session-gated', () => {
     vi.stubEnv('SITE_LOCKED', '1')
     // Pages are session-gated (below); the data lanes still need to answer
