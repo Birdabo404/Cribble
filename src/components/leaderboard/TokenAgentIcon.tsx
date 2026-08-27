@@ -27,7 +27,42 @@ const AGENT_ACCENTS: Record<string, { color: string; edge: string; surface: stri
     color: 'rgb(var(--z100))',
     edge: 'rgb(168 85 247 / 0.34)',
     surface: 'linear-gradient(145deg, rgb(168 85 247 / 0.14), rgb(var(--lb-panel-edge) / 0.035))'
+  },
+  /* Hermes' mark is monochrome ink-on-white (Nous renders it on a white tile
+     in both themes), so the chrome is a neutral silver tint, not a hue. */
+  Hermes: {
+    color: 'rgb(var(--z100))',
+    edge: 'rgb(var(--lb-panel-edge) / 0.24)',
+    surface:
+      'linear-gradient(145deg, rgb(var(--lb-panel-edge) / 0.14), rgb(var(--lb-panel-edge) / 0.03))'
   }
+}
+
+/** Agents whose brand mark is a raster image (label → self-hosted /public
+ * path) rather than an SVG glyph in icons.tsx. Checked before ToolIcon. */
+const AGENT_IMAGE_MARKS: Record<string, string> = {
+  Hermes: '/agents/hermes.png'
+}
+
+/** Brand glyph for a known label: image tile when the agent ships a raster
+ * mark, otherwise the shared SVG ToolIcon (which monogram-falls-back). The
+ * rounded clip keeps square avatar-style logos looking intentional. */
+function LabelMark({ label, size }: { label: string; size: number }) {
+  const src = AGENT_IMAGE_MARKS[label]
+  if (!src) return <ToolIcon name={label} size={size} />
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt=""
+      aria-hidden
+      loading="lazy"
+      width={size}
+      height={size}
+      className="shrink-0 object-cover"
+      style={{ borderRadius: Math.max(2, Math.round(size * 0.28)) }}
+    />
+  )
 }
 
 /**
@@ -128,7 +163,7 @@ export function TokenAgentIcon({
         aria-hidden
       >
         {label ? (
-          <ToolIcon name={label} size={size} />
+          <LabelMark label={label} size={size} />
         ) : showBrew ? (
           <MixedBrewGlyph size={size + 2} />
         ) : (
@@ -154,7 +189,7 @@ export function TokenAgentIcon({
       aria-label={label ?? fallbackTitle}
     >
       {label ? (
-        <ToolIcon name={label} size={size} />
+        <LabelMark label={label} size={size} />
       ) : showBrew ? (
         <MixedBrewGlyph size={size + 4} />
       ) : (

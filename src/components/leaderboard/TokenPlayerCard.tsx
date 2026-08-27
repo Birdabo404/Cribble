@@ -25,6 +25,7 @@ import {
 import { Avatar, SafeBannerImg } from './Avatar'
 import { IconClose, IconCrown, IconExpand, IconFlame } from './icons'
 import { TokenAgentIcon } from './TokenAgentIcon'
+import { personaChipScrimStyle, tokenPersonaVisual } from './tokenPersonaVisual'
 import { medalA, medalFor, type PlayerProfile } from './types'
 
 const CLOSE_MS = 220
@@ -63,6 +64,7 @@ export function TokenPlayerCard({
   onCloseRef.current = onClose
 
   const medal = medalFor(row.rank)
+  const personaVisual = tokenPersonaVisual(row.persona)
   const topAgent = tokenAgentLabel(row.topAgent)
   const topModel = tokenModelLabel(row.topModel)
   const burnPerDay = exactDecimal(
@@ -250,13 +252,10 @@ export function TokenPlayerCard({
                 #{row.rank}
               </span>
               <span
-                className="border px-2 py-1 text-[8px] font-semibold tracking-[0.18em]"
-                style={{
-                  color: 'rgb(251 146 60)',
-                  borderColor: 'rgb(251 146 60 / 0.38)',
-                  background: 'rgb(0 0 0 / 0.58)'
-                }}
+                className="inline-flex items-center gap-1 px-2 py-1 text-[8px] font-semibold tracking-[0.18em]"
+                style={personaChipScrimStyle(personaVisual)}
               >
+                {personaVisual.flame && <IconFlame size={9} className="shrink-0" />}
                 {row.persona.label}
               </span>
             </div>

@@ -364,6 +364,8 @@ const TOKEN_AGENT_LABELS: Record<string, string> = {
   'gemini-cli': 'Gemini CLI',
   copilot: 'GitHub Copilot',
   'github-copilot': 'GitHub Copilot',
+  hermes: 'Hermes',
+  'hermes-agent': 'Hermes',
   opencode: 'OpenCode',
   'open-code': 'OpenCode'
 }
