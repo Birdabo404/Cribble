@@ -22,6 +22,10 @@ const migration057 = readFileSync(
   join(process.cwd(), 'migrations/057_token_leaderboard_legacy_top_agent.sql'),
   'utf8'
 )
+const migration060 = readFileSync(
+  join(process.cwd(), 'migrations/060_agent_usage_local_runtime_ingest.sql'),
+  'utf8'
+)
 
 describe('Agent usage migrations', () => {
   it('keeps the production-recorded migration 046 in source control input', () => {
@@ -74,6 +78,14 @@ describe('Agent usage migrations', () => {
     expect(migration050).not.toMatch(
       /delete from public\.agent_usage_daily as daily\s+where daily\.user_id = p_user_id\s+and daily\.client_id = p_client_id;/
     )
+  })
+
+  it('replaces ingest for local-runtime source and preserves every event fact', () => {
+    expect(migration060).toContain("p_source not in ('ccusage', 'cribble-agent')")
+    for (const fact of ['request_id', 'event_id', 'occurred_at', 'provider', 'runtime', 'model', 'reasoning_tokens', 'provenance']) {
+      expect(migration060).toContain(fact)
+    }
+    expect(migration060).toContain('create or replace function public.ingest_agent_usage')
   })
 
   it('restores a legacy top-agent label without inventing token attribution', () => {
