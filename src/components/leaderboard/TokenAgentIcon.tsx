@@ -1,55 +1,28 @@
+import React, { useEffect, useState } from 'react'
 import { rampVar, type RampName, type RampStep } from '@/components/achievements/palette'
 import { ToolIcon } from '@/components/leaderboard/icons'
+import { harnessBrandForLabel } from '@/lib/harnessBrands'
 import { tokenAgentLabel } from '@/lib/tokenLeaderboard'
-
-const AGENT_ACCENTS: Record<string, { color: string; edge: string; surface: string }> = {
-  Codex: {
-    color: 'rgb(var(--z100))',
-    edge: 'rgb(16 163 127 / 0.38)',
-    surface: 'linear-gradient(145deg, rgb(16 163 127 / 0.18), rgb(var(--lb-panel-edge) / 0.04))'
-  },
-  'Claude Code': {
-    color: '#D97757',
-    edge: 'rgb(217 119 87 / 0.4)',
-    surface: 'linear-gradient(145deg, rgb(217 119 87 / 0.17), rgb(var(--lb-panel-edge) / 0.04))'
-  },
-  Cursor: {
-    color: 'rgb(var(--z100))',
-    edge: 'rgb(var(--lb-panel-edge) / 0.2)',
-    surface: 'linear-gradient(145deg, rgb(var(--lb-panel-edge) / 0.12), rgb(var(--lb-panel-edge) / 0.025))'
-  },
-  'Gemini CLI': {
-    color: '#8B9DFF',
-    edge: 'rgb(139 157 255 / 0.4)',
-    surface: 'linear-gradient(145deg, rgb(33 123 254 / 0.16), rgb(189 153 254 / 0.1))'
-  },
-  'GitHub Copilot': {
-    color: 'rgb(var(--z100))',
-    edge: 'rgb(168 85 247 / 0.34)',
-    surface: 'linear-gradient(145deg, rgb(168 85 247 / 0.14), rgb(var(--lb-panel-edge) / 0.035))'
-  },
-  /* Hermes' mark is monochrome ink-on-white (Nous renders it on a white tile
-     in both themes), so the chrome is a neutral silver tint, not a hue. */
-  Hermes: {
-    color: 'rgb(var(--z100))',
-    edge: 'rgb(var(--lb-panel-edge) / 0.24)',
-    surface:
-      'linear-gradient(145deg, rgb(var(--lb-panel-edge) / 0.14), rgb(var(--lb-panel-edge) / 0.03))'
-  }
-}
-
-/** Agents whose brand mark is a raster image (label → self-hosted /public
- * path) rather than an SVG glyph in icons.tsx. Checked before ToolIcon. */
-const AGENT_IMAGE_MARKS: Record<string, string> = {
-  Hermes: '/agents/hermes.png'
-}
 
 /** Brand glyph for a known label: image tile when the agent ships a raster
  * mark, otherwise the shared SVG ToolIcon (which monogram-falls-back). The
  * rounded clip keeps square avatar-style logos looking intentional. */
 function LabelMark({ label, size }: { label: string; size: number }) {
-  const src = AGENT_IMAGE_MARKS[label]
+  const src = harnessBrandForLabel(label)?.imageSrc
+  const [failedSrc, setFailedSrc] = useState<string | null>(null)
+  useEffect(() => setFailedSrc(null), [src])
   if (!src) return <ToolIcon name={label} size={size} />
+  if (failedSrc === src) {
+    return (
+      <span
+        data-agent-image-fallback
+        className="inline-flex shrink-0 items-center justify-center font-bold"
+        style={{ width: size, height: size, fontSize: Math.max(9, Math.round(size * 0.58)) }}
+      >
+        {label.charAt(0).toUpperCase()}
+      </span>
+    )
+  }
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
@@ -59,6 +32,7 @@ function LabelMark({ label, size }: { label: string; size: number }) {
       loading="lazy"
       width={size}
       height={size}
+      onError={() => setFailedSrc(src)}
       className="shrink-0 object-cover"
       style={{ borderRadius: Math.max(2, Math.round(size * 0.28)) }}
     />
@@ -151,7 +125,7 @@ export function TokenAgentIcon({
   mixed?: boolean
 }) {
   const label = tokenAgentLabel(agent)
-  const accent = label ? AGENT_ACCENTS[label] : null
+  const accent = label ? harnessBrandForLabel(label) : null
   const showBrew = !label && mixed
   const box = Math.max(30, size + 16)
 

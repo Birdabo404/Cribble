@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:run": "vitest run",
+    "validate:agent-svgs": "node scripts/validate-agent-svgs.mjs public/agents/pi.svg public/agents/opencode.svg",
     "audit:prod": "npm audit --omit=dev",
     "setup:polar": "vite-node scripts/setup-polar.ts",
     "setup:polar:check": "vite-node scripts/setup-polar.ts --check"
@@ -54,6 +55,7 @@
     "autoprefixer": "^10.4.21",
     "eslint": "^8.57.0",
     "eslint-config-next": "15.5.22",
+    "jsdom": "^26.1.0",
     "postcss": "^8.5.18",
     "tailwindcss": "3.4.17",
     "typescript": "^5.4.0",
