@@ -8,11 +8,11 @@
 // team's gap-to-leader bar), a facepile of the crew, and podium plate
 // washes for the top three; expanding a row drops the roster with an
 // MVP chip, per-member burn, segment dots and a seats-filled footer.
-// Score is the ONLY official rank — the SCORE/BURN lens just re-orders
-// the rendered list (burn desc, no-burn teams last) while each rank
-// badge keeps its score-earned number. Viewers without a team get a
-// FIELD A TEAM recruit bar where members see their YOUR TEAM bar. The
-// payload is identical for every viewer and server-cached, so there is
+// SCORE and BURN are separate standings: switching lenses changes the
+// rendered order, rank badges, podium chrome and champion title. Viewers
+// without a team get a FIELD A TEAM recruit bar where members see their
+// YOUR TEAM bar. The payload is identical for every viewer and
+// server-cached, so there is
 // no 15s poll: fetch on mount and when the tab regains focus.
 
 import Link from 'next/link'
@@ -83,6 +83,19 @@ const LENSES: { id: BoardLens; label: string }[] = [
   { id: 'score', label: 'SCORE' },
   { id: 'burn', label: 'BURN' }
 ]
+
+/** BURN standings: opted-in burn desc, score breaks equal-burn ties,
+ *  and teams with no shared burn follow in their score-board order. */
+function compareTeamBurn(a: TeamBoardRow, b: TeamBoardRow): number {
+  const aBurns = a.burnPilots > 0
+  const bBurns = b.burnPilots > 0
+  if (aBurns !== bBurns) return aBurns ? -1 : 1
+  if (aBurns && bBurns) {
+    const byBurn = compareExactDecimals(b.burnUsd, a.burnUsd)
+    if (byBurn !== 0) return byBurn
+  }
+  return b.score - a.score || a.rank - b.rank
+}
 
 export function TeamBoard() {
   const [teams, setTeams] = useState<TeamBoardRow[] | null>(null)
@@ -158,6 +171,17 @@ export function TeamBoard() {
     return decimalToApproxNumber(top)
   }, [teams])
 
+  // Lens-specific rank is global, not search-result-relative: filtering
+  // the board must never turn the first matching team into rank 1.
+  const burnRanks = useMemo(() => {
+    if (!teams) return new Map<number, number>()
+    return new Map(
+      [...teams]
+        .sort(compareTeamBurn)
+        .map((team, index) => [team.userId, index + 1] as const)
+    )
+  }, [teams])
+
   const filtered = useMemo(() => {
     if (!teams) return []
     const q = query.trim().toLowerCase()
@@ -169,22 +193,11 @@ export function TeamBoard() {
     )
   }, [teams, query])
 
-  // The burn lens re-orders the RENDERED list only: burn desc, ties by
-  // score desc, teams with no opted-in burners sink to the bottom in
-  // their official order. Rank badges keep team.rank throughout — the
-  // official rank is score-only, always.
+  // Each lens owns its standings. The backend's team.rank is the score
+  // rank; BURN derives its parallel rank from the same full payload.
   const displayed = useMemo(() => {
     if (lens !== 'burn') return filtered
-    return [...filtered].sort((a, b) => {
-      const aBurns = a.burnPilots > 0
-      const bBurns = b.burnPilots > 0
-      if (aBurns !== bBurns) return aBurns ? -1 : 1
-      if (aBurns && bBurns) {
-        const byBurn = compareExactDecimals(b.burnUsd, a.burnUsd)
-        if (byBurn !== 0) return byBurn
-      }
-      return b.score - a.score || a.rank - b.rank
-    })
+    return [...filtered].sort(compareTeamBurn)
   }, [filtered, lens])
 
   // The viewer's team: they either ARE the company account or sit on
@@ -402,6 +415,9 @@ export function TeamBoard() {
                 <TeamRow
                   key={team.userId}
                   team={team}
+                  displayRank={
+                    lens === 'burn' ? (burnRanks.get(team.userId) ?? team.rank) : team.rank
+                  }
                   index={i}
                   topScore={topScore}
                   topBurn={topBurn}
@@ -417,7 +433,7 @@ export function TeamBoard() {
 
         <p className="mt-3 text-center text-[9px] tracking-[0.3em] text-zinc-600">
           {lens === 'burn'
-            ? 'BURN LENS — OFFICIAL RANK STAYS SCORE-ONLY'
+            ? 'RANKED BY OPT-IN SEASON BURN'
             : 'RANKED BY THE COMBINED SEASON SCORE OF ACTIVE AFFILIATES'}
         </p>
         <p className="mt-1 text-center text-[9px] tracking-[0.22em] text-zinc-700">
@@ -427,7 +443,13 @@ export function TeamBoard() {
         {/* ---------- sticky YOUR TEAM / recruit bar ---------- */}
         {myTeam ? (
           <div className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 mt-4">
-            <YourTeamBar team={myTeam} onJump={jumpToMyTeam} />
+            <YourTeamBar
+              team={myTeam}
+              rank={
+                lens === 'burn' ? (burnRanks.get(myTeam.userId) ?? myTeam.rank) : myTeam.rank
+              }
+              onJump={jumpToMyTeam}
+            />
           </div>
         ) : viewerChecked && teams !== null && !failed ? (
           <div className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 mt-4">
@@ -578,7 +600,7 @@ function LensToggle({
     <div
       className="lb-inset flex items-center gap-0.5 rounded-lg p-0.5"
       role="tablist"
-      aria-label="Standings lens — the official rank is always score"
+      aria-label="Choose score or burn standings"
     >
       {LENSES.map((item) => {
         const active = item.id === lens
@@ -622,6 +644,7 @@ function LensToggle({
 
 function TeamRow({
   team,
+  displayRank,
   index,
   topScore,
   topBurn,
@@ -632,6 +655,7 @@ function TeamRow({
   setRef
 }: {
   team: TeamBoardRow
+  displayRank: number
   index: number
   topScore: number
   topBurn: number
@@ -641,7 +665,7 @@ function TeamRow({
   onToggle: (id: number) => void
   setRef: (id: number, el: HTMLLIElement | null) => void
 }) {
-  const medal = medalFor(team.rank)
+  const medal = medalFor(displayRank)
   // The squad bar's hue — medal metal on the podium, score yellow below
   // it. Roster dots and share bars reuse it so the segments decode.
   const hue = medal ? medal.fg : 'rgb(var(--lb-score))'
@@ -656,7 +680,7 @@ function TeamRow({
   // must hold in both themes. Deliberately row-level, not a podium — it
   // has to look intentional even when one team stands alone.
   const wash = medal
-    ? team.rank === 1
+    ? displayRank === 1
       ? `linear-gradient(90deg, ${medalA(medal.rgb, 0.09)}, ${medalA(medal.rgb, 0.02)} 55%, transparent)`
       : `linear-gradient(90deg, ${medalA(medal.rgb, 0.05)}, transparent 45%)`
     : undefined
@@ -680,10 +704,10 @@ function TeamRow({
         type="button"
         aria-expanded={open}
         onClick={() => onToggle(team.userId)}
-        aria-label={`${open ? 'Collapse' : 'Expand'} roster — @${team.username}, rank ${team.rank}`}
+        aria-label={`${open ? 'Collapse' : 'Expand'} roster — @${team.username}, rank ${displayRank}`}
         className={`${ROW_GRID} group w-full py-4 text-left transition-colors hover:bg-[rgb(var(--lb-panel-edge)/0.045)] focus-visible:bg-[rgb(var(--lb-panel-edge)/0.045)] focus-visible:outline-none`}
       >
-        {/* rank — ALWAYS the official score rank, in either lens */}
+        {/* Rank and podium chrome belong to the active standings lens. */}
         <div className="flex items-center">
           {medal ? (
             <span
@@ -695,11 +719,11 @@ function TeamRow({
                 textShadow: `0 0 10px ${medalGlow(medal.rgb, 0.55)}`
               }}
             >
-              {team.rank}
+              {displayRank}
             </span>
           ) : (
             <span className="inline-flex h-8 w-8 items-center justify-center text-[11px] tabular-nums text-zinc-500 [font-family:var(--font-pixel)]">
-              {team.rank}
+              {displayRank}
             </span>
           )}
         </div>
@@ -720,7 +744,7 @@ function TeamRow({
               {team.display_name || `@${team.username}`}
             </span>
             <TeamBadge size={14} />
-            {medal && team.rank === 1 && (
+            {medal && displayRank === 1 && (
               <span
                 className="hidden shrink-0 rounded px-1.5 py-[3px] text-[7px] leading-none tracking-[0.25em] md:inline"
                 style={{
@@ -732,7 +756,7 @@ function TeamRow({
                   textShadow: `0 0 10px ${medalGlow(medal.plate, 0.6)}`
                 }}
               >
-                {medal.label}
+                {lens === 'burn' ? 'BURN CHAMPION' : medal.label}
               </span>
             )}
             <span className="hidden shrink-0 text-[10px] text-zinc-600 lg:inline">
@@ -1134,14 +1158,22 @@ function SkeletonRow({ index }: { index: number }) {
 
 /* ================= sticky YOUR TEAM bar ================= */
 
-function YourTeamBar({ team, onJump }: { team: TeamBoardRow; onJump: () => void }) {
-  const medal = medalFor(team.rank)
+function YourTeamBar({
+  team,
+  rank,
+  onJump
+}: {
+  team: TeamBoardRow
+  rank: number
+  onJump: () => void
+}) {
+  const medal = medalFor(rank)
 
   return (
     <button
       type="button"
       onClick={onJump}
-      aria-label={`Jump to your team — @${team.username}, rank ${team.rank}`}
+      aria-label={`Jump to your team — @${team.username}, rank ${rank}`}
       // blur-md, same budget note as the pilots' YouBar: this sticky bar
       // re-samples whatever scrolls under it every frame.
       className="block w-full text-left backdrop-blur-md"
@@ -1166,11 +1198,11 @@ function YourTeamBar({ team, onJump }: { team: TeamBoardRow; onJump: () => void 
               textShadow: `0 0 10px ${medalGlow(medal.rgb, 0.55)}`
             }}
           >
-            {team.rank}
+            {rank}
           </span>
         ) : (
           <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-[11px] tabular-nums text-zinc-500 [font-family:var(--font-pixel)]">
-            {team.rank}
+            {rank}
           </span>
         )}
 
