@@ -118,6 +118,15 @@ export function resolveLeaderboardBidProductId(): string | null {
   return process.env.POLAR_PRODUCT_LEADERBOARD_BID || null
 }
 
+/** Polar product id for the one-time "Billboard Slot Sponsorship"
+ *  product (scripts/setup-polar.ts), or null if unset. Like the
+ *  leaderboard bid, its catalog price is nominal — every checkout
+ *  overrides it with the ad-hoc fee-grossed slot price (migration
+ *  061), so the id is all the app ever needs. */
+export function resolveBillboardSlotProductId(): string | null {
+  return process.env.POLAR_PRODUCT_BILLBOARD_SLOT || null
+}
+
 /** Parsed POLAR_PLATE_PRODUCT_MAP (JSON string of plateId -> Polar product
  *  id). Malformed JSON or non-string values yield an empty/partial map
  *  rather than an exception. */

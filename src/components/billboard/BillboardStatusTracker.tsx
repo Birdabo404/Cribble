@@ -9,17 +9,25 @@
 // element of a redo/reject row because it is the one thing the buyer
 // must read.
 //
-// Leaderboard creatives (placement 'leaderboard', migration 055) ride
-// the same rows but a different money story: no 7-day window — liveness
-// is APPROVED plus an active bid total from GET
-// /api/billboard/leaderboard/mine (fetched here whenever the list
-// carries one, refreshed on every parent reload). An APPROVED row's
-// expansion is the bid console: the live ranked board with expirations,
-// a target-total entry with the explicit charge preview
-// (leaderboardChargeCents — the math is never re-derived here), and the
-// handoff to Polar's hosted checkout. A 409 from the checkout route
-// means the board moved: the console refreshes its displayed minimum
-// from the response and re-asks — it never silently re-submits.
+// Money surfaces, per product:
+//   - Flipper/rail (the weekly windows): an APPROVED row with no live
+//     or scheduled window expands to the slot pay console (migration
+//     061) — sticker price, rail slot picker, queue disclosure, and
+//     the handoff to Polar's hosted checkout via POST
+//     /api/billboard/checkout. The bb_checkout=success return leg is
+//     handled by BillboardLanding, which syncs and reloads this list.
+//   - Leaderboard creatives (placement 'leaderboard', migration 055)
+//     ride the same rows but a different money story: no 7-day window
+//     — liveness is APPROVED plus an active bid total from GET
+//     /api/billboard/leaderboard/mine (fetched here whenever the list
+//     carries one, refreshed on every parent reload). An APPROVED
+//     row's expansion is the bid console: the live ranked board with
+//     expirations, a target-total entry with the explicit charge
+//     preview (leaderboardChargeCents — the math is never re-derived
+//     here), and the handoff to Polar's hosted checkout. A 409 from
+//     the checkout route means the board moved: the console refreshes
+//     its displayed minimum from the response and re-asks — it never
+//     silently re-submits.
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import Link from 'next/link'
@@ -35,12 +43,13 @@ import {
 } from '@/components/settings'
 import {
   BILLBOARD_DURATION_DAYS,
-  BILLBOARD_PAYMENT_EMAIL,
   BILLBOARD_PAYMENT_X_HANDLE,
   BILLBOARD_PAYMENT_X_URL,
   BILLBOARD_PRICE_CENTS,
   BILLBOARD_RAIL_PRICE_MIN_CENTS,
+  RAIL_SLOTS,
   RAIL_SLOT_PRICE_CENTS,
+  billboardSlotGrossCents,
   type BillboardPlacement,
   type BillboardStatus,
   type RailSlot
@@ -104,12 +113,14 @@ interface ChipMeta {
   amber?: boolean
 }
 
-/** Lifecycle chip. APPROVED fans out by payment/window state: the admin
- *  stamps paid_at + the 7-day window together at activation, so a bare
- *  APPROVED row is still waiting on the manual X-DM payment step.
- *  Leaderboard creatives never have a window — their APPROVED states
- *  read from the bid standing instead (on the board, or ready to bid);
- *  isLive is always false for them and must not be trusted here. */
+/** Lifecycle chip. APPROVED fans out by payment/window state: payment
+ *  stamps the 7-day window (self-serve Polar checkout, or the admin's
+ *  manual override), so a bare APPROVED row is one the buyer can pay
+ *  right now, and a future window is a paid ad queued behind a full
+ *  board. Leaderboard creatives never have a window — their APPROVED
+ *  states read from the bid standing instead (on the board, or ready
+ *  to bid); isLive is always false for them and must not be trusted
+ *  here. */
 function chipMeta(
   ad: MineAd,
   now: Date,
@@ -132,9 +143,9 @@ function chipMeta(
         return { label: 'Run complete', rgb: ZINC }
       }
       if (ad.starts_at && new Date(ad.starts_at).getTime() > now.getTime()) {
-        return { label: 'Scheduled', rgb: ZINC }
+        return { label: `Queued · live ${fmtDate(ad.starts_at)}`, rgb: ZINC }
       }
-      return { label: 'Awaiting payment', rgb: ZINC }
+      return { label: 'Ready to pay', rgb: ZINC }
     }
     case 'REJECTED':
       return { label: 'Rejected', rgb: 'var(--lb-down)' }
@@ -193,18 +204,6 @@ function centsToInputValue(cents: number): string {
 /** Gold is reserved for price numbers — the sponsorship page's rule.
  *  --lb-gold flips with the theme on its own. */
 const GOLD = { color: 'rgb(var(--lb-gold))' } as const
-
-/** The dollar ask while payment is pending: the flipper's flat price,
- *  the requested slot's ladder price, or the ladder floor when the
- *  buyer left the slot open. Weekly products only — a leaderboard
- *  creative's ask is whatever the live board demands, never a label. */
-function adPriceLabel(ad: MineAd): string {
-  if (ad.placement !== 'rail') return `$${BILLBOARD_PRICE_CENTS / 100}/wk`
-  if (ad.requested_rail_slot) {
-    return `$${RAIL_SLOT_PRICE_CENTS[ad.requested_rail_slot] / 100}/wk`
-  }
-  return `from $${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}/wk`
-}
 
 const daysLeft = (endsAt: string, now: Date) =>
   Math.max(0, Math.ceil((new Date(endsAt).getTime() - now.getTime()) / 86_400_000))
@@ -731,6 +730,246 @@ function LeaderboardBidConsole({
   )
 }
 
+/* ------------------------------------------------------------------ *
+ * Slot pay console — the money surface of an APPROVED flipper/rail
+ * row with no live or scheduled window (a first run or a renewal).
+ * POST /api/billboard/checkout prices server-side and answers with the
+ * hosted checkout URL plus the estimated window: an immediate start
+ * hands the browser straight to Polar; queued: true means the board
+ * (or the picked slot) is full, so the go-live date is disclosed in a
+ * confirm step BEFORE anything is charged — the held checkout URL is
+ * reused if the buyer re-asks for the same slot, since the server
+ * refuses a second in-flight checkout per ad (409) for ~2 hours.
+ * Rails pick their slot here and the choice is binding: the ladder
+ * prices per slot, and the paid slot becomes the live one.
+ * ------------------------------------------------------------------ */
+
+function SlotPayConsole({
+  ad,
+  renews,
+  onChanged
+}: {
+  ad: MineAd
+  /** True when this books a fresh window after a completed run. */
+  renews: boolean
+  /** Refreshes the parent creative list. */
+  onChanged: () => void
+}) {
+  const isRail = ad.placement === 'rail'
+  /** The binding slot choice (rails only): the submission-time wish
+   *  opens preselected, but the buyer can move before paying. */
+  const [slot, setSlot] = useState<RailSlot | null>(isRail ? ad.requested_rail_slot : null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  /** A queued checkout awaiting the buyer's go-ahead. Kept after "Not
+   *  now" so re-asking for the same slot reopens THIS checkout instead
+   *  of 409ing against its own PENDING ledger row. */
+  const [held, setHeld] = useState<{
+    url: string
+    startsAt: string
+    slot: RailSlot | null
+  } | null>(null)
+  const [confirming, setConfirming] = useState(false)
+
+  const listCents = isRail
+    ? slot !== null
+      ? RAIL_SLOT_PRICE_CENTS[slot]
+      : null
+    : BILLBOARD_PRICE_CENTS
+  const grossCents = listCents === null ? null : billboardSlotGrossCents(listCents)
+
+  const pickSlot = (next: RailSlot) => {
+    setSlot(next)
+    setError(null)
+    setConfirming(false)
+  }
+
+  const startCheckout = async () => {
+    if (busy) return
+    if (held !== null && held.slot === slot) {
+      setError(null)
+      setConfirming(true)
+      return
+    }
+    setBusy(true)
+    setError(null)
+    let navigating = false
+    try {
+      const res = await fetch('/api/billboard/checkout', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(isRail ? { adId: ad.id, slot } : { adId: ad.id })
+      })
+      const data = await res.json().catch(() => null)
+
+      if (!res.ok || typeof data?.url !== 'string') {
+        const message =
+          typeof data?.error === 'string'
+            ? data.error
+            : 'Could not start the checkout — try again.'
+        // The 409s: an in-flight checkout (finish or wait out its ~2h
+        // TTL), or the row changed under us (a paid window landed, or
+        // review moved) — either way say so and refresh the truth.
+        setError(
+          res.status === 409
+            ? `${message} If you just paid, it settles here shortly — otherwise retry in a moment.`
+            : message
+        )
+        if (res.status === 409) onChanged()
+        return
+      }
+
+      if (data.queued === true && typeof data.estimatedStartsAt === 'string') {
+        // Full board / taken slot: hold the checkout and disclose the
+        // go-live date. Nothing is charged until the buyer continues.
+        setHeld({ url: data.url, startsAt: data.estimatedStartsAt, slot })
+        setConfirming(true)
+        return
+      }
+
+      // Hand the browser to Polar's hosted checkout. It returns to
+      // /sponsorship?bb_checkout=success, where the landing runs the
+      // slot sync so the window shows without waiting for the webhook.
+      navigating = true
+      window.location.assign(data.url)
+    } catch {
+      setError('Network error — try again.')
+    } finally {
+      if (!navigating) setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3 border-t border-[color:var(--st-border)] pt-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <span className="text-[13px] font-medium leading-5 text-[color:var(--st-text)]">
+          {renews ? 'Run it again' : 'Approved — pay to go live'}
+        </span>
+        <span className="font-data text-[12px] tabular-nums" style={GOLD}>
+          {listCents !== null
+            ? `$${listCents / 100}/wk`
+            : `from $${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}/wk`}
+        </span>
+      </div>
+
+      <p className="text-[13px] leading-relaxed text-[color:var(--st-text-muted)]">
+        {renews
+          ? `The last run is done — pay below and a fresh ${BILLBOARD_DURATION_DAYS}-day window books itself.`
+          : `Pay below and your ${BILLBOARD_DURATION_DAYS}-day run books itself, live the moment the payment lands.`}
+        {isRail && ' The slot you pick here is the slot you get.'} If the spot is taken, the
+        go-live date is shown before anything is charged.
+      </p>
+
+      {isRail && (
+        <div className="grid auto-cols-fr grid-flow-col grid-rows-4 gap-2">
+          {RAIL_SLOTS.map((railSlot) => {
+            const selected = slot === railSlot
+            return (
+              <button
+                key={railSlot}
+                type="button"
+                aria-pressed={selected}
+                aria-label={`Pick rail slot ${railSlot}`}
+                onClick={() => pickSlot(railSlot)}
+                className={`min-w-0 rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                  selected
+                    ? 'border-[color:var(--st-border-strong)] bg-[color:var(--st-panel-hover)]'
+                    : 'border-[color:var(--st-border)] hover:border-[color:var(--st-border-strong)] hover:bg-[color:var(--st-panel-hover)]'
+                }`}
+              >
+                <span className="flex items-baseline justify-between gap-2">
+                  <span className="font-data text-[12px] font-medium tabular-nums text-[color:var(--st-text)]">
+                    {railSlot}
+                  </span>
+                  <span className="font-data text-[12px] tabular-nums" style={GOLD}>
+                    ${RAIL_SLOT_PRICE_CENTS[railSlot] / 100}/wk
+                  </span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {confirming && held !== null && (
+        <div
+          className={`rounded-lg px-3 py-2.5 text-[13px] leading-5 ${AMBER_FLIP_CLS}`}
+          style={{
+            color: 'rgb(var(--bb-amber))',
+            border: '1px solid rgb(var(--bb-amber) / 0.35)',
+            background: 'rgb(var(--bb-amber) / 0.06)'
+          }}
+          role="status"
+        >
+          <span className="mr-2 font-medium">
+            {isRail ? `Slot ${held.slot} is taken right now` : 'The flipper is full right now'}
+          </span>
+          Paying queues this ad: it goes live {fmtDate(held.startsAt)} and runs{' '}
+          {BILLBOARD_DURATION_DAYS} days from there.
+        </div>
+      )}
+
+      {error && (
+        <p
+          className="rounded-lg px-3 py-2.5 text-[13px] leading-5"
+          style={{
+            color: 'var(--st-danger)',
+            border: '1px solid var(--st-danger-muted)',
+            background: 'var(--st-danger-bg)'
+          }}
+          role="alert"
+        >
+          {error}
+        </p>
+      )}
+
+      <div className="space-y-2">
+        {confirming && held !== null ? (
+          <div className="flex flex-wrap gap-2">
+            <SettingsButton
+              variant="solid"
+              onClick={() => window.location.assign(held.url)}
+            >
+              Continue to payment — live {fmtDate(held.startsAt)}
+            </SettingsButton>
+            <SettingsButton variant="ghost" onClick={() => setConfirming(false)}>
+              Not now
+            </SettingsButton>
+          </div>
+        ) : (
+          <SettingsButton
+            variant="solid"
+            pending={busy}
+            disabled={isRail && slot === null}
+            onClick={startCheckout}
+          >
+            {busy
+              ? 'Starting checkout…'
+              : listCents !== null
+                ? `Pay $${listCents / 100}/wk`
+                : 'Pick a slot to pay'}
+          </SettingsButton>
+        )}
+        <p className="text-[12.5px] leading-5 text-[color:var(--st-text-faint)]">
+          Card checkout by Polar — a processing fee is added at checkout
+          {grossCents !== null ? `: $${grossCents / 100} total` : ''}. Stuck, or paying some
+          other way? DM{' '}
+          <a
+            href={BILLBOARD_PAYMENT_X_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-[color:var(--st-text-muted)] transition-colors hover:text-[color:var(--st-text)]"
+          >
+            @{BILLBOARD_PAYMENT_X_HANDLE}
+          </a>{' '}
+          on X and it gets sorted by hand.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 function AdRow({
   ad,
   lbStanding,
@@ -751,6 +990,33 @@ function AdRow({
   const now = new Date()
   const meta = chipMeta(ad, now, lbStanding)
   const editable = ad.status === 'PENDING' || ad.status === 'CHANGES_REQUESTED'
+
+  // The weekly products' money states. A future window is a paid ad
+  // queued behind a full board — sold, nothing to pay. Payable is the
+  // checkout route's own gate mirrored: APPROVED, not live, no window
+  // ahead of (or spanning) now — a bare first run or a completed one
+  // ready to renew.
+  const isWeekly = ad.placement === 'flipper' || ad.placement === 'rail'
+  const queuedStartsAt =
+    ad.status === 'APPROVED' &&
+    isWeekly &&
+    !ad.isLive &&
+    ad.starts_at !== null &&
+    new Date(ad.starts_at).getTime() > now.getTime()
+      ? ad.starts_at
+      : null
+  const runComplete =
+    ad.status === 'APPROVED' &&
+    isWeekly &&
+    !ad.isLive &&
+    ad.ends_at !== null &&
+    new Date(ad.ends_at).getTime() < now.getTime()
+  const payable =
+    ad.status === 'APPROVED' &&
+    isWeekly &&
+    !ad.isLive &&
+    queuedStartsAt === null &&
+    (ad.ends_at === null || runComplete)
 
   const editTarget: AdFormTarget = {
     mode: 'edit',
@@ -847,45 +1113,14 @@ function AdRow({
             </p>
           )}
 
-          {ad.status === 'APPROVED' && ad.placement !== 'leaderboard' && !ad.isLive && !ad.ends_at && (
+          {queuedStartsAt !== null && (
             <p className="text-[13px] leading-relaxed text-[color:var(--st-text-muted)]">
-              {/* Email-first: name the buyer's own billing inbox when one
-                  is on file; pre-040 ads (no address) get the public
-                  billing address instead. X DM stays the backup. */}
-              Approved — payment ({adPriceLabel(ad)}) is handled personally over email:{' '}
-              {ad.billing_email ? (
-                <>
-                  the payment instructions go to{' '}
-                  <span className="font-medium text-[color:var(--st-text)]">
-                    {ad.billing_email}
-                  </span>{' '}
-                  — reply there to complete it
-                </>
-              ) : (
-                <>
-                  email{' '}
-                  <a
-                    href={`mailto:${BILLBOARD_PAYMENT_EMAIL}`}
-                    className="font-medium text-[color:var(--st-text)] transition-colors hover:text-[color:var(--st-text-muted)]"
-                  >
-                    {BILLBOARD_PAYMENT_EMAIL}
-                  </a>{' '}
-                  to arrange it
-                </>
-              )}
-              , or DM{' '}
-              <a
-                href={BILLBOARD_PAYMENT_X_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-medium text-[color:var(--st-text)] transition-colors hover:text-[color:var(--st-text-muted)]"
-              >
-                @{BILLBOARD_PAYMENT_X_HANDLE}
-              </a>{' '}
-              on X as backup. Once confirmed, your ad is activated by hand — usually
-              within minutes, at most a few hours — and your {BILLBOARD_DURATION_DAYS}-day run
-              starts the moment {`it's`} live. Slots go to the first confirmed payment; if
-              yours fills first, pick another open slot over email or DM.
+              Paid and queued — the spot was taken when your payment landed, so this ad goes
+              live{' '}
+              <span className="font-medium text-[color:var(--st-text)]">
+                {fmtDate(queuedStartsAt)}
+              </span>{' '}
+              and runs {BILLBOARD_DURATION_DAYS} days from there. Nothing left to do.
             </p>
           )}
 
@@ -916,6 +1151,10 @@ function AdRow({
           {ad.status === 'APPROVED' && ad.placement === 'leaderboard' && (
             <LeaderboardBidConsole ad={ad} standing={lbStanding} onChanged={onChanged} />
           )}
+
+          {/* The weekly products' money surface: self-serve checkout for
+              a bare approved row, or a renewal after a completed run. */}
+          {payable && <SlotPayConsole ad={ad} renews={runComplete} onChanged={onChanged} />}
 
           {editable && !editing && (
             <div>

@@ -64,11 +64,15 @@ export const BILLBOARD_COMPANY_MAX = 40
  *  is the strip's title line, the body its text line. */
 export const BILLBOARD_ANNOUNCE_HEADLINE_MAX = 40
 export const BILLBOARD_ANNOUNCE_BODY_MAX = 80
-/** $200 per flipper slot per rolling 7 days; payment is manual in v1. */
+/** $200 per flipper slot per rolling 7 days — the advertised sticker
+ *  price, and what Cribble nets: the self-serve Polar checkout
+ *  (migration 061) charges the fee-grossed total instead
+ *  (billboardSlotGrossCents below). */
 export const BILLBOARD_PRICE_CENTS = 20000
 /** Weekly rail price per slot: a scarcity ladder by row — the top row
  *  (L1/R1) dearest, the bottom (L4/R4) cheapest — same price on both
- *  sides. Same manual-payment flow as the flipper. */
+ *  sides. Advertised/netted like BILLBOARD_PRICE_CENTS; the checkout
+ *  charges the grossed-up total. */
 export const RAIL_SLOT_PRICE_CENTS: Record<RailSlot, number> = {
   L1: 49900,
   R1: 49900,
@@ -82,6 +86,45 @@ export const RAIL_SLOT_PRICE_CENTS: Record<RailSlot, number> = {
 /** The ladder's floor — every "from $199/wk" surface derives from this. */
 export const BILLBOARD_RAIL_PRICE_MIN_CENTS = 19900
 export const BILLBOARD_DURATION_DAYS = 7
+
+/* ------------------------------------------------------------------ *
+ * Slot checkout pricing — the Polar fee gross-up (migration 061).
+ * The sticker prices above stay on every advertised surface; only the
+ * Polar checkout charges gross, so Cribble nets exactly the sticker.
+ * Isomorphic so the tracker can preview the charged total from the
+ * same math the checkout route prices with.
+ * ------------------------------------------------------------------ */
+
+/** Polar's processing cut on a one-time order: 4% of the charged total
+ *  plus a fixed 40 cents. */
+export const BILLBOARD_POLAR_FEE_RATE = 0.04
+export const BILLBOARD_POLAR_FEE_FIXED_CENTS = 40
+
+/** What the Polar checkout charges for a slot advertised at listCents:
+ *  the smallest gross total that still nets the sticker price after
+ *  Polar's cut — (list + 40) / 0.96 — rounded UP to whole dollars so
+ *  the buyer never sees odd cents ($200 flipper charges $209; the
+ *  rail ladder charges $521 / $417 / $312 / $208). The verification
+ *  gate compares Polar's netAmount against THIS amount, stored in the
+ *  ledger row's amount_cents. */
+export function billboardSlotGrossCents(listCents: number): number {
+  return (
+    Math.ceil(
+      (listCents + BILLBOARD_POLAR_FEE_FIXED_CENTS) /
+        (1 - BILLBOARD_POLAR_FEE_RATE) /
+        100
+    ) * 100
+  )
+}
+
+/** How long a PENDING billboard_slot_orders row counts as an in-flight
+ *  checkout — the slot twin of LEADERBOARD_SPONSOR_PENDING_TTL_MS.
+ *  Polar hosted checkouts expire about an hour after creation, so a
+ *  row still PENDING past this window belongs to an abandoned checkout
+ *  that can no longer be paid: the checkout route stops treating it as
+ *  a duplicate-purchase block. Deliberately NOT an activation gate — a
+ *  verified paid order always activates, however late the webhook. */
+export const BILLBOARD_SLOT_PENDING_TTL_MS = 2 * 3_600_000
 /** Payment is manual in v1, arranged over email since migration 040:
  *  approval emails the instructions to the ad's billing_email. This is
  *  the client-safe address shown in UI copy — the server's reply-to

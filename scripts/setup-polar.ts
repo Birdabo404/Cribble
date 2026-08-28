@@ -8,6 +8,10 @@
 //     metadata — its catalog price is the $6.66 empty-board opening and is
 //     nominal only: every checkout overrides it with a server-computed
 //     ad-hoc fixed price (migration 055)
+//   - the one-time "Billboard Slot Sponsorship" product, with `cribble_key`
+//     metadata — its catalog price is the $200 flipper sticker and is
+//     nominal only: every checkout overrides it with the fee-grossed
+//     ad-hoc slot price (migration 061)
 //   - the 25% "Pro Plate Perk" discount restricted to the plate products
 //   - the webhook endpoint pointing at /api/webhooks/polar (raw format —
 //     team products and sponsor bids reuse the same order events, nothing
@@ -35,6 +39,7 @@ import type { Discount } from '@polar-sh/sdk/models/components/discount'
 import type { Product } from '@polar-sh/sdk/models/components/product'
 import type { WebhookEndpoint } from '@polar-sh/sdk/models/components/webhookendpoint'
 import type { WebhookEventType } from '@polar-sh/sdk/models/components/webhookeventtype'
+import { BILLBOARD_PRICE_CENTS } from '../src/lib/billboard'
 import { PLATES, type PlateDef } from '../src/lib/cosmetics/plates'
 import { LEADERBOARD_SPONSOR_OPENING_CENTS } from '../src/lib/leaderboardSponsor'
 import { getPolarServer } from '../src/lib/polar'
@@ -147,6 +152,20 @@ const LEADERBOARD_BID = {
   description:
     'A ranked sponsor contribution on the Cribble leaderboard — each payment counts toward your creative\'s rolling 24-hour total. The charged amount is set per checkout; this catalog price is the empty-board opening.',
   priceCents: LEADERBOARD_SPONSOR_OPENING_CENTS
+}
+
+// The billboard slot purchase (migration 061). Matched/tagged by
+// cribble_key metadata like the bid product; the price is the flipper
+// sticker from lib/billboard and only nominal — checkout always
+// attaches the ad-hoc fee-grossed slot price, so drift here is
+// cosmetic.
+const BILLBOARD_SLOT = {
+  metaValue: 'billboard_slot',
+  envKey: 'POLAR_PRODUCT_BILLBOARD_SLOT',
+  name: 'Billboard Slot Sponsorship',
+  description:
+    'A 7-day sponsored slot on the Cribble Billboard — the rotating flipper under the navbar or an always-on profile rail. The charged amount is set per checkout (the advertised slot price plus payment processing); this catalog price is the flipper sticker.',
+  priceCents: BILLBOARD_PRICE_CENTS
 }
 
 const DISCOUNT_NAME = 'Pro Plate Perk'
@@ -394,6 +413,37 @@ async function main() {
     }
     if (product) envEntries.push([LEADERBOARD_BID.envKey, product.id])
     recordEnvState('LEADERBOARD', LEADERBOARD_BID.envKey, product?.id ?? null, willWriteEnv)
+  }
+
+  // --- Billboard slot ---------------------------------------------------------
+  {
+    let product = matchProduct(
+      products,
+      false,
+      'cribble_key',
+      BILLBOARD_SLOT.metaValue,
+      BILLBOARD_SLOT.name
+    )
+    if (!product && !check) {
+      product = await polar.products.create({
+        name: BILLBOARD_SLOT.name,
+        description: BILLBOARD_SLOT.description,
+        metadata: { cribble_key: BILLBOARD_SLOT.metaValue },
+        prices: [{ amountType: 'fixed', priceAmount: BILLBOARD_SLOT.priceCents }]
+      })
+      record('BILLBOARD', BILLBOARD_SLOT.name, 'created', `${formatUsd(BILLBOARD_SLOT.priceCents)} sticker (ad-hoc grossed per checkout) → ${product.id}`)
+    } else if (!product) {
+      record('BILLBOARD', BILLBOARD_SLOT.name, 'missing', `would create at the ${formatUsd(BILLBOARD_SLOT.priceCents)} sticker (ad-hoc grossed per checkout)`)
+    } else {
+      // Catalog price is nominal (checkout always overrides it), so a
+      // different stored price is reported like every other drift but
+      // harms nothing.
+      const cents = fixedPriceCents(product)
+      const priceNote = cents === BILLBOARD_SLOT.priceCents ? `${formatUsd(BILLBOARD_SLOT.priceCents)} sticker` : `price drift (cosmetic — checkouts are ad-hoc priced): Polar has ${cents === null ? 'no fixed price' : formatUsd(cents)}, catalog says ${formatUsd(BILLBOARD_SLOT.priceCents)}`
+      record('BILLBOARD', BILLBOARD_SLOT.name, cents === BILLBOARD_SLOT.priceCents ? 'ok' : 'drift', `${priceNote} → ${product.id}`)
+    }
+    if (product) envEntries.push([BILLBOARD_SLOT.envKey, product.id])
+    recordEnvState('BILLBOARD', BILLBOARD_SLOT.envKey, product?.id ?? null, willWriteEnv)
   }
 
   // --- Pro plate discount --------------------------------------------------

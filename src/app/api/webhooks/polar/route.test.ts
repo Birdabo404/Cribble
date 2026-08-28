@@ -27,7 +27,9 @@ const {
   bidsUpdateEqMock,
   bidsUpdateInMock,
   bidsUpdateResult,
-  leaderboardBidProductId
+  leaderboardBidProductId,
+  slotActivateMock,
+  slotRevokeMock
 } = vi.hoisted(() => ({
   validateEventMock: vi.fn(),
   grantProEntitlementMock: vi.fn(),
@@ -47,7 +49,14 @@ const {
   bidsUpdateResult: {
     value: { data: [{ id: 55 }], error: null } as { data: unknown; error: unknown }
   },
-  leaderboardBidProductId: { value: null as string | null }
+  leaderboardBidProductId: { value: null as string | null },
+  // Billboard slot fulfillment (migration 061) is mocked at the module
+  // boundary: its verification gate + window stamping run against a
+  // stateful multi-table fake in billboardSlotServer.test.ts, so the
+  // webhook suite only pins the WIRING — both order events must reach
+  // it, and its resolved refusals must still ack.
+  slotActivateMock: vi.fn(),
+  slotRevokeMock: vi.fn()
 }))
 
 vi.mock('@polar-sh/sdk/webhooks', () => ({
@@ -79,6 +88,11 @@ vi.mock('@/lib/entitlementGrant', () => ({
   grantProEntitlement: grantProEntitlementMock,
   grantTeamEntitlement: grantTeamEntitlementMock,
   grantPlatePurchase: grantPlatePurchaseMock
+}))
+
+vi.mock('@/lib/billboardSlotServer', () => ({
+  activateBillboardSlotFromOrder: slotActivateMock,
+  revokeBillboardSlotFromOrder: slotRevokeMock
 }))
 
 vi.mock('@/lib/supabaseServer', () => ({
@@ -706,5 +720,115 @@ describe('POST /api/webhooks/polar — leaderboard sponsor bids', () => {
     expect(bidsUpdateMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'REFUNDED' }))
     expect(bidsUpdateInMock.mock.calls).toEqual([['status', ['PENDING', 'PAID']]])
     expect(bidsUpdateEqMock.mock.calls).toEqual([['polar_order_id', 'order_lb_1']])
+  })
+})
+
+// The billboard-slot leg of order.paid/order.refunded (migration 061):
+// the verification gate and window stamping live in
+// billboardSlotServer (tested statefully in its own suite), so what's
+// pinned here is the WIRING — every paid order runs through slot
+// activation (it self-classifies and no-ops on the other products'
+// orders), every refund runs the slot revocation, and a permanent
+// verification refusal RESOLVES so the delivery is acked instead of
+// redelivered forever.
+
+describe('POST /api/webhooks/polar — billboard slot orders', () => {
+  function slotOrderEvent(overrides: Record<string, unknown> = {}) {
+    return {
+      type: 'order.paid',
+      data: {
+        id: 'order_bb_1',
+        checkoutId: 'chk_bb_1',
+        productId: 'prod_bb_slot',
+        netAmount: 20900,
+        currency: 'usd',
+        createdAt: new Date('2026-08-25T10:00:00.000Z'),
+        customer: { externalId: '9' },
+        metadata: { userId: 9, kind: 'billboard_slot', bbAdId: 4 },
+        ...overrides
+      }
+    }
+  }
+
+  beforeEach(() => {
+    validateEventMock.mockReset()
+    grantProEntitlementMock.mockReset()
+    grantTeamEntitlementMock.mockReset()
+    grantPlatePurchaseMock.mockReset()
+    grantPlatePurchaseMock.mockResolvedValue(undefined)
+    paymentEventsInsertMock.mockReset()
+    paymentEventsInsertMock.mockResolvedValue({ error: null })
+    bidsReadEqMock.mockReset()
+    bidsUpdateMock.mockReset()
+    bidsUpdateEqMock.mockReset()
+    bidsUpdateInMock.mockReset()
+    slotActivateMock.mockReset()
+    slotActivateMock.mockResolvedValue('activated')
+    slotRevokeMock.mockReset()
+    slotRevokeMock.mockResolvedValue(undefined)
+    teamProductIds.clear()
+  })
+
+  it('order.paid hands the verified order to slot activation, untouched by the other fulfillments', async () => {
+    const event = slotOrderEvent()
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ received: true })
+    expect(slotActivateMock).toHaveBeenCalledWith(expect.anything(), event.data)
+    // No plate markers and no bid markers on a slot order — the other
+    // one-time fulfillments must not fire.
+    expect(grantPlatePurchaseMock).not.toHaveBeenCalled()
+    expect(bidsReadEqMock).not.toHaveBeenCalled()
+  })
+
+  it('a permanent slot refusal still acks — Polar must not redeliver an event no retry can fix', async () => {
+    slotActivateMock.mockResolvedValue('refused')
+    const event = slotOrderEvent({ netAmount: 20000 })
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ received: true })
+  })
+
+  it('a retryable slot failure 500s and releases the idempotency marker for redelivery', async () => {
+    slotActivateMock.mockRejectedValue(new Error('ledger read failed'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const event = slotOrderEvent()
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(500)
+    errorSpy.mockRestore()
+  })
+
+  it('order.refunded runs the slot revocation alongside the plate and bid legs', async () => {
+    const event = {
+      type: 'order.refunded',
+      data: { id: 'order_bb_1', checkoutId: 'chk_bb_1' }
+    }
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    expect(slotRevokeMock).toHaveBeenCalledWith(expect.anything(), event.data)
+  })
+
+  it('a duplicate delivery is dropped by the payment_events gate before slot activation runs', async () => {
+    paymentEventsInsertMock.mockResolvedValue({ error: { code: '23505' } })
+    const event = slotOrderEvent()
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ received: true, skipped: true })
+    expect(slotActivateMock).not.toHaveBeenCalled()
   })
 })

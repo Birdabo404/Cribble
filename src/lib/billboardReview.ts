@@ -1,7 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { withAudit } from '@/lib/adminAudit'
 import {
-  BILLBOARD_PAYMENT_EMAIL,
   BILLBOARD_PAYMENT_X_HANDLE,
   BILLBOARD_PRICE_CENTS,
   BILLBOARD_RAIL_PRICE_MIN_CENTS,
@@ -154,16 +153,18 @@ export async function approveBillboardAd(
     const billingEmail =
       typeof ad.billing_email === 'string' && ad.billing_email ? ad.billing_email : null
 
-    // Best-effort payment email — the primary channel since migration
-    // 040. 'skipped' means there was nothing to send (no billing_email
-    // on file, or the email env is unset) and ops chases over X DM
-    // instead. The sender keys on ad id + reviewed_at, so a retried
-    // approve can't double-deliver. A failure never fails the approve —
-    // the admin queue reads emailStatus off the response and falls back
-    // to X.
-    // Leaderboard creatives never get the manual-payment ask: their
-    // payment is self-serve Polar bidding (migration 055), and approval
-    // just opens the bid button.
+    // Best-effort payment email — a pointer at the self-serve checkout
+    // rather than the payment channel itself: it sends the buyer to the
+    // "pay & go live" button on their sponsorship tracker. 'skipped'
+    // means there was nothing to send (no billing_email on file, or the
+    // email env is unset) — the in-app notification below carries the
+    // same instruction regardless. The sender keys on ad id +
+    // reviewed_at, so a retried approve can't double-deliver. A failure
+    // never fails the approve — the admin queue reads emailStatus off
+    // the response.
+    // Leaderboard creatives never get this mail: their payment is
+    // self-serve Polar bidding (migration 055), and approval just opens
+    // the bid button.
     let emailStatus: BillboardApproveEmailStatus = 'skipped'
     if (placement !== 'leaderboard' && billingEmail && isSponsorshipEmailConfigured()) {
       const emailResult = await sendSponsorshipPaymentEmail({
@@ -184,15 +185,14 @@ export async function approveBillboardAd(
     // while a double-submit cannot. External-sponsor ads have no account
     // to notify.
     if (ownerUserId !== null) {
-      // Email-first: point at the thread that actually closes the deal
-      // when a send went out; otherwise (no billing_email, env unset,
-      // provider failure) name the public billing address instead of
-      // claiming an email that never landed. X DM stays the backup
-      // channel either way.
+      // Self-serve first: the pay button on the ad's row at /sponsorship
+      // is the payment channel either way. Mention the email only when a
+      // send actually went out (it points at the same button) — never
+      // claim a mail that didn't land. X DM stays the backup channel.
       const paymentLine =
         emailStatus === 'sent'
-          ? `Payment instructions (${priceLine}) were emailed to ${billingEmail} — reply there to complete payment, or DM @${BILLBOARD_PAYMENT_X_HANDLE} on X as backup.`
-          : `To complete payment (${priceLine}), email ${BILLBOARD_PAYMENT_EMAIL} — or DM @${BILLBOARD_PAYMENT_X_HANDLE} on X as backup.`
+          ? `To go live, pay ${priceLine} from the sponsorship page — the pay button on your ad's row (instructions were also emailed to ${billingEmail}). DM @${BILLBOARD_PAYMENT_X_HANDLE} on X as backup.`
+          : `To go live, pay ${priceLine} from the sponsorship page — the pay button on your ad's row. DM @${BILLBOARD_PAYMENT_X_HANDLE} on X as backup.`
       // Leaderboard approval opens self-serve bidding (migration 055) —
       // no manual ask, no activation wait.
       await insertMissingNotifications(supabase, ownerUserId, [
@@ -207,7 +207,7 @@ export async function approveBillboardAd(
           : {
               type: 'premium',
               title: 'SPONSORSHIP AD APPROVED',
-              body: `Your sponsor ad passed review. ${paymentLine} Once it's confirmed, your ad is activated and goes live, usually within a few minutes to a few hours.`,
+              body: `Your sponsor ad passed review. ${paymentLine} Your ad activates automatically the moment payment completes.`,
               data: { kind: 'billboard_review', result: 'approved', adId },
               dedupeKey: `billboard_${adId}_approved_${reviewedAt}`
             }

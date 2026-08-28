@@ -7,10 +7,12 @@ import {
 } from '@/lib/billboard'
 
 // Server-only Resend wrapper for Billboard sponsorship payment mail —
-// the email-first half of the manual v1 payment flow. On approval the
-// review route sends the buyer the exact ask and how to settle it;
-// the deal then closes in the reply thread (SPONSORSHIP_EMAIL_REPLY_TO,
-// the founder inbox), with X DM as the backup channel.
+// the approval notice for the self-serve checkout flow. On approval the
+// review route sends the buyer the exact ask and where to pay: the
+// "pay & go live" button on their sponsorship tracker, which runs the
+// checkout and activates the ad the moment payment completes. Replies
+// (SPONSORSHIP_EMAIL_REPLY_TO, the founder inbox) and X DM stay open
+// as backup channels for questions.
 //
 // The client is constructed lazily inside the send call — a top-level
 // `new Resend(process.env.RESEND_API_KEY)` would throw at import time
@@ -18,9 +20,9 @@ import {
 // .env.example placeholder philosophy: private config is absent, code
 // fails closed at request time instead).
 
-/** All three vars or nothing: without the reply-to inbox the "reply to
- *  this email" instructions would strand the buyer's answer, so it
- *  gates the send like the provider key and sender do. */
+/** All three vars or nothing: buyers reply to this mail with questions,
+ *  so without the reply-to inbox those replies would strand — it gates
+ *  the send like the provider key and sender do. */
 export function isSponsorshipEmailConfigured(): boolean {
   return Boolean(
     process.env.RESEND_API_KEY &&
@@ -54,8 +56,9 @@ function sanitizeError(name: string, message: string): string {
   return `${name}: ${message}`.slice(0, ERROR_MAX)
 }
 
-// Where the email points back to: the buyer's status tracker. Always
-// production — this mail only goes out for real approvals.
+// Where the email points: the buyer's status tracker, which hosts the
+// "pay & go live" checkout button. Always production — this mail only
+// goes out for real approvals.
 const BILLBOARD_URL = 'https://cribble.dev/sponsorship'
 
 // Email palette: fixed dark rendering of the landing page's zinc +
@@ -94,12 +97,12 @@ function renderText(placement: BillboardPlacement, priceLine: string): string {
     '',
     `the ask: ${priceLine} — ${placementLabel(placement)}, live for ${BILLBOARD_DURATION_DAYS} days once payment is confirmed.`,
     '',
-    "payment is manual — nothing charges automatically. reply to this email and we'll settle it. once confirmed, your ad is activated and goes live, usually within minutes to a few hours.",
+    'payment is self-serve — open your sponsorship tracker and hit "pay & go live" on your ad. your ad activates automatically the moment payment completes. the checkout total includes a small processing fee on top of the listed price.',
     '',
-    'track your ad:',
+    'pay & go live (and track your ad):',
     BILLBOARD_URL,
     '',
-    `email awkward? DM @${BILLBOARD_PAYMENT_X_HANDLE} on X instead:`,
+    `stuck or have questions? DM @${BILLBOARD_PAYMENT_X_HANDLE} on X:`,
     BILLBOARD_PAYMENT_X_URL,
     '',
     '— cribble · ranking AI users, worldwide'
@@ -118,11 +121,12 @@ function renderHtml(placement: BillboardPlacement, priceLine: string): string {
         <p style="margin: 24px 0 0; font-size: 14px; line-height: 1.7; color: ${MUTED};">your sponsor ad passed review. one step left: payment.</p>
         <p style="margin: 20px 0 0; display: inline-block; border: 1px solid ${CARD_BORDER}; border-radius: 6px; padding: 10px 14px; font-size: 15px; letter-spacing: 0.04em; color: ${TEXT};">${priceLine}</p>
         <p style="margin: 10px 0 0; font-size: 12px; line-height: 1.7; color: ${FAINT};">${placementLabel(placement)} &middot; live ${BILLBOARD_DURATION_DAYS} days once payment is confirmed</p>
-        <p style="margin: 24px 0 0; font-size: 14px; line-height: 1.7; color: ${MUTED};">payment is manual &mdash; nothing charges automatically. reply to this email and we'll settle it. once confirmed, your ad is activated and goes live, usually within minutes to a few hours.</p>
+        <p style="margin: 24px 0 0; font-size: 14px; line-height: 1.7; color: ${MUTED};">payment is self-serve &mdash; open your sponsorship tracker and hit &quot;pay &amp; go live&quot; on your ad. your ad activates automatically the moment payment completes. the checkout total includes a small processing fee on top of the listed price.</p>
         <p style="margin: 28px 0 0;">
-          <a href="${BILLBOARD_URL}" style="display: inline-block; background-color: ${ACCENT}; color: ${BG}; font-family: ${mono}; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-decoration: none; padding: 12px 22px; border-radius: 6px;">track your ad &rarr;</a>
+          <a href="${BILLBOARD_URL}" style="display: inline-block; background-color: ${ACCENT}; color: ${BG}; font-family: ${mono}; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-decoration: none; padding: 12px 22px; border-radius: 6px;">pay &amp; go live &rarr;</a>
         </p>
-        <p style="margin: 24px 0 0; font-size: 12px; color: ${FAINT};">email awkward? <a href="${BILLBOARD_PAYMENT_X_URL}" style="color: ${MUTED};">DM @${BILLBOARD_PAYMENT_X_HANDLE} on X</a> instead.</p>
+        <p style="margin: 10px 0 0; font-size: 12px; color: ${FAINT};">the same page tracks your ad's status.</p>
+        <p style="margin: 24px 0 0; font-size: 12px; color: ${FAINT};">stuck or have questions? <a href="${BILLBOARD_PAYMENT_X_URL}" style="color: ${MUTED};">DM @${BILLBOARD_PAYMENT_X_HANDLE} on X</a>.</p>
         <hr style="margin: 32px 0 0; border: none; border-top: 1px solid ${CARD_BORDER};" />
         <p style="margin: 16px 0 0; font-size: 11px; line-height: 1.7; color: ${FAINT};">cribble &middot; ranking AI users, worldwide<br />you're getting this because your sponsor ad was approved at cribble.dev/sponsorship.</p>
       </div>

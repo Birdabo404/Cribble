@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // sendSponsorshipPaymentEmail is the Billboard half of outbound email
 // (the waitlist invite being the other). Under test: the three-var
-// config gate (reply-to included — the deal closes in that thread), the
-// exact provider payload (one recipient, reply-to, the ask + tracker
-// link + X backup in both bodies, the per-decision idempotency key),
-// sanitized failure text, and lazy client construction — `next build`
-// must survive with zero email env set.
+// config gate (reply-to included — buyer questions land in that
+// thread), the exact provider payload (one recipient, reply-to, the
+// ask + pay-and-track link + X backup in both bodies, the per-decision
+// idempotency key), sanitized failure text, and lazy client
+// construction — `next build` must survive with zero email env set.
 
 const { resendConstructorMock, sendMock } = vi.hoisted(() => {
   const sendMock = vi.fn()
@@ -91,7 +91,7 @@ describe('sendSponsorshipPaymentEmail', () => {
     expect(payload.from).toBe('Cribble <birdabo@cribble.dev>')
     // A single string recipient — never a list.
     expect(payload.to).toBe('buyer@acme.dev')
-    // Replies go straight to the inbox that closes the deal.
+    // Replies with questions go straight to the founder inbox.
     expect(payload.replyTo).toBe('birdabo@cribble.dev')
     expect(payload.subject).toBe('Your Cribble sponsorship is approved — payment details')
     for (const body of [payload.html, payload.text]) {

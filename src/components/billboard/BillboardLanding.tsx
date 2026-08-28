@@ -33,6 +33,13 @@
 // waiting for the webhook. Terminal results clear the checkout params;
 // a still-pending result keeps them so refresh can retry safely.
 //
+// Flipper/rail slot payments (migration 061) mirror that shape: the
+// tracker's slot pay console hands the buyer to Polar, and the return
+// lands here as /sponsorship?bb_checkout=success&checkout_id=… where a
+// twin mount effect runs POST /api/billboard/checkout/sync for that
+// exact checkout and reloads the tracker. The two legs never coexist
+// on one URL and each strips only its own params.
+//
 // The studio preview flows upward: the form owns placeholder / avatar /
 // accent resolution and reports AdPreviewValues through onPreviewChange
 // (on mount and on every preview-relevant change); this page forwards
@@ -105,12 +112,12 @@ const HOW_IT_WORKS: { label: string; body: string }[] = [
     body: 'Approved, redo with notes, or rejected. Status lands in Your ads.'
   },
   {
-    label: 'Pay over email',
-    body: `Instructions go to your billing email. @${BILLBOARD_PAYMENT_X_HANDLE} on X is backup.`
+    label: 'Pay by card',
+    body: `Approved cards unlock checkout in Your ads. @${BILLBOARD_PAYMENT_X_HANDLE} on X stays the backup.`
   },
   {
     label: `Live ${BILLBOARD_DURATION_DAYS} days`,
-    body: 'Once marked paid, the card runs around the clock. Clicks are counted.'
+    body: 'The window books itself the moment payment lands. Clicks are counted.'
   }
 ]
 
@@ -473,6 +480,126 @@ export function BillboardLanding() {
       }
       // Reload the creative lifecycle either way; the owner standing has
       // its own live poll and runs immediately whenever the tracker mounts.
+      if (!cancelled) void loadMine()
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [loadMine])
+
+  // Return leg of a flipper/rail slot payment: the slot checkout's
+  // successUrl lands on /sponsorship?bb_checkout=success&checkout_id=…
+  // — the twin of the lb_checkout effect above, but targeted: POST
+  // /api/billboard/checkout/sync reconciles that exact checkout and
+  // answers with the window verdict. The two legs can't interfere —
+  // Polar sends exactly one of the params per product, and each effect
+  // strips only its own. Terminal results clear the checkout params; a
+  // still-pending result keeps them so refresh can retry safely.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('bb_checkout') !== 'success') return
+    const checkoutId = params.get('checkout_id')
+    let cancelled = false
+    setView('mine')
+
+    const clearCheckoutParams = () => {
+      const fresh = new URLSearchParams(window.location.search)
+      fresh.delete('bb_checkout')
+      fresh.delete('checkout_id')
+      const rest = fresh.toString()
+      window.history.replaceState(
+        null,
+        '',
+        `${window.location.pathname}${rest ? `?${rest}` : ''}`
+      )
+    }
+
+    const run = async () => {
+      // The template token should always be interpolated on a success
+      // return; without it there is nothing to reconcile — the webhook
+      // still books the window on its own.
+      if (!checkoutId) {
+        clearCheckoutParams()
+        return
+      }
+      try {
+        let response: Response | null = null
+        let data: Record<string, unknown> | null = null
+
+        // A successful card return normally has its paid order ready,
+        // but give Polar a few seconds for asynchronous order creation.
+        // The checkout id stays in the URL while still pending, so a
+        // manual refresh can safely retry after the bounded loop.
+        for (let attempt = 0; attempt < 4; attempt++) {
+          response = await fetch('/api/billboard/checkout/sync', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ checkoutId })
+          })
+          data = await response.json().catch(() => null)
+          if (cancelled) return
+          if (!response.ok || data?.status !== 'pending' || attempt === 3) break
+          await new Promise((resolve) => window.setTimeout(resolve, 1_500))
+          if (cancelled) return
+        }
+
+        if (!response) throw new Error('No sync response')
+
+        const status = typeof data?.status === 'string' ? data.status : null
+        if (
+          response.ok &&
+          data?.success &&
+          (status === 'activated' || status === 'already_active')
+        ) {
+          clearCheckoutParams()
+          toast({
+            kind: 'success',
+            title: 'Payment received',
+            body: `Your ${BILLBOARD_DURATION_DAYS}-day window is booked — the row below shows whether your ad is live now or queued behind a full board.`
+          })
+        } else if (response.ok && data?.success && status === 'refunded') {
+          clearCheckoutParams()
+          toast({
+            kind: 'error',
+            title: 'Payment refunded',
+            body: 'This checkout was refunded, so no window was booked.'
+          })
+        } else if (
+          response.ok &&
+          data?.success &&
+          (status === 'refused' || status === 'not_found')
+        ) {
+          clearCheckoutParams()
+          toast({
+            kind: 'error',
+            title: 'Payment could not be confirmed',
+            body: `The checkout did not match a qualifying payment — nothing was activated. DM @${BILLBOARD_PAYMENT_X_HANDLE} on X if money left your card.`
+          })
+        } else if (response.ok && data?.success) {
+          toast({
+            kind: 'info',
+            title: 'Payment processing…',
+            body: 'Polar is still settling this checkout. Refresh this page to re-check it.'
+          })
+        } else {
+          toast({
+            kind: 'error',
+            title: 'Could not confirm the payment yet',
+            body: 'Your window books as soon as the payment settles — check back in a moment.'
+          })
+        }
+      } catch {
+        if (cancelled) return
+        toast({
+          kind: 'error',
+          title: 'Could not confirm the payment yet',
+          body: 'Your window books as soon as the payment settles — check back in a moment.'
+        })
+      }
+      // Reload the creative lifecycle either way — the freshly stamped
+      // window (or its absence) is what the tracker rows read from.
       if (!cancelled) void loadMine()
     }
     void run()
