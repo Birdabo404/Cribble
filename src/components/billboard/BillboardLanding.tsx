@@ -65,6 +65,7 @@ import {
   type SegmentedOption
 } from '@/components/settings'
 import { toast } from '@/components/Toaster'
+import { shouldLoadAccountQueries } from '@/lib/client/accountQueryPolicy'
 import {
   BILLBOARD_DURATION_DAYS,
   BILLBOARD_PAYMENT_X_HANDLE,
@@ -225,7 +226,7 @@ export function BillboardLanding() {
       const result = await fetchMe()
       if (cancelled) return
       if (!result.ok) {
-        if (result.status === 401) setSignedIn(false)
+        setSignedIn(false)
         return
       }
       const user: MeUser | null = result.data.user ?? null
@@ -328,8 +329,11 @@ export function BillboardLanding() {
   }, [])
 
   useEffect(() => {
+    if (!shouldLoadAccountQueries(signedIn === null ? 'loading' : signedIn ? 'signed-in' : 'anonymous')) {
+      return
+    }
     void loadMine()
-  }, [loadMine])
+  }, [loadMine, signedIn])
 
   // Choose the default tab once, when the signed-in/ads state first
   // resolves. An ads error still resolves (to buy — the composer works

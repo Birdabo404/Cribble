@@ -11,8 +11,14 @@ import {
   useNotificationsSource
 } from '@/hooks/useNotifications'
 
-export function NotificationsProvider({ children }: { children: ReactNode }) {
-  const api = useNotificationsSource()
+export function NotificationsProvider({
+  children,
+  enabled = true
+}: {
+  children: ReactNode
+  enabled?: boolean
+}) {
+  const api = useNotificationsSource(enabled)
   return (
     <NotificationsContext.Provider value={api}>
       {children}
