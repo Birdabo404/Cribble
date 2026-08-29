@@ -16,7 +16,13 @@ const { sessionMock, seatUsageMock, notifyMock, state } = vi.hoisted(() => ({
   notifyMock: vi.fn(),
   state: {
     caller: null as Record<string, unknown> | null,
-    rosterRows: [] as Record<string, unknown>[]
+    rosterRows: [] as Record<string, unknown>[],
+    rosterFilters: {} as Record<string, unknown>,
+    deleteResult: {
+      data: [] as { id: number; member_user_id: number; status: string }[] | null,
+      error: null as { code?: string } | null
+    },
+    deleteFilters: {} as Record<string, unknown>
   }
 }))
 
@@ -53,11 +59,37 @@ vi.mock('@/lib/supabaseServer', () => ({
         return builder
       }
       if (table === 'team_affiliations') {
+        let op: 'select' | 'delete' = 'select'
+        const filters: Record<string, unknown> = {}
         const builder = {
           select: () => builder,
-          eq: () => builder,
+          eq: (column: string, value: unknown) => {
+            filters[column] = value
+            return builder
+          },
+          in: (column: string, values: unknown) => {
+            filters[column] = values
+            return builder
+          },
+          delete: () => {
+            op = 'delete'
+            // Reference, not copy: the eq()/in() calls that follow land here.
+            state.deleteFilters = filters
+            return builder
+          },
           // Roster query terminal.
-          order: () => Promise.resolve({ data: state.rosterRows, error: null })
+          order: () => {
+            state.rosterFilters = filters
+            return Promise.resolve({ data: state.rosterRows, error: null })
+          },
+          // The delete-with-returning chain ends in .select(…) and is awaited.
+          then: (
+            onFulfilled: (value: unknown) => unknown,
+            onRejected?: (reason: unknown) => unknown
+          ) =>
+            Promise.resolve(
+              op === 'delete' ? state.deleteResult : { data: state.rosterRows, error: null }
+            ).then(onFulfilled, onRejected)
         }
         return builder
       }
@@ -110,6 +142,9 @@ describe('/api/team/roster — tier gate and the rejected-state exception', () =
     notifyMock.mockResolvedValue(undefined)
     state.caller = { ...TEAM_CALLER }
     state.rosterRows = []
+    state.rosterFilters = {}
+    state.deleteResult = { data: [], error: null }
+    state.deleteFilters = {}
   })
 
   it('GET 403s a plain non-team caller', async () => {
@@ -181,6 +216,57 @@ describe('/api/team/roster — tier gate and the rejected-state exception', () =
 
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toEqual({ error: 'Team accounts only' })
+    expect(notifyMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('/api/team/roster — applied rows never ride the roster lane', () => {
+  beforeEach(() => {
+    sessionMock.mockReset()
+    sessionMock.mockResolvedValue({ ok: true, userId: 7 })
+    seatUsageMock.mockReset()
+    seatUsageMock.mockResolvedValue(3)
+    notifyMock.mockReset()
+    notifyMock.mockResolvedValue(undefined)
+    state.caller = { ...TEAM_CALLER, team_review_status: 'approved' }
+    state.rosterRows = []
+    state.rosterFilters = {}
+    state.deleteResult = { data: [], error: null }
+    state.deleteFilters = {}
+  })
+
+  it('GET scopes the query to pending + active — transfer requests stay off the payload', async () => {
+    const response = await GET(getRequest())
+
+    expect(response.status).toBe(200)
+    expect(state.rosterFilters).toEqual({
+      team_user_id: 7,
+      status: ['pending', 'active']
+    })
+  })
+
+  it('DELETE scopes to pending + active — it can never swallow an applied row silently', async () => {
+    state.deleteResult = { data: [{ id: 44, member_user_id: 21, status: 'active' }], error: null }
+
+    const response = await DELETE(deleteRequest(44))
+
+    expect(response.status).toBe(200)
+    expect(state.deleteFilters).toEqual({
+      id: 44,
+      team_user_id: 7,
+      status: ['pending', 'active']
+    })
+  })
+
+  it('DELETE 404s an applied row (filtered out by the status scope) without notifying', async () => {
+    // The scoped delete matches nothing — the applied row is the
+    // applications lane's to PASS, with its own notification.
+    state.deleteResult = { data: [], error: null }
+
+    const response = await DELETE(deleteRequest(900))
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({ error: 'Roster entry not found' })
     expect(notifyMock).not.toHaveBeenCalled()
   })
 })

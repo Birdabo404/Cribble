@@ -86,9 +86,13 @@ function typeMeta(type: NotificationType, data: Record<string, unknown>): TypeMe
       return { icon: ICON_PATHS.truck, cls: 'text-red-400' }
     case 'team_invite':
     case 'team_invite_accepted':
+    case 'team_application':
+    case 'team_application_accepted':
       // Team-affiliation flow wears the TEAM tier's gold.
       return { icon: ICON_PATHS.users, cls: 'text-yellow-300' }
     case 'team_removed':
+    case 'team_application_declined':
+      // Neutral exits stay quiet zinc.
       return { icon: ICON_PATHS.users, cls: 'text-zinc-400' }
     case 'system':
       return { icon: ICON_PATHS.info, cls: 'text-zinc-400' }
@@ -280,9 +284,11 @@ function NotificationGlyph({
 
 /** One plain feed row. Social events deep-link to the actor's profile so
  *  a "started following you" lands one click from FOLLOW BACK; team
- *  invites land on the accept/decline page, an accepted invite or an
- *  identity-review update takes the team straight to its console, and a
- *  sponsorship review update lands on /sponsorship (its data.kind stays
+ *  invites and transfer-request outcomes land on the member's
+ *  accept/withdraw page, an inbound transfer request takes the team to
+ *  its /teams command deck, an accepted invite or an identity-review
+ *  update takes the team straight to its console, and a sponsorship
+ *  review update lands on /sponsorship (its data.kind stays
  *  'billboard_review' — a frozen internal contract, not part of the
  *  rename). */
 function SingleFeedRow({
@@ -300,15 +306,19 @@ function SingleFeedRow({
   // "NEW WINGMAN" title in the DB; normalize to follower terminology here.
   const title = followActor(n) ? 'NEW FOLLOWER' : n.title
   const href =
-    n.type === 'team_invite'
+    n.type === 'team_invite' ||
+    n.type === 'team_application_accepted' ||
+    n.type === 'team_application_declined'
       ? '/team/invites'
-      : n.type === 'team_invite_accepted' || n.data?.kind === 'team_review'
-        ? '/team'
-        : n.data?.kind === 'billboard_review'
-          ? '/sponsorship'
-          : actorUsername
-            ? `/u/${encodeURIComponent(actorUsername)}`
-            : null
+      : n.type === 'team_application'
+        ? '/teams'
+        : n.type === 'team_invite_accepted' || n.data?.kind === 'team_review'
+          ? '/team'
+          : n.data?.kind === 'billboard_review'
+            ? '/sponsorship'
+            : actorUsername
+              ? `/u/${encodeURIComponent(actorUsername)}`
+              : null
   const rowCls = `notif-row-in flex items-start gap-3 border-b border-white/[0.045] px-4 py-3 last:border-b-0 ${
     fresh ? 'bg-white/[0.03]' : ''
   }`
@@ -598,19 +608,21 @@ export function NotificationBell({
     }
   }, [open])
 
+  // Side effects live outside the setOpen updater: React may replay
+  // updater functions during render, and markAllRead sets provider state
+  // (setState-in-render warning). toggle only runs from click handlers,
+  // so the closed-over `open` is always current.
   const toggle = () => {
-    setOpen((wasOpen) => {
-      const next = !wasOpen
-      if (next) {
-        setFreshIds(new Set(notifications.filter((n) => !n.read_at).map((n) => n.id)))
-        if (unreadCount > 0) {
-          void markAllRead().then(() => refresh())
-        } else {
-          void refresh()
-        }
+    const next = !open
+    setOpen(next)
+    if (next) {
+      setFreshIds(new Set(notifications.filter((n) => !n.read_at).map((n) => n.id)))
+      if (unreadCount > 0) {
+        void markAllRead().then(() => refresh())
+      } else {
+        void refresh()
       }
-      return next
-    })
+    }
   }
 
   const isNew = (id: number, readAt: string | null) => freshIds.has(id) || !readAt

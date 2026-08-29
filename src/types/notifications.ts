@@ -9,7 +9,10 @@ export const NOTIFICATION_TYPES = [
   'system',
   'team_invite',
   'team_invite_accepted',
-  'team_removed'
+  'team_removed',
+  'team_application',
+  'team_application_accepted',
+  'team_application_declined'
 ] as const
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
@@ -37,18 +40,23 @@ export interface FollowActor {
   avatarUrl: string | null
 }
 
-/** Team-flow rows (invite / accepted / removed) persist the counterparty's
- *  identity in `data` at write time — the team for member-facing rows, the
- *  member for team-facing ones. Returns those display fields, or null when
- *  the row isn't part of the team flow. */
+const TEAM_ACTOR_TYPES: ReadonlySet<NotificationType> = new Set([
+  'team_invite',
+  'team_invite_accepted',
+  'team_removed',
+  'team_application',
+  'team_application_accepted',
+  'team_application_declined'
+])
+
+/** Team-flow rows (invites and transfer requests, in both directions)
+ *  persist the counterparty's identity in `data` at write time — the team
+ *  for member-facing rows, the member for team-facing ones. Returns those
+ *  display fields, or null when the row isn't part of the team flow. */
 export function teamActor(
   n: Pick<AppNotification, 'type' | 'data'>
 ): FollowActor | null {
-  if (
-    n.type !== 'team_invite' &&
-    n.type !== 'team_invite_accepted' &&
-    n.type !== 'team_removed'
-  ) {
+  if (!TEAM_ACTOR_TYPES.has(n.type)) {
     return null
   }
   const data = n.data ?? {}

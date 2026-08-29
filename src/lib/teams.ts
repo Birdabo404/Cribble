@@ -7,7 +7,8 @@ import { isApprovedTeam } from '@/lib/entitlements'
 // service-role-only (migration 029).
 
 /** Affiliate seats per team. Pending invites hold a seat, so the cap
- *  applies to rows with status IN ('pending', 'active'). */
+ *  applies to rows with status IN ('pending', 'active'); 'applied'
+ *  transfer requests (064) are seatless until the team signs them. */
 export const TEAM_SEAT_LIMIT = 10
 
 /** What badge surfaces need to render an affiliate's team mini-logo. */
@@ -88,8 +89,11 @@ export async function getAffiliatedTeamsBatch(
 
 /**
  * Seats a team is using right now: pending invites and active members
- * both count (TEAM_SEAT_LIMIT caps their sum). Throws on a failed read —
- * seat enforcement must never proceed on a guessed count.
+ * both count (TEAM_SEAT_LIMIT caps their sum). 'applied' rows are
+ * deliberately excluded — applications hold no seat, so the cap bites
+ * at accept time and inbound requests can never starve a team's cap.
+ * Throws on a failed read — seat enforcement must never proceed on a
+ * guessed count.
  */
 export async function getTeamSeatUsage(
   supabase: SupabaseClient,

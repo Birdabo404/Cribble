@@ -9,13 +9,18 @@
 // washes for the top three; expanding a row drops the roster with an
 // MVP chip, per-member burn, segment dots and a seats-filled footer.
 // SCORE and BURN are separate standings: switching lenses changes the
-// rendered order, rank badges, podium chrome and champion title. Viewers
+// rendered order, rank badges, podium chrome and champion title. The
+// third lens, HIRING, swaps the ranked table for the recruitment
+// directory (TeamsDirectory embedded, minus its page chrome) — the stat
+// strip stays up on every lens. Deep links land on it via
+// /leaderboard?view=teams&tab=hiring. Viewers
 // without a team get a FIELD A TEAM recruit bar where members see their
 // YOUR TEAM bar. The payload is identical for every viewer and
 // server-cached, so there is
 // no 15s poll: fetch on mount and when the tab regains focus.
 
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import {
   useCallback,
   useEffect,
@@ -40,6 +45,7 @@ import {
 import { medalA, medalFor, medalGlow } from '@/components/leaderboard/types'
 import { TeamBadge } from '@/components/premium/TeamBadge'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
+import { TeamsDirectory } from '@/components/teams/TeamsDirectory'
 import { fetchMe } from '@/lib/client/fetchMe'
 import { isProTier } from '@/lib/entitlements'
 import { prefersReducedMotion } from '@/lib/motion'
@@ -77,12 +83,26 @@ const SEAT_LIMIT = 10
 // solid, each teammate steps down, clamped so tail seats stay legible.
 const segmentAlpha = (index: number) => Math.max(0.3, 0.95 - index * 0.2)
 
-type BoardLens = 'score' | 'burn'
+type BoardLens = 'score' | 'burn' | 'hiring'
+
+/** The two ranked lenses. Everything standings-shaped (sort, ranks,
+ *  podium chrome, TeamRow) takes THIS type, not BoardLens, so the
+ *  HIRING lens can never leak into the ranking logic. */
+type StandingsLens = Exclude<BoardLens, 'hiring'>
 
 const LENSES: { id: BoardLens; label: string }[] = [
   { id: 'score', label: 'SCORE' },
-  { id: 'burn', label: 'BURN' }
+  { id: 'burn', label: 'BURN' },
+  { id: 'hiring', label: 'HIRING' }
 ]
+
+/** SCORE/BURN render the ranked table; HIRING swaps in the directory. */
+const isStandingsLens = (lens: BoardLens): lens is StandingsLens =>
+  lens === 'score' || lens === 'burn'
+
+/** Deep-link guard for ?tab= — anything unrecognized lands on SCORE. */
+const isBoardLens = (v: string | null): v is BoardLens =>
+  v === 'score' || v === 'burn' || v === 'hiring'
 
 /** BURN standings: opted-in burn desc, score breaks equal-burn ties,
  *  and teams with no shared burn follow in their score-board order. */
@@ -98,6 +118,8 @@ function compareTeamBurn(a: TeamBoardRow, b: TeamBoardRow): number {
 }
 
 export function TeamBoard() {
+  const searchParams = useSearchParams()
+
   const [teams, setTeams] = useState<TeamBoardRow[] | null>(null)
   const [totals, setTotals] = useState<TeamBoardTotals | null>(null)
   const [failed, setFailed] = useState(false)
@@ -108,7 +130,13 @@ export function TeamBoard() {
   // logged-out, and that viewer earns the recruit bar, so the bar must
   // wait for the check instead of flashing at everyone on mount.
   const [viewerChecked, setViewerChecked] = useState(false)
-  const [lens, setLens] = useState<BoardLens>('score')
+  // ?tab= is read once at mount (deep links like
+  // /leaderboard?view=teams&tab=hiring), same pattern as the arena's
+  // ?view= read; lens clicks after that stay client state only.
+  const [lens, setLens] = useState<BoardLens>(() => {
+    const requested = searchParams.get('tab')
+    return isBoardLens(requested) ? requested : 'score'
+  })
 
   // Monotonic guard, same as the other boards: a slow response must
   // never overwrite a newer one.
@@ -322,9 +350,9 @@ export function TeamBoard() {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-baseline gap-3">
             <h2 className="font-display text-[11px] font-semibold tracking-[0.45em] text-zinc-300">
-              STANDINGS
+              {lens === 'hiring' ? 'HIRING' : 'STANDINGS'}
             </h2>
-            {!loading && !failed && displayed.length > 0 && (
+            {isStandingsLens(lens) && !loading && !failed && displayed.length > 0 && (
               <span className="text-[10px] tracking-[0.2em] text-zinc-600 tabular-nums">
                 {displayed.length} TEAMS
               </span>
@@ -332,113 +360,125 @@ export function TeamBoard() {
           </div>
           <div className="flex flex-1 items-center justify-end gap-2">
             <LensToggle lens={lens} onChange={setLens} />
-            <TeamSearch value={query} onChange={setQuery} />
+            {/* The callsign search filters the ranked table only — the
+                directory carries its own header and states. */}
+            {isStandingsLens(lens) && <TeamSearch value={query} onChange={setQuery} />}
           </div>
         </div>
 
-        <div className="lb-panel relative overflow-hidden">
-          <div
-            className={`${ROW_GRID} border-b border-[rgb(var(--lb-panel-edge)/0.08)] py-3 text-[9px] tracking-[0.35em] text-zinc-500`}
-          >
-            <div>RANK</div>
-            <div>TEAM</div>
-            <div className="hidden text-right md:block">SQUAD</div>
-            <div
-              className={`hidden text-right md:block ${
-                lens === 'burn' ? 'text-[#39ff88]/80' : ''
-              }`}
-            >
-              BURN
-            </div>
-            <div
-              className={`text-right ${
-                lens === 'burn' ? 'text-zinc-300 md:text-zinc-500' : 'text-zinc-300'
-              }`}
-            >
-              SCORE
-            </div>
-            <div aria-hidden />
-          </div>
-
-          <ul className="relative">
-            {loading &&
-              Array.from({ length: 6 }, (_, i) => <SkeletonRow key={i} index={i} />)}
-
-            {failed && (
-              <li className="flex flex-col items-center gap-4 py-14 text-center">
-                <span className="text-xs tracking-[0.15em] text-zinc-500">
-                  The team standings failed to load.
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFailed(false)
-                    setTeams(null)
-                    void load()
-                  }}
-                  className="lb-inset flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100"
+        {isStandingsLens(lens) ? (
+          <>
+            <div className="lb-panel relative overflow-hidden">
+              <div
+                className={`${ROW_GRID} border-b border-[rgb(var(--lb-panel-edge)/0.08)] py-3 text-[9px] tracking-[0.35em] text-zinc-500`}
+              >
+                <div>RANK</div>
+                <div>TEAM</div>
+                <div className="hidden text-right md:block">SQUAD</div>
+                <div
+                  className={`hidden text-right md:block ${
+                    lens === 'burn' ? 'text-[#39ff88]/80' : ''
+                  }`}
                 >
-                  <IconRefresh size={11} />
-                  RETRY
-                </button>
-              </li>
-            )}
+                  BURN
+                </div>
+                <div
+                  className={`text-right ${
+                    lens === 'burn' ? 'text-zinc-300 md:text-zinc-500' : 'text-zinc-300'
+                  }`}
+                >
+                  SCORE
+                </div>
+                <div aria-hidden />
+              </div>
 
-            {!loading && !failed && displayed.length === 0 && (
-              query ? (
-                <li className="py-14 text-center text-xs tracking-[0.15em] text-zinc-500">
-                  No teams match that callsign.
-                </li>
-              ) : (
-                <li className="flex flex-col items-center px-5 py-14 text-center">
-                  <IconShieldStar size={24} className="text-[rgb(var(--lb-gold)/0.55)]" />
-                  <p className="mt-4 text-[10px] tracking-[0.22em] text-zinc-400">
-                    THE WALL IS EMPTY — BE THE FIRST TEAM ON IT
-                  </p>
-                  <p className="mt-2 max-w-md text-[11px] leading-5 text-zinc-600">
-                    Pool every point your pilots score under one banner — up to 10
-                    seats a squad.
-                  </p>
-                  <Link
-                    href="/teams"
-                    className="mt-5 border border-[rgb(var(--lb-gold)/0.4)] bg-[rgb(var(--lb-gold)/0.07)] px-3 py-2 text-[9px] tracking-[0.25em] text-[rgb(var(--lb-gold))] transition-colors hover:bg-[rgb(var(--lb-gold)/0.14)]"
-                  >
-                    FIELD A TEAM
-                  </Link>
-                </li>
-              )
-            )}
+              <ul className="relative">
+                {loading &&
+                  Array.from({ length: 6 }, (_, i) => <SkeletonRow key={i} index={i} />)}
 
-            {!loading &&
-              !failed &&
-              displayed.map((team, i) => (
-                <TeamRow
-                  key={team.userId}
-                  team={team}
-                  displayRank={
-                    lens === 'burn' ? (burnRanks.get(team.userId) ?? team.rank) : team.rank
-                  }
-                  index={i}
-                  topScore={topScore}
-                  topBurn={topBurn}
-                  lens={lens}
-                  open={openId === team.userId}
-                  viewerId={viewerId}
-                  onToggle={toggle}
-                  setRef={setRowRef}
-                />
-              ))}
-          </ul>
-        </div>
+                {failed && (
+                  <li className="flex flex-col items-center gap-4 py-14 text-center">
+                    <span className="text-xs tracking-[0.15em] text-zinc-500">
+                      The team standings failed to load.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFailed(false)
+                        setTeams(null)
+                        void load()
+                      }}
+                      className="lb-inset flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100"
+                    >
+                      <IconRefresh size={11} />
+                      RETRY
+                    </button>
+                  </li>
+                )}
 
-        <p className="mt-3 text-center text-[9px] tracking-[0.3em] text-zinc-600">
-          {lens === 'burn'
-            ? 'RANKED BY OPT-IN SEASON BURN'
-            : 'RANKED BY THE COMBINED SEASON SCORE OF ACTIVE AFFILIATES'}
-        </p>
-        <p className="mt-1 text-center text-[9px] tracking-[0.22em] text-zinc-700">
-          BURN = OPT-IN AGENT ESTIMATES · NOT A COMPANY BILL
-        </p>
+                {!loading && !failed && displayed.length === 0 && (
+                  query ? (
+                    <li className="py-14 text-center text-xs tracking-[0.15em] text-zinc-500">
+                      No teams match that callsign.
+                    </li>
+                  ) : (
+                    <li className="flex flex-col items-center px-5 py-14 text-center">
+                      <IconShieldStar size={24} className="text-[rgb(var(--lb-gold)/0.55)]" />
+                      <p className="mt-4 text-[10px] tracking-[0.22em] text-zinc-400">
+                        THE WALL IS EMPTY — BE THE FIRST TEAM ON IT
+                      </p>
+                      <p className="mt-2 max-w-md text-[11px] leading-5 text-zinc-600">
+                        Pool every point your pilots score under one banner — up to 10
+                        seats a squad.
+                      </p>
+                      <Link
+                        href="/teams"
+                        className="mt-5 border border-[rgb(var(--lb-gold)/0.4)] bg-[rgb(var(--lb-gold)/0.07)] px-3 py-2 text-[9px] tracking-[0.25em] text-[rgb(var(--lb-gold))] transition-colors hover:bg-[rgb(var(--lb-gold)/0.14)]"
+                      >
+                        FIELD A TEAM
+                      </Link>
+                    </li>
+                  )
+                )}
+
+                {!loading &&
+                  !failed &&
+                  displayed.map((team, i) => (
+                    <TeamRow
+                      key={team.userId}
+                      team={team}
+                      displayRank={
+                        lens === 'burn' ? (burnRanks.get(team.userId) ?? team.rank) : team.rank
+                      }
+                      index={i}
+                      topScore={topScore}
+                      topBurn={topBurn}
+                      lens={lens}
+                      open={openId === team.userId}
+                      viewerId={viewerId}
+                      onToggle={toggle}
+                      setRef={setRowRef}
+                    />
+                  ))}
+              </ul>
+            </div>
+
+            <p className="mt-3 text-center text-[9px] tracking-[0.3em] text-zinc-600">
+              {lens === 'burn'
+                ? 'RANKED BY OPT-IN SEASON BURN'
+                : 'RANKED BY THE COMBINED SEASON SCORE OF ACTIVE AFFILIATES'}
+            </p>
+            <p className="mt-1 text-center text-[9px] tracking-[0.22em] text-zinc-700">
+              BURN = OPT-IN AGENT ESTIMATES · NOT A COMPANY BILL
+            </p>
+          </>
+        ) : (
+          // HIRING — the recruitment directory inside the board's chrome.
+          // Mounted only while this lens is on stage, so the standings
+          // views never pay for its fetch; the directory keeps ALL of its
+          // own data, viewer context, APPLY modal and row actions.
+          <TeamsDirectory embedded />
+        )}
 
         {/* ---------- sticky YOUR TEAM / recruit bar ---------- */}
         {myTeam ? (
@@ -589,6 +629,30 @@ function BurnValue({ value, animated = false }: { value: string; animated?: bool
 
 /* ================= lens toggle ================= */
 
+// Active-tab chrome per lens — SCORE in the score yellow, BURN in its
+// green, HIRING in the recruit gold. Records over the full union so a
+// new lens can't ship without a face.
+const LENS_ACTIVE_TEXT: Record<BoardLens, string> = {
+  score: 'text-[rgb(var(--lb-score))]',
+  burn: 'text-[#39ff88]',
+  hiring: 'text-[rgb(var(--lb-gold))]'
+}
+
+const LENS_ACTIVE_STYLE: Record<BoardLens, React.CSSProperties> = {
+  score: {
+    border: '1px solid rgb(var(--lb-score) / 0.3)',
+    background: 'rgb(var(--lb-score) / 0.06)'
+  },
+  burn: {
+    border: '1px solid rgb(57 255 136 / 0.3)',
+    background: 'rgb(57 255 136 / 0.05)'
+  },
+  hiring: {
+    border: '1px solid rgb(var(--lb-gold) / 0.35)',
+    background: 'rgb(var(--lb-gold) / 0.06)'
+  }
+}
+
 function LensToggle({
   lens,
   onChange
@@ -600,7 +664,7 @@ function LensToggle({
     <div
       className="lb-inset flex items-center gap-0.5 rounded-lg p-0.5"
       role="tablist"
-      aria-label="Choose score or burn standings"
+      aria-label="Choose score standings, burn standings, or teams hiring"
     >
       {LENSES.map((item) => {
         const active = item.id === lens
@@ -612,25 +676,9 @@ function LensToggle({
             aria-selected={active}
             onClick={() => onChange(item.id)}
             className={`rounded-md px-2.5 py-1.5 text-[9px] tracking-[0.2em] transition-colors ${
-              active
-                ? item.id === 'burn'
-                  ? 'text-[#39ff88]'
-                  : 'text-[rgb(var(--lb-score))]'
-                : 'text-zinc-600 hover:text-zinc-300'
+              active ? LENS_ACTIVE_TEXT[item.id] : 'text-zinc-600 hover:text-zinc-300'
             }`}
-            style={
-              active
-                ? item.id === 'burn'
-                  ? {
-                      border: '1px solid rgb(57 255 136 / 0.3)',
-                      background: 'rgb(57 255 136 / 0.05)'
-                    }
-                  : {
-                      border: '1px solid rgb(var(--lb-score) / 0.3)',
-                      background: 'rgb(var(--lb-score) / 0.06)'
-                    }
-                : { border: '1px solid transparent' }
-            }
+            style={active ? LENS_ACTIVE_STYLE[item.id] : { border: '1px solid transparent' }}
           >
             {item.label}
           </button>
@@ -659,7 +707,7 @@ function TeamRow({
   index: number
   topScore: number
   topBurn: number
-  lens: BoardLens
+  lens: StandingsLens
   open: boolean
   viewerId: number | null
   onToggle: (id: number) => void
@@ -1239,7 +1287,7 @@ function YourTeamBar({
 
 /** The docked slot for viewers with no team (including logged-out):
  *  the same surface the YOUR TEAM bar owns, retasked as a Team-plan
- *  pitch. CTA language matches the PlanChooser checkout. */
+ *  pitch. CTA language matches the /teams checkout console. */
 function RecruitBar() {
   return (
     <div

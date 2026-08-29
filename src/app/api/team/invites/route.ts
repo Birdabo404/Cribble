@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { isApprovedTeam } from '@/lib/entitlements'
 import { insertMissingNotifications } from '@/lib/notifications'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
 import { getSessionUserId } from '@/lib/sessionAuth'
@@ -9,6 +8,7 @@ import {
   isUniqueViolation,
   loadUserRow,
   teamIdentity,
+  teamIsLive,
   type TeamUserRow
 } from '@/lib/teamRoster'
 
@@ -35,15 +35,6 @@ interface InviteJoinRow {
   invited_at: string
   accepted_at: string | null
   team: TeamUserRow | null
-}
-
-/** A team a member can meaningfully join/stay with: still on the TEAM
- *  tier, past review, and not banned/suspended. */
-function teamIsLive(team: TeamUserRow): boolean {
-  return (
-    isApprovedTeam(team) &&
-    (team.status === null || team.status === 'active')
-  )
 }
 
 export async function GET(request: NextRequest) {
@@ -181,6 +172,20 @@ export async function POST(request: NextRequest) {
         { error: 'Invite is no longer available' },
         { status: 409 }
       )
+    }
+
+    // Going ACTIVE kills the member's open transfer requests — no team
+    // could ever sign one past the one-active index. Best-effort sweep;
+    // a failure just leaves rows every actioning path already tolerates.
+    // Other pending invites stay untouched (existing design: they pile
+    // up and die on that same index).
+    const { error: sweepError } = await supabase
+      .from('team_affiliations')
+      .delete()
+      .eq('member_user_id', session.userId)
+      .eq('status', 'applied')
+    if (sweepError) {
+      console.error('[Team] Open-application sweep failed:', sweepError)
     }
 
     const team = teamIdentity(invite.team)

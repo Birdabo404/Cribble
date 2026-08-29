@@ -59,6 +59,9 @@ export async function GET(request: NextRequest) {
     }
 
     // Two FKs point at users, so the embed names the member-side constraint.
+    // Roster rows only: 'applied' rows (064) are seatless transfer
+    // requests that live on the /api/team/applications lane — letting
+    // them ride this payload would miscount the console's roster.
     const { data: rows, error: rosterError } = await supabase
       .from('team_affiliations')
       .select(
@@ -69,6 +72,7 @@ export async function GET(request: NextRequest) {
          )`
       )
       .eq('team_user_id', session.userId)
+      .in('status', ['pending', 'active'])
       .order('invited_at', { ascending: true })
 
     if (rosterError) {
@@ -147,11 +151,15 @@ export async function DELETE(request: NextRequest) {
 
     // Delete-with-returning: the deleted row's status decides whether the
     // member gets the removal notice, without a read/delete race window.
+    // Scoped to roster rows — an 'applied' transfer request is declined
+    // through /api/team/applications (PASS), which sends its own
+    // notification; this lane must never silently swallow one.
     const { data: deleted, error: deleteError } = await supabase
       .from('team_affiliations')
       .delete()
       .eq('id', affiliationId)
       .eq('team_user_id', session.userId)
+      .in('status', ['pending', 'active'])
       .select('id, member_user_id, status')
 
     if (deleteError) {

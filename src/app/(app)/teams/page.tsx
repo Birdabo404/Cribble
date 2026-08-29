@@ -1,11 +1,15 @@
-// /teams — the Cribble Team pitch. Public and shareable (it sits on the
+// /teams — the Cribble Team surface. Public and shareable (it sits on the
 // site-lock allowlist), so this wrapper is a server component that owns
 // the page metadata; everything visible lives in client components under
-// src/components/teams/. The /team console (singular) stays the private
-// roster surface for accounts that already fly colors.
+// src/components/teams/. The page is adaptive: TeamsHub probes the
+// viewer's account and shows TEAM-tier companies their command deck,
+// while everyone else gets the Team-plan buy page. (The recruitment
+// board lives on the TEAMS leaderboard's HIRING tab, not here.) The
+// /team console (singular) stays the private roster surface for
+// accounts that already fly colors.
 
 import type { Metadata } from 'next'
-import { TeamsLanding } from '@/components/teams/TeamsLanding'
+import { TeamsHub } from '@/components/teams/TeamsHub'
 
 const TITLE = 'Cribble Team — Fly Company Colors'
 const DESCRIPTION =
@@ -31,5 +35,5 @@ export const metadata: Metadata = {
 }
 
 export default function TeamsPage() {
-  return <TeamsLanding />
+  return <TeamsHub />
 }
