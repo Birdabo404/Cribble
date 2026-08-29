@@ -25,6 +25,7 @@ export function RankAvatar({ user }: { user: LeaderRow }) {
       <Avatar
         src={user.profile_image}
         char={char}
+        handle={user.username}
         imgClassName={`h-9 w-9 shrink-0 ${round} border border-zinc-800 object-cover`}
         fallbackClassName={`flex h-9 w-9 shrink-0 items-center justify-center ${round} border border-zinc-800 bg-zinc-900 font-display text-[11px] text-zinc-400`}
       />
@@ -80,6 +81,7 @@ export function RankAvatar({ user }: { user: LeaderRow }) {
       <Avatar
         src={user.profile_image}
         char={char}
+        handle={user.username}
         imgClassName={`absolute inset-0 h-9 w-9 ${round} object-cover`}
         fallbackClassName={`absolute inset-0 flex h-9 w-9 items-center justify-center ${round} bg-zinc-900 font-display text-[11px] text-zinc-400`}
       />

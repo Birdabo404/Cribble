@@ -412,6 +412,7 @@ export function PlayerCard({
                 <Avatar
                   src={row.profile_image}
                   char={row.username[0]?.toUpperCase() ?? '?'}
+                  handle={row.username}
                   imgClassName={`absolute inset-[3px] h-[78px] w-[78px] ${avatarImgRound} object-cover`}
                   fallbackClassName={`absolute inset-[3px] flex items-center justify-center ${avatarImgRound} bg-zinc-900 text-2xl text-zinc-300 font-display`}
                 />

@@ -4,9 +4,11 @@
 // (users change their avatar and Twitter 404s the old `_normal` variant),
 // and a raw <img> then paints the browser's broken-image glyph inside the
 // medal ring. This tries the high-res variant, falls back to the stored
-// URL, and finally renders a monogram tile.
+// URL, then — for rotted twimg URLs with a known handle — a live unavatar
+// lookup of the user's CURRENT X picture, and finally a monogram tile.
 
 import { useEffect, useState } from 'react'
+import { isXAvatarUrl, xAvatarRefreshUrl } from '@/lib/avatarRefresh'
 import { bannerFrameStyle, type BannerFrame } from '@/lib/bannerFrame'
 
 /** twimg avatars are stored at multiple sizes; the OAuth flow persists the
@@ -17,6 +19,7 @@ const upgraded = (src: string) =>
 export function Avatar({
   src,
   char,
+  handle,
   imgClassName,
   fallbackClassName,
   imgStyle
@@ -24,30 +27,43 @@ export function Avatar({
   src: string | null | undefined
   /** monogram character shown when no/broken image */
   char: string
+  /** X handle for the live-avatar refresh when a stored twimg URL has
+   *  rotted (the owner changed their X picture since last login). Omit
+   *  on surfaces whose avatars aren't keyed by X handle. */
+  handle?: string | null
   imgClassName: string
   fallbackClassName: string
   imgStyle?: React.CSSProperties
 }) {
-  const [stage, setStage] = useState<'hi' | 'original' | 'monogram'>('hi')
+  const [stage, setStage] = useState<'hi' | 'original' | 'refresh' | 'monogram'>('hi')
 
   useEffect(() => setStage('hi'), [src])
 
   const hi = src ? upgraded(src) : null
+  const refresh = src && handle && isXAvatarUrl(src) ? xAvatarRefreshUrl(handle) : null
+  const shown =
+    stage === 'hi' ? hi : stage === 'original' ? src : stage === 'refresh' ? refresh : null
 
-  if (!src || !hi || stage === 'monogram') {
+  if (!src || !shown || stage === 'monogram') {
     return <span className={fallbackClassName}>{char}</span>
   }
 
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={stage === 'hi' ? hi : src}
+      src={shown}
       alt=""
       aria-hidden
       loading="lazy"
       className={imgClassName}
       style={imgStyle}
-      onError={() => setStage(stage === 'hi' && hi !== src ? 'original' : 'monogram')}
+      onError={() =>
+        setStage((s) => {
+          if (s === 'hi' && hi !== src) return 'original'
+          if (s !== 'refresh' && refresh) return 'refresh'
+          return 'monogram'
+        })
+      }
     />
   )
 }

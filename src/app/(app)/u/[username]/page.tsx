@@ -398,6 +398,7 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
                 <Avatar
                   src={profile.profile_image}
                   char={profile.username[0]?.toUpperCase() ?? '?'}
+                  handle={profile.username}
                   imgClassName={`absolute inset-[4px] h-[calc(100%-8px)] w-[calc(100%-8px)] ${avatarImgRound} object-cover`}
                   fallbackClassName={`absolute inset-[4px] flex h-[calc(100%-8px)] w-[calc(100%-8px)] items-center justify-center ${avatarImgRound} bg-zinc-900 font-display text-3xl text-zinc-300`}
                 />

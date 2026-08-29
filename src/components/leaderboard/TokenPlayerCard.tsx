@@ -325,6 +325,7 @@ export function TokenPlayerCard({
                 <Avatar
                   src={row.profileImage}
                   char={(row.displayName || row.username)[0]?.toUpperCase() ?? '?'}
+                  handle={row.username}
                   imgClassName={`absolute inset-[3px] h-[76px] w-[76px] object-cover ${avatarShape}`}
                   fallbackClassName={`absolute inset-[3px] flex h-[76px] w-[76px] items-center justify-center bg-zinc-900 text-2xl text-zinc-300 font-display ${avatarShape}`}
                 />

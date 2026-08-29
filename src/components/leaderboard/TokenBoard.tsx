@@ -849,6 +849,7 @@ function TokenRankAvatar({ row, medal }: { row: TokenBoardRow; medal: Medal | nu
         <Avatar
           src={row.profileImage}
           char={char}
+          handle={row.username}
           imgClassName="h-full w-full object-cover"
           fallbackClassName="flex h-full w-full items-center justify-center text-[11px] font-semibold text-zinc-400"
         />
@@ -898,6 +899,7 @@ function TokenRankAvatar({ row, medal }: { row: TokenBoardRow; medal: Medal | nu
       <Avatar
         src={row.profileImage}
         char={char}
+        handle={row.username}
         imgClassName="absolute inset-0 h-full w-full rounded-full object-cover"
         fallbackClassName="absolute inset-0 flex items-center justify-center rounded-full bg-zinc-900 text-[11px] font-semibold text-zinc-400"
       />
