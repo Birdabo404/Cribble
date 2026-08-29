@@ -2805,3 +2805,272 @@ html[data-motion='reduced'] *::after {
 .lx-hero[data-hero-arm] [data-hero-enter] {
   opacity: 0;
 }
+
+/* ---------------------------------------------------------------------------
+   NOW PLAYING VFD ticker (NowPlayingTicker) — a vacuum-fluorescent readout
+   pinned to the lower right of the app shell. Housing and phosphor are
+   identical in both themes (same appliance rationale as the CRT's --crt-p):
+   smoked-glass capsule, ice-blue dot-matrix glow. Marquee follows the site
+   convention — duplicated copy, translateX(0 → -50%), constant speed.
+--------------------------------------------------------------------------- */
+
+.vfdt-root {
+  /* Ice-blue phosphor, pinned across themes — the room's lights don't
+     recolor a piece of hardware. Distinct from the amber CRT and the
+     green UI accent so it reads as "device". */
+  --vfd-p: 140 210 255;
+  --vfd-hi: 205 238 255;
+  animation: vfdt-rise 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.vfdt-root[data-phase='fading'] {
+  animation: vfdt-off 0.52s ease-in forwards;
+}
+
+/* ---- housing: smoked-glass capsule with a thin bezel highlight ---- */
+.vfdt-capsule {
+  position: relative;
+  display: block;
+  width: 300px;
+  height: 44px;
+  padding: 5px;
+  border: 0;
+  border-radius: 13px;
+  cursor: pointer;
+  background: linear-gradient(180deg, #31343d, #191b22 18%, #101218 55%, #0a0c11);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.1),
+    inset 0 -1px 0 rgb(0 0 0 / 0.65),
+    0 22px 44px -20px rgb(0 0 0 / 0.8),
+    0 4px 14px -6px rgb(0 0 0 / 0.6),
+    0 0 34px -4px rgb(var(--vfd-p) / 0.3);
+}
+.vfdt-capsule:focus-visible {
+  outline: 2px solid rgb(var(--vfd-p) / 0.7);
+  outline-offset: 3px;
+}
+
+/* ---- the tube: deep blue-black window with unlit dot-grid texture ---- */
+.vfdt-tube {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 9px;
+  padding: 0 12px;
+  background: radial-gradient(130% 180% at 50% 20%, #0e1826 0%, #08101c 55%, #05080f 100%);
+  box-shadow:
+    inset 0 2px 6px rgb(0 0 0 / 0.85),
+    inset 0 0 0 1px rgb(var(--vfd-p) / 0.08),
+    inset 0 0 18px rgb(var(--vfd-p) / 0.1);
+}
+/* unlit dot grid + the lit phosphor's ambient wash on the glass */
+.vfdt-tube::before {
+  content: '';
+  position: absolute;
+  inset: 4px 6px;
+  pointer-events: none;
+  background-image: radial-gradient(rgb(var(--vfd-p) / 0.07) 1px, transparent 1.2px);
+  background-size: 4px 4px;
+}
+.vfdt-tube::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(60% 90% at 50% 55%, rgb(var(--vfd-p) / 0.09), transparent 75%);
+}
+
+/* Slight italic lean (Doto has no italic style — shear stands in for it);
+   the mask fades the scroll at both edges so the loop never hits a hard
+   cut, and doubles as the horizontal clip for the overflowing track. */
+.vfdt-skew {
+  display: block;
+  width: 100%;
+  transform: skewX(-8deg);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 9%, #000 91%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 9%, #000 91%, transparent);
+}
+
+/* ---- phosphor ---- */
+.vfdt-text {
+  font-family: var(--font-vfd), var(--font-pixel), ui-monospace, monospace;
+  font-size: 18px;
+  font-weight: 700;
+  font-variation-settings: 'ROND' 100;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
+  color: rgb(var(--vfd-hi));
+  text-shadow:
+    0 0 2px rgb(var(--vfd-hi) / 0.9),
+    0 0 6px rgb(var(--vfd-p) / 0.95),
+    0 0 14px rgb(var(--vfd-p) / 0.75),
+    0 0 28px rgb(var(--vfd-p) / 0.45),
+    0 0 52px rgb(var(--vfd-p) / 0.25);
+}
+
+.vfdt-track {
+  display: inline-flex;
+  width: max-content;
+  will-change: transform;
+  /* remounting the track (key bump on a track swap) restarts both: the
+     scroll resets and the segments blink through the text change */
+  animation:
+    vfdt-marquee 8.5s linear infinite,
+    vfdt-blink 0.3s linear;
+}
+.vfdt-copy {
+  padding-right: 3em;
+}
+.vfdt-static {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Hover holds the readout: marquee parks (the dismiss timer pauses in JS). */
+.vfdt-capsule:hover .vfdt-track,
+.vfdt-capsule:focus-visible .vfdt-track {
+  animation-play-state: paused;
+}
+
+/* Warm-up: stepped segment ignition, hard edges like a real fluorescent. */
+.vfdt-root[data-phase='warming'] .vfdt-skew {
+  animation: vfdt-ignite 0.42s linear both;
+}
+
+/* ---- glass reflection over the window ---- */
+.vfdt-glass {
+  position: absolute;
+  inset: 5px;
+  pointer-events: none;
+  border-radius: 9px;
+  background:
+    linear-gradient(
+      100deg,
+      rgb(255 255 255 / 0.09) 0%,
+      rgb(255 255 255 / 0.02) 26%,
+      transparent 42%
+    ),
+    radial-gradient(70% 40% at 22% 0%, rgb(255 255 255 / 0.08), transparent 70%);
+}
+
+@keyframes vfdt-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes vfdt-off {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: brightness(1);
+  }
+  14% {
+    opacity: 1;
+    filter: brightness(1.45);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: brightness(0.55);
+  }
+}
+@keyframes vfdt-marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+@keyframes vfdt-ignite {
+  0%,
+  7% {
+    opacity: 0;
+  }
+  8%,
+  14% {
+    opacity: 0.85;
+  }
+  15%,
+  26% {
+    opacity: 0.1;
+  }
+  27%,
+  38% {
+    opacity: 0.7;
+  }
+  39%,
+  52% {
+    opacity: 0.2;
+  }
+  53%,
+  70% {
+    opacity: 1;
+  }
+  71%,
+  82% {
+    opacity: 0.55;
+  }
+  83%,
+  100% {
+    opacity: 1;
+  }
+}
+@keyframes vfdt-blink {
+  0%,
+  32% {
+    opacity: 0.08;
+  }
+  32.01%,
+  55% {
+    opacity: 1;
+  }
+  55.01%,
+  74% {
+    opacity: 0.22;
+  }
+  74.01%,
+  100% {
+    opacity: 1;
+  }
+}
+@keyframes vfdt-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .vfdt-capsule {
+    width: min(85vw, 320px);
+  }
+}
+
+/* Reduced motion — component renders a static truncated title (JS hook
+   covers both the OS query and the data-motion kill switch); entrances
+   and exits collapse to simple 200ms fades. The media query below is a
+   CSS backstop in case the marquee ever renders before the hook settles. */
+.vfdt-root[data-reduced] {
+  animation: vfdt-fade 0.2s ease-out;
+}
+.vfdt-root[data-reduced][data-phase='fading'] {
+  animation: vfdt-fade 0.2s ease-in reverse forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .vfdt-track {
+    animation: none;
+  }
+  .vfdt-root[data-phase='warming'] .vfdt-skew {
+    animation: none;
+  }
+}

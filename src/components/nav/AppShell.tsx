@@ -18,6 +18,7 @@ import { BillboardTicker } from '@/components/billboard/BillboardTicker'
 import { AmbientGlow } from '@/components/dashboard-v3/AmbientGlow'
 import { GlassTilt } from '@/components/dashboard-v3/GlassTilt'
 import { BackgroundMusicProvider } from '@/components/music/BackgroundMusicProvider'
+import { NowPlayingTicker } from '@/components/music/NowPlayingTicker'
 import { AppNav } from './AppNav'
 import { NavPrefsProvider } from './NavPrefsContext'
 import { NavStatusProvider } from './NavStatusContext'
@@ -63,6 +64,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               {children}
             </div>
           </div>
+          {/* fixed lower-right VFD readout; self-gates on playback state */}
+          <NowPlayingTicker />
         </BackgroundMusicProvider>
       </NavStatusProvider>
     </NavPrefsProvider>
