@@ -63,6 +63,14 @@ export function middleware(request: NextRequest) {
   // Presence-only check — sessionAuth validates the token on every data
   // route; here it just decides whether lock-time /shop is yours to see.
   const hasSession = request.cookies.has('cribble_session')
+
+  // Signed-in visitors skip the marketing hero — land on their profile.
+  if (pathname === '/' && hasSession) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/profile'
+    return NextResponse.redirect(url, { status: 307, headers: response.headers })
+  }
+
   const allowedDuringLock = isAllowedDuringLock(pathname, hasSession)
 
   if (locked && !allowedDuringLock) {
