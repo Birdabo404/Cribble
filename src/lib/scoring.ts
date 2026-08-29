@@ -26,6 +26,17 @@ import type { RankedTool } from './topTools'
 // aggregate into one session, and the multipliers apply to the session's
 // real totals. Visits pay exactly visitPoints; only heartbeat rows earn
 // active-time points.
+//
+// v4 keeps the v3 session model but caps the visit bonus at sessionVisitCap
+// (one) per session. v3 paid EVERY visit row inside a session the flat
+// visitPoints, so re-focusing/reloading the same tool tab every few seconds
+// minted 40 points per flap while sailing under the daily visit ceiling —
+// observed in production (Aug 2026) as a reload loop banking ~250
+// same-domain visits a day (~10k pts/day, dwarfing honest active-time
+// scoring). A session already models one continuous engagement with one
+// domain, so it pays at most one visit bonus: re-focus flaps inside the
+// session are worth nothing, and only returning after sessionGapMs opens a
+// new session that earns a new bonus.
 // ============================================================================
 
 export type ScoreEvent = {
@@ -57,6 +68,8 @@ export type ScorePolicy = {
   version: string
   activeMsPerPoint: number
   visitPoints: number
+  /** Max visit bonuses a single session can pay (see the v4 note above). */
+  sessionVisitCap: number
   /** A gap longer than this between same-domain events closes the session. */
   sessionGapMs: number
   shortSessionThresholdMs: number
@@ -70,10 +83,11 @@ export type ScorePolicy = {
 }
 
 export const SCORE_POLICY: ScorePolicy = {
-  // "v3" applies the v2 multiplier steps to real sessions instead of rows.
-  version: 'v3',
+  // "v4" = the v3 session model with the visit bonus capped per session.
+  version: 'v4',
   activeMsPerPoint: 1_000,
   visitPoints: 40,
+  sessionVisitCap: 1,
   sessionGapMs: 5 * 60_000,
   shortSessionThresholdMs: 15_000,
   shortSessionMultiplier: 0.5,
@@ -248,7 +262,7 @@ export function sessionScore(
 ): number {
   const basePoints =
     session.activeMs / policy.activeMsPerPoint +
-    session.visits * policy.visitPoints
+    Math.min(session.visits, policy.sessionVisitCap) * policy.visitPoints
   return basePoints * sessionMultiplier(session, policy)
 }
 

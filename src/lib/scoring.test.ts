@@ -193,6 +193,40 @@ describe('scoreFromEvents', () => {
     expect(scoreFromEvents(events)).toBe(374)
   })
 
+  it('pays the visit bonus once per session, not once per re-focus', () => {
+    // The production farming pattern: reloading/re-focusing the same tool
+    // tab every ~14s. All rows land in one contiguous session, which pays
+    // exactly one visit bonus instead of 40 points per flap.
+    const events = Array.from({ length: 25 }, (_, i) => visit(i * 14_000))
+    expect(scoreFromEvents(events)).toBe(SCORE_POLICY.visitPoints)
+  })
+
+  it('caps the visit bonus even when heartbeats pad the session', () => {
+    // Farming variant that keeps the tab focused between reloads so each
+    // visit carries some active time: the active seconds still score, but
+    // the repeated visits inside the session pay a single bonus.
+    // 20 visits + 100s active = (40 + 100) base; 100s active in a ~280s
+    // wall span is mid-band focus (~0.36), so no focus modifier applies.
+    const events: ScoreEventWithTimestamp[] = []
+    for (let i = 0; i < 20; i++) {
+      events.push(visit(i * 14_000))
+      events.push(heartbeat(i * 14_000 + 7_000, 'claude.ai', 5_000))
+    }
+    expect(scoreFromEvents(events)).toBe(140)
+  })
+
+  it('pays a fresh visit bonus after the session gap closes the session', () => {
+    // Genuinely returning to a tool later is a new engagement.
+    const events = [visit(0), visit(SCORE_POLICY.sessionGapMs + 1_000)]
+    expect(scoreFromEvents(events)).toBe(2 * SCORE_POLICY.visitPoints)
+  })
+
+  it('pays each domain its own visit bonus', () => {
+    // Sessions are per-domain, so flipping between tools still credits each.
+    const events = [visit(0, 'claude.ai'), visit(1_000, 'chatgpt.com')]
+    expect(scoreFromEvents(events)).toBe(2 * SCORE_POLICY.visitPoints)
+  })
+
   it('reaches the deep-session bonus through accumulated heartbeats', () => {
     // 10 minutes of 5s ticks: 600 pts * 1.15 deep * 1.1 focus = 759
     expect(scoreFromEvents(heartbeatRun(0, 120))).toBe(759)

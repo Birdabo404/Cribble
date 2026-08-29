@@ -155,8 +155,15 @@ async function validateDevice(userId: number, deviceUuid: string) {
 // they score a flat 40 points each and a zero-duration visit consumes no
 // active time, so without a visit ceiling the active-time cap could be
 // bypassed entirely by spamming visit events at unique timestamps.
+//
+// The visit ceiling is calibrated against observed organic behaviour: the
+// heaviest genuine day on record is 84 visits (most daily users land under
+// 40), while the previous 600 ceiling let a refresh-farming account bank
+// 374 visits in a day (Aug 2026). 150 leaves honest heavy use untouched
+// and — combined with scoring v4 paying at most one visit bonus per
+// session — makes visit spam strictly worse than genuine active time.
 const MAX_CUMULATIVE_ACTIVE_MS_PER_24H = 16 * 60 * 60 * 1000
-const MAX_CUMULATIVE_VISITS_PER_24H = 600
+const MAX_CUMULATIVE_VISITS_PER_24H = 150
 
 async function getUsageLast24h(userId: number): Promise<{ activeMs: number; visits: number }> {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
