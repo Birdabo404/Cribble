@@ -1,4 +1,5 @@
 import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js'
+import { isApprovedTeam } from '@/lib/entitlements'
 
 // Shared plumbing for the /api/team/* routes: user-row loading with the
 // columns every guard needs, identity mapping for roster/invite payloads,
@@ -32,6 +33,15 @@ export interface TeamUserRow {
  *  the management page; mutations additionally require isApprovedTeam. */
 export function isTeamTier(tier: string | null | undefined): boolean {
   return typeof tier === 'string' && tier.trim().toUpperCase() === 'TEAM'
+}
+
+/** A team a member can meaningfully join/stay with: still on the TEAM
+ *  tier, past review, and not banned/suspended. */
+export function teamIsLive(team: TeamUserRow): boolean {
+  return (
+    isApprovedTeam(team) &&
+    (team.status === null || team.status === 'active')
+  )
 }
 
 /** Identity fields the team surfaces render, with the same fallbacks the

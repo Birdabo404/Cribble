@@ -2,10 +2,11 @@
 
 // Member side of team affiliation — the small page the bell's TEAM INVITE
 // notification deep-links to. Shows the caller's current team (with a
-// LEAVE action) and every pending invite with ACCEPT / DECLINE. A member
-// can hold many pending invites but only one active affiliation, so
-// accepting while already on a team is refused server-side with a
-// friendly conflict message.
+// LEAVE action), every pending invite with ACCEPT / DECLINE, and the
+// transfer requests the caller filed themselves (MY TRANSFER REQUESTS,
+// with WITHDRAW). A member can hold many pending invites but only one
+// active affiliation, so accepting while already on a team is refused
+// server-side with a friendly conflict message.
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
@@ -32,6 +33,16 @@ interface PendingInvite {
 interface Membership {
   affiliationId: number
   acceptedAt: string | null
+  live: boolean
+  team: TeamIdentity
+}
+
+/** One of the caller's own open applications (GET /api/team/apply). */
+interface TransferRequest {
+  applicationId: number
+  teamUserId: number
+  appliedAt: string
+  message: string | null
   live: boolean
   team: TeamIdentity
 }
@@ -75,20 +86,43 @@ function TeamNameBlock({
   )
 }
 
+/** Best-effort read of the caller's own open transfer requests — a
+ *  failure here must never gate the invites page, so it collapses to
+ *  an empty list (which hides the section entirely). */
+async function loadTransferRequests(): Promise<TransferRequest[]> {
+  try {
+    const res = await fetch('/api/team/apply', {
+      cache: 'no-store',
+      credentials: 'include'
+    })
+    if (!res.ok) return []
+    const data = await res.json().catch(() => null)
+    if (!data?.success || !Array.isArray(data.applications)) return []
+    return data.applications as TransferRequest[]
+  } catch {
+    return []
+  }
+}
+
 export default function TeamInvitesPage() {
   const [gate, setGate] = useState<Gate>('loading')
   const [invites, setInvites] = useState<PendingInvite[]>([])
   const [membership, setMembership] = useState<Membership | null>(null)
+  const [applications, setApplications] = useState<TransferRequest[]>([])
   const [busyId, setBusyId] = useState<number | null>(null)
+  const [withdrawingId, setWithdrawingId] = useState<number | null>(null)
   const [leaveArmed, setLeaveArmed] = useState(false)
   const [leaving, setLeaving] = useState(false)
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch('/api/team/invites', {
-        cache: 'no-store',
-        credentials: 'include'
-      })
+      const [res, requests] = await Promise.all([
+        fetch('/api/team/invites', {
+          cache: 'no-store',
+          credentials: 'include'
+        }),
+        loadTransferRequests()
+      ])
       if (res.status === 401) {
         setGate('signed-out')
         return
@@ -100,6 +134,7 @@ export default function TeamInvitesPage() {
       }
       setInvites(Array.isArray(data.invites) ? data.invites : [])
       setMembership(data.membership ?? null)
+      setApplications(requests)
       setLeaveArmed(false)
       setGate('ok')
     } catch {
@@ -146,6 +181,38 @@ export default function TeamInvitesPage() {
       toast({ kind: 'error', title: 'ACTION FAILED', body: 'Try again in a moment.' })
     } finally {
       setBusyId(null)
+    }
+  }
+
+  const withdraw = async (request: TransferRequest) => {
+    if (withdrawingId !== null) return
+    setWithdrawingId(request.applicationId)
+    try {
+      const res = await fetch(`/api/team/apply?applicationId=${request.applicationId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.success) {
+        toast({
+          kind: 'error',
+          title: 'COULD NOT WITHDRAW',
+          body: data?.error || 'Try again in a moment.'
+        })
+        return
+      }
+      setApplications((prev) =>
+        prev.filter((row) => row.applicationId !== request.applicationId)
+      )
+      toast({
+        kind: 'success',
+        title: 'REQUEST WITHDRAWN',
+        body: `Your transfer request to @${request.team.username} was pulled.`
+      })
+    } catch {
+      toast({ kind: 'error', title: 'COULD NOT WITHDRAW', body: 'Try again in a moment.' })
+    } finally {
+      setWithdrawingId(null)
     }
   }
 
@@ -349,6 +416,68 @@ export default function TeamInvitesPage() {
           <p className="text-center text-[9px] tracking-[0.25em] text-zinc-700">
             LEAVE YOUR CURRENT TEAM TO ACCEPT A DIFFERENT INVITE
           </p>
+        )}
+
+        {/* ---------- my transfer requests ---------- */}
+        {applications.length > 0 && (
+          <section className="pt-4">
+            <div className="mb-3 flex items-baseline justify-between">
+              <span className="text-[9px] tracking-[0.35em] text-zinc-500">
+                MY TRANSFER REQUESTS
+              </span>
+              <span className="text-[9px] tabular-nums tracking-[0.2em] text-zinc-600">
+                {applications.length} OPEN · 3 MAX
+              </span>
+            </div>
+            <ul className="space-y-3">
+              {applications.map((request) => {
+                const busy = withdrawingId === request.applicationId
+                return (
+                  <li
+                    key={request.applicationId}
+                    className={`lb-panel rounded-2xl px-4 py-3.5 ${
+                      request.live ? '' : 'opacity-60'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <TeamFace team={request.team} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <Link
+                            href={`/u/${encodeURIComponent(request.team.username)}`}
+                            className="truncate text-xs text-zinc-100 transition-colors hover:text-white hover:underline underline-offset-2"
+                          >
+                            {request.team.name}
+                          </Link>
+                          <span className="truncate text-[10px] text-zinc-600">
+                            @{request.team.username}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 text-[10px] tracking-[0.15em] text-zinc-600">
+                          {`requested ${formatRelative(request.appliedAt)}${
+                            request.live ? '' : ' · team currently inactive'
+                          }`}
+                        </div>
+                        {request.message && (
+                          <div className="mt-1 truncate font-data text-[10px] text-zinc-500">
+                            &ldquo;{request.message}&rdquo;
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void withdraw(request)}
+                        className="shrink-0 rounded-lg border border-zinc-800 px-3 py-1.5 text-[9px] tracking-[0.3em] text-zinc-500 transition-colors hover:border-rose-400/40 hover:text-rose-300 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {busy ? '…' : 'WITHDRAW'}
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
         )}
       </main>
     </div>

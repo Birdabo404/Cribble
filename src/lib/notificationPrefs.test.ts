@@ -114,7 +114,14 @@ describe('disabledNotificationTypes', () => {
     ).toEqual(['milestone', 'rank'])
     expect(
       disabledNotificationTypes({ ...DEFAULT_NOTIFICATION_PREFS, team: false }).sort()
-    ).toEqual(['team_invite', 'team_invite_accepted', 'team_removed'])
+    ).toEqual([
+      'team_application',
+      'team_application_accepted',
+      'team_application_declined',
+      'team_invite',
+      'team_invite_accepted',
+      'team_removed'
+    ])
     expect(
       disabledNotificationTypes({ ...DEFAULT_NOTIFICATION_PREFS, shop: false }).sort()
     ).toEqual(['premium', 'shop'])

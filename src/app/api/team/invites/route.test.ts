@@ -5,7 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // AND the inviting team must still be live (TEAM tier + approved + not
 // banned) — a lapsed team must not consume the member's single active
 // slot. The partial unique index (one ACTIVE affiliation per member) is
-// the accept-race backstop: its 23505 comes back as a friendly 409.
+// the accept-race backstop: its 23505 comes back as a friendly 409. A
+// successful accept sweeps the member's open transfer requests — dead
+// weight once they fly colors.
 
 const { sessionMock, notifyMock, state } = vi.hoisted(() => ({
   sessionMock: vi.fn(),
@@ -17,6 +19,7 @@ const { sessionMock, notifyMock, state } = vi.hoisted(() => ({
       error: null as { code?: string } | null
     },
     updates: [] as Record<string, unknown>[],
+    deletes: [] as Record<string, unknown>[],
     memberRow: null as Record<string, unknown> | null
   }
 }))
@@ -49,10 +52,14 @@ vi.mock('@/lib/supabaseServer', () => ({
         return builder
       }
       if (table === 'team_affiliations') {
-        let op: 'read' | 'update' = 'read'
+        let op: 'read' | 'update' | 'delete' = 'read'
+        const filters: Record<string, unknown> = {}
         const builder = {
           select: () => builder,
-          eq: () => builder,
+          eq: (column: string, value: unknown) => {
+            filters[column] = value
+            return builder
+          },
           order: () => builder,
           maybeSingle: () => Promise.resolve({ data: state.inviteRow, error: null }),
           update: (values: Record<string, unknown>) => {
@@ -60,13 +67,24 @@ vi.mock('@/lib/supabaseServer', () => ({
             state.updates.push(values)
             return builder
           },
-          // The guarded update chain ends in .select('id') and is awaited.
+          delete: () => {
+            op = 'delete'
+            // Reference, not copy: the eq() calls that follow land here.
+            state.deletes.push(filters)
+            return builder
+          },
+          // The guarded update chain ends in .select('id'), the sweep on
+          // a bare eq() — both are awaited.
           then: (
             onFulfilled: (value: unknown) => unknown,
             onRejected?: (reason: unknown) => unknown
           ) =>
             Promise.resolve(
-              op === 'update' ? state.updateResult : { data: [], error: null }
+              op === 'update'
+                ? state.updateResult
+                : op === 'delete'
+                  ? { data: null, error: null }
+                  : { data: [], error: null }
             ).then(onFulfilled, onRejected)
         }
         return builder
@@ -113,6 +131,7 @@ describe('POST /api/team/invites — accept guards', () => {
     state.inviteRow = { ...PENDING_INVITE, team: { ...LIVE_TEAM } }
     state.updateResult = { data: [{ id: 501 }], error: null }
     state.updates = []
+    state.deletes = []
     state.memberRow = {
       id: 21,
       twitter_username: 'pilot',
@@ -168,6 +187,15 @@ describe('POST /api/team/invites — accept guards', () => {
     ])
   })
 
+  it('sweeps the member\'s open transfer requests after an accept — pending invites untouched', async () => {
+    const response = await POST(acceptRequest(501))
+
+    expect(response.status).toBe(200)
+    // Scoped to the member's APPLIED rows: status='applied' can never
+    // match another pending invite (those die on the one-active index).
+    expect(state.deletes).toEqual([{ member_user_id: 21, status: 'applied' }])
+  })
+
   it('maps the one-active-affiliation 23505 to a friendly 409', async () => {
     state.updateResult = { data: null, error: { code: '23505' } }
 
@@ -178,6 +206,7 @@ describe('POST /api/team/invites — accept guards', () => {
       error: 'You already fly with a team — leave it first'
     })
     expect(notifyMock).not.toHaveBeenCalled()
+    expect(state.deletes).toHaveLength(0)
   })
 
   it('409s when the guarded update matches nothing (row changed underneath)', async () => {

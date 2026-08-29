@@ -27,7 +27,14 @@ export const CATEGORY_NOTIFICATION_TYPES: Record<
   rank: ['rank', 'milestone'],
   achievements: ['achievement'],
   social: ['social'],
-  team: ['team_invite', 'team_invite_accepted', 'team_removed'],
+  team: [
+    'team_invite',
+    'team_invite_accepted',
+    'team_removed',
+    'team_application',
+    'team_application_accepted',
+    'team_application_declined'
+  ],
   season: ['season'],
   shop: ['shop', 'premium']
 }

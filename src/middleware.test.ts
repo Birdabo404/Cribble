@@ -133,6 +133,7 @@ describe('middleware site lock', () => {
     expect(middleware(request('/api/cron/season')).status).toBe(200)
     expect(middleware(request('/api/cron/insights-rollup')).status).toBe(200)
     expect(middleware(request('/api/cron/leaderboard-integrity')).status).toBe(200)
+    expect(middleware(request('/api/cron/cursor-profile-sync')).status).toBe(200)
     expect(middleware(request('/api/cron/unknown')).status).toBe(404)
   })
 
@@ -159,6 +160,27 @@ describe('middleware site lock', () => {
     expect(middleware(request('/api/billboard/slots')).status).toBe(200)
     expect(middleware(request('/api/analytics/visitors')).status).toBe(200)
     expect(middleware(request('/api/analytics/hit')).status).toBe(200)
+  })
+
+  it('keeps the recruitment board and its team API lanes open while locked', () => {
+    vi.stubEnv('SITE_LOCKED', '1')
+    // The leaderboard's HIRING tab renders the public directory from
+    // /api/teams/directory — the PLURAL prefix, which the /api/team/
+    // rule does not cover. If this lane 404s, the recruitment board
+    // dies in a permanent retry state for every visitor.
+    expect(middleware(request('/api/teams/directory')).status).toBe(200)
+    // Exact match: the rest of the plural namespace stays sealed.
+    expect(middleware(request('/api/teams/other')).status).toBe(404)
+    // The command-deck probe and the transfer-request lanes ride the
+    // singular /api/team/ rule.
+    expect(middleware(request('/api/team/dashboard')).status).toBe(200)
+    expect(middleware(request('/api/team/apply')).status).toBe(200)
+    // Cursor burn-board claim + the 6h scrape. The user regex is
+    // exact-segment (same as /api/user/profile); the cron is one
+    // path beside the other operational crons. Without these the
+    // COIN-UP prompt 404s and the board never refreshes while locked.
+    expect(middleware(request('/api/user/cursor-profile')).status).toBe(200)
+    expect(middleware(request('/api/user/cursor-profile/extra')).status).toBe(404)
   })
 
   it('keeps the status observatory public while locked', () => {
