@@ -16,7 +16,12 @@ const { resendConstructorMock, sendMock } = vi.hoisted(() => {
 
 vi.mock('resend', () => ({ Resend: resendConstructorMock }))
 
-import { isSponsorshipEmailConfigured, sendSponsorshipPaymentEmail } from './sponsorshipEmail'
+import {
+  isSponsorshipEmailConfigured,
+  sendGuestTrackingEmail,
+  sendSponsorshipPaymentEmail,
+  sponsorClaimUrl
+} from './sponsorshipEmail'
 
 const REVIEWED_AT = '2026-08-11T09:30:00.000Z'
 
@@ -142,6 +147,93 @@ describe('sendSponsorshipPaymentEmail', () => {
     vi.stubEnv('SPONSORSHIP_EMAIL_REPLY_TO', '')
 
     await expect(sendSponsorshipPaymentEmail(payment())).resolves.toEqual({
+      ok: false,
+      error: 'Email delivery is not configured'
+    })
+    expect(resendConstructorMock).not.toHaveBeenCalled()
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+
+  it('points the CTA at the guest claim link when trackingUrl is provided — never the bare tracker', async () => {
+    sendMock.mockResolvedValue({ data: { id: 'msg_789' }, error: null })
+    const claimUrl = sponsorClaimUrl('ab'.repeat(32))
+
+    const result = await sendSponsorshipPaymentEmail({ ...payment(), trackingUrl: claimUrl })
+
+    expect(result).toEqual({ ok: true, messageId: 'msg_789' })
+    const [payload] = sendMock.mock.calls[0]
+    for (const body of [payload.html, payload.text]) {
+      // The device reading a guest's approval mail may not hold the
+      // claim cookie — the pay button must sign it in on click.
+      expect(body).toContain(claimUrl)
+      expect(body).not.toContain('https://cribble.dev/sponsorship')
+    }
+  })
+})
+
+describe('sponsorClaimUrl', () => {
+  it('builds the production claim link around the encoded token', () => {
+    expect(sponsorClaimUrl('ab'.repeat(32))).toBe(
+      `https://cribble.dev/api/billboard/claim?token=${'ab'.repeat(32)}`
+    )
+    // Hex tokens never need escaping, but the URL must stay well-formed
+    // for any input.
+    expect(sponsorClaimUrl('a&b c')).toBe(
+      'https://cribble.dev/api/billboard/claim?token=a%26b%20c'
+    )
+  })
+})
+
+describe('sendGuestTrackingEmail', () => {
+  const TOKEN = 'cd'.repeat(32)
+
+  const tracking = () => ({ to: 'guest@acme.dev', adId: 33, token: TOKEN })
+
+  beforeEach(() => {
+    vi.stubEnv('RESEND_API_KEY', 're_test_123')
+    vi.stubEnv('SPONSORSHIP_EMAIL_FROM', 'Cribble <birdabo@cribble.dev>')
+    vi.stubEnv('SPONSORSHIP_EMAIL_REPLY_TO', 'birdabo@cribble.dev')
+  })
+
+  it('sends one email carrying the magic link, the keep-this-email warning, X backup and per-ad idempotency key', async () => {
+    sendMock.mockResolvedValue({ data: { id: 'msg_guest_1' }, error: null })
+
+    const result = await sendGuestTrackingEmail(tracking())
+
+    expect(result).toEqual({ ok: true, messageId: 'msg_guest_1' })
+    expect(sendMock).toHaveBeenCalledTimes(1)
+    const [payload, options] = sendMock.mock.calls[0]
+    expect(payload.from).toBe('Cribble <birdabo@cribble.dev>')
+    expect(payload.to).toBe('guest@acme.dev')
+    expect(payload.replyTo).toBe('birdabo@cribble.dev')
+    expect(payload.subject).toBe('Your Cribble sponsor ad is in review — tracking link inside')
+    for (const body of [payload.html, payload.text]) {
+      // The magic link is the guest's only durable credential.
+      expect(body).toContain(`https://cribble.dev/api/billboard/claim?token=${TOKEN}`)
+      expect(body).toContain('keep this email')
+      expect(body).toContain('https://x.com/birdabo')
+    }
+    // Keyed on the ad alone: one submission mints one ad, so a retried
+    // submit collapses into the first delivery.
+    expect(options).toEqual({ idempotencyKey: 'billboard-guest-tracking/33' })
+  })
+
+  it('maps a provider error object to a sanitized ok:false result', async () => {
+    sendMock.mockResolvedValue({
+      data: null,
+      error: { name: 'validation_error', message: 'The from address is not verified' }
+    })
+
+    await expect(sendGuestTrackingEmail(tracking())).resolves.toEqual({
+      ok: false,
+      error: 'validation_error: The from address is not verified'
+    })
+  })
+
+  it('fails closed without constructing a client when unconfigured', async () => {
+    vi.stubEnv('RESEND_API_KEY', '')
+
+    await expect(sendGuestTrackingEmail(tracking())).resolves.toEqual({
       ok: false,
       error: 'Email delivery is not configured'
     })

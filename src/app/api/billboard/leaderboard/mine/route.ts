@@ -9,10 +9,11 @@ import {
 } from '@/lib/leaderboardSponsor'
 import { loadSponsorBoard, sponsorLinkHostOf } from '@/lib/leaderboardSponsorServer'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
-import { getSessionUserId } from '@/lib/sessionAuth'
+import { getSponsorIdentity } from '@/lib/sponsorAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
-// GET /api/billboard/leaderboard/mine — the signed-in owner's
+// GET /api/billboard/leaderboard/mine — the owner's (signed-in user or
+// claim-cookie guest, migration 063; a visitor with neither still 401s)
 // leaderboard sponsor creatives (migration 055), every review
 // lifecycle stage included: approval status and the admin's redo/
 // reject note, the creative fields, clicks, the active contribution
@@ -49,19 +50,30 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const session = await getSessionUserId(request)
-    if (!session.ok) {
-      return NextResponse.json({ error: session.error }, { status: session.status })
+    const identityResult = await getSponsorIdentity(request)
+    if (!identityResult.ok) {
+      return NextResponse.json(
+        { error: identityResult.error },
+        { status: identityResult.status }
+      )
+    }
+    const identity = identityResult.identity
+    if (identity.kind === 'none') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const now = new Date()
+    const adsQuery = supabase
+      .from('billboard_ads')
+      .select(
+        'id, status, review_note, text, company_name, link_url, logo_url, accent_color, clicks'
+      )
+    const pendingQuery = supabase.from('leaderboard_sponsor_bids').select('ad_id, amount_cents')
     const [adsRes, board, pendingRes] = await Promise.all([
-      supabase
-        .from('billboard_ads')
-        .select(
-          'id, status, review_note, text, company_name, link_url, logo_url, accent_color, clicks'
-        )
-        .eq('owner_user_id', session.userId)
+      (identity.kind === 'user'
+        ? adsQuery.eq('owner_user_id', identity.userId)
+        : adsQuery.eq('guest_id', identity.guestId)
+      )
         .eq('placement', 'leaderboard')
         .order('created_at', { ascending: false }),
       loadSponsorBoard(supabase, now),
@@ -69,10 +81,10 @@ export async function GET(request: NextRequest) {
       // warning — a row still PENDING past the TTL is an abandoned
       // checkout Polar has already expired, and it must not scare the
       // buyer forever.
-      supabase
-        .from('leaderboard_sponsor_bids')
-        .select('ad_id, amount_cents')
-        .eq('user_id', session.userId)
+      (identity.kind === 'user'
+        ? pendingQuery.eq('user_id', identity.userId)
+        : pendingQuery.eq('guest_id', identity.guestId)
+      )
         .eq('status', 'PENDING')
         .gt('created_at', new Date(now.getTime() - LEADERBOARD_SPONSOR_PENDING_TTL_MS).toISOString())
     ])

@@ -7,14 +7,16 @@
 // one flush panel), a two-column studio (fields left, sticky live
 // preview right), and a compact how-it-works. The .settings-scope
 // wrapper and page font live in the sponsorship layout, not here.
-// Signed-out visitors get the buy view — the composer swaps its submit
-// button for a sign-in link, and the tracker shows a sign-in prompt if
-// they switch tabs.
+// No account is required anywhere on this page: submitting without a
+// session mints a guest identity server-side (an httpOnly claim
+// cookie), and /api/billboard/mine answers for sessions and guest
+// cookies alike — so the tracker works for both, and a 401 from /mine
+// means the visitor has neither identity (the tracker then shows its
+// how-to-reconnect copy instead of rows).
 //
-// The tab default is chosen once, when /api/user/me and
-// /api/billboard/mine first resolve (signed-out or zero ads -> buy,
-// existing ads -> mine); manual switches after that are never
-// overridden. claimSlot (the flipper cell, the leaderboard cell, a
+// The tab default is chosen once, when /api/billboard/mine first
+// resolves (no ads -> buy, existing ads -> mine — identity flavor is
+// irrelevant); manual switches after that are never overridden. claimSlot (the flipper cell, the leaderboard cell, a
 // rail cell, or a ?slot= deep link from a vacant rail CTA) jumps to
 // the buy view and remounts the composer with the placement — and, for
 // rails, the exact slot — preselected; the form reads `initial` at
@@ -170,11 +172,12 @@ function fmtRemaining(targetIso: string, serverIso: string): string {
 }
 
 export function BillboardLanding() {
-  // Avatar for the preview fallback; also the first signed-in signal.
+  // Avatar for the preview fallback (signed-in users only).
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
-  // null = still resolving. Both fetches may settle it; a definitive 401
-  // wins so the page degrades to its read-only pitch.
-  const [signedIn, setSignedIn] = useState<boolean | null>(null)
+  // Whether /api/billboard/mine can identify this visitor — a session
+  // or the guest claim cookie both count; only its 401 (neither) turns
+  // this false. null = still resolving.
+  const [canTrack, setCanTrack] = useState<boolean | null>(null)
   const [ads, setAds] = useState<MineAd[] | null>(null)
   const [adsError, setAdsError] = useState<string | null>(null)
   /** Public availability for the weekly placements; null (loading or
@@ -221,16 +224,12 @@ export function BillboardLanding() {
     let cancelled = false
     const load = async () => {
       // Shared /me client cache — never throws, resolves ok:false on
-      // network failure so the page keeps its read-only pitch.
+      // 401 or network failure. Avatar only: tracking identity is
+      // /mine's job, which answers for guests too.
       const result = await fetchMe()
-      if (cancelled) return
-      if (!result.ok) {
-        if (result.status === 401) setSignedIn(false)
-        return
-      }
+      if (cancelled || !result.ok) return
       const user: MeUser | null = result.data.user ?? null
       setAvatarUrl(user?.twitter_profile_image || null)
-      setSignedIn(true)
     }
     void load()
     return () => {
@@ -311,7 +310,9 @@ export function BillboardLanding() {
         cache: 'no-store'
       })
       if (res.status === 401) {
-        setSignedIn(false)
+        // Neither a session nor a guest claim cookie — nothing to
+        // track (yet: a submission mints the cookie and this refetches).
+        setCanTrack(false)
         setAds([])
         return
       }
@@ -320,7 +321,7 @@ export function BillboardLanding() {
         throw new Error(typeof data?.error === 'string' ? data.error : 'Load failed')
       }
       setAds(Array.isArray(data.ads) ? (data.ads as MineAd[]) : [])
-      setSignedIn(true)
+      setCanTrack(true)
     } catch {
       setAdsError('Could not load your submissions.')
       setAds((prev) => prev ?? [])
@@ -331,20 +332,21 @@ export function BillboardLanding() {
     void loadMine()
   }, [loadMine])
 
-  // Choose the default tab once, when the signed-in/ads state first
-  // resolves. An ads error still resolves (to buy — the composer works
+  // Choose the default tab once, when /mine first resolves (its 401
+  // resolves too — loadMine settles ads to []). Having ads is the
+  // whole signal: a guest's claim cookie answers exactly like a
+  // session. An ads error still resolves (to buy — the composer works
   // without the list), so the skeleton can't outlive a failed fetch.
   useEffect(() => {
     if (view !== null || !bidIntentResolved) return
-    const resolved = adsError !== null || (signedIn !== null && (!signedIn || ads !== null))
-    if (!resolved) return
+    if (ads === null && adsError === null) return
     if (leaderboardBidIntent) {
       const hasLeaderboardCreative = ads?.some((ad) => ad.placement === 'leaderboard') ?? false
-      setView(signedIn === true && hasLeaderboardCreative ? 'mine' : 'buy')
+      setView(hasLeaderboardCreative ? 'mine' : 'buy')
       return
     }
-    setView(signedIn === true && ads !== null && ads.length > 0 ? 'mine' : 'buy')
-  }, [view, signedIn, ads, adsError, leaderboardBidIntent, bidIntentResolved])
+    setView(ads !== null && ads.length > 0 ? 'mine' : 'buy')
+  }, [view, ads, adsError, leaderboardBidIntent, bidIntentResolved])
 
   const claimSlot = useCallback((placement: BillboardPlacement, slot?: RailSlot) => {
     setView('buy')
@@ -786,7 +788,7 @@ export function BillboardLanding() {
             ads={ads ?? []}
             loading={ads === null && !adsError}
             error={adsError}
-            signedIn={signedIn}
+            canTrack={canTrack}
             fallbackLogoUrl={avatarUrl}
             onChanged={loadMine}
             onBrowseSlots={() => setView('buy')}
@@ -1049,7 +1051,6 @@ export function BillboardLanding() {
                     target={{ mode: 'create' }}
                     initial={composerInitial}
                     fallbackLogoUrl={avatarUrl}
-                    signedIn={signedIn}
                     onSaved={loadMine}
                     onConflict={loadMine}
                     onPreviewChange={setPreview}

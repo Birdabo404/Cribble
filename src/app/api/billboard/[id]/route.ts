@@ -14,12 +14,13 @@ import {
   parseBillboardLogoDataUri
 } from '@/lib/billboardServer'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
-import { getSessionUserId } from '@/lib/sessionAuth'
+import { getSponsorIdentity } from '@/lib/sponsorAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 import { validateEmail } from '@/lib/validation'
 
-// Owner-side edit of a Billboard submission (migration 030). Two legal
-// moments, per the lifecycle:
+// Owner-side edit of a Billboard submission (migration 030). The owner
+// is the signed-in user OR the claim-cookie guest (migration 063) —
+// whichever the ad row names. Two legal moments, per the lifecycle:
 //   PENDING            — edit in place while the ad waits for review.
 //   CHANGES_REQUESTED  — the admin asked for a redo; saving re-submits,
 //                        moving the ad back to PENDING and clearing the
@@ -197,9 +198,16 @@ export async function PATCH(
       )
     }
 
-    const session = await getSessionUserId(request)
-    if (!session.ok) {
-      return NextResponse.json({ error: session.error }, { status: session.status })
+    const identityResult = await getSponsorIdentity(request)
+    if (!identityResult.ok) {
+      return NextResponse.json(
+        { error: identityResult.error },
+        { status: identityResult.status }
+      )
+    }
+    const identity = identityResult.identity
+    if (identity.kind === 'none') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const { id } = await params
@@ -222,7 +230,7 @@ export async function PATCH(
 
     const { data: ad, error: fetchError } = await supabase
       .from('billboard_ads')
-      .select('id, owner_user_id, status, logo_url, accent_color')
+      .select('id, owner_user_id, guest_id, status, logo_url, accent_color')
       .eq('id', adId)
       .maybeSingle()
 
@@ -232,7 +240,14 @@ export async function PATCH(
     }
     // Missing and not-owned collapse into the same 404 — an ad id someone
     // else owns should be indistinguishable from one that doesn't exist.
-    if (!ad || Number(ad.owner_user_id) !== session.userId) {
+    // Ownership follows the identity kind: the session user against
+    // owner_user_id, the cookie guest against guest_id.
+    const ownsAd =
+      ad !== null &&
+      (identity.kind === 'user'
+        ? ad.owner_user_id !== null && Number(ad.owner_user_id) === identity.userId
+        : ad.guest_id !== null && Number(ad.guest_id) === identity.guestId)
+    if (!ad || !ownsAd) {
       return NextResponse.json({ error: 'Ad not found' }, { status: 404 })
     }
 
@@ -265,7 +280,8 @@ export async function PATCH(
     // The effective source is the submitted logo, falling back to the
     // owner's avatar when logo_url is NULL — the same source
     // (users.twitter_profile_image) the public GET resolves logoUrl
-    // from, so the avatar only needs fetching when a NULL is in play.
+    // from, so the avatar only needs fetching when a NULL is in play;
+    // guests have no users row, so their fallback is simply no accent.
     // Data URIs compare as plain strings here, so an unchanged upload
     // skips re-extraction like an unchanged URL; when one IS in play,
     // the accent comes off the already-validated buffer — the guarded
@@ -274,11 +290,11 @@ export async function PATCH(
     // Best-effort: failure stores NULL, the edit itself never blocks
     // on it.
     let ownerAvatar: string | null = null
-    if (!fields.logoUrl || !ad.logo_url) {
+    if (identity.kind === 'user' && (!fields.logoUrl || !ad.logo_url)) {
       const { data: owner } = await supabase
         .from('users')
         .select('twitter_profile_image')
-        .eq('id', session.userId)
+        .eq('id', identity.userId)
         .maybeSingle()
       ownerAvatar = owner?.twitter_profile_image || null
     }
@@ -294,12 +310,13 @@ export async function PATCH(
 
     // Guarded on the status we based the edit on: if an admin decision
     // (approve/reject) landed meanwhile, zero rows update and the edit
-    // fails instead of stomping the decision.
-    const { data: updated, error: updateError } = await supabase
-      .from('billboard_ads')
-      .update(update)
-      .eq('id', adId)
-      .eq('owner_user_id', session.userId)
+    // fails instead of stomping the decision. The ownership guard rides
+    // along on the same buyer column the read proved.
+    const guardedUpdate = supabase.from('billboard_ads').update(update).eq('id', adId)
+    const { data: updated, error: updateError } = await (identity.kind === 'user'
+      ? guardedUpdate.eq('owner_user_id', identity.userId)
+      : guardedUpdate.eq('guest_id', identity.guestId)
+    )
       .eq('status', currentStatus)
       .select(
         'id, status, text, company_name, link_url, logo_url, placement, requested_rail_slot, billing_email, review_note, updated_at'

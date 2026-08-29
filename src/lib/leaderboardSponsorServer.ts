@@ -16,6 +16,7 @@ import {
 } from '@/lib/leaderboardSponsor'
 import { insertMissingNotifications, type NotificationInput } from '@/lib/notifications'
 import { getPolarClient, resolveLeaderboardBidProductId } from '@/lib/polar'
+import type { SponsorBuyer } from '@/lib/sponsorAuth'
 
 // Server side of the leaderboard sponsor ranking (migration 055): the
 // board derivation the read routes and the checkout race check share,
@@ -207,7 +208,10 @@ function sponsorEntryOf(
 type PendingBidRow = {
   id: number
   ad_id: number
-  user_id: number
+  /** Exactly one of user_id / guest_id is set (migration 063's CHECK)
+   *  — the buyer column activation verifies the payer against. */
+  user_id: number | null
+  guest_id: number | null
   status: string
   amount_cents: number
   polar_order_id: string | null
@@ -268,7 +272,7 @@ export async function activateSponsorBidFromOrder(
 
   const { data, error: readError } = await supabase
     .from('leaderboard_sponsor_bids')
-    .select('id, ad_id, user_id, status, amount_cents, polar_order_id')
+    .select('id, ad_id, user_id, guest_id, status, amount_cents, polar_order_id')
     .eq('polar_checkout_id', order.checkoutId)
     .maybeSingle()
 
@@ -320,15 +324,27 @@ export async function activateSponsorBidFromOrder(
     return 'refused'
   }
 
-  // The payer must be the buyer who created the checkout. Metadata
-  // userId is stamped server-side at checkout creation, so it is the
-  // stronger witness (see the webhook's resolveRecipientUserId story).
-  const metaUserId = Number(order.metadata?.['userId'])
-  if (!Number.isSafeInteger(metaUserId) || metaUserId !== Number(row.user_id)) {
-    console.warn(
-      `[LeaderboardSponsor] Order ${order.id} metadata userId=${String(order.metadata?.['userId'])} does not exactly match ledger row ${row.id} user ${row.user_id} — refusing`
-    )
-    return 'refused'
+  // The payer must be the buyer who created the checkout, checked
+  // against whichever buyer column the ledger row carries (exactly one
+  // by migration 063's CHECK). Metadata userId/guestId is stamped
+  // server-side at checkout creation, so it is the stronger witness
+  // (see the webhook's resolveRecipientUserId story).
+  if (row.user_id !== null && row.user_id !== undefined) {
+    const metaUserId = Number(order.metadata?.['userId'])
+    if (!Number.isSafeInteger(metaUserId) || metaUserId !== Number(row.user_id)) {
+      console.warn(
+        `[LeaderboardSponsor] Order ${order.id} metadata userId=${String(order.metadata?.['userId'])} does not exactly match ledger row ${row.id} user ${row.user_id} — refusing`
+      )
+      return 'refused'
+    }
+  } else {
+    const metaGuestId = Number(order.metadata?.['guestId'])
+    if (!Number.isSafeInteger(metaGuestId) || metaGuestId !== Number(row.guest_id)) {
+      console.warn(
+        `[LeaderboardSponsor] Order ${order.id} metadata guestId=${String(order.metadata?.['guestId'])} does not exactly match ledger row ${row.id} guest ${row.guest_id} — refusing`
+      )
+      return 'refused'
+    }
   }
 
   // The pre-activation board, read just before the guarded update so the
@@ -369,7 +385,11 @@ export async function activateSponsorBidFromOrder(
         await notifySponsorBoardShift(supabase, {
           preBoard,
           activatedAdId: Number(row.ad_id),
-          payerUserId: Number(row.user_id),
+          // A guest payer is null here: their own ads carry no owner to
+          // exclude, and displaced USER sponsors must still hear about
+          // the shift a guest's money caused.
+          payerUserId:
+            row.user_id === null || row.user_id === undefined ? null : Number(row.user_id),
           amountCents: Number(row.amount_cents),
           paidAtMs: order.createdAt.getTime(),
           ledgerRowId: Number(row.id),
@@ -449,25 +469,30 @@ const REFUNDED_ORDER_STATUSES = new Set<string>(['refunded', 'partially_refunded
 
 /**
  * Reconcile the exact checkout Polar returned in success_url. Ownership
- * is proven against the service-role ledger before Polar is queried, then
- * Orders is filtered by checkout_id rather than external_customer_id.
- * That distinction matters because Polar may merge a same-email buyer
- * into an existing customer whose external id belongs to another Cribble
- * account; checkout metadata + this ledger row remain the reliable pair.
+ * is proven against the service-role ledger before Polar is queried —
+ * filtered on whichever buyer column (user_id / guest_id) the resolved
+ * sponsor identity names — then Orders is filtered by checkout_id
+ * rather than external_customer_id. That distinction matters because
+ * Polar may merge a same-email buyer into an existing customer whose
+ * external id belongs to another Cribble account, and guest checkouts
+ * carry no external id at all; checkout metadata + this ledger row
+ * remain the reliable pair.
  */
 export async function syncSponsorBidCheckoutFromPolar(
   supabase: SupabaseClient,
-  userId: number,
+  buyer: SponsorBuyer,
   checkoutId: string
 ): Promise<SponsorBidCheckoutSync> {
   if (!POLAR_CHECKOUT_ID_RE.test(checkoutId)) return 'not_found'
 
-  const { data, error: ledgerError } = await supabase
+  const ledgerQuery = supabase
     .from('leaderboard_sponsor_bids')
-    .select('id, ad_id, user_id, status, amount_cents, polar_order_id')
+    .select('id, ad_id, user_id, guest_id, status, amount_cents, polar_order_id')
     .eq('polar_checkout_id', checkoutId)
-    .eq('user_id', userId)
-    .maybeSingle()
+  const { data, error: ledgerError } = await ('userId' in buyer
+    ? ledgerQuery.eq('user_id', buyer.userId)
+    : ledgerQuery.eq('guest_id', buyer.guestId)
+  ).maybeSingle()
 
   if (ledgerError) {
     throw new Error(`Failed to read bid ledger for checkout ${checkoutId}: ${ledgerError.message}`)
@@ -515,7 +540,7 @@ export async function syncSponsorBidCheckoutFromPolar(
   // A completed checkout that permanently fails the shared integrity
   // gate must stop looking like money still "in flight" for two hours.
   // Keep the row for audit, but remove it from pending UI/sync scans.
-  const { error: voidError } = await supabase
+  const voidUpdate = supabase
     .from('leaderboard_sponsor_bids')
     .update({
       status: 'VOID',
@@ -523,8 +548,10 @@ export async function syncSponsorBidCheckoutFromPolar(
       updated_at: new Date().toISOString()
     })
     .eq('polar_checkout_id', checkoutId)
-    .eq('user_id', userId)
     .eq('status', 'PENDING')
+  const { error: voidError } = await ('userId' in buyer
+    ? voidUpdate.eq('user_id', buyer.userId)
+    : voidUpdate.eq('guest_id', buyer.guestId))
 
   if (voidError) {
     throw new Error(`Failed to void refused sponsor checkout ${checkoutId}: ${voidError.message}`)
@@ -626,7 +653,9 @@ type SponsorBoardShift = {
   /** The board as loaded just BEFORE the activating update. */
   preBoard: LeaderboardSponsorEntry[]
   activatedAdId: number
-  payerUserId: number
+  /** null when the activated bid belongs to a guest — no ads of the
+   *  payer's to exempt from the fan-out, nobody to skip. */
+  payerUserId: number | null
   amountCents: number
   paidAtMs: number
   /** The activated ledger row id — the outbid dedupe anchor, so a

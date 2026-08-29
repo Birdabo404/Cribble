@@ -6,7 +6,6 @@ import {
   extractAccentFromImageBuffer
 } from '@/lib/billboardServer'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
-import { getSessionUserId } from '@/lib/sessionAuth'
 
 // Buyer-side logo upload for the Billboard composer. Takes one image as
 // multipart/form-data (field `file`), verifies it decodes as a real
@@ -15,6 +14,11 @@ import { getSessionUserId } from '@/lib/sessionAuth'
 // from the same buffer. The client then ships that data URI as logo_url
 // on submit/edit, where parseBillboardLogoDataUri re-validates it —
 // this route's output is a convenience, never a credential.
+//
+// No identity gate: guest sponsors (migration 063) compose their ad
+// BEFORE any identity exists, and this route is stateless image
+// processing that persists nothing — the per-IP rate limit is the only
+// admission control it needs.
 //
 // PRODUCT REQUIREMENT: the server has no file/object storage — the
 // upload is processed entirely in memory and NOTHING is ever written to
@@ -50,19 +54,15 @@ const RASTER_FORMATS = new Set(['jpeg', 'png', 'webp', 'gif', 'avif', 'tiff', 'h
 
 export async function POST(request: NextRequest) {
   try {
-    // Same budget as the other user-facing write routes — an upload is
-    // one button press in the composer, on the general API allowance.
+    // The per-IP budget — an upload is one button press in the
+    // composer, on the general API allowance, and the only gate in
+    // front of anonymous callers.
     const rateLimitResult = checkRateLimit(request, rateLimitConfigs.api)
     if (!rateLimitResult.success) {
       return NextResponse.json(
         { error: 'Rate limit exceeded. Please try again later.' },
         { status: 429, headers: createRateLimitResponse(rateLimitResult) }
       )
-    }
-
-    const session = await getSessionUserId(request)
-    if (!session.ok) {
-      return NextResponse.json({ error: session.error }, { status: session.status })
     }
 
     // Cheap prefilter on the declared size before buffering the body.

@@ -18,18 +18,19 @@ import {
   createRateLimitResponse,
   rateLimitConfigs
 } from '@/lib/rateLimit'
-import { getSessionUserId } from '@/lib/sessionAuth'
+import { getSponsorIdentity } from '@/lib/sponsorAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
 // POST /api/billboard/leaderboard/checkout — a leaderboard sponsor bid
-// (migration 055). The signed-in owner of an APPROVED 'leaderboard'
-// creative states the active total they want to reach; this route
-// recomputes the board, prices the difference SERVER-SIDE (the browser
-// can never choose the charged amount), records a PENDING ledger row
-// keyed to the Polar checkout id, and answers with the hosted checkout
-// URL. Checkout reserves nothing: rank is derived from completed
-// payments, so a slower checkout still gets exactly the rank its paid
-// amount earns when it lands.
+// (migration 055). The owner of an APPROVED 'leaderboard' creative —
+// the signed-in user or the claim-cookie guest (migration 063),
+// whichever the ad row names — states the active total they want to
+// reach; this route recomputes the board, prices the difference
+// SERVER-SIDE (the browser can never choose the charged amount),
+// records a PENDING ledger row keyed to the Polar checkout id, and
+// answers with the hosted checkout URL. Checkout reserves nothing:
+// rank is derived from completed payments, so a slower checkout still
+// gets exactly the rank its paid amount earns when it lands.
 //
 // Body: { adId: number, targetTotalCents: number }
 //   200 -> { success, url, checkoutId, chargeCents, targetTotalCents,
@@ -80,9 +81,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const session = await getSessionUserId(request)
-    if (!session.ok) {
-      return NextResponse.json({ error: session.error }, { status: session.status })
+    const identityResult = await getSponsorIdentity(request)
+    if (!identityResult.ok) {
+      return NextResponse.json(
+        { error: identityResult.error },
+        { status: identityResult.status }
+      )
+    }
+    const identity = identityResult.identity
+    // Bidding requires a creative to bid on, which requires an
+    // identity — user or guest. Bare visitors have nothing here.
+    if (identity.kind === 'none') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     // The real budget: cross-instance, per-buyer (the staffAuth
@@ -93,7 +103,9 @@ export async function POST(request: NextRequest) {
     const distributedLimit = await checkDistributedRateLimit(
       request,
       rateLimitConfigs.checkoutCreation,
-      `lb-bid-checkout:${session.userId}`
+      identity.kind === 'user'
+        ? `lb-bid-checkout:${identity.userId}`
+        : `lb-bid-checkout:g${identity.guestId}`
     )
     if (!distributedLimit.success) {
       return NextResponse.json(
@@ -125,13 +137,15 @@ export async function POST(request: NextRequest) {
     }
     const { adId, targetTotalCents } = parsed.data
 
-    // The creative must be the buyer's own, on this product, and past
-    // review. Missing and not-owned collapse into the same 404 (the
-    // buyer-route convention); unapproved is a 409 the tracker copy
-    // explains.
+    // The creative must be the buyer's own — the session user against
+    // owner_user_id, the cookie guest against guest_id — on this
+    // product, and past review. Missing and not-owned collapse into
+    // the same 404 (the buyer-route convention); unapproved is a 409
+    // the tracker copy explains. billing_email rides along to prefill
+    // a guest's hosted checkout.
     const { data: ad, error: adError } = await supabase
       .from('billboard_ads')
-      .select('id, owner_user_id, placement, status')
+      .select('id, owner_user_id, guest_id, placement, status, billing_email')
       .eq('id', adId)
       .maybeSingle()
 
@@ -139,7 +153,12 @@ export async function POST(request: NextRequest) {
       console.error('[LeaderboardCheckout] Ad lookup failed:', adError)
       return NextResponse.json({ error: 'Failed to load ad' }, { status: 500 })
     }
-    if (!ad || Number(ad.owner_user_id) !== session.userId) {
+    const ownsAd =
+      ad !== null &&
+      (identity.kind === 'user'
+        ? ad.owner_user_id !== null && Number(ad.owner_user_id) === identity.userId
+        : ad.guest_id !== null && Number(ad.guest_id) === identity.guestId)
+    if (!ad || !ownsAd) {
       return NextResponse.json({ error: 'Ad not found' }, { status: 404 })
     }
     if (ad.placement !== 'leaderboard') {
@@ -215,6 +234,14 @@ export async function POST(request: NextRequest) {
     const polar = getPolarClient()!
     const appUrl = resolveAppUrl(request)
     const customerIpAddress = customerIpAddressOf(request)
+    // Guests have no Polar external-customer mapping — their orders
+    // verify through metadata.guestId against the ledger row instead,
+    // and the billing email from submission prefills the hosted
+    // checkout form.
+    const guestBillingEmail =
+      identity.kind === 'guest' && typeof ad.billing_email === 'string' && ad.billing_email
+        ? ad.billing_email
+        : null
     const checkout = await polar.checkouts.create({
       products: [productId],
       prices: {
@@ -222,7 +249,10 @@ export async function POST(request: NextRequest) {
           { amountType: 'fixed', priceAmount: chargeCents, priceCurrency: 'usd' }
         ]
       },
-      externalCustomerId: String(session.userId),
+      ...(identity.kind === 'user'
+        ? { externalCustomerId: String(identity.userId) }
+        : {}),
+      ...(guestBillingEmail ? { customerEmail: guestBillingEmail } : {}),
       ...(customerIpAddress ? { customerIpAddress } : {}),
       // A bid is money committed to rank. Letting an organization-wide
       // coupon reduce the order (including to $0) makes Polar report a
@@ -231,7 +261,9 @@ export async function POST(request: NextRequest) {
       // this product; its ad-hoc amount is already the complete price.
       allowDiscountCodes: false,
       metadata: {
-        userId: session.userId,
+        ...(identity.kind === 'user'
+          ? { userId: identity.userId }
+          : { guestId: identity.guestId }),
         kind: LEADERBOARD_BID_METADATA_KIND,
         lbAdId: adId,
         lbTargetCents: targetTotalCents,
@@ -252,7 +284,9 @@ export async function POST(request: NextRequest) {
     // failure here must fail the request before the buyer can pay.
     const { error: insertError } = await supabase.from('leaderboard_sponsor_bids').insert({
       ad_id: adId,
-      user_id: session.userId,
+      ...(identity.kind === 'user'
+        ? { user_id: identity.userId }
+        : { guest_id: identity.guestId }),
       status: 'PENDING',
       amount_cents: chargeCents,
       target_total_cents: targetTotalCents,

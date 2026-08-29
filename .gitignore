@@ -58,4 +58,5 @@ Desktop.ini
 .shots/
 .uishots/
 .smoke/
+.cursor-verify/
 scripts/shots-*/

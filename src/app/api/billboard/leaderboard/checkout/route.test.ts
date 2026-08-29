@@ -15,6 +15,7 @@ const {
   loadSponsorBoardMock,
   checkoutsCreateMock,
   adReadResult,
+  guestReadResult,
   bidInsertMock,
   distributedLimitMock
 } = vi.hoisted(() => ({
@@ -22,6 +23,7 @@ const {
   loadSponsorBoardMock: vi.fn(),
   checkoutsCreateMock: vi.fn(),
   adReadResult: { value: { data: null, error: null } as { data: unknown; error: unknown } },
+  guestReadResult: { value: { data: null, error: null } as { data: unknown; error: unknown } },
   bidInsertMock: vi.fn(),
   distributedLimitMock: vi.fn()
 }))
@@ -43,6 +45,15 @@ vi.mock('@/lib/supabaseServer', () => ({
         return {
           select: () => ({
             eq: () => ({ maybeSingle: () => Promise.resolve(adReadResult.value) })
+          })
+        }
+      }
+      if (table === 'billboard_guests') {
+        // sponsorAuth's claim-cookie resolution, running REAL here so
+        // guest tests exercise the full identity ladder.
+        return {
+          select: () => ({
+            eq: () => ({ maybeSingle: () => Promise.resolve(guestReadResult.value) })
           })
         }
       }
@@ -118,6 +129,7 @@ describe('POST /api/billboard/leaderboard/checkout', () => {
       url: 'https://polar.sh/checkout/chk_lb_1'
     })
     adReadResult.value = { data: approvedAd(), error: null }
+    guestReadResult.value = { data: null, error: null }
     bidInsertMock.mockReset()
     bidInsertMock.mockResolvedValue({ error: null })
     distributedLimitMock.mockReset()
@@ -431,5 +443,45 @@ describe('POST /api/billboard/leaderboard/checkout', () => {
 
     expect(response.status).toBe(500)
     errorSpy.mockRestore()
+  })
+
+  it('bids for a claim-cookie guest: guest_id ownership, per-guest budget key, metadata guestId and no external customer id', async () => {
+    // The identity ladder's guest rung: definitive 401 from the
+    // session, cookie resolving to guest 21 who owns the creative.
+    getSessionUserIdMock.mockResolvedValue({ ok: false, status: 401, error: 'Unauthorized' })
+    guestReadResult.value = { data: { id: 21 }, error: null }
+    adReadResult.value = {
+      data: { ...approvedAd(), owner_user_id: null, guest_id: 21, billing_email: 'guest@acme.dev' },
+      error: null
+    }
+
+    const response = await POST(
+      bidRequest(
+        { adId: 4, targetTotalCents: 666 },
+        { cookie: `cribble_sponsor_claim=${'cd'.repeat(32)}` }
+      )
+    )
+
+    expect(response.status).toBe(200)
+    expect(distributedLimitMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ maxRequests: 5 }),
+      'lb-bid-checkout:g21'
+    )
+    // Guests have no Polar external-customer mapping — their orders
+    // verify through metadata.guestId, and the submission-time billing
+    // email prefills the hosted form.
+    expect(checkoutsCreateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerEmail: 'guest@acme.dev',
+        metadata: expect.objectContaining({ guestId: 21, kind: 'leaderboard_bid' })
+      })
+    )
+    expect(checkoutsCreateMock.mock.calls[0][0]).not.toHaveProperty('externalCustomerId')
+    // The ledger row names the guest and never a user.
+    expect(bidInsertMock).toHaveBeenCalledWith(
+      expect.objectContaining({ ad_id: 4, guest_id: 21, status: 'PENDING' })
+    )
+    expect(bidInsertMock.mock.calls[0][0]).not.toHaveProperty('user_id')
   })
 })

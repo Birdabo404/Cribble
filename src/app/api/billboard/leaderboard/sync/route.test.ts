@@ -65,7 +65,7 @@ describe('POST /api/billboard/leaderboard/sync', () => {
     expect(response.status).toBe(200)
     expect(syncSponsorBidCheckoutFromPolarMock).toHaveBeenCalledWith(
       expect.anything(),
-      9,
+      { userId: 9 },
       'chk_lb_1'
     )
     expect(syncSponsorBidsFromPolarMock).not.toHaveBeenCalled()

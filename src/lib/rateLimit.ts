@@ -206,6 +206,17 @@ export const rateLimitConfigs = {
   checkoutCreation: {
     windowMs: 60 * 1000, // 1 minute
     maxRequests: 5
+  },
+
+  // Anonymous sponsor submissions (migration 063): every allowed
+  // request can mint a fresh guest identity plus a PENDING row in the
+  // admin review queue, and cookie-clearing resets the guest, so the
+  // durable budget is per IP through checkDistributedRateLimit. A
+  // legitimate sponsor submits one ad, maybe a redo — a handful an
+  // hour is generous.
+  guestSubmission: {
+    windowMs: 60 * 60 * 1000, // 1 hour
+    maxRequests: 5
   }
 }
 

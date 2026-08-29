@@ -128,6 +128,7 @@ function makeRow(overrides: LedgerRow = {}): LedgerRow {
     id: 55,
     ad_id: 4,
     user_id: 9,
+    guest_id: null,
     status: 'PENDING',
     amount_cents: 766,
     polar_checkout_id: 'chk_lb_1',
@@ -159,6 +160,22 @@ function paidOrder(overrides: Record<string, unknown> = {}): Order {
 
 function refundedOrder(overrides: Record<string, unknown> = {}): Order {
   return paidOrder({ status: 'refunded', ...overrides })
+}
+
+/** Guest 21's ledger row — no user, the claim-cookie side of migration
+ *  063's exactly-one-buyer CHECK. */
+function guestRow(overrides: LedgerRow = {}): LedgerRow {
+  return makeRow({ user_id: null, guest_id: 21, ...overrides })
+}
+
+/** The paid order a guest checkout produces: metadata carries guestId
+ *  (never userId) and there is no external customer mapping at all. */
+function guestPaidOrder(overrides: Record<string, unknown> = {}): Order {
+  return paidOrder({
+    metadata: { guestId: 21, kind: 'leaderboard_bid' },
+    customer: { externalId: null },
+    ...overrides
+  })
 }
 
 describe('refund/activation ordering (leaderboardSponsorServer)', () => {
@@ -247,6 +264,66 @@ describe('refund/activation ordering (leaderboardSponsorServer)', () => {
     ).resolves.toBe('refused')
     expect(rows[0].status).toBe('PENDING')
   })
+
+  /* ---------------------------------------------------------------- *
+   * Guest ledger rows (migration 063) — verified against metadata
+   * guestId; a guest payer never blocks the payment path for lacking
+   * an account.
+   * ---------------------------------------------------------------- */
+
+  it('activates a guest bid on a matching metadata guestId', async () => {
+    const rows = [guestRow()]
+    const supabase = fakeLedger(rows)
+
+    await expect(activateSponsorBidFromOrder(supabase, guestPaidOrder())).resolves.toBe(
+      'activated'
+    )
+    expect(rows[0].status).toBe('PAID')
+    expect(rows[0].polar_order_id).toBe('order_lb_1')
+    expect(rows[0].paid_at).toBe('2026-08-25T10:00:00.000Z')
+  })
+
+  it('refuses a guest bid when the metadata guestId mismatches or is missing', async () => {
+    const rows = [guestRow()]
+    const supabase = fakeLedger(rows)
+
+    await expect(
+      activateSponsorBidFromOrder(
+        supabase,
+        guestPaidOrder({ metadata: { guestId: 22, kind: 'leaderboard_bid' } })
+      )
+    ).resolves.toBe('refused')
+    await expect(
+      activateSponsorBidFromOrder(
+        supabase,
+        guestPaidOrder({ metadata: { kind: 'leaderboard_bid' } })
+      )
+    ).resolves.toBe('refused')
+    expect(rows[0].status).toBe('PENDING')
+  })
+
+  it('refuses cross-buyer witnesses: a user row shown a guestId, a guest row shown a userId', async () => {
+    // The ledger row's buyer column decides WHICH witness is required —
+    // an order waving the other kind's id must never pass, even when
+    // the number happens to line up.
+    const userRows = [makeRow()]
+    await expect(
+      activateSponsorBidFromOrder(
+        fakeLedger(userRows),
+        paidOrder({ metadata: { guestId: 9, kind: 'leaderboard_bid' } })
+      )
+    ).resolves.toBe('refused')
+    expect(userRows[0].status).toBe('PENDING')
+
+    const guestRows = [guestRow()]
+    await expect(
+      activateSponsorBidFromOrder(
+        fakeLedger(guestRows),
+        guestPaidOrder({ metadata: { userId: 21, kind: 'leaderboard_bid' } })
+      )
+    ).resolves.toBe('refused')
+    expect(guestRows[0].status).toBe('PENDING')
+  })
 })
 
 describe('syncSponsorBidCheckoutFromPolar exact return checkout', () => {
@@ -276,7 +353,7 @@ describe('syncSponsorBidCheckoutFromPolar exact return checkout', () => {
     getPolarClientMock.mockReturnValue({ orders: { list } })
 
     await expect(
-      syncSponsorBidCheckoutFromPolar(supabase, 9, 'chk_lb_1')
+      syncSponsorBidCheckoutFromPolar(supabase, { userId: 9 }, 'chk_lb_1')
     ).resolves.toBe('activated')
     expect(list).toHaveBeenCalledWith({ checkoutId: 'chk_lb_1', limit: 10 })
     expect(rows[0].status).toBe('PAID')
@@ -296,7 +373,7 @@ describe('syncSponsorBidCheckoutFromPolar exact return checkout', () => {
     })
 
     await expect(
-      syncSponsorBidCheckoutFromPolar(supabase, 9, 'chk_lb_1')
+      syncSponsorBidCheckoutFromPolar(supabase, { userId: 9 }, 'chk_lb_1')
     ).resolves.toBe('refused')
     expect(rows[0].status).toBe('VOID')
     expect(rows[0].failure_reason).toBe('payment_verification_failed')
@@ -307,10 +384,10 @@ describe('syncSponsorBidCheckoutFromPolar exact return checkout', () => {
     const supabase = fakeLedger(rows)
 
     await expect(
-      syncSponsorBidCheckoutFromPolar(supabase, 7, 'chk_lb_1')
+      syncSponsorBidCheckoutFromPolar(supabase, { userId: 7 }, 'chk_lb_1')
     ).resolves.toBe('not_found')
     await expect(
-      syncSponsorBidCheckoutFromPolar(supabase, 9, '../bad')
+      syncSponsorBidCheckoutFromPolar(supabase, { userId: 9 }, '../bad')
     ).resolves.toBe('not_found')
     expect(getPolarClientMock).not.toHaveBeenCalled()
   })
@@ -329,7 +406,7 @@ describe('syncSponsorBidCheckoutFromPolar exact return checkout', () => {
     })
 
     await expect(
-      syncSponsorBidCheckoutFromPolar(supabase, 9, 'chk_lb_1')
+      syncSponsorBidCheckoutFromPolar(supabase, { userId: 9 }, 'chk_lb_1')
     ).resolves.toBe('pending')
   })
 
@@ -347,9 +424,64 @@ describe('syncSponsorBidCheckoutFromPolar exact return checkout', () => {
     })
 
     await expect(
-      syncSponsorBidCheckoutFromPolar(supabase, 9, 'chk_lb_1')
+      syncSponsorBidCheckoutFromPolar(supabase, { userId: 9 }, 'chk_lb_1')
     ).resolves.toBe('refunded')
     expect(rows[0].status).toBe('REFUNDED')
+  })
+
+  /* -------------------------------------------------------------- *
+   * Guest buyers — the { guestId } arm of the SponsorBuyer filter.
+   * -------------------------------------------------------------- */
+
+  it('filters the ledger on guest_id for a { guestId } buyer and activates their checkout', async () => {
+    const rows = [guestRow()]
+    const supabase = fakeLedger(rows)
+    const list = vi.fn(async () => ({
+      async *[Symbol.asyncIterator]() {
+        yield { result: { items: [guestPaidOrder()] } }
+      }
+    }))
+    getPolarClientMock.mockReturnValue({ orders: { list } })
+
+    await expect(
+      syncSponsorBidCheckoutFromPolar(supabase, { guestId: 21 }, 'chk_lb_1')
+    ).resolves.toBe('activated')
+    expect(list).toHaveBeenCalledWith({ checkoutId: 'chk_lb_1', limit: 10 })
+    expect(rows[0].status).toBe('PAID')
+  })
+
+  it('never reconciles across the buyer divide: the wrong guest and a user buyer both see a guest row as not_found', async () => {
+    const rows = [guestRow()]
+    const supabase = fakeLedger(rows)
+
+    await expect(
+      syncSponsorBidCheckoutFromPolar(supabase, { guestId: 22 }, 'chk_lb_1')
+    ).resolves.toBe('not_found')
+    await expect(
+      syncSponsorBidCheckoutFromPolar(supabase, { userId: 9 }, 'chk_lb_1')
+    ).resolves.toBe('not_found')
+    expect(getPolarClientMock).not.toHaveBeenCalled()
+    expect(rows[0].status).toBe('PENDING')
+  })
+
+  it('VOIDs a permanently-refused guest checkout through the guest-scoped write', async () => {
+    const rows = [guestRow()]
+    const supabase = fakeLedger(rows)
+    getPolarClientMock.mockReturnValue({
+      orders: {
+        list: async () => ({
+          async *[Symbol.asyncIterator]() {
+            yield { result: { items: [guestPaidOrder({ netAmount: 0 })] } }
+          }
+        })
+      }
+    })
+
+    await expect(
+      syncSponsorBidCheckoutFromPolar(supabase, { guestId: 21 }, 'chk_lb_1')
+    ).resolves.toBe('refused')
+    expect(rows[0].status).toBe('VOID')
+    expect(rows[0].failure_reason).toBe('payment_verification_failed')
   })
 })
 

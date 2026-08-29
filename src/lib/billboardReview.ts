@@ -10,7 +10,11 @@ import {
   type RailSlot
 } from '@/lib/billboard'
 import { insertMissingNotifications } from '@/lib/notifications'
-import { isSponsorshipEmailConfigured, sendSponsorshipPaymentEmail } from '@/lib/sponsorshipEmail'
+import {
+  isSponsorshipEmailConfigured,
+  sendSponsorshipPaymentEmail,
+  sponsorClaimUrl
+} from '@/lib/sponsorshipEmail'
 
 // The billboard APPROVE decision, extracted verbatim from the single
 // review route (app/api/admin/billboard/[id]/review) so the batch
@@ -62,7 +66,7 @@ export async function approveBillboardAd(
     const { data: ad, error } = await supabase
       .from('billboard_ads')
       .select(
-        'id, owner_user_id, status, review_note, reviewed_at, placement, requested_rail_slot, billing_email'
+        'id, owner_user_id, guest_id, status, review_note, reviewed_at, placement, requested_rail_slot, billing_email'
       )
       .eq('id', adId)
       .maybeSingle()
@@ -167,12 +171,34 @@ export async function approveBillboardAd(
     // the bid button.
     let emailStatus: BillboardApproveEmailStatus = 'skipped'
     if (placement !== 'leaderboard' && billingEmail && isSponsorshipEmailConfigured()) {
+      // Guest-owned ads (migration 063) get their claim magic link as
+      // the email CTA instead of the bare tracker URL — the device
+      // reading the mail may not hold the claim cookie, and the link
+      // signs it in on click. Best-effort like the send itself: a
+      // failed token read falls back to the plain tracker link rather
+      // than blocking the approval mail.
+      let trackingUrl: string | undefined
+      const guestId =
+        ad.guest_id === null || ad.guest_id === undefined ? null : Number(ad.guest_id)
+      if (guestId !== null) {
+        const { data: guest, error: guestError } = await supabase
+          .from('billboard_guests')
+          .select('token')
+          .eq('id', guestId)
+          .maybeSingle()
+        if (guestError) {
+          console.error('[BillboardReview] Guest token lookup failed:', guestError.message)
+        } else if (guest && typeof guest.token === 'string' && guest.token) {
+          trackingUrl = sponsorClaimUrl(guest.token)
+        }
+      }
       const emailResult = await sendSponsorshipPaymentEmail({
         to: billingEmail,
         adId,
         reviewedAt,
         placement,
-        priceLine
+        priceLine,
+        trackingUrl
       })
       emailStatus = emailResult.ok ? 'sent' : 'failed'
       if (!emailResult.ok) {

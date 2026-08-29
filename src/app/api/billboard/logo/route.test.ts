@@ -1,22 +1,17 @@
 import { NextRequest } from 'next/server'
 import sharp from 'sharp'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { parseBillboardLogoDataUri } from '@/lib/billboardServer'
 
-// The upload endpoint's contract: an authenticated buyer posts one
-// image as multipart/form-data and gets back a small inline webp data
-// URI plus the accent extracted from the SAME encoded buffer — with
-// nothing ever written to disk (the route holds everything in memory).
-// The sharp pipeline runs unmocked so the size/dimension/format gates
-// are exercised for real; only the session is faked, and the supabase
-// client stub exists because sessionAuth/rateLimit construct one at
-// module scope (this route itself never touches the database).
-
-const { getSessionUserIdMock } = vi.hoisted(() => ({
-  getSessionUserIdMock: vi.fn()
-}))
-
-vi.mock('@/lib/sessionAuth', () => ({ getSessionUserId: getSessionUserIdMock }))
+// The upload endpoint's contract: any buyer — signed in or an
+// anonymous guest sponsor composing their ad (migration 063) — posts
+// one image as multipart/form-data and gets back a small inline webp
+// data URI plus the accent extracted from the SAME encoded buffer —
+// with nothing ever written to disk (the route holds everything in
+// memory). The sharp pipeline runs unmocked so the size/dimension/
+// format gates are exercised for real; the supabase client stub exists
+// because rateLimit constructs one at module scope (this route itself
+// never touches the database).
 
 vi.mock('@/lib/supabaseServer', () => ({ createServiceClient: () => ({}) }))
 
@@ -36,14 +31,7 @@ function fileForm(bytes: Uint8Array, name = 'logo.png', type = 'image/png') {
 }
 
 describe('POST /api/billboard/logo', () => {
-  beforeEach(() => {
-    getSessionUserIdMock.mockReset()
-    getSessionUserIdMock.mockResolvedValue({ ok: true, userId: 9 })
-  })
-
-  it('requires a session before reading any bytes', async () => {
-    getSessionUserIdMock.mockResolvedValue({ ok: false, status: 401, error: 'Unauthorized' })
-
+  it('processes an anonymous upload — guest sponsors compose before any identity exists', async () => {
     const png = await sharp({
       create: { width: 32, height: 32, channels: 3, background: { r: 200, g: 40, b: 40 } }
     })
@@ -51,7 +39,9 @@ describe('POST /api/billboard/logo', () => {
       .toBuffer()
     const response = await POST(uploadRequest(fileForm(png)))
 
-    expect(response.status).toBe(401)
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.success).toBe(true)
   })
 
   it('rejects a missing or non-file `file` field', async () => {
