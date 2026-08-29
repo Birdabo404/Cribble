@@ -24,6 +24,7 @@ import {
 } from '@/lib/extensionInstall'
 import type { ActiveDevice, MeUser, Tier } from '@/types/dashboard'
 import { AgentCliSection } from '@/components/settings/AgentCliSection'
+import { CursorProfileSection } from '@/components/settings/CursorProfileSection'
 
 type MeState =
   | { phase: 'loading' }
@@ -308,6 +309,8 @@ export function AccountSection() {
       )}
 
       <AgentCliSection />
+
+      <CursorProfileSection />
 
       <SettingsSection title="Session">
         <SettingsRow

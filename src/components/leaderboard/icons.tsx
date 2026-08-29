@@ -299,6 +299,17 @@ export function IconCalendar(p: IconProps) {
   )
 }
 
+/** Website link glyph — pairs with the social brand marks below. */
+export function IconGlobe(p: IconProps) {
+  return (
+    <Stroke {...p}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+      <path d="M2 12h20" />
+    </Stroke>
+  )
+}
+
 export function IconSwords(p: IconProps) {
   return (
     <Stroke {...p}>

@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hashAgentApiKey } from '@/lib/agentKey'
 
 interface KeyRow {
@@ -412,6 +412,12 @@ function request(body: unknown, key: string | null = KEY_A) {
 }
 
 beforeEach(() => {
+  // Pin the clock just after GENERATED_AT so the fixture dates stay
+  // inside the route's 7-day snapshot-age window forever — on the real
+  // clock this suite starts failing the week the hardcoded dates age
+  // out. Only Date is faked; timer-based async stays real.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-08-22T02:00:00.000Z'))
   state.keys = []
   state.usageRows = []
   state.eventRows = []
@@ -422,6 +428,10 @@ beforeEach(() => {
   rateLimitMock.mockReturnValue(successLimit())
   distributedLimitMock.mockReset()
   distributedLimitMock.mockResolvedValue(successLimit())
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('POST /api/agent/usage — storage and staleness', () => {

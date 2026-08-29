@@ -46,6 +46,7 @@ import { FollowButton, FollowsYouChip, type FollowChange } from '@/components/pr
 import { FollowListModal, type FollowListKind } from '@/components/profile/FollowListModal'
 import { ProfileAmbience } from '@/components/profile/ProfileAmbience'
 import { ReferralPlate } from '@/components/profile/ReferralPlate'
+import { ApplyToTeamButton } from '@/components/teams/ApplyToTeamButton'
 import { TeamBadge } from '@/components/premium/TeamBadge'
 import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
@@ -210,6 +211,8 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
         bio: saved?.bio || '',
         location: saved?.location || '',
         website: saved?.website || '',
+        project_name: saved?.project_name || '',
+        project_url: saved?.project_url || '',
         equipped_plate: saved?.equipped_plate || null,
         role: saved?.role || null,
         is_private: saved?.is_private === true,
@@ -226,6 +229,8 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
         bio: '',
         location: '',
         website: '',
+        project_name: '',
+        project_url: '',
         equipped_plate: null,
         role: null,
         is_private: false,
@@ -532,6 +537,20 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
               >
                 <Stroke d={PATH_LINK} className="shrink-0 text-accent/60" />
                 <span className="truncate">{prettyUrl(profile.website)}</span>
+              </a>
+            )}
+            {profile.project && (
+              <a
+                href={profile.project.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={profile.project.url}
+                className="flex min-w-0 max-w-full items-center gap-1.5 text-zinc-300 transition-colors hover:text-accent"
+              >
+                <span className="shrink-0 text-[9px] tracking-[0.25em] text-zinc-500">
+                  NOW BUILDING
+                </span>
+                <span className="truncate">{profile.project.name}</span>
               </a>
             )}
             <span className="flex items-center gap-1.5">
@@ -867,14 +886,22 @@ export default function PilotProfilePage({ params }: { params: Promise<{ usernam
           className="pf-reveal mt-4 rounded-2xl glass-lite p-5"
           style={{ ['--rv' as string]: '320ms' }}
         >
-          <div className="flex items-baseline justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
             <h2 className="text-[10px] tracking-[0.4em] text-zinc-300">
               <span className="text-accent/80">{'// '}</span>AFFILIATES
             </h2>
-            <span className="text-[9px] tabular-nums tracking-[0.25em] text-zinc-600">
-              {formatNumber(profile.affiliates.total)}{' '}
-              {profile.affiliates.total === 1 ? 'MEMBER' : 'MEMBERS'}
-            </span>
+            <div className="flex items-center gap-3">
+              <ApplyToTeamButton
+                teamUserId={profile.userId}
+                teamUsername={profile.username}
+                teamName={profile.display_name}
+                teamAvatar={profile.profile_image}
+              />
+              <span className="text-[9px] tabular-nums tracking-[0.25em] text-zinc-600">
+                {formatNumber(profile.affiliates.total)}{' '}
+                {profile.affiliates.total === 1 ? 'MEMBER' : 'MEMBERS'}
+              </span>
+            </div>
           </div>
           {profile.affiliates.members.length === 0 ? (
             <div className="mt-4 py-4 text-center text-[10px] tracking-[0.2em] text-zinc-600">

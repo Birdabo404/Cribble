@@ -8,7 +8,10 @@ export const SETTINGS_SECTION_IDS = [
   'appearance',
   'notifications',
   'privacy',
-  'billing'
+  'billing',
+  // Deep-link target, not a nav tab: opens the Account page scrolled to
+  // the CursorProfileSection card (cursor.com profile linking).
+  'cursor-profile'
 ] as const
 
 export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number]

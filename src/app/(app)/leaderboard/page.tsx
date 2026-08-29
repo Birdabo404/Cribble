@@ -5,7 +5,8 @@
 // Solid panels instead of liquid glass, medals instead of the house accent:
 // neon-gold champion, platinum runner-up, ember third. Scores are the
 // loudest thing on the page (Press Start 2P everywhere a number matters).
-// Every row and podium card opens an animated player profile card.
+// Every row opens an animated player profile card; the CRT attract hero
+// showcases the top of the standings.
 //
 // Live engine: 15s polling + refetch on tab focus, FLIP row re-ordering,
 // server-persisted rank movement arrows (migration 012), score-gain pops,
@@ -31,14 +32,11 @@ import {
   formatRelative
 } from '@/components/dashboard-v2/format'
 import {
-  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconChevronsRight,
-  IconCrown,
   IconHourglass,
   IconPulse,
-  IconRefresh,
   IconSearch,
   IconTrophy,
   IconUsers,
@@ -48,12 +46,13 @@ import {
 import { PlateLayer } from '@/components/cosmetics/PlateLayer'
 import { AsteroidShower } from '@/components/dashboard-v3/AsteroidShower'
 import { AiBoard } from '@/components/leaderboard/AiBoard'
+import { CrtAttract, HeroTitle } from '@/components/leaderboard/CrtAttract'
+import { CursorClaimPrompt } from '@/components/leaderboard/CursorClaimPrompt'
 import { LeaderboardSponsorFlip } from '@/components/leaderboard/LeaderboardSponsorFlip'
 import { PlayerCard, type ChaseInfo } from '@/components/leaderboard/PlayerCard'
-import { Podium } from '@/components/leaderboard/Podium'
 import { RankAvatar } from '@/components/leaderboard/RankRegalia'
 import { TeamBoard } from '@/components/leaderboard/TeamBoard'
-import { TokenBoard } from '@/components/leaderboard/TokenBoard'
+import { TokenBoard, type BurnSource } from '@/components/leaderboard/TokenBoard'
 import { VisitorTicker } from '@/components/leaderboard/VisitorTicker'
 import { medalA, medalFor, medalGlow, type LeaderRow } from '@/components/leaderboard/types'
 import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
@@ -73,7 +72,9 @@ type BoardView = 'season' | 'alltime' | 'tokens' | 'ai' | 'teams'
 type StandingsWindow = Extract<BoardView, 'season' | 'alltime'>
 
 const BOARD_TABS: { id: BoardView; label: string }[] = [
-  { id: 'season', label: 'SEASON' },
+  // The standings tab reads GLOBAL; SEASON/ALL-TIME live on the nested
+  // scope pills only, so the word "season" keeps a single meaning.
+  { id: 'season', label: 'GLOBAL' },
   { id: 'tokens', label: 'TOKENS' },
   { id: 'ai', label: 'AI' },
   { id: 'teams', label: 'TEAMS' }
@@ -85,7 +86,7 @@ const STANDINGS_WINDOWS: { id: StandingsWindow; label: string }[] = [
 ]
 
 /** The two pilot standings views — the only ones that own the pilot
- *  chrome (stat bar, podium, standings table) and the 15s poll. TOKENS,
+ *  chrome (CRT hero, stat bar, standings table) and the 15s poll. TOKENS,
  *  AI, and TEAMS render self-fetching boards instead. */
 const isStandingsView = (v: BoardView): v is StandingsWindow =>
   v === 'season' || v === 'alltime'
@@ -118,19 +119,31 @@ function LeaderboardArena() {
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
-  const [showPodium, setShowPodium] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   // The AI board reports its ToolCard open/close so the arena freeze
   // (which pauses every infinite animation) covers that modal too.
   const [aiInspecting, setAiInspecting] = useState(false)
   // ?view= is read once at mount (deep links like /leaderboard?view=tokens);
-  // tab clicks after that stay client state only.
+  // tab clicks after that stay client state only. ?view=global is an alias
+  // for the standings (the tab label reads GLOBAL; the id stays 'season').
   const [view, setView] = useState<BoardView>(() => {
     const requested = searchParams.get('view')
+    if (requested === 'global') return 'season'
     return isBoardView(requested) ? requested : 'season'
   })
   const [seasonMeta, setSeasonMeta] = useState<SeasonState | null>(null)
+
+  // COIN-UP wiring: the auto-surfaced opt-in prompt lives at page level
+  // so it covers every tab. Linking bumps linkedStamp (mounted boards
+  // refetch their stale unlinked state); the success CTA forces the burn
+  // board onto its CURSOR source. claimPromptOpen joins the freeze so
+  // the modal's backdrop blur isn't re-sampling an animating arena.
+  const [burnSource, setBurnSource] = useState<BurnSource | null>(null)
+  const [linkedStamp, setLinkedStamp] = useState<number | null>(null)
+  const [claimPromptOpen, setClaimPromptOpen] = useState(false)
+  // The JOIN-button instance of the same modal (inside CursorBoard) —
+  // separate state so the two open paths can't fight over one boolean.
+  const [joinOptInOpen, setJoinOptInOpen] = useState(false)
 
   // The poll callbacks read the current view through a ref so the
   // mount effect below never has to re-subscribe on view flips.
@@ -144,8 +157,8 @@ function LeaderboardArena() {
     isStandingsView(view) ? view : 'season'
   )
 
-  // Pilot chrome (stat bar, podium, standings, refresh) only exists on
-  // the standings views — AI and TEAMS hide all of it.
+  // Pilot chrome (CRT hero, stat bar, standings) only exists on the
+  // standings views — AI and TEAMS hide all of it.
   const isStandings = isStandingsView(view)
 
   // score-gain pops: userId -> pop payload for the +N floater
@@ -154,7 +167,7 @@ function LeaderboardArena() {
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Monotonic guard: a slow response must never overwrite a newer one
-  // (manual refresh and the poll can be in flight simultaneously).
+  // (a board-switch fetch and the poll can be in flight simultaneously).
   const fetchSeq = useRef(0)
 
   const fetchData = useCallback(async () => {
@@ -191,13 +204,6 @@ function LeaderboardArena() {
       setRows(next)
     } catch {}
   }, [])
-
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true)
-    // minimum spin so the animation reads even on fast responses
-    await Promise.all([fetchData(), new Promise((r) => setTimeout(r, 650))])
-    setRefreshing(false)
-  }, [fetchData])
 
   const fetchMe = useCallback(async () => {
     // Shared /me client cache — on a hard load this reuses the nav
@@ -265,7 +271,7 @@ function LeaderboardArena() {
     [rows, currentUserId]
   )
 
-  const top3 = useMemo(() => rows.slice(0, 3), [rows])
+  const attractRows = useMemo(() => rows.slice(0, 10), [rows])
   const leader = rows[0] ?? null
   const topScore = leader?.score ?? 0
 
@@ -370,38 +376,48 @@ function LeaderboardArena() {
 
       <div
         className={`page-zoom-out lb4-root relative mx-auto max-w-6xl px-4 sm:px-6 pb-16 pt-6 ${
-          selected || aiInspecting ? 'lb4-freeze' : ''
+          selected || aiInspecting || claimPromptOpen || joinOptInOpen ? 'lb4-freeze' : ''
         }`}
       >
         {/* arena atmosphere — gold spotlight + faint synthwave side washes */}
         <div aria-hidden className="lb4-arena pointer-events-none absolute inset-x-0 top-0 h-[620px]" />
 
         {/* ---------- title lockup ---------- */}
-        <header className="lb4-reveal relative mt-3 flex flex-col items-center" style={{ ['--rv' as string]: '0ms' }}>
-          <div className="flex items-center gap-2.5 text-[rgb(var(--lb-gold))]">
-            <span className="h-px w-8 bg-gradient-to-r from-transparent to-[rgb(var(--lb-gold)/0.6)]" />
-            <IconCrown size={13} />
-            <span className="font-display text-[10px] font-semibold tracking-[0.42em] sm:tracking-[0.55em]">
-              {view === 'ai'
+        {/* The lockup's entrance is a one-shot GSAP timeline inside
+            HeroTitle (rules draw, letters slam) instead of the CSS
+            lb4-reveal — the ticker below keeps the CSS cascade. */}
+        <header className="relative mt-3 flex flex-col items-center">
+          <HeroTitle
+            eyebrow={
+              view === 'ai'
                 ? 'THE AI'
                 : view === 'teams'
                   ? 'THE TEAMS'
                   : view === 'tokens'
                     ? 'THE BURN'
-                    : view === 'alltime'
-                      ? 'ALL-TIME'
-                      : 'SEASON'}
-            </span>
-            <IconCrown size={13} className="-scale-x-100" />
-            <span className="h-px w-8 bg-gradient-to-l from-transparent to-[rgb(var(--lb-gold)/0.6)]" />
+                    : 'GLOBAL'
+            }
+          />
+          <div className="lb4-reveal" style={{ ['--rv' as string]: '60ms' }}>
+            <VisitorTicker />
           </div>
-          <h1 className="lb4-title mt-4 select-none text-center leading-none [font-family:var(--font-pixel)]">
-            LEADERBOARD
-          </h1>
-          <VisitorTicker />
         </header>
 
         <main className="mt-8 space-y-5">
+          {/* ---------- CRT attract mode ---------- */}
+          {isStandings && (
+            <section className="lb4-reveal" style={{ ['--rv' as string]: '90ms' }}>
+              <CrtAttract
+                rows={attractRows}
+                totalPlayers={totals.totalPlayers}
+                topScore={topScore}
+                loading={loading}
+                frozen={Boolean(selected)}
+                onSelect={handleSelect}
+              />
+            </section>
+          )}
+
           {/* ---------- stat bar / sponsor flip ---------- */}
           {/* The flip wrapper owns the 8s/6s stats-to-sponsor rotation
               (lib/leaderboardSponsor cadence) around the untouched
@@ -409,7 +425,7 @@ function LeaderboardArena() {
               the same way so the paid face airs on every board. With
               no sponsor data it renders the stats alone. */}
           {isStandings && (
-            <section className="lb4-reveal" style={{ ['--rv' as string]: '90ms' }}>
+            <section className="lb4-reveal" style={{ ['--rv' as string]: '140ms' }}>
               <LeaderboardSponsorFlip>
                 <StatBar
                   totalPlayers={totals.totalPlayers}
@@ -422,12 +438,15 @@ function LeaderboardArena() {
             </section>
           )}
 
-          {/* ---------- view controls ---------- */}
+          {/* ---------- view controls: the one toolbar row ---------- */}
+          {/* Board tabs on the left; on the standings views the SEASON /
+              ALL-TIME scope pills and the search ride the right side of the
+              same row (wrapping below on mobile, search full-width). */}
           <div
             className={`lb4-reveal flex flex-wrap items-center justify-between gap-2 ${
               isStandings ? '!mt-3' : ''
             }`}
-            style={{ ['--rv' as string]: '150ms' }}
+            style={{ ['--rv' as string]: '190ms' }}
           >
             {/* board switch — pilots, the machines, or the teams */}
             <div
@@ -436,8 +455,8 @@ function LeaderboardArena() {
               aria-label="Leaderboard view"
             >
               {BOARD_TABS.map((tab) => {
-                // The SEASON top tab fronts both standings windows; the
-                // nested pills on the standings toolbar pick between them.
+                // The GLOBAL top tab fronts both standings windows; the
+                // nested pills on its right pick between them.
                 const active = tab.id === 'season' ? isStandings : view === tab.id
                 return (
                   <button
@@ -450,18 +469,9 @@ function LeaderboardArena() {
                         tab.id === 'season' ? lastStandingsView.current : tab.id
                       )
                     }
-                    className={`shrink-0 rounded-md px-2.5 py-2 sm:px-3 sm:py-1 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] transition-colors ${
-                      active ? '' : 'text-zinc-500 hover:text-zinc-100'
+                    className={`lb-pill shrink-0 rounded-md px-2.5 py-2 sm:px-3 sm:py-1 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] transition-colors ${
+                      active ? 'lb-pill-active' : 'text-zinc-500 hover:text-zinc-100'
                     }`}
-                    style={
-                      active
-                        ? {
-                            border: '1px solid rgb(var(--lb-gold) / 0.5)',
-                            color: 'rgb(var(--lb-gold))',
-                            background: 'rgb(var(--lb-gold) / 0.07)'
-                          }
-                        : { border: '1px solid transparent' }
-                    }
                   >
                     {tab.label}
                   </button>
@@ -470,30 +480,31 @@ function LeaderboardArena() {
             </div>
 
             {isStandings && (
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleRefresh}
-                  disabled={refreshing}
-                  className="lb-inset flex items-center gap-2 rounded-lg px-3 py-2 sm:py-1.5 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100 disabled:cursor-wait"
-                  aria-label="Refresh leaderboard"
+              <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-1">
+                <div
+                  className="lb-inset flex items-center gap-0.5 rounded-lg p-0.5"
+                  role="tablist"
+                  aria-label="Standings window"
                 >
-                  <IconRefresh size={11} className={refreshing ? 'animate-spin' : ''} />
-                  {refreshing ? 'SYNCING' : 'REFRESH'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowPodium((v) => !v)}
-                  className="lb-inset flex items-center gap-2 rounded-lg px-3 py-2 sm:py-1.5 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100"
-                  aria-expanded={showPodium}
-                  aria-label={showPodium ? 'Hide podium' : 'Show podium'}
-                >
-                  {showPodium ? 'HIDE' : 'UNHIDE'}
-                  <IconChevronDown
-                    size={11}
-                    className={`transition-transform duration-300 ${showPodium ? '' : '-rotate-90'}`}
-                  />
-                </button>
+                  {STANDINGS_WINDOWS.map((item) => {
+                    const active = view === item.id
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => handleViewChange(item.id)}
+                        className={`lb-pill rounded-md px-2.5 py-1.5 text-[9px] tracking-[0.2em] transition-colors ${
+                          active ? 'lb-pill-active' : 'text-zinc-500 hover:text-zinc-200'
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    )
+                  })}
+                </div>
+                <SearchBar value={query} onChange={setQuery} />
               </div>
             )}
           </div>
@@ -516,94 +527,34 @@ function LeaderboardArena() {
           {view === 'teams' && <TeamBoard />}
 
           {/* ---------- THE TOKEN BURN BOARD ---------- */}
-          {view === 'tokens' && <TokenBoard />}
+          {view === 'tokens' && (
+            <TokenBoard
+              burnSource={burnSource}
+              linkedStamp={linkedStamp}
+              onOptInOpenChange={setJoinOptInOpen}
+            />
+          )}
 
           {/* ---------- intermission: standings locked ---------- */}
           {view === 'season' && seasonMeta?.phase === 'intermission' && (
             <IntermissionBanner state={seasonMeta} />
           )}
 
-          {/* ---------- podium (collapsible) ---------- */}
-          {/* visibility joins the transition so the collapsed podium drops out
-              of paint, tab order and screen readers; lb4-pod-off freezes its
-              infinite FX so they stop burning frames while hidden */}
-          {isStandings && (
-          <div
-            className={`lb4-reveal grid transition-[grid-template-rows,opacity,margin,visibility] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-              showPodium ? '' : 'lb4-pod-off'
-            }`}
-            style={{
-              ['--rv' as string]: '210ms',
-              gridTemplateRows: showPodium ? '1fr' : '0fr',
-              opacity: showPodium ? 1 : 0,
-              marginTop: showPodium ? undefined : 0,
-              visibility: showPodium ? 'visible' : 'hidden'
-            }}
-            aria-hidden={!showPodium}
-          >
-            <div className="min-h-0 overflow-hidden">
-              <div className="px-1 pt-8 pb-1">
-                {!loading && top3.length > 0 && (
-                  <Podium top3={top3} currentUserId={currentUserId} onSelect={handleSelect} />
-                )}
-                {loading && <PodiumSkeleton />}
-              </div>
-            </div>
-          </div>
-          )}
-
           {/* ---------- standings ---------- */}
           {isStandings && (
-          <section className="lb4-reveal relative" style={{ ['--rv' as string]: '300ms' }}>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-baseline gap-3">
+          <section className="lb4-reveal relative" style={{ ['--rv' as string]: '250ms' }}>
+            <div className="lb-panel relative overflow-hidden">
+              {/* header strip folded into the panel's top edge */}
+              <div className="flex items-baseline justify-between gap-3 border-b border-[rgb(var(--lb-panel-edge)/0.08)] px-4 py-3 md:px-5">
                 <h2 className="font-display text-[11px] font-semibold tracking-[0.45em] text-zinc-300">
                   STANDINGS
                 </h2>
                 {!loading && filtered.length > 0 && (
-                  <span className="text-[10px] tracking-[0.2em] text-zinc-600 tabular-nums">
+                  <span className="text-[10px] tracking-[0.2em] text-zinc-500 tabular-nums">
                     {showingFrom}–{showingTo} / {formatNumber(filtered.length)}
                   </span>
                 )}
               </div>
-              <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-1">
-                <div
-                  className="lb-inset flex items-center gap-0.5 rounded-lg p-0.5"
-                  role="tablist"
-                  aria-label="Standings window"
-                >
-                  {STANDINGS_WINDOWS.map((item) => {
-                    const active = view === item.id
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        onClick={() => handleViewChange(item.id)}
-                        className={`rounded-md px-2.5 py-1.5 text-[9px] tracking-[0.2em] transition-colors ${
-                          active ? '' : 'text-zinc-600 hover:text-zinc-300'
-                        }`}
-                        style={
-                          active
-                            ? {
-                                border: '1px solid rgb(var(--lb-gold) / 0.5)',
-                                color: 'rgb(var(--lb-gold))',
-                                background: 'rgb(var(--lb-gold) / 0.07)'
-                              }
-                            : { border: '1px solid transparent' }
-                        }
-                      >
-                        {item.label}
-                      </button>
-                    )
-                  })}
-                </div>
-                <SearchBar value={query} onChange={setQuery} />
-              </div>
-            </div>
-
-            <div className="lb-panel relative overflow-hidden">
               <HeaderRow />
               <ul className="relative">
                 {loading &&
@@ -659,6 +610,16 @@ function LeaderboardArena() {
           />
         )}
 
+        {/* ---------- COIN-UP auto prompt ---------- */}
+        <CursorClaimPrompt
+          onLinked={() => setLinkedStamp(Date.now())}
+          onViewBoard={() => {
+            setBurnSource('cursor')
+            handleViewChange('tokens')
+          }}
+          onOpenChange={setClaimPromptOpen}
+        />
+
         <style jsx global>{`
           /* arena atmosphere — dark mode gets the full stage lighting */
           .lb4-arena {
@@ -669,8 +630,10 @@ function LeaderboardArena() {
             mask-image: linear-gradient(180deg, black 55%, transparent);
             -webkit-mask-image: linear-gradient(180deg, black 55%, transparent);
           }
+          /* Light mode keeps a deliberate warm gold wash — at the old 0.09
+             alpha the dark-amber light gold read as blank white. */
           html.light .lb4-arena {
-            background: radial-gradient(46% 320px at 50% -40px, rgb(var(--lb-gold) / 0.09), transparent 70%);
+            background: radial-gradient(50% 340px at 50% -40px, rgb(var(--lb-gold) / 0.16), transparent 70%);
           }
 
           /* retro-arcade title: white face, gold drop, magenta echo */
@@ -1006,12 +969,10 @@ function LeaderboardArena() {
             inset: 0;
           }
 
-          /* CPU guards — freeze every infinite animation when it can't be
-             seen: the whole arena while the profile modal covers it (its
-             backdrop blur would otherwise re-sample animating pixels every
-             frame), and the podium FX while the podium is collapsed. */
-          .lb4-freeze *,
-          .lb4-pod-off * {
+          /* CPU guard — freeze every infinite animation while the profile
+             modal covers the arena (its backdrop blur would otherwise
+             re-sample animating pixels every frame). */
+          .lb4-freeze * {
             animation-play-state: paused !important;
           }
 
@@ -1069,8 +1030,8 @@ function SeasonCountdown({ state }: { state: SeasonState | null }) {
 
   return (
     <>
-      <div className="flex flex-wrap items-center justify-center gap-1.5 text-[9px] tracking-[0.16em] sm:tracking-[0.28em] text-zinc-500">
-        <IconHourglass size={11} className="text-zinc-600" />
+      <div className="flex flex-wrap items-center justify-center gap-1.5 text-[9px] tracking-[0.16em] sm:tracking-[0.28em] text-zinc-400">
+        <IconHourglass size={11} className="text-zinc-500" />
         {label}
       </div>
       {!state || !target ? (
@@ -1112,7 +1073,7 @@ function SeasonCountdown({ state }: { state: SeasonState | null }) {
 function IntermissionBanner({ state }: { state: SeasonState }) {
   const startsAt = state.next ? new Date(state.next.startsAt) : null
   return (
-    <section className="lb4-reveal" style={{ ['--rv' as string]: '180ms' }}>
+    <section className="lb4-reveal" style={{ ['--rv' as string]: '220ms' }}>
       <div
         className="lb-panel flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-4"
         style={{ border: '1px solid rgb(var(--lb-gold) / 0.35)' }}
@@ -1181,8 +1142,8 @@ function StatBar({
     <div className="lb-panel grid grid-cols-2 overflow-hidden md:grid-cols-4">
       {/* players */}
       <div className={`flex min-w-0 flex-col items-center overflow-hidden px-3.5 py-3.5 text-center sm:px-4 sm:py-4 ${divCls(0)}`}>
-        <div className="flex flex-wrap items-center justify-center gap-1.5 text-[9px] tracking-[0.16em] sm:tracking-[0.28em] text-zinc-500">
-          <IconUsers size={11} className="text-zinc-600" />
+        <div className="flex flex-wrap items-center justify-center gap-1.5 text-[9px] tracking-[0.16em] sm:tracking-[0.28em] text-zinc-400">
+          <IconUsers size={11} className="text-zinc-500" />
           PLAYERS
         </div>
         <div className="mt-2.5 max-w-full text-[clamp(11px,2.6vw,16px)] text-zinc-50 tabular-nums [font-family:var(--font-pixel)]">
@@ -1192,8 +1153,8 @@ function StatBar({
 
       {/* online */}
       <div className={`flex min-w-0 flex-col items-center overflow-hidden px-3.5 py-3.5 text-center sm:px-4 sm:py-4 ${divCls(1)}`}>
-        <div className="flex flex-wrap items-center justify-center gap-1.5 text-[9px] tracking-[0.16em] sm:tracking-[0.28em] text-zinc-500">
-          <IconPulse size={11} className="text-zinc-600" />
+        <div className="flex flex-wrap items-center justify-center gap-1.5 text-[9px] tracking-[0.16em] sm:tracking-[0.28em] text-zinc-400">
+          <IconPulse size={11} className="text-zinc-500" />
           ONLINE NOW
         </div>
         <div className="mt-2.5 flex max-w-full items-center justify-center gap-2 text-[clamp(11px,2.6vw,16px)] text-zinc-50 tabular-nums [font-family:var(--font-pixel)]">
@@ -1204,7 +1165,7 @@ function StatBar({
 
       {/* top score — gold, with the holder's callsign */}
       <div className={`flex min-w-0 flex-col items-center overflow-hidden px-3.5 py-3.5 text-center sm:px-4 sm:py-4 ${divCls(2)}`}>
-        <div className="flex flex-wrap items-center justify-center gap-1.5 text-[9px] tracking-[0.16em] sm:tracking-[0.28em] text-zinc-500">
+        <div className="flex flex-wrap items-center justify-center gap-1.5 text-[9px] tracking-[0.16em] sm:tracking-[0.28em] text-zinc-400">
           <IconTrophy size={11} className="text-[rgb(var(--lb-gold)/0.8)]" />
           TOP SCORE
         </div>
@@ -1218,8 +1179,8 @@ function StatBar({
           <AnimatedCounter value={topScore} duration={1100} formatter={(v) => formatCompact(Math.round(v))} />
         </div>
         {leaderName && (
-          <div className="mt-1 max-w-full truncate text-[9px] tracking-[0.2em] text-zinc-600">
-            held by <span className="text-zinc-400">@{leaderName}</span>
+          <div className="mt-1 max-w-full truncate text-[9px] tracking-[0.2em] text-zinc-500">
+            held by <span className="text-zinc-300">@{leaderName}</span>
           </div>
         )}
       </div>
@@ -1240,7 +1201,7 @@ const ROW_GRID =
 function HeaderRow() {
   return (
     <div
-      className={`${ROW_GRID} border-b border-[rgb(var(--lb-panel-edge)/0.08)] py-3 text-[10px] md:text-[9px] tracking-[0.35em] text-zinc-500`}
+      className={`${ROW_GRID} border-b border-[rgb(var(--lb-panel-edge)/0.08)] py-3 text-[10px] md:text-[9px] tracking-[0.35em] text-zinc-400`}
     >
       <div>RANK</div>
       <div>PLAYER</div>
@@ -1599,23 +1560,6 @@ function SkeletonRow({ index }: { index: number }) {
   )
 }
 
-function PodiumSkeleton() {
-  return (
-    <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-3 md:gap-5">
-      {[64, 96, 48].map((h, i) => (
-        <div key={i} className={`animate-pulse ${i === 1 ? 'md:order-2' : i === 0 ? 'md:order-1' : 'md:order-3'}`}>
-          <div className="lb-panel p-5">
-            <div className="mx-auto h-16 w-16 rounded-full bg-[rgb(var(--lb-panel-edge)/0.05)]" />
-            <div className="mx-auto mt-4 h-3 w-24 rounded bg-[rgb(var(--lb-panel-edge)/0.05)]" />
-            <div className="mx-auto mt-3 h-5 w-32 rounded bg-[rgb(var(--lb-panel-edge)/0.07)]" />
-            <div className="mx-auto mt-4 rounded bg-[rgb(var(--lb-panel-edge)/0.03)]" style={{ height: h / 2 }} />
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 /* ================= sticky YOU bar ================= */
 
 function YouBar({
@@ -1730,8 +1674,8 @@ function YouBar({
 
 function SearchBar({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
-    <div className="lb-inset flex w-full sm:max-w-xs items-center overflow-hidden rounded-lg">
-      <span className="pl-3 pr-1 text-zinc-600">
+    <div className="lb-inset lb-search flex w-full sm:max-w-xs items-center overflow-hidden rounded-lg">
+      <span className="pl-3 pr-1 text-zinc-500">
         <IconSearch size={12} />
       </span>
       <input
@@ -1739,7 +1683,7 @@ function SearchBar({ value, onChange }: { value: string; onChange: (v: string) =
         placeholder="hunt a player…"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="flex-1 bg-transparent px-2 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+        className="flex-1 bg-transparent px-2 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
       />
       {value && (
         <button

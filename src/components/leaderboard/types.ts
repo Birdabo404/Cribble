@@ -78,6 +78,10 @@ export interface PlayerProfile {
   bio?: string | null
   location?: string | null
   website?: string | null
+  /** "Now Building" pinned project — name is server-derived (owner/repo
+   *  for GitHub URLs, else hostname) when the owner didn't set one.
+   *  Optional so cached payloads that predate the field still parse. */
+  project?: { url: string; name: string } | null
   socials: Socials
   role: string | null
   tier: string

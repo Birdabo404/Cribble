@@ -8,6 +8,10 @@
     {
       "path": "/api/cron/leaderboard-integrity",
       "schedule": "45 0 * * *"
+    },
+    {
+      "path": "/api/cron/cursor-profile-sync",
+      "schedule": "0 */6 * * *"
     }
   ]
 }

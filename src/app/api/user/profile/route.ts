@@ -37,6 +37,8 @@ const LOCATION_MAX = 30
 const WEBSITE_MAX = 100
 const BANNER_MAX = 300
 const SOCIAL_MAX = 60
+const PROJECT_URL_MAX = 120
+const PROJECT_NAME_MAX = 40
 
 const SOCIAL_KEYS = ['x', 'github', 'youtube', 'linkedin'] as const
 type SocialKey = (typeof SOCIAL_KEYS)[number]
@@ -132,6 +134,8 @@ export async function GET(request: NextRequest) {
         bio: str(meta.bio),
         location: str(meta.location),
         website: str(meta.website),
+        project_url: str(meta.project_url),
+        project_name: str(meta.project_name),
         banner_image: str(meta.banner_image),
         banner_frame: parseBannerFrame(meta.banner_frame),
         equipped_plate: str(meta.equipped_plate),
@@ -156,6 +160,8 @@ interface ProfilePatchPayload {
   bio?: unknown
   location?: unknown
   website?: unknown
+  project_url?: unknown
+  project_name?: unknown
   banner_image?: unknown
   banner_frame?: unknown
   equipped_plate?: unknown
@@ -208,6 +214,10 @@ export async function PATCH(request: NextRequest) {
     if ('bio' in body) merged.bio = cleanText(body.bio, BIO_MAX)
     if ('location' in body) merged.location = cleanText(body.location, LOCATION_MAX)
     if ('website' in body) merged.website = cleanHttpUrl(body.website, WEBSITE_MAX)
+
+    // "Now Building" pinned project — public-by-design like bio/website.
+    if ('project_url' in body) merged.project_url = cleanHttpUrl(body.project_url, PROJECT_URL_MAX)
+    if ('project_name' in body) merged.project_name = cleanText(body.project_name, PROJECT_NAME_MAX)
 
     // Framing parses BEFORE the banner block so the lifecycle rules below
     // can veto it: an explicit frame sent alongside a new banner sticks,

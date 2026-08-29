@@ -1234,6 +1234,30 @@ html.light .lb-panel {
     border-color: rgb(var(--lb-panel-edge) / 0.2);
   }
 }
+/* Standings search well: on white the 0.09 hairline melts into the page,
+   so light mode gets a stronger ink edge. */
+html.light .lb-search {
+  border-color: rgb(var(--lb-panel-edge) / 0.18);
+}
+/* Gold segmented-control pills on the leaderboard page (board tabs +
+   SEASON/ALL-TIME scope). Idle keeps a transparent border so the active
+   state never shifts layout. */
+.lb-pill {
+  border: 1px solid transparent;
+}
+.lb-pill-active {
+  border-color: rgb(var(--lb-gold) / 0.5);
+  color: rgb(var(--lb-gold));
+  background: rgb(var(--lb-gold) / 0.07);
+}
+/* On white the 0.5-alpha border / 0.07 fill all but vanish — light mode
+   runs the full-strength dark-amber gold, a deeper fill, and a weight
+   bump so the active pill reads at a glance. */
+html.light .lb-pill-active {
+  border-color: rgb(var(--lb-gold));
+  background: rgb(var(--lb-gold) / 0.12);
+  font-weight: 600;
+}
 
 /* Competitive display face (Space Grotesk, loaded in the root layout). */
 .font-display {
