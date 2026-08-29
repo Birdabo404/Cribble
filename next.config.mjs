@@ -6,6 +6,12 @@ const nextConfig = {
   // mid-flight — that shared directory caused repeated ENOENT
   // routes-manifest.json 500s. Vercel is unaffected (NODE_ENV=production).
   distDir: process.env.NODE_ENV === 'development' ? '.next-dev' : '.next',
+  experimental: {
+    // This app exercises many routes during local visual verification.
+    // Let Webpack release compilation data more aggressively so the dev
+    // server does not cross Next's memory threshold and restart mid-navigation.
+    webpackMemoryOptimizations: true,
+  },
   // The Billboard product renamed to Sponsorship: old emails, bookmarks
   // and vacant-rail deep links (?slot= rides along automatically) keep
   // landing. API routes under /api/billboard/* are unaffected.
