@@ -192,6 +192,7 @@ function makeSlotRow(overrides: Row = {}): Row {
     id: 61,
     ad_id: 4,
     user_id: 9,
+    guest_id: null,
     placement: 'flipper',
     rail_slot: null,
     status: 'PENDING',
@@ -259,6 +260,22 @@ function paidOrder(overrides: Record<string, unknown> = {}): Order {
 
 function refundedOrder(overrides: Record<string, unknown> = {}): Order {
   return paidOrder({ status: 'refunded', ...overrides })
+}
+
+/** Guest 21's ledger row — no user, the claim-cookie side of migration
+ *  063's exactly-one-buyer CHECK. */
+function guestSlotRow(overrides: Row = {}): Row {
+  return makeSlotRow({ user_id: null, guest_id: 21, ...overrides })
+}
+
+/** The paid order a guest checkout produces: metadata carries guestId
+ *  (never userId) and there is no external customer mapping at all. */
+function guestPaidOrder(overrides: Record<string, unknown> = {}): Order {
+  return paidOrder({
+    metadata: { guestId: 21, kind: 'billboard_slot' },
+    customer: { externalId: null },
+    ...overrides
+  })
 }
 
 /* ------------------------------------------------------------------ *
@@ -589,6 +606,72 @@ describe('activateBillboardSlotFromOrder', () => {
     expect(tables.notifications).toHaveLength(0)
     expect(errorSpy).toHaveBeenCalled()
   })
+
+  /* ---------------------------------------------------------------- *
+   * Guest ledger rows (migration 063) — verified against metadata
+   * guestId, never notified in-app.
+   * ---------------------------------------------------------------- */
+
+  it('activates a guest row on a matching metadata guestId — window stamped, NO in-app notification', async () => {
+    const tables = makeTables({
+      billboard_slot_orders: [guestSlotRow()],
+      billboard_ads: [makeAd({ owner_user_id: null })]
+    })
+
+    await expect(
+      activateBillboardSlotFromOrder(fakeDb(tables), guestPaidOrder())
+    ).resolves.toBe('activated')
+
+    const row = tables.billboard_slot_orders[0]
+    expect(row.status).toBe('PAID')
+    expect(row.window_starts_at).not.toBeNull()
+    expect(tables.billboard_ads[0].starts_at).toBe(row.window_starts_at)
+    // Guests have no account to notify — the tracking email and the
+    // tracker page carry the outcome instead.
+    expect(tables.notifications).toHaveLength(0)
+  })
+
+  it('refuses a guest row when the metadata guestId mismatches or is missing', async () => {
+    const tables = makeTables({ billboard_slot_orders: [guestSlotRow()] })
+
+    await expect(
+      activateBillboardSlotFromOrder(
+        fakeDb(tables),
+        guestPaidOrder({ metadata: { guestId: 22, kind: 'billboard_slot' } })
+      )
+    ).resolves.toBe('refused')
+    await expect(
+      activateBillboardSlotFromOrder(
+        fakeDb(tables),
+        guestPaidOrder({ metadata: { kind: 'billboard_slot' } })
+      )
+    ).resolves.toBe('refused')
+    expect(tables.billboard_slot_orders[0].status).toBe('PENDING')
+    expect(tables.billboard_ads[0].starts_at).toBeNull()
+  })
+
+  it('refuses cross-buyer witnesses: a user row shown a guestId, a guest row shown a userId', async () => {
+    // The ledger row's buyer column decides WHICH witness is required —
+    // an order waving the other kind's id must never pass, even when
+    // the number happens to line up.
+    const userTables = makeTables()
+    await expect(
+      activateBillboardSlotFromOrder(
+        fakeDb(userTables),
+        paidOrder({ metadata: { guestId: 9, kind: 'billboard_slot' } })
+      )
+    ).resolves.toBe('refused')
+    expect(userTables.billboard_slot_orders[0].status).toBe('PENDING')
+
+    const guestTables = makeTables({ billboard_slot_orders: [guestSlotRow()] })
+    await expect(
+      activateBillboardSlotFromOrder(
+        fakeDb(guestTables),
+        guestPaidOrder({ metadata: { userId: 21, kind: 'billboard_slot' } })
+      )
+    ).resolves.toBe('refused')
+    expect(guestTables.billboard_slot_orders[0].status).toBe('PENDING')
+  })
 })
 
 /* ------------------------------------------------------------------ *
@@ -803,7 +886,7 @@ describe('syncBillboardSlotCheckoutFromPolar', () => {
     const list = polarWithOrders([paidOrder({ customer: { externalId: 'someone-else' } })])
 
     await expect(
-      syncBillboardSlotCheckoutFromPolar(fakeDb(tables), 9, 'chk_bb_1')
+      syncBillboardSlotCheckoutFromPolar(fakeDb(tables), { userId: 9 }, 'chk_bb_1')
     ).resolves.toBe('activated')
     expect(list).toHaveBeenCalledWith({ checkoutId: 'chk_bb_1', limit: 10 })
     expect(tables.billboard_slot_orders[0].status).toBe('PAID')
@@ -815,7 +898,7 @@ describe('syncBillboardSlotCheckoutFromPolar', () => {
     polarWithOrders([paidOrder({ netAmount: 0 })])
 
     await expect(
-      syncBillboardSlotCheckoutFromPolar(fakeDb(tables), 9, 'chk_bb_1')
+      syncBillboardSlotCheckoutFromPolar(fakeDb(tables), { userId: 9 }, 'chk_bb_1')
     ).resolves.toBe('refused')
     expect(tables.billboard_slot_orders[0].status).toBe('VOID')
     expect(tables.billboard_slot_orders[0].failure_reason).toBe('payment_verification_failed')
@@ -825,10 +908,10 @@ describe('syncBillboardSlotCheckoutFromPolar', () => {
     const tables = makeTables()
 
     await expect(
-      syncBillboardSlotCheckoutFromPolar(fakeDb(tables), 7, 'chk_bb_1')
+      syncBillboardSlotCheckoutFromPolar(fakeDb(tables), { userId: 7 }, 'chk_bb_1')
     ).resolves.toBe('not_found')
     await expect(
-      syncBillboardSlotCheckoutFromPolar(fakeDb(tables), 9, '../bad')
+      syncBillboardSlotCheckoutFromPolar(fakeDb(tables), { userId: 9 }, '../bad')
     ).resolves.toBe('not_found')
     expect(getPolarClientMock).not.toHaveBeenCalled()
   })
@@ -838,7 +921,7 @@ describe('syncBillboardSlotCheckoutFromPolar', () => {
     polarWithOrders([])
 
     await expect(
-      syncBillboardSlotCheckoutFromPolar(fakeDb(tables), 9, 'chk_bb_1')
+      syncBillboardSlotCheckoutFromPolar(fakeDb(tables), { userId: 9 }, 'chk_bb_1')
     ).resolves.toBe('pending')
     expect(tables.billboard_slot_orders[0].status).toBe('PENDING')
   })
@@ -848,8 +931,56 @@ describe('syncBillboardSlotCheckoutFromPolar', () => {
     polarWithOrders([refundedOrder()])
 
     await expect(
-      syncBillboardSlotCheckoutFromPolar(fakeDb(tables), 9, 'chk_bb_1')
+      syncBillboardSlotCheckoutFromPolar(fakeDb(tables), { userId: 9 }, 'chk_bb_1')
     ).resolves.toBe('refunded')
     expect(tables.billboard_slot_orders[0].status).toBe('REFUNDED')
+  })
+
+  /* -------------------------------------------------------------- *
+   * Guest buyers — the { guestId } arm of the SponsorBuyer filter.
+   * -------------------------------------------------------------- */
+
+  function makeGuestTables(): Record<string, Row[]> {
+    return {
+      billboard_slot_orders: [guestSlotRow()],
+      billboard_ads: [makeAd({ owner_user_id: null })],
+      notifications: []
+    }
+  }
+
+  it('filters the ledger on guest_id for a { guestId } buyer and activates their checkout', async () => {
+    const tables = makeGuestTables()
+    const list = polarWithOrders([guestPaidOrder()])
+
+    await expect(
+      syncBillboardSlotCheckoutFromPolar(fakeDb(tables), { guestId: 21 }, 'chk_bb_1')
+    ).resolves.toBe('activated')
+    expect(list).toHaveBeenCalledWith({ checkoutId: 'chk_bb_1', limit: 10 })
+    expect(tables.billboard_slot_orders[0].status).toBe('PAID')
+    expect(tables.notifications).toHaveLength(0)
+  })
+
+  it("never reconciles across the buyer divide: the wrong guest and a user buyer both see a guest row as not_found", async () => {
+    const tables = makeGuestTables()
+
+    await expect(
+      syncBillboardSlotCheckoutFromPolar(fakeDb(tables), { guestId: 22 }, 'chk_bb_1')
+    ).resolves.toBe('not_found')
+    await expect(
+      syncBillboardSlotCheckoutFromPolar(fakeDb(tables), { userId: 9 }, 'chk_bb_1')
+    ).resolves.toBe('not_found')
+    expect(getPolarClientMock).not.toHaveBeenCalled()
+    expect(tables.billboard_slot_orders[0].status).toBe('PENDING')
+  })
+
+  it('VOIDs a permanently-refused guest checkout through the guest-scoped write', async () => {
+    const tables = makeGuestTables()
+    polarWithOrders([guestPaidOrder({ netAmount: 0 })])
+
+    await expect(
+      syncBillboardSlotCheckoutFromPolar(fakeDb(tables), { guestId: 21 }, 'chk_bb_1')
+    ).resolves.toBe('refused')
+    expect(tables.billboard_slot_orders[0].status).toBe('VOID')
+    expect(tables.billboard_slot_orders[0].failure_reason).toBe('payment_verification_failed')
   })
 })

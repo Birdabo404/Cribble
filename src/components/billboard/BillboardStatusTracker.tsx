@@ -1178,7 +1178,6 @@ function AdRow({
                   billing_email: ad.billing_email ?? ''
                 }}
                 fallbackLogoUrl={fallbackLogoUrl}
-                signedIn={true}
                 onSaved={() => {
                   setEditing(false)
                   onChanged()
@@ -1198,7 +1197,7 @@ export function BillboardStatusTracker({
   ads,
   loading,
   error,
-  signedIn,
+  canTrack,
   fallbackLogoUrl,
   onChanged,
   onBrowseSlots,
@@ -1207,7 +1206,11 @@ export function BillboardStatusTracker({
   ads: MineAd[]
   loading: boolean
   error: string | null
-  signedIn: boolean | null
+  /** Whether /api/billboard/mine identified this visitor — a session
+   *  or the guest claim cookie both count. false = its 401 (neither),
+   *  which swaps the rows for the how-to-reconnect copy; null = still
+   *  resolving. */
+  canTrack: boolean | null
   fallbackLogoUrl: string | null
   onChanged: () => void
   /** Hands the empty state's Browse slots button to the parent, which
@@ -1289,20 +1292,26 @@ export function BillboardStatusTracker({
     ? ads.find((ad) => ad.placement === 'leaderboard')?.id ?? null
     : null
 
-  if (signedIn === false) {
+  // No identity on this device — neither a session nor the guest claim
+  // cookie a submission mints. Not a wall: submitting from the buy tab
+  // works without an account, and the emailed tracking link reconnects
+  // any device.
+  if (canTrack === false) {
     return (
       <div className="rounded-xl border border-[color:var(--st-border)] bg-[color:var(--st-panel)] px-4 py-4 text-left [box-shadow:var(--st-panel-shadow)]">
         <p className="text-[13.5px] font-medium leading-5 text-[color:var(--st-text)]">
-          Track your slots here.
+          Nothing to track on this device yet.
         </p>
         <p className="mt-1 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
-          Submissions, review feedback, live windows and clicks all land on this tab.
+          Submitted an ad before? Open the tracking link from your email — your
+          submissions, review feedback, live windows and clicks land right back on this
+          tab. New here? Buy a slot and it tracks the same way, no account needed.
         </p>
         <Link
           href="/login"
-          className="mt-3 inline-flex min-h-11 items-center gap-1.5 text-[13px] font-medium text-[color:var(--st-text)] transition-colors hover:text-[color:var(--st-text-muted)] md:min-h-0"
+          className="mt-3 inline-flex min-h-11 items-center gap-1.5 text-[13px] font-medium text-[color:var(--st-text-muted)] transition-colors hover:text-[color:var(--st-text)] md:min-h-0"
         >
-          Sign in to track your slots <span aria-hidden>→</span>
+          Have an account? Sign in <span aria-hidden>→</span>
         </Link>
       </div>
     )

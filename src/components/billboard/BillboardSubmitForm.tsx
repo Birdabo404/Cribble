@@ -58,7 +58,6 @@ import {
   type KeyboardEvent,
   type ReactNode
 } from 'react'
-import Link from 'next/link'
 import { BillboardPreviewStage } from '@/components/billboard/BillboardPreviewStage'
 import { SettingsButton } from '@/components/settings'
 import { toast } from '@/components/Toaster'
@@ -293,7 +292,6 @@ export function BillboardSubmitForm({
   target,
   initial,
   fallbackLogoUrl,
-  signedIn,
   layout = 'embedded',
   onSaved,
   onConflict,
@@ -305,9 +303,6 @@ export function BillboardSubmitForm({
   /** The user's avatar — stands in on the preview while logo_url is blank,
    *  mirroring how the ticker renders ads without a logo. */
   fallbackLogoUrl: string | null
-  /** null = still resolving; only a definitive false swaps the submit
-   *  button for a sign-in link. */
-  signedIn: boolean | null
   /** 'studio' drops the placement / slot pickers and the preview — the
    *  buy page's inventory strip and sticky stage own both, and remount
    *  the form with the choice preset on `initial`. 'embedded' (the
@@ -338,6 +333,15 @@ export function BillboardSubmitForm({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [conflict, setConflict] = useState<string | null>(null)
+  /** Set after a guest submission (response guest: true): the server
+   *  minted a claim cookie for this browser and — unless the response
+   *  said trackingEmailSent: false — emailed a tracking magic link to
+   *  the billing email. Kept until the next submit attempt so the
+   *  visitor reads it after the fields reset. */
+  const [guestNotice, setGuestNotice] = useState<{
+    email: string
+    emailSent: boolean
+  } | null>(null)
   const [previewAccent, setPreviewAccent] = useState<string | null>(null)
   /** Upload flow state. uploadAccent is the server-extracted color that
    *  rode the /api/billboard/logo response — preferred over the canvas
@@ -538,6 +542,7 @@ export function BillboardSubmitForm({
     setBusy(true)
     setError(null)
     setConflict(null)
+    setGuestNotice(null)
     try {
       const res = await fetch(
         target.mode === 'create' ? '/api/billboard/submit' : `/api/billboard/${target.adId}`,
@@ -576,6 +581,16 @@ export function BillboardSubmitForm({
       }
 
       if (target.mode === 'create') {
+        // A guest submission (no session) answers with guest: true —
+        // the response set the claim cookie for this browser, and
+        // (unless it says otherwise) mailed a tracking magic link.
+        // Capture the billing email before the reset below clears it.
+        if (data?.guest === true) {
+          setGuestNotice({
+            email: billingEmail.trim(),
+            emailSent: data?.trackingEmailSent !== false
+          })
+        }
         toast({
           kind: 'success',
           title: 'Submitted for review',
@@ -956,20 +971,37 @@ export function BillboardSubmitForm({
           </p>
         )}
 
+        {/* ---- the guest afterglow: the fields just reset, so this
+            panel is what tells an anonymous sponsor where their card
+            went and how to find it again from another device. ---- */}
+        {guestNotice && (
+          <div
+            className="rounded-lg border border-[color:var(--st-border)] px-3 py-2.5 text-[13px] leading-5 text-[color:var(--st-text-muted)]"
+            role="status"
+          >
+            <span className="mr-2 font-medium text-[color:var(--st-text)]">
+              {guestNotice.emailSent ? 'Submitted — tracking link sent' : 'Submitted'}
+            </span>
+            {guestNotice.emailSent ? (
+              <>
+                Your card is in review. A tracking link is on its way to{' '}
+                <span className="font-medium text-[color:var(--st-text)]">
+                  {guestNotice.email}
+                </span>{' '}
+                — open it on any device to find this card again. The Your ads tab on
+                this page tracks it too.
+              </>
+            ) : (
+              <>Your card is in review — track it in Your ads on this page.</>
+            )}
+          </div>
+        )}
+
         <div className="space-y-2">
           <div className="flex items-center gap-3">
-            {signedIn === false ? (
-              <Link
-                href="/login"
-                className="inline-flex h-11 shrink-0 items-center justify-center rounded-lg border border-transparent bg-[color:var(--st-accent)] px-3 text-[13px] font-medium leading-none text-[color:var(--st-accent-contrast)] transition-colors duration-150 hover:opacity-90 md:h-8"
-              >
-                Sign in to submit
-              </Link>
-            ) : (
-              <SettingsButton type="submit" variant="solid" pending={busy}>
-                {busy ? 'Sending…' : submitLabel}
-              </SettingsButton>
-            )}
+            <SettingsButton type="submit" variant="solid" pending={busy}>
+              {busy ? 'Sending…' : submitLabel}
+            </SettingsButton>
             {onCancel && (
               <SettingsButton variant="ghost" onClick={onCancel}>
                 Cancel

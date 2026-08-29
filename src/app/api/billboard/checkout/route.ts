@@ -24,19 +24,21 @@ import {
   createRateLimitResponse,
   rateLimitConfigs
 } from '@/lib/rateLimit'
-import { getSessionUserId } from '@/lib/sessionAuth'
+import { getSponsorIdentity } from '@/lib/sponsorAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
 // POST /api/billboard/checkout — self-serve payment for a flipper or
-// rail slot (migration 061). The signed-in owner of an APPROVED
-// creative pays for its 7-day window through Polar; this route prices
-// the checkout SERVER-SIDE (the advertised sticker grossed up for
-// Polar's fee — the browser can never choose the charged amount),
-// records a PENDING ledger row keyed to the Polar checkout id, and
-// answers with the hosted checkout URL plus the estimated window so
-// the UI can disclose a queued go-live date before the buyer pays.
-// Checkout reserves nothing: the window is stamped only when the
-// verified paid order lands, at whatever start occupancy then allows.
+// rail slot (migration 061). The owner of an APPROVED creative — the
+// signed-in user or the claim-cookie guest (migration 063), whichever
+// the ad row names — pays for its 7-day window through Polar; this
+// route prices the checkout SERVER-SIDE (the advertised sticker
+// grossed up for Polar's fee — the browser can never choose the
+// charged amount), records a PENDING ledger row keyed to the Polar
+// checkout id, and answers with the hosted checkout URL plus the
+// estimated window so the UI can disclose a queued go-live date before
+// the buyer pays. Checkout reserves nothing: the window is stamped
+// only when the verified paid order lands, at whatever start occupancy
+// then allows.
 //
 // Body: { adId: number, slot?: RailSlot }
 //   slot is REQUIRED for rail ads (defaulting server-side to the ad's
@@ -85,9 +87,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const session = await getSessionUserId(request)
-    if (!session.ok) {
-      return NextResponse.json({ error: session.error }, { status: session.status })
+    const identityResult = await getSponsorIdentity(request)
+    if (!identityResult.ok) {
+      return NextResponse.json(
+        { error: identityResult.error },
+        { status: identityResult.status }
+      )
+    }
+    const identity = identityResult.identity
+    // Paying requires an ad to pay for, which requires an identity —
+    // user or guest. Bare visitors have nothing here.
+    if (identity.kind === 'none') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     // The real budget: cross-instance, per-buyer. Every allowed request
@@ -97,7 +108,9 @@ export async function POST(request: NextRequest) {
     const distributedLimit = await checkDistributedRateLimit(
       request,
       rateLimitConfigs.checkoutCreation,
-      `bb-slot-checkout:${session.userId}`
+      identity.kind === 'user'
+        ? `bb-slot-checkout:${identity.userId}`
+        : `bb-slot-checkout:g${identity.guestId}`
     )
     if (!distributedLimit.success) {
       return NextResponse.json(
@@ -129,14 +142,16 @@ export async function POST(request: NextRequest) {
     }
     const { adId, slot: requestedSlot } = parsed.data
 
-    // The ad must be the buyer's own, on a purchasable placement, and
-    // past review. Missing and not-owned collapse into the same 404
-    // (the buyer-route convention); unapproved is a 409 the tracker
-    // copy explains.
+    // The ad must be the buyer's own — the session user against
+    // owner_user_id, the cookie guest against guest_id — on a
+    // purchasable placement, and past review. Missing and not-owned
+    // collapse into the same 404 (the buyer-route convention);
+    // unapproved is a 409 the tracker copy explains. billing_email
+    // rides along to prefill a guest's hosted checkout.
     const { data: ad, error: adError } = await supabase
       .from('billboard_ads')
       .select(
-        'id, owner_user_id, placement, status, requested_rail_slot, paid_at, starts_at, ends_at'
+        'id, owner_user_id, guest_id, placement, status, requested_rail_slot, paid_at, starts_at, ends_at, billing_email'
       )
       .eq('id', adId)
       .maybeSingle()
@@ -145,7 +160,12 @@ export async function POST(request: NextRequest) {
       console.error('[BillboardSlotCheckout] Ad lookup failed:', adError)
       return NextResponse.json({ error: 'Failed to load ad' }, { status: 500 })
     }
-    if (!ad || Number(ad.owner_user_id) !== session.userId) {
+    const ownsAd =
+      ad !== null &&
+      (identity.kind === 'user'
+        ? ad.owner_user_id !== null && Number(ad.owner_user_id) === identity.userId
+        : ad.guest_id !== null && Number(ad.guest_id) === identity.guestId)
+    if (!ad || !ownsAd) {
       return NextResponse.json({ error: 'Ad not found' }, { status: 404 })
     }
     if (ad.placement !== 'flipper' && ad.placement !== 'rail') {
@@ -266,6 +286,14 @@ export async function POST(request: NextRequest) {
     const polar = getPolarClient()!
     const appUrl = resolveAppUrl(request)
     const customerIpAddress = customerIpAddressOf(request)
+    // Guests have no Polar external-customer mapping — their orders
+    // verify through metadata.guestId against the ledger row instead,
+    // and the billing email from submission prefills the hosted
+    // checkout form.
+    const guestBillingEmail =
+      identity.kind === 'guest' && typeof ad.billing_email === 'string' && ad.billing_email
+        ? ad.billing_email
+        : null
     const checkout = await polar.checkouts.create({
       products: [productId],
       prices: {
@@ -273,7 +301,10 @@ export async function POST(request: NextRequest) {
           { amountType: 'fixed', priceAmount: grossCents, priceCurrency: 'usd' }
         ]
       },
-      externalCustomerId: String(session.userId),
+      ...(identity.kind === 'user'
+        ? { externalCustomerId: String(identity.userId) }
+        : {}),
+      ...(guestBillingEmail ? { customerEmail: guestBillingEmail } : {}),
       ...(customerIpAddress ? { customerIpAddress } : {}),
       // The gross-up is calibrated so the sticker is what Cribble nets;
       // an org-wide coupon reducing the order would make Polar report a
@@ -281,7 +312,9 @@ export async function POST(request: NextRequest) {
       // longer matches the ledger). Pin coupons off, like bids.
       allowDiscountCodes: false,
       metadata: {
-        userId: session.userId,
+        ...(identity.kind === 'user'
+          ? { userId: identity.userId }
+          : { guestId: identity.guestId }),
         kind: BILLBOARD_SLOT_METADATA_KIND,
         bbAdId: adId,
         bbPlacement: placement,
@@ -302,7 +335,9 @@ export async function POST(request: NextRequest) {
     // failure here must fail the request before the buyer can pay.
     const { error: insertError } = await supabase.from('billboard_slot_orders').insert({
       ad_id: adId,
-      user_id: session.userId,
+      ...(identity.kind === 'user'
+        ? { user_id: identity.userId }
+        : { guest_id: identity.guestId }),
       placement,
       rail_slot: railSlot,
       status: 'PENDING',

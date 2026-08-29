@@ -17,6 +17,7 @@ const {
   slotWindowStartAtMock,
   checkoutsCreateMock,
   adReadResult,
+  guestReadResult,
   pendingCountResult,
   orderInsertMock,
   distributedLimitMock
@@ -25,6 +26,7 @@ const {
   slotWindowStartAtMock: vi.fn(),
   checkoutsCreateMock: vi.fn(),
   adReadResult: { value: { data: null, error: null } as { data: unknown; error: unknown } },
+  guestReadResult: { value: { data: null, error: null } as { data: unknown; error: unknown } },
   pendingCountResult: {
     value: { count: 0, error: null } as { count: number | null; error: unknown }
   },
@@ -49,6 +51,15 @@ vi.mock('@/lib/supabaseServer', () => ({
         return {
           select: () => ({
             eq: () => ({ maybeSingle: () => Promise.resolve(adReadResult.value) })
+          })
+        }
+      }
+      if (table === 'billboard_guests') {
+        // sponsorAuth's claim-cookie resolution, running REAL here so
+        // guest tests exercise the full identity ladder.
+        return {
+          select: () => ({
+            eq: () => ({ maybeSingle: () => Promise.resolve(guestReadResult.value) })
           })
         }
       }
@@ -115,6 +126,29 @@ const approvedAd = () => ({
   ends_at: null
 })
 
+/** Guest 21's APPROVED flipper ad — no owner, the claim-cookie side of
+ *  migration 063's exactly-one-buyer CHECK. */
+const guestAd = () => ({
+  ...approvedAd(),
+  owner_user_id: null,
+  guest_id: 21,
+  billing_email: 'guest@acme.dev'
+})
+
+const GUEST_TOKEN = 'cd'.repeat(32)
+
+/** A claim-cookie request with NO session — the guest buyer. */
+function guestSlotRequest(body: unknown) {
+  return slotRequest(body, { cookie: `cribble_sponsor_claim=${GUEST_TOKEN}` })
+}
+
+/** Stage the identity ladder's guest rung: definitive 401 from the
+ *  session, cookie resolving to guest 21. */
+function stageGuestIdentity() {
+  getSessionUserIdMock.mockResolvedValue({ ok: false, status: 401, error: 'Unauthorized' })
+  guestReadResult.value = { data: { id: 21 }, error: null }
+}
+
 describe('POST /api/billboard/checkout', () => {
   beforeEach(() => {
     getSessionUserIdMock.mockReset()
@@ -129,6 +163,7 @@ describe('POST /api/billboard/checkout', () => {
       url: 'https://polar.sh/checkout/chk_bb_1'
     })
     adReadResult.value = { data: approvedAd(), error: null }
+    guestReadResult.value = { data: null, error: null }
     pendingCountResult.value = { count: 0, error: null }
     orderInsertMock.mockReset()
     orderInsertMock.mockResolvedValue({ error: null })
@@ -431,5 +466,89 @@ describe('POST /api/billboard/checkout', () => {
 
     expect(response.status).toBe(500)
     errorSpy.mockRestore()
+  })
+
+  /* ---------------------------------------------------------------- *
+   * Guest buyers (migration 063) — the claim-cookie side of every
+   * gate above: ownership via guest_id, the per-guest budget key, and
+   * a Polar checkout that carries metadata.guestId instead of an
+   * external customer mapping.
+   * ---------------------------------------------------------------- */
+
+  it('checks out a guest ad via guest_id: metadata guestId, no external customer id, prefilled email, guest ledger row', async () => {
+    stageGuestIdentity()
+    adReadResult.value = { data: guestAd(), error: null }
+
+    const response = await POST(guestSlotRequest({ adId: 4 }))
+
+    expect(response.status).toBe(200)
+    // Guests have no Polar external-customer mapping — their orders
+    // verify through metadata.guestId against the ledger row, and the
+    // submission-time billing email prefills the hosted form.
+    expect(checkoutsCreateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerEmail: 'guest@acme.dev',
+        metadata: {
+          guestId: 21,
+          kind: 'billboard_slot',
+          bbAdId: 4,
+          bbPlacement: 'flipper',
+          bbListCents: 20000
+        }
+      })
+    )
+    const checkoutArg = checkoutsCreateMock.mock.calls[0][0]
+    expect(checkoutArg).not.toHaveProperty('externalCustomerId')
+    // The ledger row names the guest and never a user.
+    expect(orderInsertMock).toHaveBeenCalledWith(
+      expect.objectContaining({ ad_id: 4, guest_id: 21, status: 'PENDING' })
+    )
+    expect(orderInsertMock.mock.calls[0][0]).not.toHaveProperty('user_id')
+  })
+
+  it('keys the distributed budget per guest — bb-slot-checkout:g21, not the user pool', async () => {
+    stageGuestIdentity()
+    adReadResult.value = { data: guestAd(), error: null }
+    distributedLimitMock.mockResolvedValue({
+      success: false,
+      limit: 5,
+      remaining: 0,
+      resetTime: Date.now() + 60_000,
+      retryAfter: 60
+    })
+
+    const response = await POST(guestSlotRequest({ adId: 4 }))
+
+    expect(response.status).toBe(429)
+    expect(distributedLimitMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ maxRequests: 5 }),
+      'bb-slot-checkout:g21'
+    )
+    expect(checkoutsCreateMock).not.toHaveBeenCalled()
+  })
+
+  it("404s across the buyer divide: a guest against a user's ad, a user against a guest's", async () => {
+    // Guest 21 probing user 9's ad — same 404 as a missing one.
+    stageGuestIdentity()
+    adReadResult.value = { data: { ...approvedAd(), guest_id: null }, error: null }
+    expect((await POST(guestSlotRequest({ adId: 4 }))).status).toBe(404)
+
+    // User 9 probing guest 21's ad.
+    getSessionUserIdMock.mockResolvedValue({ ok: true, userId: 9 })
+    adReadResult.value = { data: guestAd(), error: null }
+    expect((await POST(slotRequest({ adId: 4 }))).status).toBe(404)
+
+    expect(checkoutsCreateMock).not.toHaveBeenCalled()
+  })
+
+  it('401s a bare visitor — no session, no claim cookie, nothing to pay for', async () => {
+    getSessionUserIdMock.mockResolvedValue({ ok: false, status: 401, error: 'Unauthorized' })
+
+    const response = await POST(slotRequest({ adId: 4 }))
+
+    expect(response.status).toBe(401)
+    expect(checkoutsCreateMock).not.toHaveBeenCalled()
+    expect(orderInsertMock).not.toHaveBeenCalled()
   })
 })

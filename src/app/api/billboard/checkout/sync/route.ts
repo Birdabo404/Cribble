@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { syncBillboardSlotCheckoutFromPolar } from '@/lib/billboardSlotServer'
 import { isPolarConfigured } from '@/lib/polar'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
-import { getSessionUserId } from '@/lib/sessionAuth'
+import { getSponsorIdentity } from '@/lib/sponsorAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
 // POST /api/billboard/checkout/sync — reconcile the exact slot
@@ -49,9 +49,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const session = await getSessionUserId(request)
-    if (!session.ok) {
-      return NextResponse.json({ error: session.error }, { status: session.status })
+    // The buyer identity — user or claim-cookie guest — scopes the
+    // ledger read inside the sync, so nobody can reconcile (or VOID)
+    // someone else's checkout by guessing its id.
+    const identityResult = await getSponsorIdentity(request)
+    if (!identityResult.ok) {
+      return NextResponse.json(
+        { error: identityResult.error },
+        { status: identityResult.status }
+      )
+    }
+    const identity = identityResult.identity
+    if (identity.kind === 'none') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     if (!isPolarConfigured()) {
@@ -68,7 +78,7 @@ export async function POST(request: NextRequest) {
 
     const status = await syncBillboardSlotCheckoutFromPolar(
       supabase,
-      session.userId,
+      identity.kind === 'user' ? { userId: identity.userId } : { guestId: identity.guestId },
       checkoutId
     )
     return NextResponse.json({

@@ -6,11 +6,13 @@ import {
   type RailSlot
 } from '@/lib/billboard'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
-import { getSessionUserId } from '@/lib/sessionAuth'
+import { getSponsorIdentity } from '@/lib/sponsorAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
 // The buyer's own Billboard submissions, newest first — the status
-// tracker on /billboard reads this. Every lifecycle stage rides along:
+// tracker on /billboard reads this. The buyer is the signed-in user or
+// the claim-cookie guest (migration 063), transparently; a visitor with
+// neither still gets the 401. Every lifecycle stage rides along:
 // review_note carries the admin's redo/reject feedback, starts_at/ends_at
 // + clicks describe a purchased window, and isLive is computed here with
 // the shared isLiveAd helper so the client never re-derives the
@@ -50,20 +52,29 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const session = await getSessionUserId(request)
-    if (!session.ok) {
-      return NextResponse.json({ error: session.error }, { status: session.status })
+    const identityResult = await getSponsorIdentity(request)
+    if (!identityResult.ok) {
+      return NextResponse.json(
+        { error: identityResult.error },
+        { status: identityResult.status }
+      )
+    }
+    const identity = identityResult.identity
+    if (identity.kind === 'none') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     // paid_at is selected for the isLive computation but not returned —
     // payment bookkeeping stays between the admin and the database.
-    const { data, error } = await supabase
+    const mineQuery = supabase
       .from('billboard_ads')
       .select(
         'id, status, text, company_name, link_url, logo_url, accent_color, placement, rail_slot, requested_rail_slot, billing_email, review_note, paid_at, starts_at, ends_at, clicks, created_at'
       )
-      .eq('owner_user_id', session.userId)
-      .order('created_at', { ascending: false })
+    const { data, error } = await (identity.kind === 'user'
+      ? mineQuery.eq('owner_user_id', identity.userId)
+      : mineQuery.eq('guest_id', identity.guestId)
+    ).order('created_at', { ascending: false })
 
     if (error) {
       console.error('[BillboardMine] Lookup failed:', error)
