@@ -239,6 +239,25 @@ describe('token agent labels', () => {
     expect(tokenAgentLabel('my-new-agent')).toBe('My New Agent')
     expect(tokenAgentLabel(null)).toBeNull()
   })
+
+  it('normalizes evidence-backed Pi collector aliases', () => {
+    // `pi` is the CLI binary, `pi-coding-agent` the npm package
+    // (@mariozechner/pi-coding-agent → @earendil-works/pi-coding-agent),
+    // `pi-mono` the monorepo name the project publishes under.
+    expect(tokenAgentLabel('pi')).toBe('Pi')
+    expect(tokenAgentLabel('Pi')).toBe('Pi')
+    expect(tokenAgentLabel('pi-coding-agent')).toBe('Pi')
+    expect(tokenAgentLabel('pi_mono')).toBe('Pi')
+  })
+
+  it('preserves OpenCode and unknown-harness behavior', () => {
+    expect(tokenAgentLabel('opencode')).toBe('OpenCode')
+    expect(tokenAgentLabel('open-code')).toBe('OpenCode')
+    // Unknown ids still title-case instead of leaking raw collector
+    // strings — and `pine` must not accidentally prefix-match Pi.
+    expect(tokenAgentLabel('pine')).toBe('Pine')
+    expect(tokenAgentLabel('pi-hole')).toBe('Pi Hole')
+  })
 })
 
 describe('agent → AI-board tool names', () => {

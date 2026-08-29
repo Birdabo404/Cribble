@@ -32,6 +32,16 @@ import {
   type UserStatsRollupColumns
 } from '@/lib/userStats'
 
+/**
+ * Data Cache tag for one handle's cached /api/profile/[username] payload.
+ * Writers that change what that endpoint serves (profile PATCH, OAuth
+ * identity refresh) revalidate this tag so a just-saved profile shows up
+ * immediately instead of waiting out the cache TTL.
+ */
+export function publicProfileCacheTag(username: string): string {
+  return `public-profile:${username.trim().toLowerCase()}`
+}
+
 export interface PublicProfileTool {
   name: string
   visits: number

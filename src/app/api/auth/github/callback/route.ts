@@ -1,8 +1,10 @@
+import { revalidateTag } from 'next/cache'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabaseServer'
 import crypto from 'crypto'
 import { resolveAppUrl, resolveGithubRedirectUri } from '@/lib/appUrl'
 import { isAllowlistedAdmin } from '@/lib/adminAuth'
+import { publicProfileCacheTag } from '@/lib/publicProfile'
 import { checkRateLimit, rateLimitConfigs } from '@/lib/rateLimit'
 import { runTeamIdentityTripwire } from '@/lib/teamTripwire'
 import {
@@ -130,6 +132,15 @@ export async function GET(request: NextRequest) {
         return NextResponse.redirect(`${appUrl}/login?error=github_user_update_failed`)
       }
       user = updated
+
+      // The update above is the only path that refreshes handle, display
+      // name and avatar — bust the cached public profile (old handle too,
+      // when it changed) so the refreshed identity shows up right away.
+      revalidateTag(publicProfileCacheTag(username))
+      const previousHandle = (existingUser.twitter_username as string | null) ?? ''
+      if (previousHandle && previousHandle.toLowerCase() !== username.toLowerCase()) {
+        revalidateTag(publicProfileCacheTag(previousHandle))
+      }
 
       // Anti-impersonation tripwire: the update above re-synced handle,
       // display name and avatar from GitHub — if this account is an

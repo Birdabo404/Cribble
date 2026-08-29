@@ -7,7 +7,8 @@ import {
   getFollowCounts,
   getMutualFollowerProof,
   getViewerFollowContext,
-  loadPublicProfile
+  loadPublicProfile,
+  publicProfileCacheTag
 } from '@/lib/publicProfile'
 import { getTeamAffiliatesList } from '@/lib/teamAffiliates'
 
@@ -35,19 +36,30 @@ const PROFILE_LOAD_FAILED = 'PROFILE_LOAD_FAILED'
 // lives in the Data Cache for a minute, keyed by the lowercased handle —
 // the lookup is case-insensitive, so every casing of a shared /u/ link
 // rides one cache entry.
-const loadPublicProfileCached = unstable_cache(
-  async (usernameLower: string) => {
-    const result = await loadPublicProfile(createServiceClient(), {
-      username: usernameLower
-    })
-    if (!result.ok && result.status >= 500) {
-      throw new Error(PROFILE_LOAD_FAILED)
+//
+// The wrapper is built per request because tags must carry the handle:
+// profile writes (PATCH /api/user/profile, OAuth identity refresh)
+// revalidate publicProfileCacheTag(handle) so the owner sees their edit
+// immediately instead of a stale snapshot for the rest of the TTL. The
+// cache entry itself is still shared — unstable_cache keys on the
+// keyParts, not on wrapper identity.
+const loadPublicProfileCached = (usernameLower: string) =>
+  unstable_cache(
+    async () => {
+      const result = await loadPublicProfile(createServiceClient(), {
+        username: usernameLower
+      })
+      if (!result.ok && result.status >= 500) {
+        throw new Error(PROFILE_LOAD_FAILED)
+      }
+      return result
+    },
+    ['public-profile', usernameLower],
+    {
+      revalidate: PROFILE_REVALIDATE_SECONDS,
+      tags: [publicProfileCacheTag(usernameLower)]
     }
-    return result
-  },
-  ['public-profile'],
-  { revalidate: PROFILE_REVALIDATE_SECONDS }
-)
+  )
 
 export async function GET(
   request: NextRequest,
@@ -68,7 +80,7 @@ export async function GET(
     // no relationship context, never an error. It resolves in parallel
     // with the profile itself instead of after it.
     const [result, session] = await Promise.all([
-      loadPublicProfileCached(username.toLowerCase()),
+      loadPublicProfileCached(username.toLowerCase())(),
       getSessionUserId(request)
     ])
 

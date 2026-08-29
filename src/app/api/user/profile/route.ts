@@ -1,8 +1,10 @@
+import { revalidateTag } from 'next/cache'
 import { NextRequest, NextResponse } from 'next/server'
 import { parseBannerFrame } from '@/lib/bannerFrame'
 import { getPlate } from '@/lib/cosmetics/plates'
 import { getOwnedPlateIds, isProTier } from '@/lib/entitlements'
 import { detectAnimatedImage, isPublicHostname } from '@/lib/imageAnimation'
+import { publicProfileCacheTag } from '@/lib/publicProfile'
 import { isRoleId } from '@/lib/roles'
 import { createServiceClient } from '@/lib/supabaseServer'
 import { getSessionUserId } from '@/lib/sessionAuth'
@@ -178,10 +180,11 @@ export async function PATCH(request: NextRequest) {
     }
 
     // Fetch current metadata so unrelated keys (onboarding answers etc.)
-    // survive the merge. The tier rides along for the plate/banner gates.
+    // survive the merge. The tier rides along for the plate/banner gates,
+    // the handle for the public-profile cache bust after a save.
     const { data: existing, error: fetchError } = await supabase
       .from('users')
-      .select('metadata, subscription_tier')
+      .select('metadata, subscription_tier, twitter_username')
       .eq('id', session.userId)
       .single()
 
@@ -303,6 +306,14 @@ export async function PATCH(request: NextRequest) {
       console.error('[ProfileEdit] Update failed:', updateError)
       return NextResponse.json({ error: 'Failed to save profile' }, { status: 500 })
     }
+
+    // Everything saved here renders on /u/[username], which serves from a
+    // TTL'd Data Cache entry. Bust it so the editor sees their change on
+    // the very next page load instead of a stale profile for up to a
+    // minute (the reload after closing the edit modal made that look like
+    // the save silently failed).
+    const handle = (existing?.twitter_username as string | null | undefined)?.trim()
+    if (handle) revalidateTag(publicProfileCacheTag(handle))
 
     return NextResponse.json({ success: true })
   } catch (error) {

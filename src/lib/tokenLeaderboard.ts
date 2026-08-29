@@ -1,3 +1,4 @@
+import { HARNESS_AGENT_LABELS } from '@/lib/harnessBrands'
 import type { SeasonState } from '@/lib/season'
 import { addCalendarDays, calendarDateInTimeZone } from '@/lib/timeZone'
 
@@ -354,22 +355,6 @@ function cleanMix(value: string[] | null): string[] {
   )
 }
 
-const TOKEN_AGENT_LABELS: Record<string, string> = {
-  claude: 'Claude Code',
-  'claude-code': 'Claude Code',
-  codex: 'Codex',
-  'openai-codex': 'Codex',
-  cursor: 'Cursor',
-  gemini: 'Gemini CLI',
-  'gemini-cli': 'Gemini CLI',
-  copilot: 'GitHub Copilot',
-  'github-copilot': 'GitHub Copilot',
-  hermes: 'Hermes',
-  'hermes-agent': 'Hermes',
-  opencode: 'OpenCode',
-  'open-code': 'OpenCode'
-}
-
 /**
  * Agent collector IDs → the AI board's tool names, for attaching opt-in
  * burn to existing AI board rows. Values must match resolveToolName()
@@ -398,8 +383,11 @@ export function tokenAgentLabel(value: string | null): string | null {
 
   const normalized = normalizeAgentId(value)
 
+  // Known harnesses resolve through the shared brand registry (aliases,
+  // accents and marks live together in src/lib/harnessBrands.ts); unknown
+  // ids title-case so no agent ever renders as a raw collector string.
   return (
-    TOKEN_AGENT_LABELS[normalized] ??
+    HARNESS_AGENT_LABELS[normalized] ??
     normalized
       .split('-')
       .filter(Boolean)
