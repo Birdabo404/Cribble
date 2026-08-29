@@ -24,6 +24,7 @@ import {
 } from '@/lib/tokenLeaderboard'
 import { Avatar, SafeBannerImg } from './Avatar'
 import { IconClose, IconCrown, IconExpand, IconFlame } from './icons'
+import { SocialLinkRow } from './SocialLinkRow'
 import { TokenAgentIcon } from './TokenAgentIcon'
 import { personaChipScrimStyle, tokenPersonaVisual } from './tokenPersonaVisual'
 import { medalA, medalFor, type PlayerProfile } from './types'
@@ -497,10 +498,42 @@ export function TokenPlayerCard({
                 ))}
               </div>
             )}
+
+            {/* Appears on profile hydration — no skeleton; the card simply
+                gains the pill when the payload lands. */}
+            {profile?.project && (
+              <div className="mt-4 flex justify-center">
+                <a
+                  href={profile.project.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={profile.project.url}
+                  className="group flex max-w-full items-center gap-2 rounded-lg border border-ember/25 bg-ember/[0.05] px-3 py-1.5 transition-colors hover:border-ember/45"
+                >
+                  <span className="shrink-0 text-[8px] tracking-[0.25em] text-ember">
+                    NOW BUILDING
+                  </span>
+                  <span className="min-w-0 truncate text-[10px] tracking-[0.12em] text-zinc-200 transition-colors group-hover:text-zinc-50">
+                    {profile.project.name}
+                  </span>
+                </a>
+              </div>
+            )}
           </div>
 
-          <div className="border-t border-[rgb(var(--lb-panel-edge)/0.08)] px-6 py-4 text-center text-[8px] leading-4 tracking-[0.18em] text-zinc-600">
-            OPT-IN · SELF-REPORTED · COST IS AN ESTIMATE, NOT A BILLING RECEIPT
+          <div className="border-t border-[rgb(var(--lb-panel-edge)/0.08)] px-6 py-4">
+            {profile && (
+              <SocialLinkRow
+                username={row.username}
+                socials={profile.socials}
+                website={profile.website}
+                tone="ember"
+                className="mb-3 justify-center"
+              />
+            )}
+            <div className="text-center text-[8px] leading-4 tracking-[0.18em] text-zinc-600">
+              OPT-IN · SELF-REPORTED · COST IS AN ESTIMATE, NOT A BILLING RECEIPT
+            </div>
           </div>
         </div>
       </div>

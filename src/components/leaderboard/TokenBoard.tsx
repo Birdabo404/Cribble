@@ -2,10 +2,12 @@
 
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
+import { useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AnimatedCounter from '@/components/AnimatedCounter'
 import { formatCompact, formatNumber } from '@/components/dashboard-v2/format'
 import { Avatar } from '@/components/leaderboard/Avatar'
+import { CursorBoard } from '@/components/leaderboard/CursorBoard'
 import { LeaderboardSponsorFlip } from '@/components/leaderboard/LeaderboardSponsorFlip'
 import { TokenAgentIcon } from '@/components/leaderboard/TokenAgentIcon'
 import { TokenPlayerCard } from '@/components/leaderboard/TokenPlayerCard'
@@ -50,6 +52,15 @@ const WINDOWS: { id: TokenBoardWindowId; label: string }[] = [
   { id: 'season', label: 'SEASON' },
   { id: '7d', label: '7D' },
   { id: 'all', label: 'ALL' }
+]
+
+/** Which fuel THE BURN ranks: usage synced by the cribble-agent CLI, or
+ *  scraped public cursor.com profiles (the no-CLI path). */
+export type BurnSource = 'cli' | 'cursor'
+
+const SOURCES: { id: BurnSource; label: string }[] = [
+  { id: 'cli', label: 'CLI' },
+  { id: 'cursor', label: 'CURSOR' }
 ]
 
 // Mobile is a two-zone layout — identity left, burn metrics right — so the
@@ -111,10 +122,94 @@ function TokenValue({ value, animated = false }: { value: string; animated?: boo
   )
 }
 
-export function TokenBoard() {
+// ?source= is read once at mount (deep links like
+// /leaderboard?view=tokens&source=cursor), matching the page's ?view=
+// pattern — toggle clicks stay client state only. The shared window
+// selection lives here so it survives source flips; each board fetches
+// its own API for whichever window is active.
+export function TokenBoard({
+  burnSource = null,
+  linkedStamp = null,
+  onOptInOpenChange
+}: {
+  /** Page-level source override (the coin-up success CTA lands on the
+   *  CURSOR source even when this board mounted on CLI). */
+  burnSource?: BurnSource | null
+  /** Bumped when the viewer links a cursor.com profile mid-session, so
+   *  an already-mounted CursorBoard refetches its stale unlinked state. */
+  linkedStamp?: number | null
+  /** CursorBoard's JOIN modal open state, bubbled to the page's
+   *  animation-freeze guard. */
+  onOptInOpenChange?: (open: boolean) => void
+}) {
+  const searchParams = useSearchParams()
+  const [source, setSource] = useState<BurnSource>(() =>
+    searchParams.get('source') === 'cursor' ? 'cursor' : 'cli'
+  )
+  const [windowId, setWindowId] = useState<TokenBoardWindowId>('season')
+
+  useEffect(() => {
+    if (burnSource !== null) setSource(burnSource)
+  }, [burnSource])
+
+  const sourceToggle = (
+    <div
+      className="lb-inset flex items-center gap-0.5 rounded-lg p-0.5"
+      role="tablist"
+      aria-label="Burn board source"
+    >
+      {SOURCES.map((item) => {
+        const active = item.id === source
+        return (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => setSource(item.id)}
+            className={`rounded-md px-2.5 py-1.5 text-[9px] tracking-[0.2em] transition-colors ${
+              active ? 'text-orange-300' : 'text-zinc-600 hover:text-zinc-300'
+            }`}
+            style={
+              active
+                ? {
+                    border: '1px solid rgb(251 146 60 / 0.35)',
+                    background: 'rgb(251 146 60 / 0.06)'
+                  }
+                : { border: '1px solid transparent' }
+            }
+          >
+            {item.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+
+  return source === 'cursor' ? (
+    <CursorBoard
+      windowId={windowId}
+      onWindowChange={setWindowId}
+      sourceToggle={sourceToggle}
+      linkedStamp={linkedStamp}
+      onOptInOpenChange={onOptInOpenChange}
+    />
+  ) : (
+    <CliTokenBoard windowId={windowId} onWindowChange={setWindowId} sourceToggle={sourceToggle} />
+  )
+}
+
+function CliTokenBoard({
+  windowId,
+  onWindowChange,
+  sourceToggle
+}: {
+  windowId: TokenBoardWindowId
+  onWindowChange: (next: TokenBoardWindowId) => void
+  sourceToggle: React.ReactNode
+}) {
   const [rows, setRows] = useState<TokenBoardRow[] | null>(null)
   const [totals, setTotals] = useState<TokenBoardTotals | null>(null)
-  const [windowId, setWindowId] = useState<TokenBoardWindowId>('season')
   const [windowMeta, setWindowMeta] = useState<TokenBoardWindow | null>(null)
   const [schemaReady, setSchemaReady] = useState(true)
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
@@ -304,6 +399,8 @@ export function TokenBoard() {
           </div>
 
           <div className="flex items-center gap-2">
+            {sourceToggle}
+
             <div
               className="lb-inset flex items-center gap-0.5 rounded-lg p-0.5"
               role="tablist"
@@ -321,7 +418,7 @@ export function TokenBoard() {
                       if (item.id === windowId) return
                       setRows(null)
                       setFailed(false)
-                      setWindowId(item.id)
+                      onWindowChange(item.id)
                     }}
                     className={`rounded-md px-2.5 py-1.5 text-[9px] tracking-[0.2em] transition-colors ${
                       active ? 'text-orange-300' : 'text-zinc-600 hover:text-zinc-300'

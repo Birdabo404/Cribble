@@ -25,6 +25,8 @@ import { ROLE_OPTIONS } from '@/lib/roles'
 const BIO_MAX = 160
 const LOCATION_MAX = 30
 const WEBSITE_MAX = 100
+const PROJECT_URL_MAX = 120
+const PROJECT_NAME_MAX = 40
 
 interface SocialValues {
   x: string
@@ -38,6 +40,8 @@ interface ProfileFormValues {
   role: string | null
   location: string
   website: string
+  projectName: string
+  projectUrl: string
   socials: SocialValues
 }
 
@@ -48,6 +52,8 @@ interface ProfileResponse {
     bio: string | null
     location: string | null
     website: string | null
+    project_name: string | null
+    project_url: string | null
     role: string | null
     socials?: Partial<Record<keyof SocialValues, string | null>> | null
   }
@@ -66,6 +72,8 @@ function toFormValues(profile: NonNullable<ProfileResponse['profile']>): Profile
     role: profile.role ?? null,
     location: profile.location ?? '',
     website: profile.website ?? '',
+    projectName: profile.project_name ?? '',
+    projectUrl: profile.project_url ?? '',
     socials: {
       x: profile.socials?.x ?? '',
       github: profile.socials?.github ?? '',
@@ -81,6 +89,8 @@ function valuesEqual(a: ProfileFormValues, b: ProfileFormValues): boolean {
     a.role === b.role &&
     a.location === b.location &&
     a.website === b.website &&
+    a.projectName === b.projectName &&
+    a.projectUrl === b.projectUrl &&
     a.socials.x === b.socials.x &&
     a.socials.github === b.socials.github &&
     a.socials.youtube === b.socials.youtube &&
@@ -133,6 +143,7 @@ export function ProfileSection() {
   const [form, setForm] = useState<ProfileFormValues | null>(null)
   const [saving, setSaving] = useState(false)
   const [websiteError, setWebsiteError] = useState<string | null>(null)
+  const [projectUrlError, setProjectUrlError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -171,16 +182,18 @@ export function ProfileSection() {
   const reset = useCallback(() => {
     setForm(baseline)
     setWebsiteError(null)
+    setProjectUrlError(null)
     setSaveError(null)
   }, [baseline])
 
   const save = useCallback(async () => {
     if (!form || !baseline || saving) return
+    // Same server-side cleanHttpUrl echo for both URL fields.
     const problem = websiteProblem(form.website)
-    if (problem) {
-      setWebsiteError(problem)
-      return
-    }
+    const projectProblem = websiteProblem(form.projectUrl)
+    if (problem) setWebsiteError(problem)
+    if (projectProblem) setProjectUrlError(projectProblem)
+    if (problem || projectProblem) return
     setSaving(true)
     setSaveError(null)
     try {
@@ -195,6 +208,8 @@ export function ProfileSection() {
       if (form.role !== baseline.role) patch.role = form.role
       if (form.location !== baseline.location) patch.location = form.location
       if (form.website !== baseline.website) patch.website = form.website
+      if (form.projectName !== baseline.projectName) patch.project_name = form.projectName
+      if (form.projectUrl !== baseline.projectUrl) patch.project_url = form.projectUrl
       if (socialsChanged) patch.socials = form.socials
 
       const res = await fetch('/api/user/profile', {
@@ -327,6 +342,34 @@ export function ProfileSection() {
                 inputMode="url"
                 autoComplete="url"
                 error={websiteError}
+              />
+            </div>
+
+            {/* "Now Building" pinned project. The link is what publishes it;
+                the name is optional — the server derives owner/repo (or the
+                hostname) when it's left blank. */}
+            <div className="grid gap-4 px-4 py-4 sm:grid-cols-2 sm:px-5">
+              <TextField
+                label="Now building"
+                description="Pin a project to your leaderboard card."
+                value={form.projectName}
+                onChange={(e) => setField('projectName', e.target.value)}
+                maxLength={PROJECT_NAME_MAX}
+                placeholder="my-cool-app"
+              />
+              <TextField
+                label="Project link"
+                description="GitHub repos show as owner/repo."
+                value={form.projectUrl}
+                onChange={(e) => {
+                  setField('projectUrl', e.target.value)
+                  setProjectUrlError(null)
+                }}
+                maxLength={PROJECT_URL_MAX}
+                placeholder="https://github.com/you/repo"
+                inputMode="url"
+                autoComplete="off"
+                error={projectUrlError}
               />
             </div>
           </SettingsSection>

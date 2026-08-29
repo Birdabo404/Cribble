@@ -72,6 +72,10 @@ export interface PublicProfile {
   bio: string | null
   location: string | null
   website: string | null
+  /** "Now Building" pinned project — non-null only when a valid
+   *  project_url is saved. name is the owner's label, or derived
+   *  server-side (owner/repo for GitHub URLs, else the hostname). */
+  project: { url: string; name: string } | null
   socials: {
     x: string | null
     github: string | null
@@ -172,6 +176,30 @@ const normalizeTier = (t: string | null): PublicProfile['tier'] => {
 const metaString = (meta: Record<string, unknown>, key: string): string | null => {
   const v = meta[key]
   return typeof v === 'string' && v.trim() ? v.trim() : null
+}
+
+/** "Now Building" pinned project. The URL was validated by cleanHttpUrl
+ *  on write; a name the owner typed wins, otherwise derive owner/repo
+ *  for GitHub URLs and fall back to the hostname. A URL that no longer
+ *  parses (hand-edited metadata) yields null — no link, no chip. */
+const readProject = (
+  meta: Record<string, unknown>
+): PublicProfile['project'] => {
+  const url = metaString(meta, 'project_url')
+  if (!url) return null
+  const explicit = metaString(meta, 'project_name')
+  if (explicit) return { url, name: explicit }
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '')
+    if (host === 'github.com') {
+      const [owner, repo] = parsed.pathname.split('/').filter(Boolean)
+      if (owner && repo) return { url, name: `${owner}/${repo.replace(/\.git$/, '')}` }
+    }
+    return { url, name: host }
+  } catch {
+    return null
+  }
 }
 
 /** Account privacy flag lives in users.metadata alongside the other
@@ -373,6 +401,7 @@ export async function loadPublicProfile(
       bio: metaString(meta, 'bio'),
       location: metaString(meta, 'location'),
       website: metaString(meta, 'website'),
+      project: readProject(meta),
       socials: {
         x: socialOr('x', provider === 'x' ? username : null),
         github: socialOr('github', provider === 'github' ? username : null),

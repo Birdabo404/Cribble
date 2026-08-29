@@ -27,7 +27,10 @@ const SECTION_COMPONENTS: Record<SettingsSectionId, () => React.JSX.Element> = {
   appearance: AppearanceSection,
   notifications: NotificationsSection,
   privacy: PrivacySection,
-  billing: BillingSection
+  billing: BillingSection,
+  // Deep-link alias: renders the Account page; CursorProfileSection
+  // scrolls itself into view when it sees this id active.
+  'cursor-profile': AccountSection
 }
 
 export interface SettingsModalProps {
@@ -58,6 +61,9 @@ export function SettingsModal({
   }, [onClose])
 
   const ActiveSection = SECTION_COMPONENTS[section]
+  // The cursor-profile deep link renders the Account page, so Account is
+  // the nav item to mark active.
+  const navSection: SettingsSectionId = section === 'cursor-profile' ? 'account' : section
 
   return createPortal(
     <div
@@ -102,10 +108,10 @@ export function SettingsModal({
           </button>
         </header>
 
-        <SettingsMobileTabs section={section} onSelect={onSelectSection} />
+        <SettingsMobileTabs section={navSection} onSelect={onSelectSection} />
 
         <div className="flex min-h-0 flex-1">
-          <SettingsSidebar section={section} onSelect={onSelectSection} />
+          <SettingsSidebar section={navSection} onSelect={onSelectSection} />
           {/* keyed by section so switching remounts content — fresh fetch,
               scroll reset to the top */}
           <main key={section} className="min-w-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">

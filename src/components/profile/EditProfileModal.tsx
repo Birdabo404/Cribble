@@ -32,6 +32,10 @@ export interface EditableProfile {
   bio: string
   location: string
   website: string
+  /** "Now Building" pinned project — name optional (server derives
+   *  owner/repo or hostname from the URL when blank). */
+  project_name: string
+  project_url: string
   equipped_plate: string | null
   role: string | null
   is_private: boolean
@@ -139,6 +143,8 @@ export function EditProfileModal({
           bio: form.bio,
           location: form.location,
           website: form.website,
+          project_name: form.project_name,
+          project_url: form.project_url,
           equipped_plate: form.equipped_plate,
           role: form.role,
           is_private: form.is_private,
@@ -253,6 +259,32 @@ export function EditProfileModal({
                 value={form.website}
                 onChange={(e) => set({ website: e.target.value.slice(0, 100) })}
                 placeholder="https://yoursite.dev"
+                className={`${inputCls} mt-1.5`}
+              />
+            </label>
+          </div>
+
+          {/* now building — pinned project name | link. The link publishes
+              it; a blank name gets derived server-side (owner/repo). */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="flex items-baseline justify-between">
+                <span className={labelCls}>Now building</span>
+                <span className={hintCls}>Shown on your card</span>
+              </span>
+              <input
+                value={form.project_name}
+                onChange={(e) => set({ project_name: e.target.value.slice(0, 40) })}
+                placeholder="my-cool-app"
+                className={`${inputCls} mt-1.5`}
+              />
+            </label>
+            <label className="block">
+              <span className={`block ${labelCls}`}>Project link</span>
+              <input
+                value={form.project_url}
+                onChange={(e) => set({ project_url: e.target.value.slice(0, 120) })}
+                placeholder="https://github.com/you/repo"
                 className={`${inputCls} mt-1.5`}
               />
             </label>

@@ -25,6 +25,7 @@ import { isProTier } from '@/lib/entitlements'
 import { prefersReducedMotion } from '@/lib/motion'
 import { tokenAgentLabel } from '@/lib/tokenLeaderboard'
 import { Avatar, SafeBannerImg } from './Avatar'
+import { SocialLinkRow } from './SocialLinkRow'
 import { TokenAgentIcon } from './TokenAgentIcon'
 import { ROLE_ICONS } from '@/components/roleIcons'
 import {
@@ -738,12 +739,42 @@ export function PlayerCard({
             </div>
           </div>
 
+          {/* ---------- now building ---------- */}
+          {/* Appears on profile hydration — no skeleton; the card simply
+              gains the pill when the payload lands. */}
+          {profile?.project && (
+            <div className="mt-5 flex justify-center px-6">
+              <a
+                href={profile.project.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={profile.project.url}
+                className="group flex max-w-full items-center gap-2 rounded-lg border border-[rgb(var(--lb-panel-edge)/0.12)] bg-[rgb(var(--lb-panel-edge)/0.03)] px-3 py-1.5 transition-colors hover:border-[rgb(var(--lb-panel-edge)/0.3)]"
+              >
+                <span className="shrink-0 text-[8px] tracking-[0.25em] text-zinc-500">
+                  NOW BUILDING
+                </span>
+                <span className="min-w-0 truncate text-[10px] tracking-[0.12em] text-zinc-200 transition-colors group-hover:text-zinc-50">
+                  {profile.project.name}
+                </span>
+              </a>
+            </div>
+          )}
+
           {/* ---------- footer ---------- */}
           <div className="mt-5 border-t px-6 pb-5 pt-4" style={{ borderColor: 'rgb(var(--lb-panel-edge) / 0.08)' }}>
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[9px] tracking-[0.25em] text-zinc-600 tabular-nums">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 text-[9px] tracking-[0.25em] text-zinc-600 tabular-nums">
               <span>JOINED SINCE {monthYear(profile?.memberSince ?? row.memberSince)}</span>
               {!row.isActive && (
                 <span>SEEN {formatRelative(row.lastSeen).toUpperCase()}</span>
+              )}
+              {profile && (
+                <SocialLinkRow
+                  username={row.username}
+                  socials={profile.socials}
+                  website={profile.website}
+                  className="ml-auto"
+                />
               )}
             </div>
           </div>
