@@ -11,6 +11,10 @@ export interface CaptureOptions {
   pixelRatio: number
   type: 'image/png' | 'image/jpeg'
   quality?: number
+  /** Extra toCanvas passes before encode. Safari drops fonts/images on
+   *  the first snapshot; 2 is the safe default. Background X packing
+   *  can drop to 1 once the sheet has already waited on fonts + imgs. */
+  warmupPasses?: number
 }
 
 // Safari/WebKit is known to drop images and embedded fonts on
@@ -35,7 +39,8 @@ export async function captureElementToBlob(
     type: opts.type,
     quality: opts.quality
   }
-  for (let pass = 0; pass < WARMUP_PASSES; pass++) {
+  const warmup = opts.warmupPasses ?? WARMUP_PASSES
+  for (let pass = 0; pass < warmup; pass++) {
     await toCanvas(el, options)
   }
   const blob = await toBlob(el, options)
@@ -61,6 +66,13 @@ function isIOS(): boolean {
  */
 export function sharePixelRatio(): number {
   return isIOS() ? 3 : 4
+}
+
+/** Pixel ratio for images destined for X. A 4K PNG is ~11MB — over X's
+ *  5MB PNG cap — and X recompresses anyway. 2× is 2160×2700, under the
+ *  cap, and still sharp in the 4:5 crop. */
+export function xPostPixelRatio(): number {
+  return 2
 }
 
 /** Copy an image blob to the clipboard. False (never a throw) when the
@@ -113,12 +125,15 @@ export async function shareFiles(opts: { file: File; text: string }): Promise<bo
   }
 }
 
-/** Open the X composer prefilled with `text` — same intent URL the
- *  ReferralPlate uses. */
-export function openXIntent(text: string): void {
-  window.open(
-    `https://x.com/intent/post?text=${encodeURIComponent(text)}`,
-    '_blank',
-    'noopener,noreferrer'
-  )
+/** Open the X composer prefilled with `text`. Must run inside the click
+ *  handler — awaiting capture first loses the user gesture and browsers
+ *  block the popup. A sized popup keeps the share sheet visible so the
+ *  paste toast is still on screen. Returns false when the popup is
+ *  blocked (caller still copies the card). */
+export function openXIntent(text: string): boolean {
+  const url = `https://x.com/intent/post?text=${encodeURIComponent(text)}`
+  const win = window.open(url, 'cribble-x-share', 'popup=yes,width=550,height=700')
+  if (!win) return false
+  win.opener = null
+  return true
 }

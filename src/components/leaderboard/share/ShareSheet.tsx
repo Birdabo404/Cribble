@@ -10,7 +10,6 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { formatNumber, formatScore } from '@/components/dashboard-v2/format'
 import { IconClose, SocialIcon } from '@/components/leaderboard/icons'
 import { prefersReducedMotion } from '@/lib/motion'
 import {
@@ -20,7 +19,8 @@ import {
   downloadBlob,
   openXIntent,
   shareFiles,
-  sharePixelRatio
+  sharePixelRatio,
+  xPostPixelRatio
 } from './capture'
 import {
   ShareCard,
@@ -29,38 +29,14 @@ import {
   type ShareCardData,
   type ShareCardVariant
 } from './ShareCard'
+import { shareTweetText } from './shareTweetText'
+
+export { shareTweetText }
 
 const CLOSE_MS = 200
 const READY_DEADLINE_MS = 6000
 const LIME = 'rgb(252 255 0)'
 const INK = '#05060a'
-
-/** Tweet copy for the captured card — tone matches ReferralPlate's
- *  inviteText: lowercase "cribble", confident, no hashtags, no emojis. */
-export function shareTweetText(opts: {
-  variant: ShareCardVariant
-  isOwn: boolean
-  username: string
-  rank: number
-  score: number
-  link: string
-}): string {
-  const { variant, isOwn, username, rank, score, link } = opts
-  switch (variant) {
-    case 'medal':
-      return isOwn
-        ? `rank #${rank} on cribble — the live leaderboard for AI coding hours. ${formatNumber(score)} pts and climbing. think you can outrank me?\n\n${link}`
-        : `@${username} is sitting at rank #${rank} on cribble, the AI coding leaderboard. come watch the board — or get on it:\n\n${link}`
-    case 'ember':
-      return isOwn
-        ? `rank #${rank} on cribble's burn board — ${formatScore(score)} tokens torched and counting. think you can outburn me?\n\n${link}`
-        : `@${username} is torching tokens at rank #${rank} on cribble's burn board. come watch the burn — or join it:\n\n${link}`
-    default: {
-      const exhaustive: never = variant
-      return exhaustive
-    }
-  }
-}
 
 const shareFilename = (username: string, rank: number, ext: 'png' | 'jpg') =>
   `cribble-card-@${username.replace(/[^A-Za-z0-9._-]/g, '')}-rank${rank}.${ext}`
@@ -321,11 +297,45 @@ export function ShareSheet({
 
   useEffect(() => () => window.clearTimeout(pulseTimer.current), [])
 
-  const captureCard = useCallback((type: 'image/png' | 'image/jpeg', quality?: number) => {
+  const captureCard = useCallback(
+    (type: 'image/png' | 'image/jpeg', quality?: number, pixelRatio = sharePixelRatio()) => {
+      const el = cardRef.current
+      if (!el) return Promise.reject(new Error('Card not mounted'))
+      return captureElementToBlob(el, { pixelRatio, type, quality })
+    },
+    []
+  )
+
+  // Pack the X-sized PNG in the background once the card is READY so
+  // POST ON X can copy it inside the click (composer already opened).
+  const xImageRef = useRef<Blob | null>(null)
+  const [xPacked, setXPacked] = useState(false)
+  useEffect(() => {
+    if (!ready) {
+      xImageRef.current = null
+      setXPacked(false)
+      return
+    }
     const el = cardRef.current
-    if (!el) return Promise.reject(new Error('Card not mounted'))
-    return captureElementToBlob(el, { pixelRatio: sharePixelRatio(), type, quality })
-  }, [])
+    if (!el) return
+    let cancelled = false
+    void captureElementToBlob(el, {
+      pixelRatio: xPostPixelRatio(),
+      type: 'image/png',
+      warmupPasses: 1
+    })
+      .then((blob) => {
+        if (cancelled) return
+        xImageRef.current = blob
+        setXPacked(true)
+      })
+      .catch(() => {
+        if (!cancelled) setXPacked(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [ready])
 
   const beginAction = useCallback(
     (action: Exclude<BusyAction, null>) => {
@@ -351,35 +361,47 @@ export function ShareSheet({
       username: data.username,
       rank: data.rank,
       score: data.score,
+      totalTokens: data.burn?.totalTokens,
+      costUsd: data.burn?.estCostUsd,
       link
     })
-  }, [referral, variant, isYou, data.username, data.rank, data.score])
+  }, [
+    referral,
+    variant,
+    isYou,
+    data.username,
+    data.rank,
+    data.score,
+    data.burn?.totalTokens,
+    data.burn?.estCostUsd
+  ])
 
   const handlePost = useCallback(async () => {
     if (!beginAction('post')) return
+    const text = tweetText()
+    const probe = new File([new Blob([], { type: 'image/jpeg' })], 'card.jpg', {
+      type: 'image/jpeg'
+    })
+    const native = prefersNativeShare() && canShareFiles(probe)
+    // Open the composer inside the click. Awaiting capture first loses
+    // the user gesture and the popup gets blocked.
+    if (!native) openXIntent(text)
     try {
-      const text = tweetText()
-      // Path decided up front with a type-only probe file, so the desktop
-      // flow never pays for the JPEG capture it would just throw away.
-      const probe = new File([new Blob([], { type: 'image/jpeg' })], 'card.jpg', {
-        type: 'image/jpeg'
-      })
-      if (prefersNativeShare() && canShareFiles(probe)) {
-        const jpeg = await captureCard('image/jpeg', 0.92)
+      if (native) {
+        const jpeg = await captureCard('image/jpeg', 0.88, xPostPixelRatio())
         const file = new File([jpeg], shareFilename(data.username, data.rank, 'jpg'), {
           type: 'image/jpeg'
         })
         const shared = await shareFiles({ file, text })
         showStatus(shared ? 'CARD HANDED TO YOUR SHARE SHEET' : 'SHARE DISMISSED', 2600)
       } else {
-        const png = await captureCard('image/png')
+        const png =
+          xImageRef.current ?? (await captureCard('image/png', undefined, xPostPixelRatio()))
         const copied = await copyBlobToClipboard(png)
         if (copied) {
-          openXIntent(text)
-          showStatus('4K CARD COPIED — PASTE IT INTO YOUR POST')
+          showStatus('CARD COPIED — PASTE IT INTO YOUR POST')
         } else {
           downloadBlob(png, shareFilename(data.username, data.rank, 'png'))
-          openXIntent(text)
           showStatus('CARD DOWNLOADED — ATTACH IT TO YOUR POST')
         }
       }
@@ -424,6 +446,8 @@ export function ShareSheet({
   if (typeof document === 'undefined') return null
 
   const actionsDisabled = !ready || busy !== null
+  const nativeShare = prefersNativeShare()
+  const postDisabled = actionsDisabled || (!nativeShare && !xPacked)
   const printW = sharePixelRatio() * SHARE_CARD_WIDTH
   const printH = sharePixelRatio() * SHARE_CARD_HEIGHT
 
@@ -515,13 +539,17 @@ export function ShareSheet({
           >
             {status ? (
               <span className="text-[10px] tracking-[0.2em] text-zinc-200">{status}</span>
-            ) : ready ? (
-              <span className="text-[10px] tracking-[0.25em] text-zinc-600">
-                READY · {printW}×{printH} PRINT
-              </span>
-            ) : (
+            ) : !ready ? (
               <span className="shs-develop text-[10px] tracking-[0.25em] text-zinc-500">
                 DEVELOPING…
+              </span>
+            ) : !nativeShare && !xPacked ? (
+              <span className="shs-develop text-[10px] tracking-[0.25em] text-zinc-500">
+                PACKING FOR X…
+              </span>
+            ) : (
+              <span className="text-[10px] tracking-[0.25em] text-zinc-600">
+                READY · {printW}×{printH} PRINT
               </span>
             )}
           </div>
@@ -530,7 +558,7 @@ export function ShareSheet({
             <button
               type="button"
               onClick={handlePost}
-              disabled={actionsDisabled}
+              disabled={postDisabled}
               className="flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[11px] font-bold tracking-[0.25em] transition-[transform,box-shadow,filter] hover:brightness-105 active:scale-[0.99] disabled:pointer-events-none disabled:opacity-40 sm:h-11"
               style={{
                 background: LIME,
@@ -539,7 +567,7 @@ export function ShareSheet({
               }}
             >
               <SocialIcon kind="x" size={11} />
-              {busy === 'post' ? 'CAPTURING…' : 'POST ON X'}
+              {busy === 'post' ? 'POSTING…' : 'POST ON X'}
             </button>
             <div className="grid grid-cols-2 gap-2">
               <button
