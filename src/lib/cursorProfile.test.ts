@@ -7,14 +7,24 @@ import {
   parseCursorProfileHtml
 } from './cursorProfile'
 
-// The parser against a REAL page saved once from cursor.com/@birdabo
-// (trimmed to the RSC script chunks carrying the profile payload), plus
-// synthetic private/garbage/split-chunk pages. Nothing here touches the
-// network — fetchCursorProfile's transport arms (404 → not_found,
-// network failure → fetch_error) are trivial wrappers left untested.
+// The parser against REAL pages saved from cursor.com — @birdabo (public
+// profile) and a nonexistent handle (the soft-404 envelope), each trimmed
+// to the RSC script chunks that matter — plus synthetic private/garbage/
+// split-chunk pages. Nothing here touches the network —
+// fetchCursorProfile's transport arms (HTTP 404 → not_found, network
+// failure → fetch_error) are trivial wrappers left untested.
 
 const fixtureHtml = readFileSync(
   fileURLToPath(new URL('./__fixtures__/cursor-profile-birdabo.html', import.meta.url)),
+  'utf8'
+)
+
+// Saved from cursor.com/@zz-no-such-user-948213: HTTP 200, RSC chunks
+// present, no profile payload, and an error row
+// `26:E{"digest":"NEXT_HTTP_ERROR_FALLBACK;404"}` — how cursor.com
+// answers for missing AND non-public profiles alike.
+const notFoundFixtureHtml = readFileSync(
+  fileURLToPath(new URL('./__fixtures__/cursor-profile-notfound.html', import.meta.url)),
   'utf8'
 )
 
@@ -114,6 +124,69 @@ describe('parseCursorProfileHtml', () => {
   it('reports parse_error for RSC chunks without a profile payload', () => {
     const result = parseCursorProfileHtml(rscPage('78:I[532588,["chunk.js"],"SomePage"]'))
     expect(result.status).toBe('parse_error')
+  })
+
+  it('reports not_found for the saved soft-404 page of a nonexistent handle', () => {
+    // cursor.com answers missing/hidden profiles with HTTP 200 and a
+    // NEXT_HTTP_ERROR_FALLBACK;404 error row instead of an HTTP 404.
+    expect(parseCursorProfileHtml(notFoundFixtureHtml)).toEqual({ status: 'not_found' })
+  })
+
+  it('reports not_found when the 404 error row splits across push chunks', () => {
+    const payload =
+      '7d:I[208447,["chunk.js"],"IconMark"]\n' +
+      '26:E{"digest":"NEXT_HTTP_ERROR_FALLBACK;404"}\n'
+    const splitAt = payload.indexOf('FALLBACK')
+    const result = parseCursorProfileHtml(
+      rscPage(payload.slice(0, splitAt), payload.slice(splitAt))
+    )
+    expect(result).toEqual({ status: 'not_found' })
+  })
+
+  it('reports private for a 401/403 error row', () => {
+    for (const code of [401, 403]) {
+      const result = parseCursorProfileHtml(
+        rscPage(`26:E{"digest":"NEXT_HTTP_ERROR_FALLBACK;${code}"}\n`)
+      )
+      expect(result).toEqual({ status: 'private' })
+    }
+  })
+
+  it('reports parse_error naming the digest for an opaque render-error row', () => {
+    const result = parseCursorProfileHtml(rscPage('26:E{"digest":"1234567890abcdef"}\n'))
+    expect(result.status).toBe('parse_error')
+    if (result.status !== 'parse_error') return
+    expect(result.message).toContain('1234567890abcdef')
+  })
+
+  it('prefers a present profile payload over an unrelated error row', () => {
+    const result = parseCursorProfileHtml(
+      rscPage(
+        '30:E{"digest":"NEXT_HTTP_ERROR_FALLBACK;404"}\n' +
+          '23:["$","$L78",null,{"profile":{"handle":"here","displayName":"Here",' +
+          '"visibility":"PUBLIC","stats":{"currentStreak":1},' +
+          '"tokensOverTime":[],"agentsOverTime":[]}}]'
+      )
+    )
+    expect(result.status).toBe('ok')
+    if (result.status !== 'ok') return
+    expect(result.profile.displayName).toBe('Here')
+  })
+
+  it('does not mistake payload text resembling an error row for one', () => {
+    // The digest text lives inside a STRING value of some payload row —
+    // its newline is the two-character \n escape, never a real row
+    // separator, so the row scan must not classify this as not_found.
+    const result = parseCursorProfileHtml(
+      rscPage(
+        '2d:[["$","meta","1",{"name":"description","content":' +
+          '"about\\n26:E{\\"digest\\":\\"NEXT_HTTP_ERROR_FALLBACK;404\\"}"}]]\n'
+      )
+    )
+    expect(result).toEqual({
+      status: 'parse_error',
+      message: 'Profile payload not found in page'
+    })
   })
 
   it('clamps pathological counter values to Postgres-safe ceilings', () => {

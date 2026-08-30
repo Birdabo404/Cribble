@@ -215,7 +215,12 @@ export async function POST(request: NextRequest) {
       case 'ok':
         break
       case 'not_found':
-        return failure(`No cursor.com profile found for @${username}`, 404)
+        // cursor.com streams the same soft 404 for a handle that does
+        // not exist and a profile that is not public — cover both.
+        return failure(
+          `No public cursor.com profile found for @${username}. Check the handle, and make sure the profile is set to public on cursor.com.`,
+          404
+        )
       case 'private':
         return failure(
           'That cursor.com profile is not public. Set it to public on cursor.com and try again.',

@@ -9,6 +9,15 @@
 // can split across chunks) and extracts each field independently with a
 // bounded, string-aware JSON scan. cursor.com shipping a different page
 // shell degrades to parse_error instead of throwing.
+//
+// Missing or hidden profiles never surface as HTTP 404: cursor.com
+// resolves the profile inside a streamed boundary, so the response is a
+// 200 whose RSC stream carries an error row like
+// `26:E{"digest":"NEXT_HTTP_ERROR_FALLBACK;404"}` (Next.js notFound())
+// and no profile payload. The parser classifies those rows — 404 is
+// not_found, 401/403 is private — instead of failing the parse. A
+// nonexistent handle and a non-public profile are indistinguishable
+// from outside; both stream the 404 digest.
 
 export interface CursorProfileStats {
   currentStreak: number
@@ -78,6 +87,13 @@ export function normalizeCursorUsername(input: string): string | null {
 }
 
 const RSC_PUSH_CHUNK = /self\.__next_f\.push\(\[1,\s*"((?:[^"\\]|\\.)*)"\]\)/g
+
+// An RSC error row in the decoded flight stream: `<hexId>:E{...json...}`.
+// Rows are newline-separated after decoding (a newline inside a payload
+// string stays escaped as the two characters \n), so a real newline
+// reliably marks a row start.
+const RSC_ERROR_ROW = /(?:^|\n)[0-9a-fA-F]+:E(?=\{)/g
+const HTTP_FALLBACK_DIGEST = /^NEXT_HTTP_ERROR_FALLBACK;(\d{3})$/
 
 function decodeRscChunk(raw: string): string {
   // The pushed string is a JSON-compatible literal (Next serializes it
@@ -156,6 +172,48 @@ function extractJsonField(text: string, key: string, from: number): unknown {
   } catch {
     return undefined
   }
+}
+
+/** Digests of every `<id>:E{...}` error row in the decoded stream, in
+ *  document order. Rows that fail to parse as JSON are skipped. */
+function extractRscErrorDigests(text: string): string[] {
+  const digests: string[] = []
+  for (const match of text.matchAll(RSC_ERROR_ROW)) {
+    const start = (match.index ?? 0) + match[0].length
+    const end = scanJsonValueEnd(text, start)
+    if (end === null) continue
+    try {
+      const row = JSON.parse(text.slice(start, end)) as { digest?: unknown }
+      if (typeof row?.digest === 'string') digests.push(row.digest)
+    } catch {
+      // Payload text that merely resembles an error row — ignore it.
+    }
+  }
+  return digests
+}
+
+/** Maps the stream's error rows to a terminal result, or null when no
+ *  row carries a recognizable outcome. */
+function classifyRscErrorRows(
+  text: string
+): Extract<CursorProfileResult, { status: 'not_found' | 'private' | 'parse_error' }> | null {
+  const digests = extractRscErrorDigests(text)
+  for (const digest of digests) {
+    const httpStatus = digest.match(HTTP_FALLBACK_DIGEST)?.[1]
+    // notFound() — cursor.com's answer for both a handle that does not
+    // exist and a profile the owner has not made public.
+    if (httpStatus === '404' || httpStatus === '410') return { status: 'not_found' }
+    if (httpStatus === '401' || httpStatus === '403') return { status: 'private' }
+  }
+  if (digests.length > 0) {
+    // An opaque digest is a server-side render failure on cursor.com —
+    // transient as far as we can tell, so keep the retryable arm.
+    return {
+      status: 'parse_error',
+      message: `cursor.com streamed a render error (digest "${digests[0]}")`
+    }
+  }
+  return null
 }
 
 // Postgres-safe ceilings (migration 062): tokens land in a BIGINT
@@ -251,12 +309,14 @@ function cleanAgentsSeries(value: unknown): CursorAgentsPoint[] {
 
 /**
  * Parses a fetched cursor.com profile page. Pure and network-free — the
- * unit tests run it against a saved fixture. not_found/fetch_error are
- * transport outcomes and never come from here.
+ * unit tests run it against saved fixtures. fetch_error is a transport
+ * outcome and never comes from here; not_found does, because cursor.com
+ * streams missing/hidden profiles as HTTP 200 pages whose RSC stream
+ * carries a NEXT_HTTP_ERROR_FALLBACK;404 error row.
  */
 export function parseCursorProfileHtml(
   html: string
-): Extract<CursorProfileResult, { status: 'ok' | 'private' | 'parse_error' }> {
+): Extract<CursorProfileResult, { status: 'ok' | 'not_found' | 'private' | 'parse_error' }> {
   const chunks: string[] = []
   for (const match of html.matchAll(RSC_PUSH_CHUNK)) {
     chunks.push(decodeRscChunk(match[1]))
@@ -278,7 +338,15 @@ export function parseCursorProfileHtml(
   const looksLikeProfile =
     visibility !== undefined || stats !== undefined || displayName !== undefined
   if (!looksLikeProfile) {
-    return { status: 'parse_error', message: 'Profile payload not found in page' }
+    // No profile fields anywhere: before calling that a parse failure,
+    // check whether the stream says WHY — a soft 404/403 error row is a
+    // definitive outcome, not a page we failed to read.
+    return (
+      classifyRscErrorRows(text) ?? {
+        status: 'parse_error',
+        message: 'Profile payload not found in page'
+      }
+    )
   }
 
   if (typeof visibility === 'string' && visibility !== 'PUBLIC') {
