@@ -4,17 +4,16 @@
 //
 // One ScrollTrigger pins the OUTER .lx-hero for +260% of a viewport and
 // scrubs a single timeline through the entry: the globe pushes in toward
-// the horizon (via the GlobeHandle scroll pose) and its stage drifts from
-// the right column to the horizontal viewport center (a transform written
-// by the same pose follower, so position, zoom and burst stay
-// phase-locked) while the scroll-burst disassembly strips it piece by
-// piece (hero/heroBurst.ts — an anime timeline seek()ed from the pose
-// follower, driving the renderer's burst channels and the GlobeStage
-// carriers), the star tiles stretch into streaks (transform-based scaleY
-// on the dedicated .lx-hero-stars layer — no background-size repaints),
-// the hero copy exits as SplitText masked lines / staggered blocks, and
-// the horizon hairline flares into the tear that hands off to
-// DescentGate.
+// the horizon (via the GlobeHandle scroll pose — the renderer's own
+// dither dropout erodes the planet late in the pose) and its stage
+// drifts from the right column to the horizontal viewport center (a
+// transform written by the same pose follower, so position and zoom stay
+// phase-locked) while the GlobeStage hardware carriers (orbit ring,
+// dotted ring, both satellites) fade out on opacity-only tweens, the
+// star tiles stretch into streaks (transform-based scaleY on the
+// dedicated .lx-hero-stars layer — no background-size repaints), the
+// hero copy exits as SplitText masked lines / staggered blocks, and the
+// horizon hairline flares into the tear that hands off to DescentGate.
 //
 // Pinning rule (from the plan): pin .lx-hero itself, NEVER anything inside
 // .page-zoom-out — that utility is `zoom: 0.9`, and GSAP computes
@@ -24,7 +23,6 @@
 
 import type { GlobeHandle } from '@/components/Globe'
 import type { LandingMotion } from '@/lib/landingMotion'
-import { createHeroBurst, type HeroBurst } from './heroBurst'
 import { settleHeroEntrance, whenHeroEntranceSettled } from './heroEntrance'
 
 type TimelineInstance = ReturnType<LandingMotion['gsap']['timeline']>
@@ -44,12 +42,15 @@ export function createHeroPin(
 ): () => void {
   let killed = false
   let timeline: TimelineInstance | null = null
-  let burst: HeroBurst | null = null
   // Hoisted so cleanup can pull the pose follower off gsap.ticker; only
   // build() assigns it, so a skipped pin never runs a ticker callback.
   let tickPose: ((time: number, deltaTime: number) => void) | null = null
   // Hoisted so cleanup can strip the drift transform the follower wrote.
   let stageEl: HTMLElement | null = null
+  // Hoisted so cleanup can strip the exit tweens' inline opacity and the
+  // polar carrier's mid-flight z-index guard (see the fade block below).
+  let carrierEls: HTMLElement[] = []
+  let satPolarEl: HTMLElement | null = null
   let splits: SplitTextInstance[] = []
   let willChangeTargets: HTMLElement[] = []
 
@@ -94,9 +95,29 @@ export function createHeroPin(
     // container scale tops off the composition.
     const stage = hero.querySelector<HTMLElement>('.globe-stage')
     stageEl = stage
+
+    // The stage hardware around the planet — orbit ring, dotted ring and
+    // both satellites — exits on the data-burst carriers (GlobeStage.tsx
+    // wraps each piece in one). The globe itself never fades: its exit is
+    // the renderer's dither dropout, driven by the scroll pose.
+    const ring = hero.querySelector<HTMLElement>('[data-burst="ring"]')
+    const glow = hero.querySelector<HTMLElement>('[data-burst="glow"]')
+    const satEquatorial = hero.querySelector<HTMLElement>(
+      '[data-burst="sat-equatorial"]'
+    )
+    const satPolar = hero.querySelector<HTMLElement>('[data-burst="sat-polar"]')
+    satPolarEl = satPolar
+    carrierEls = [ring, glow, satEquatorial, satPolar].filter(
+      (el): el is HTMLElement => el !== null
+    )
     const DRIFT_START = 0.1 // the copy owns the left until ~24% — leave gently
     const DRIFT_END = 0.62 // centered well after the copy exit, before the flare
     const DRIFT_SCALE_MAX = 1.08 // container scale on top of the WebGL zoom
+    // Where the hardware carrier fades start on the scrub timeline; the
+    // polar z-index guard below lifts just ahead of this.
+    const HW_FADE_START = 0.2
+    const HW_FADE_DURATION = 0.17
+    const HW_FADE_STAGGER = 0.025
 
     let driftX = 0 // layout px at full drift — measured live, never a vw guess
     const measureDrift = () => {
@@ -170,15 +191,36 @@ export function createHeroPin(
       }
     })
 
-    // The disassembly follows the same scroll: heroBurst's anime timeline
-    // owns every piece (burst channels + GlobeStage carriers), and the
-    // pose follower below drives it — one scroll source, two engines.
-    burst = createHeroBurst(motion, { hero, globeHandle })
-
     // Duration anchor: the relative positions below stay "fraction of the
     // pin" even if every DOM target were missing and the timeline would
     // otherwise have no duration-1 member.
     timeline.to({}, { duration: 1 }, 0)
+
+    // Stage hardware exits — OPACITY ONLY, and every start value is a hard
+    // 1, never sampled. THE STACKING-CONTEXT GOTCHA (see GlobeStage.tsx):
+    // the polar sat's CSS keyframes animate z-index 0↔2 to interleave with
+    // the globe canvas (z-[1]) for limb clipping, and that interleave only
+    // works while its carrier has NO stacking context. Inline opacity: 1
+    // (what this fromTo re-asserts at scrub 0) creates none; any inline
+    // transform would — so the carriers must never be tweened on
+    // transforms. While the fade is mid-flight (opacity < 1 IS a stacking
+    // context) the pose follower below lifts the carrier to z-index 2 so
+    // the departing craft rides above the planet instead of vanishing
+    // behind it, and strips the lift again at rest.
+    if (carrierEls.length) {
+      timeline.fromTo(
+        carrierEls,
+        { opacity: 1 },
+        {
+          opacity: 0,
+          duration: HW_FADE_DURATION,
+          stagger: HW_FADE_STAGGER,
+          ease: 'power1.in',
+          immediateRender: false
+        },
+        HW_FADE_START
+      )
+    }
 
     // Globe push-in: ortho zoom + pitch/yaw toward the horizon, composed
     // with drag-to-spin inside the renderer. The pose gets its own
@@ -198,9 +240,32 @@ export function createHeroPin(
     let poseValue = 0
     let poseVelocity = 0
     let poseSettled = true
+    // Mirrors whether the polar carrier's inline z-index guard is applied,
+    // so the follower never reads the style object back per tick.
+    let polarLifted = false
 
     tickPose = (_time, deltaMs) => {
       const target = st?.progress ?? 0
+
+      // Polar carrier z-index guard: the scrubbed opacity fade above gives
+      // the carrier a stacking context (opacity < 1), and inside it the
+      // inner z keyframes can no longer beat the canvas — so lift the
+      // whole carrier above the planet while the fade window is live.
+      // Keyed on the scrub timeline's OWN playhead (the source of that
+      // opacity) and checked BEFORE the settled short-circuit below: the
+      // scrub keeps easing after the pose follower settles, and the strip
+      // back to bare — the polar sat's limb-clip interleave depends on a
+      // stacking-context-free carrier — must always land at rest. Below
+      // the fade window the inline opacity is exactly 1, so small scrubs
+      // keep the interleave intact with no lift at all.
+      if (satPolar && timeline) {
+        const fadeLive = timeline.progress() > HW_FADE_START - 0.01
+        if (fadeLive !== polarLifted) {
+          satPolar.style.zIndex = fadeLive ? '2' : ''
+          polarLifted = fadeLive
+        }
+      }
+
       // Settled short-circuit — the same idle guard startVelocityFeedback
       // uses, so a page at rest does no pose/burst work per tick.
       if (poseSettled && Math.abs(target - poseValue) < POSE_REST) return
@@ -236,13 +301,13 @@ export function createHeroPin(
       }
 
       globeHandle()?.setScrollPose(poseValue)
-      burst?.seek(poseValue)
 
       // Stage drift rides the same follower (never the scrub timeline),
       // eased by a smoothstep so departure and arrival are both soft. At
-      // rest the inline transform is stripped entirely — heroBurst's
-      // carrier discipline — so the untouched-stage guarantee for tiers
-      // that never build the pin also holds for a pin scrubbed back to 0.
+      // rest the inline transform is stripped entirely — the retired
+      // burst choreography's carrier discipline — so the untouched-stage
+      // guarantee for tiers that never build the pin also holds for a
+      // pin scrubbed back to 0.
       if (stage) {
         const t = Math.min(
           1,
@@ -357,10 +422,18 @@ export function createHeroPin(
     timeline?.scrollTrigger?.kill()
     timeline?.kill()
     timeline = null
-    // After the follower and timeline are dead (no more seeks), so the
-    // burst's zeroed channels and cleaned carriers are the final word.
-    burst?.dispose()
-    burst = null
+    // After the follower and timeline are dead (no more renders), strip
+    // the carriers back to bare — no inline opacity, no z-index guard —
+    // restoring the untouched-stage guarantee (and the polar sat's
+    // stacking-context-free limb clipping) for whatever mounts next.
+    carrierEls.forEach((el) => {
+      el.style.opacity = ''
+    })
+    carrierEls = []
+    if (satPolarEl) {
+      satPolarEl.style.zIndex = ''
+      satPolarEl = null
+    }
     if (stageEl) {
       stageEl.style.transform = ''
       stageEl = null

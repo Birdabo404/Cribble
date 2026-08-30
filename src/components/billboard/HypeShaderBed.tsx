@@ -33,7 +33,7 @@
 //
 // Prop changes never rebuild the renderer: props sync into refs the
 // rAF loop reads each frame. Lifecycle discipline follows Globe /
-// stylizedEarthRenderer: ResizeObserver on the host driving
+// ditherEarthRenderer: ResizeObserver on the host driving
 // setSize + uResolution, rAF cancelled while document.hidden, full
 // dispose on unmount, and the GL context force-lost only once the
 // canvas has left the DOM (a StrictMode remount reuses it).

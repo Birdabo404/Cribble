@@ -10,30 +10,23 @@ import {
 import { useTheme } from 'next-themes'
 import {
   CANVAS_BLEED,
-  createStylizedEarthRenderer,
+  createDitherEarthRenderer,
   type EarthRenderer,
   type PinScreenPosition,
   type RGB,
-} from '@/components/stylizedEarthRenderer'
+} from '@/components/ditherEarthRenderer'
 import { PILOTS } from '@/components/landing/pilots'
 import { ACCENT, accentA } from '@/lib/theme'
-import type { BurstChannels } from '@/lib/globeBurst'
 
 /**
- * Imperative handle for the pinned hero entry: the scroll-pose scrub and
- * the burst-channel attachment. Calls are safe at any lifecycle point:
- * before the WebGL renderer has initialized the values are remembered
- * and replayed on init, and after disposal calls are no-ops.
+ * Imperative handle for the pinned hero entry's scroll-pose scrub. Calls
+ * are safe at any lifecycle point: before the WebGL renderer has
+ * initialized the value is remembered and replayed on init, and after
+ * disposal calls are no-ops.
  */
 export interface GlobeHandle {
   /** 0 = resting orbit (exactly today's look), 1 = full hero push-in. */
   setScrollPose: (p: number) => void
-  /**
-   * Attaches the scroll-burst channel object (lib/globeBurst.ts). The
-   * renderer reads the live values every frame, so the choreography
-   * tweens the numbers in place; all-zero renders identical to today.
-   */
-  setBurstChannels: (channels: BurstChannels) => void
 }
 
 interface GlobeProps {
@@ -56,14 +49,14 @@ const DRAG_FOLLOW = 0.3
 const INERTIA_DAMPING = 0.94
 const MAX_FLING = 0.22
 const THEME_LERP = 0.055
-const DARK_MARKER: RGB = [0.008, 0.996, 0.004]
+const DARK_MARKER: RGB = [0.8, 1, 0] // lime #ccff00 — the hero accent
 const LIGHT_MARKER: RGB = [1, 0.37, 0]
 // How long each pilot chip stays up before cycling to the next front pin.
 const CHIP_CYCLE_MS = 4000
 // The canvas bleeds CANVAS_BLEED× past the square globe footprint (the
-// component's layout box) as an off-planet flight area for the scroll
-// burst — the renderer scales its frustum by the same factor, so the
-// resting globe renders pixel-identical to a footprint-sized canvas.
+// component's layout box) as room for the scroll push-in zoom and the
+// halftone corona — the renderer scales its frustum by the same factor,
+// so the resting globe renders pixel-identical to a footprint-sized canvas.
 // Negative offsets keep the bleed out of layout. The canvas MUST carry an
 // explicit CSS size: a replaced element with `inset` alone falls back to
 // its intrinsic (attribute) size, and since resize() writes the attributes
@@ -110,20 +103,14 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
   // and the time-driven drift (time frozen at 0 in the draw loop).
   const rendererRef = useRef<EarthRenderer | null>(null)
   const scrollPoseRef = useRef(0)
-  const burstChannelsRef = useRef<BurstChannels | null>(null)
   // One stable handle for the whole component lifetime, shared by the
   // forwarded ref and the onReady callback. It only stores/forwards a
-  // number and a reference — the existing draw loop's render() call
-  // applies the pose and reads the channels, so scrubbing them every
-  // scroll tick costs nothing extra.
+  // number — the existing draw loop's render() call applies the pose, so
+  // scrubbing it every scroll tick costs nothing extra.
   const handleRef = useRef<GlobeHandle>({
     setScrollPose: (p: number) => {
       scrollPoseRef.current = p
       rendererRef.current?.setScrollPose(p)
-    },
-    setBurstChannels: (channels: BurstChannels) => {
-      burstChannelsRef.current = channels
-      rendererRef.current?.setBurstChannels(channels)
     },
   })
 
@@ -193,7 +180,7 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
 
     setRenderStatus('loading')
 
-    void createStylizedEarthRenderer(canvas)
+    void createDitherEarthRenderer(canvas)
       .then((createdRenderer) => {
         if (disposed) {
           createdRenderer.destroy()
@@ -202,11 +189,8 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
 
         renderer = createdRenderer
         rendererRef.current = createdRenderer
-        // replay whatever pose and channels the timeline set while we loaded
+        // replay whatever pose the timeline set while we loaded
         createdRenderer.setScrollPose(scrollPoseRef.current)
-        if (burstChannelsRef.current) {
-          createdRenderer.setBurstChannels(burstChannelsRef.current)
-        }
         resizeObserver = new ResizeObserver(() => renderer?.resize())
         resizeObserver.observe(canvas)
         setRenderStatus('ready')
@@ -293,9 +277,8 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
         // begins, no globe pixel is on screen, and a full WebGL render per
         // scrolled frame down there competes directly with the descent's
         // own scroll work. The observer margin resumes it a beat before
-        // re-entry, and setScrollPose / the burst channels keep absorbing
-        // writes while parked, so the first resumed frame is already
-        // correct.
+        // re-entry, and setScrollPose keeps absorbing writes while
+        // parked, so the first resumed frame is already correct.
         const setLoopRunning = () => {
           const shouldRun = pageVisible && nearViewport && !disposed
           if (shouldRun && !loopRunning) {
@@ -384,15 +367,17 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
       className={`relative flex aspect-square w-full items-center justify-center ${className}`}
       style={{ maxWidth: size }}
     >
+      {/* CSS fallback disc — flat token-colored plate + ring, in the same
+          no-gradient language as the dithered renderer it stands in for. */}
       {renderStatus === 'fallback' && (
         <div
           aria-hidden
           className="absolute inset-[14%] rounded-full"
           style={{
-            background:
-              'radial-gradient(circle at 34% 28%, #4f9cc8 0%, #135b83 25%, #07345e 55%, #03162d 76%, #010812 100%)',
-            boxShadow:
-              '0 0 3px #9ed8ff, 0 0 18px rgb(70 150 255 / 0.75), 0 0 44px rgb(35 110 255 / 0.32)',
+            background: 'rgb(var(--star-rgb) / 0.07)',
+            border: '1px solid rgb(var(--star-rgb) / 0.35)',
+            outline: '1px dotted rgb(var(--star-rgb) / 0.18)',
+            outlineOffset: '6px',
           }}
         />
       )}
@@ -402,7 +387,7 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
           the drag start instead. */}
       <canvas
         ref={canvasRef}
-        aria-label="A stylized rotating Earth showing Cribble users worldwide"
+        aria-label="A dithered rotating Earth showing Cribble users worldwide"
         role="img"
         style={{
           position: 'absolute',

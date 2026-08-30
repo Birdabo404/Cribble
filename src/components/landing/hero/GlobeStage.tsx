@@ -51,15 +51,16 @@ export function GlobeStage({
       ref={stageRef}
       className="globe-stage relative w-full flex items-center justify-center"
     >
-      {/* data-burst carriers: the pinned entry's disassembly (hero/
-          heroBurst.ts) flings the ring, both satellites and the glow by
-          tweening these wrappers, so the CSS keyframe orbits inside keep
-          running mid-flight. Each carrier is inset-0 over the same
-          containing block as what it wraps, so the inner coordinates are
-          unchanged — and each must carry NO transform/opacity/z-index at
-          rest: any of those creates a stacking context, which would
-          flatten the polar sat's z-index limb trick below. heroBurst
-          strips its inline styles back to nothing at p = 0. */}
+      {/* data-burst carriers: the pinned entry (hero/heroPin.ts) fades the
+          rings and both satellites out by tweening these wrappers —
+          OPACITY ONLY — so the CSS keyframe orbits inside keep running
+          mid-fade. Each carrier is inset-0 over the same containing block
+          as what it wraps, so the inner coordinates are unchanged — and
+          each must carry NO transform/opacity<1/z-index at rest: any of
+          those creates a stacking context, which would flatten the polar
+          sat's z-index limb trick below. heroPin re-asserts inline
+          opacity: 1 (stacking-context-free) at p = 0 and manages the
+          polar carrier's mid-fade z-index itself. */}
 
       <div
         aria-hidden
@@ -83,23 +84,26 @@ export function GlobeStage({
         data-burst="glow"
         className="absolute inset-0 m-auto pointer-events-none"
       >
-        {/* soft blue atmospheric spill behind the Earth — sized to catch the
-            shader's exospheric haze where the canvas edge cuts it off */}
+        {/* inner concentric ring — a fine dotted circle between the planet
+            and the dashed orbit ring. The old blur glow violated the
+            renderer's no-gradient rule; the canvas's own halftone corona
+            is the atmosphere now, and this ring keeps the carrier as a
+            visible exit-tween target. */}
         <div
           aria-hidden
-          className="absolute inset-0 m-auto rounded-full blur-3xl opacity-30 pointer-events-none transition-[background] duration-700"
+          className="absolute inset-0 m-auto rounded-full pointer-events-none"
           style={{
             width: 'calc(var(--orbit) * 0.915)',
             height: 'calc(var(--orbit) * 0.915)',
-            background: 'radial-gradient(circle, rgb(var(--globe-glow-rgb) / 0.19), transparent 70%)'
+            border: '1px dotted rgb(var(--star-rgb) / 0.12)'
           }}
         />
       </div>
 
       {/* SATELLITE — sits on the top of the orbit ring; the wrapper spins
           to carry it around the dashed circle while the craft itself slowly
-          tumbles about its own axis. The burst carrier flings the whole
-          spinning assembly, so the orbit becomes a corkscrew exit. */}
+          tumbles about its own axis. The carrier fades the whole spinning
+          assembly out during the pinned entry. */}
       <div
         aria-hidden
         data-burst="sat-equatorial"
@@ -201,9 +205,6 @@ export function GlobeStage({
           to {
             transform: rotate(360deg);
           }
-        }
-        .cribble-satellite-body {
-          filter: drop-shadow(0 0 5px rgb(var(--star-rgb) / 0.45));
         }
         .cribble-satellite-beacon {
           animation: cribble-beacon 1.6s ease-in-out infinite;
@@ -562,8 +563,9 @@ export function GlobeStage({
 }
 
 function SatelliteMark() {
-  // Side-view comms satellite: long twin solar wings on booms, silver bus
-  // with a sensor strip, uplink dish, and a blinking accent beacon.
+  // Side-view comms satellite in monochrome 1-bit line art — star-rgb
+  // strokes over flat, barely-there fills so it sits inside the dithered
+  // system (no gloss, no gradients). The blinking accent beacon stays.
   return (
     <svg
       width="56"
@@ -578,14 +580,13 @@ function SatelliteMark() {
         y="7"
         width="18"
         height="8.5"
-        rx="1"
-        fill="rgb(30 64 175 / 0.92)"
-        stroke="rgb(148 163 184 / 0.95)"
+        fill="rgb(var(--star-rgb) / 0.08)"
+        stroke="rgb(var(--star-rgb) / 0.85)"
         strokeWidth="0.8"
       />
       <path
         d="M5.5 7v8.5M10 7v8.5M14.5 7v8.5M1 11.25h18"
-        stroke="rgb(191 219 254 / 0.55)"
+        stroke="rgb(var(--star-rgb) / 0.4)"
         strokeWidth="0.6"
       />
       {/* right solar wing */}
@@ -594,20 +595,19 @@ function SatelliteMark() {
         y="7"
         width="18"
         height="8.5"
-        rx="1"
-        fill="rgb(30 64 175 / 0.92)"
-        stroke="rgb(148 163 184 / 0.95)"
+        fill="rgb(var(--star-rgb) / 0.08)"
+        stroke="rgb(var(--star-rgb) / 0.85)"
         strokeWidth="0.8"
       />
       <path
         d="M41.5 7v8.5M46 7v8.5M50.5 7v8.5M37 11.25h18"
-        stroke="rgb(191 219 254 / 0.55)"
+        stroke="rgb(var(--star-rgb) / 0.4)"
         strokeWidth="0.6"
       />
       {/* wing booms */}
       <path
         d="M19 11.25h4M33 11.25h4"
-        stroke="rgb(161 161 170)"
+        stroke="rgb(var(--star-rgb) / 0.7)"
         strokeWidth="1"
       />
       {/* bus */}
@@ -616,32 +616,35 @@ function SatelliteMark() {
         y="5.5"
         width="10"
         height="11.5"
-        rx="1.8"
-        fill="#e4e4e7"
-        stroke="#3f3f46"
+        fill="rgb(var(--star-rgb) / 0.14)"
+        stroke="rgb(var(--star-rgb) / 0.9)"
         strokeWidth="0.9"
       />
       {/* sensor strip */}
-      <rect x="24.8" y="7.4" width="6.4" height="2.6" rx="0.6" fill="#27272a" />
       <rect
-        x="25.5"
-        y="8.1"
-        width="2.1"
-        height="1.2"
-        rx="0.3"
-        fill="rgb(56 189 248 / 0.85)"
+        x="24.8"
+        y="7.4"
+        width="6.4"
+        height="2.6"
+        fill="none"
+        stroke="rgb(var(--star-rgb) / 0.55)"
+        strokeWidth="0.6"
       />
       {/* uplink dish */}
-      <path d="M28 5.5V2.9" stroke="#a1a1aa" strokeWidth="0.9" />
+      <path
+        d="M28 5.5V2.9"
+        stroke="rgb(var(--star-rgb) / 0.7)"
+        strokeWidth="0.9"
+      />
       <circle
         cx="28"
         cy="2.2"
         r="1.5"
-        fill="#f4f4f5"
-        stroke="#52525b"
+        fill="none"
+        stroke="rgb(var(--star-rgb) / 0.85)"
         strokeWidth="0.7"
       />
-      <circle cx="28" cy="2.2" r="0.45" fill="#52525b" />
+      <circle cx="28" cy="2.2" r="0.45" fill="rgb(var(--star-rgb) / 0.85)" />
       {/* status beacon */}
       <circle
         className="cribble-satellite-beacon"

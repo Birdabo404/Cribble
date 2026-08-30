@@ -197,11 +197,14 @@ describe('middleware site lock', () => {
 
   it('serves the landing globe assets while locked', () => {
     vi.stubEnv('SITE_LOCKED', '1')
-    // The stylized globe on / builds from runtime fetches — if these rewrite
-    // to /maintenance, production renders a bare ocean ball.
+    // The dithered globe on / bakes its land/city mask from a runtime
+    // GeoJSON fetch — if it rewrites to /maintenance, production renders
+    // the CSS fallback disc instead of the planet.
     expect(rewriteTarget('/geo/countries-110m.geojson')).toBeNull()
-    expect(rewriteTarget('/models/clouds-puffy.glb')).toBeNull()
     expect(middleware(request('/geo/countries-110m.geojson')).status).toBe(200)
+    // The GLB prop models retired with the old renderer — .glb no longer
+    // rides the static-asset allowance.
+    expect(rewriteTarget('/models/clouds-puffy.glb')).toBe('/maintenance')
   })
 
   it('walls /shop /bag /settings behind sign-in while locked', () => {
