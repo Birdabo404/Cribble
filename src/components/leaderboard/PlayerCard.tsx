@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import AnimatedCounter from '@/components/AnimatedCounter'
 import { PixelIcon } from '@/components/achievements/PixelIcon'
@@ -33,10 +34,12 @@ import {
   IconCrown,
   IconExpand,
   IconLock,
+  IconShare,
   IconTarget,
   MoveGlyph,
   ToolIcon
 } from './icons'
+import type { ShareCardData } from './share/ShareCard'
 import {
   medalA,
   medalFor,
@@ -64,6 +67,12 @@ export interface ChaseInfo {
 
 const CLOSE_MS = 220
 
+// Lazy: keeps html-to-image + qrcode out of the leaderboard bundle until
+// someone actually opens the share sheet.
+const ShareSheet = dynamic(() => import('./share/ShareSheet').then((m) => m.ShareSheet), {
+  ssr: false
+})
+
 export function PlayerCard({
   row,
   isYou,
@@ -78,6 +87,7 @@ export function PlayerCard({
   const [profile, setProfile] = useState<PlayerProfile | null>(null)
   const [profileFailed, setProfileFailed] = useState(false)
   const [closing, setClosing] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
   const tiltRef = useRef<HTMLDivElement>(null)
 
   // Latest onClose without re-wiring listeners when the parent re-renders.
@@ -218,6 +228,25 @@ export function PlayerCard({
 
   const isPrivateAccount = profile?.isPrivate === true
 
+  // ---- share card mapping --------------------------------------------
+  // viewer is non-null exactly when the profile request carried a valid
+  // session; before hydration the sheet stays optimistic and degrades on
+  // a failed referral fetch.
+  const shareSignedIn = profile ? profile.viewer != null : true
+  const shareData: ShareCardData = {
+    username: row.username,
+    displayName: row.display_name || null,
+    profileImage: row.profile_image,
+    rank: row.rank,
+    score: row.score,
+    todayScore,
+    weekScore,
+    topTools: tools,
+    badges: badges ?? [],
+    memberSince: profile?.memberSince ?? row.memberSince ?? null,
+    isTeam: squareAvatar
+  }
+
   const handleFollowChange = useCallback(
     (change: FollowChange) => {
       setProfile((p) => {
@@ -346,6 +375,19 @@ export function PlayerCard({
             </div>
 
             <div className="absolute right-3 top-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShareOpen(true)}
+                aria-label="Share card"
+                title="Share card"
+                className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-300 transition-colors hover:text-zinc-50 sm:h-8 sm:w-8"
+                style={{
+                  background: 'rgb(0 0 0 / 0.55)',
+                  border: '1px solid rgb(255 255 255 / 0.14)'
+                }}
+              >
+                <IconShare size={14} />
+              </button>
               <Link
                 href={`/u/${encodeURIComponent(row.username)}`}
                 aria-label="Open full profile"
@@ -781,6 +823,16 @@ export function PlayerCard({
 
         </div>
       </div>
+
+      {shareOpen && (
+        <ShareSheet
+          data={shareData}
+          variant="medal"
+          isYou={isYou}
+          signedIn={shareSignedIn}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
 
       <style jsx global>{`
         .pc-backdrop {

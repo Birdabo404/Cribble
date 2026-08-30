@@ -1,5 +1,6 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -23,13 +24,20 @@ import {
   type TokenBoardRow
 } from '@/lib/tokenLeaderboard'
 import { Avatar, SafeBannerImg } from './Avatar'
-import { IconClose, IconCrown, IconExpand, IconFlame } from './icons'
+import { IconClose, IconCrown, IconExpand, IconFlame, IconShare } from './icons'
+import type { ShareCardData } from './share/ShareCard'
 import { SocialLinkRow } from './SocialLinkRow'
 import { TokenAgentIcon } from './TokenAgentIcon'
 import { personaChipScrimStyle, tokenPersonaVisual } from './tokenPersonaVisual'
 import { medalA, medalFor, type PlayerProfile } from './types'
 
 const CLOSE_MS = 220
+
+// Lazy: keeps html-to-image + qrcode out of the leaderboard bundle until
+// someone actually opens the share sheet.
+const ShareSheet = dynamic(() => import('./share/ShareSheet').then((m) => m.ShareSheet), {
+  ssr: false
+})
 
 function UsdValue({ value }: { value: string }) {
   const display = usdDisplayParts(value)
@@ -60,6 +68,7 @@ export function TokenPlayerCard({
 }) {
   const [profile, setProfile] = useState<PlayerProfile | null>(null)
   const [closing, setClosing] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
   const tiltRef = useRef<HTMLDivElement>(null)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
@@ -180,6 +189,40 @@ export function TokenPlayerCard({
   const isTeam = profile?.isTeam === true
   const avatarShape = isTeam ? 'rounded-xl' : 'rounded-full'
 
+  // ---- share card mapping --------------------------------------------
+  // viewer is non-null exactly when the profile request carried a valid
+  // session; before hydration the sheet stays optimistic and degrades on
+  // a failed referral fetch.
+  const shareSignedIn = profile ? profile.viewer != null : true
+  const shareData: ShareCardData = {
+    username: row.username,
+    displayName: row.displayName || null,
+    profileImage: row.profileImage,
+    rank: row.rank,
+    score: safeTotalTokens ?? decimalToApproxNumber(row.totalTokens),
+    todayScore: 0,
+    weekScore: 0,
+    topTools: row.agentBreakdown.map((item) => ({
+      name: tokenAgentLabel(item.name) ?? item.name,
+      percent: Math.round(exactRatioPercent(item.totalTokens, row.totalTokens))
+    })),
+    badges: [],
+    memberSince: profile?.memberSince ?? null,
+    isTeam,
+    scoreLabel: `TOKENS BURNED · ${windowLabel}`,
+    burn: {
+      estCostUsd: row.burnUsd,
+      inputTokens: row.inputTokens,
+      outputTokens: row.outputTokens,
+      cacheTokens: row.cacheTokens,
+      totalTokens: row.totalTokens,
+      activeDays: row.activeDays > 0 ? row.activeDays : null,
+      topAgent: row.topAgent,
+      topModel,
+      tokenSharePercent: shareKnown ? primaryTokenShare : null
+    }
+  }
+
   return createPortal(
     <div
       className="tpc-root fixed inset-0 z-[75] flex items-end justify-center p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] font-mono sm:items-center sm:p-6"
@@ -262,6 +305,16 @@ export function TokenPlayerCard({
             </div>
 
             <div className="absolute right-3 top-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShareOpen(true)}
+                aria-label="Share card"
+                title="Share card"
+                className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-300 transition-colors hover:text-white sm:h-8 sm:w-8"
+                style={{ background: 'rgb(0 0 0 / 0.58)', border: '1px solid rgb(255 255 255 / 0.14)' }}
+              >
+                <IconShare size={14} />
+              </button>
               <Link
                 href={`/u/${encodeURIComponent(row.username)}`}
                 aria-label="Open full profile"
@@ -537,6 +590,16 @@ export function TokenPlayerCard({
           </div>
         </div>
       </div>
+
+      {shareOpen && (
+        <ShareSheet
+          data={shareData}
+          variant="ember"
+          isYou={isYou}
+          signedIn={shareSignedIn}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
 
       <style jsx global>{`
         .tpc-backdrop {
