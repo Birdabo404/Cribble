@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { ImageResponse } from 'next/og'
 import { inviteKeyCells, normalizeInviteCode } from '@/lib/inviteCodes'
+import { createServiceClient } from '@/lib/supabaseServer'
+import { loadInviteLinkState } from '@/lib/inviteLinkState'
 
 // Share card for /join/CODE — the unfurl crawlers actually render.
 // A full-bleed Cribble gate pass: lime spine, the login key cells in a
@@ -9,7 +11,7 @@ import { inviteKeyCells, normalizeInviteCode } from '@/lib/inviteCodes'
 // cannot read CSS variables, so lime is the literal --ref-lime
 // (252 255 0) from globals.css.
 
-export const alt = "You're Invited! Join Cribble, the AI coding leaderboard."
+export const alt = 'Check a Cribble invite link.'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
@@ -89,8 +91,14 @@ export default async function OpengraphImage({
 }) {
   const { code } = await params
   const normalized = normalizeInviteCode(code || '')
-  const cells = inviteKeyCells(normalized)
-  const serial = cells ? `${cells.slice(0, 4).join('')}-${cells.slice(4).join('')}` : normalized
+  let valid = false
+  try {
+    valid = (await loadInviteLinkState(createServiceClient(), normalized)).status === 'valid'
+  } catch {
+    valid = false
+  }
+  const cells = valid ? inviteKeyCells(normalized) : null
+  const serial = cells ? `${cells.slice(0, 4).join('')}-${cells.slice(4).join('')}` : 'NOT DISPLAYED'
   const [pixelFont, monoFont, mark] = await Promise.all([
     loadOptional(PIXEL_FONT_PATH),
     loadOptional(MONO_FONT_PATH),
@@ -245,7 +253,7 @@ export default async function OpengraphImage({
                   ...monoFamily
                 }}
               >
-                RECRUIT A PILOT
+                {valid ? 'INVITE VERIFIED' : 'INVITE CHECK'}
               </div>
             </div>
 
@@ -292,7 +300,7 @@ export default async function OpengraphImage({
                 ...pixelFamily
               }}
             >
-              {"YOU'RE"}
+              {valid ? "YOU'RE" : 'VERIFY'}
             </div>
             <div
               style={{
@@ -305,7 +313,7 @@ export default async function OpengraphImage({
                 ...pixelFamily
               }}
             >
-              INVITED!
+              {valid ? 'INVITED!' : 'INVITE'}
             </div>
             <div
               style={{
@@ -316,7 +324,7 @@ export default async function OpengraphImage({
                 ...monoFamily
               }}
             >
-              this key skips the gate — the board is open
+              {valid ? 'this key skips the gate — the board is open' : 'open the link to check its status'}
             </div>
           </div>
 
