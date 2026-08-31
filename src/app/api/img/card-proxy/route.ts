@@ -123,6 +123,7 @@ export async function GET(request: NextRequest) {
     }
 
     return new NextResponse(body, {
+      status: 200,
       headers: {
         'Content-Type': contentType,
         'Cache-Control': 'public, max-age=86400, immutable',

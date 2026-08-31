@@ -194,6 +194,7 @@ export function ShareSheet({
   // the monogram, never to a locked sheet.
   const [ready, setReady] = useState(false)
   const expectQr = referral !== null
+  const nativeShare = prefersNativeShare()
 
   useEffect(() => {
     if (!referralSettled) {
@@ -306,12 +307,25 @@ export function ShareSheet({
     []
   )
 
+  // Copy and download use the same PNG. Keep the first successful render
+  // so a user doing both does not wait for the expensive 4K pass twice.
+  const fullSizePngRef = useRef<Blob | null>(null)
+  useEffect(() => {
+    fullSizePngRef.current = null
+  }, [data, variant, referral])
+  const captureFullSizePng = useCallback(async () => {
+    if (fullSizePngRef.current) return fullSizePngRef.current
+    const png = await captureCard('image/png')
+    fullSizePngRef.current = png
+    return png
+  }, [captureCard])
+
   // Pack the X-sized PNG in the background once the card is READY so
   // POST ON X can copy it inside the click (composer already opened).
   const xImageRef = useRef<Blob | null>(null)
   const [xPacked, setXPacked] = useState(false)
   useEffect(() => {
-    if (!ready) {
+    if (!ready || nativeShare) {
       xImageRef.current = null
       setXPacked(false)
       return
@@ -335,7 +349,7 @@ export function ShareSheet({
     return () => {
       cancelled = true
     }
-  }, [ready])
+  }, [ready, nativeShare])
 
   const beginAction = useCallback(
     (action: Exclude<BusyAction, null>) => {
@@ -405,7 +419,8 @@ export function ShareSheet({
           showStatus('CARD DOWNLOADED — ATTACH IT TO YOUR POST')
         }
       }
-    } catch {
+    } catch (error) {
+      console.error('[ShareCard] POST ON X capture failed:', error)
       showStatus('CAPTURE FAILED — TRY AGAIN', 3200)
     } finally {
       endAction()
@@ -415,7 +430,7 @@ export function ShareSheet({
   const handleCopy = useCallback(async () => {
     if (!beginAction('copy')) return
     try {
-      const png = await captureCard('image/png')
+      const png = await captureFullSizePng()
       const copied = await copyBlobToClipboard(png)
       if (copied) {
         showStatus('COPIED', 2000)
@@ -423,31 +438,35 @@ export function ShareSheet({
         downloadBlob(png, shareFilename(data.username, data.rank, 'png'))
         showStatus('CLIPBOARD UNAVAILABLE — CARD DOWNLOADED', 3200)
       }
-    } catch {
+    } catch (error) {
+      console.error('[ShareCard] clipboard capture failed:', error)
       showStatus('CAPTURE FAILED — TRY AGAIN', 3200)
     } finally {
       endAction()
     }
-  }, [beginAction, endAction, captureCard, data.username, data.rank, showStatus])
+  }, [beginAction, endAction, captureFullSizePng, data.username, data.rank, showStatus])
 
   const handleDownload = useCallback(async () => {
     if (!beginAction('download')) return
     try {
-      const png = await captureCard('image/png')
+      const png = await captureFullSizePng()
       downloadBlob(png, shareFilename(data.username, data.rank, 'png'))
       showStatus('CARD SAVED', 2200)
-    } catch {
+    } catch (error) {
+      console.error('[ShareCard] download capture failed:', error)
       showStatus('CAPTURE FAILED — TRY AGAIN', 3200)
     } finally {
       endAction()
     }
-  }, [beginAction, endAction, captureCard, data.username, data.rank, showStatus])
+  }, [beginAction, endAction, captureFullSizePng, data.username, data.rank, showStatus])
 
   if (typeof document === 'undefined') return null
 
-  const actionsDisabled = !ready || busy !== null
-  const nativeShare = prefersNativeShare()
-  const postDisabled = actionsDisabled || (!nativeShare && !xPacked)
+  // Avoid running the 2x X prepack and a 4K action concurrently. Besides
+  // wasting work, two large canvases at once can exceed the browser's
+  // memory budget and turn a valid capture into a sporadic failure.
+  const actionsDisabled = !ready || busy !== null || (!nativeShare && !xPacked)
+  const postDisabled = actionsDisabled
   const printW = sharePixelRatio() * SHARE_CARD_WIDTH
   const printH = sharePixelRatio() * SHARE_CARD_HEIGHT
 

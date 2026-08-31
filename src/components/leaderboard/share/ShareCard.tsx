@@ -196,8 +196,10 @@ const themeFor = (variant: ShareCardVariant, rank: number): CardTheme => {
 // ---------------------------------------------------------------------
 
 /** Remote avatars go through the same-origin proxy so the capture canvas
- *  is never CORS-tainted. */
-const proxied = (src: string) => `/api/img/card-proxy?u=${encodeURIComponent(src)}`
+ *  is never CORS-tainted. `v` clears the CDN's previously cached locked
+ *  response without changing the upstream image URL. */
+const proxied = (src: string) =>
+  `/api/img/card-proxy?u=${encodeURIComponent(src)}&v=2`
 
 /** twimg stores multiple sizes; OAuth persists the blurry 48px `_normal`
  *  variant — swap in the 400px one (same upgrade as leaderboard/Avatar). */

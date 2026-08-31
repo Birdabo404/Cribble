@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { shareTweetText } from './shareTweetText'
 
 const LINK = 'https://cribble.dev/join/CRIB-K4T9-XR27'
+const UNFURL = `${LINK}?v=card`
 
 describe('shareTweetText', () => {
   it('lays out own medal cards as rank hashtag, quoted pts, cta, link', () => {
@@ -15,7 +16,7 @@ describe('shareTweetText', () => {
         link: LINK
       })
     ).toBe(
-      `#13 on cribble\n\n> 1,231 pts\n\njoin me. outrank me.\n${LINK}`
+      `#13 on cribble\n\n> 1,231 pts\n\njoin me. outrank me.\n${UNFURL}`
     )
   })
 
@@ -31,7 +32,7 @@ describe('shareTweetText', () => {
     expect(text.startsWith('#4 @ziad on cribble\n')).toBe(true)
     expect(text).toContain('> 88,000 pts')
     expect(text).toContain('join me. get on the board.')
-    expect(text.endsWith(LINK)).toBe(true)
+    expect(text.endsWith(UNFURL)).toBe(true)
   })
 
   it('uses the burn CTA and quoted token line on own ember cards', () => {
@@ -47,7 +48,7 @@ describe('shareTweetText', () => {
         link: LINK
       })
     ).toBe(
-      `#2 on cribble's burn board\n\n> 112B tokens torched · $86,701\n\njoin me. burn whatever.\n${LINK}`
+      `#2 on cribble's burn board\n\n> 112B tokens torched · $86,701\n\njoin me. burn whatever.\n${UNFURL}`
     )
   })
 
@@ -65,5 +66,6 @@ describe('shareTweetText', () => {
     expect(noCost).not.toContain('$')
     expect(noCost).toContain('join me. burn with us.')
     expect(noCost.startsWith('#9 @pilot on cribble\'s burn board\n')).toBe(true)
+    expect(noCost.endsWith(UNFURL)).toBe(true)
   })
 })

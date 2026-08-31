@@ -19,6 +19,21 @@ export interface ShareTweetOpts {
   costUsd?: string | null
 }
 
+/**
+ * X caches unfurls by exact URL and does not recrawl. Join links were
+ * already posted as the generic gate pass, so a stable extra query makes
+ * the next share a new page for the crawler (same invite, fresh card).
+ */
+export function shareUnfurlUrl(link: string): string {
+  try {
+    const url = new URL(link)
+    if (!url.searchParams.has('v')) url.searchParams.set('v', 'card')
+    return url.toString()
+  } catch {
+    return link
+  }
+}
+
 function emberQuote(score: number, totalTokens?: string | null, costUsd?: string | null): string {
   const tokens = totalTokens
     ? `${formatCompactTokenCount(totalTokens)} tokens torched`
@@ -39,7 +54,8 @@ function emberQuote(score: number, totalTokens?: string | null, costUsd?: string
  *   {link}
  */
 export function shareTweetText(opts: ShareTweetOpts): string {
-  const { variant, isOwn, username, rank, score, link, totalTokens, costUsd } = opts
+  const { variant, isOwn, username, rank, score, totalTokens, costUsd } = opts
+  const link = shareUnfurlUrl(opts.link)
   const who = isOwn ? '' : `@${username} `
   switch (variant) {
     case 'medal':

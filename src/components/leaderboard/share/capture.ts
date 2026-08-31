@@ -5,7 +5,7 @@
 // consumers must call these client-side (the module is meant to be
 // lazy-loaded alongside the ShareSheet).
 
-import { toBlob, toCanvas } from 'html-to-image'
+import { toCanvas } from 'html-to-image'
 
 export interface CaptureOptions {
   pixelRatio: number
@@ -23,6 +23,8 @@ export interface CaptureOptions {
 // and keep only the final pass — the early passes warm the caches.
 // Cheap insurance on other browsers too, hence no UA gate.
 const WARMUP_PASSES = 2
+const TRANSPARENT_IMAGE_PLACEHOLDER =
+  'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
 /**
  * Render `el` to an image blob at `pixelRatio` scale. Warm-up passes
@@ -34,18 +36,42 @@ export async function captureElementToBlob(
   el: HTMLElement,
   opts: CaptureOptions
 ): Promise<Blob> {
-  const options = {
-    pixelRatio: opts.pixelRatio,
-    type: opts.type,
-    quality: opts.quality
+  const render = async (pixelRatio: number, warmup: number): Promise<Blob> => {
+    const options = {
+      pixelRatio,
+      type: opts.type,
+      quality: opts.quality,
+      // A stale avatar must not take down the whole card. ShareCard normally
+      // swaps it for a monogram first; this is the final race/network guard.
+      imagePlaceholder: TRANSPARENT_IMAGE_PLACEHOLDER,
+      // Every avatar uses the same proxy path with its actual URL in `u`.
+      // html-to-image otherwise strips the query and can reuse another
+      // user's image (or a cached failure) for the rest of the session.
+      includeQueryParams: true
+    }
+    for (let pass = 0; pass < warmup; pass++) {
+      // Warm only the resource/font caches at 1x. Rendering throwaway 4x
+      // canvases tripled memory use and made every action needlessly slow.
+      await toCanvas(el, { ...options, pixelRatio: 1 })
+    }
+    const canvas = await toCanvas(el, options)
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, opts.type, opts.quality)
+    })
+    if (!blob) throw new Error('Capture produced no image')
+    return blob
   }
-  const warmup = opts.warmupPasses ?? WARMUP_PASSES
-  for (let pass = 0; pass < warmup; pass++) {
-    await toCanvas(el, options)
+
+  try {
+    return await render(opts.pixelRatio, opts.warmupPasses ?? WARMUP_PASSES)
+  } catch (error) {
+    // Canvas and data-URL ceilings vary by browser and available memory.
+    // Preserve the action at the next useful scale instead of making all
+    // three delivery buttons fail together.
+    const fallbackRatio = opts.pixelRatio > 3 ? 3 : opts.pixelRatio > 2 ? 2 : null
+    if (fallbackRatio === null) throw error
+    return render(fallbackRatio, 0)
   }
-  const blob = await toBlob(el, options)
-  if (!blob) throw new Error('Capture produced no image')
-  return blob
 }
 
 // iPadOS 13+ masquerades as macOS, so UA alone misses it — a
@@ -58,14 +84,19 @@ function isIOS(): boolean {
   )
 }
 
+function isSafari(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent
+  return /Safari\//.test(ua) && !/(?:Chrome|Chromium|CriOS|Edg|OPR|FxiOS)\//.test(ua)
+}
+
 /**
  * Export scale for the 1080x1350 card. 4x (4320x5400 = 23.3MP) blows
- * past Safari's ~16.7MP canvas area limit on iOS/iPadOS, so those
- * devices drop to 3x (3240x4050 = 13.1MP) — the long edge still
- * clears 4K (3840).
+ * past Safari's ~16.7MP canvas area limit, so WebKit devices drop to
+ * 3x (3240x4050 = 13.1MP) — the long edge still clears 4K (3840).
  */
 export function sharePixelRatio(): number {
-  return isIOS() ? 3 : 4
+  return isIOS() || isSafari() ? 3 : 4
 }
 
 /** Pixel ratio for images destined for X. A 4K PNG is ~11MB — over X's

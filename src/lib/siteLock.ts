@@ -84,6 +84,10 @@ export function isAllowedDuringLock(pathname: string, hasSession = false): boole
   if (/^\/api\/feedback\/?$/.test(pathname)) return true
   if (pathname.startsWith('/api/profile/')) return true
   if (pathname === '/api/leaderboard' || pathname.startsWith('/api/leaderboard/')) return true
+  // ShareCard renders remote avatars through this same-origin proxy.
+  // Blocking it while /leaderboard remains public makes html-to-image
+  // reject the entire card, breaking copy, download, and POST ON X.
+  if (/^\/api\/img\/card-proxy\/?$/.test(pathname)) return true
   if (pathname.startsWith('/api/extension/')) return true
   // Extension reconcile polling (GET /api/device/verify) must keep working
   // while the site is locked, same as the /api/extension/* sync path.

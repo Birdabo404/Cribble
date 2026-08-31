@@ -128,6 +128,13 @@ describe('middleware site lock', () => {
     expect(middleware(request('/api/shop/checkout')).status).toBe(404)
   })
 
+  it('keeps only the share-card image proxy reachable while locked', () => {
+    vi.stubEnv('SITE_LOCKED', '1')
+    expect(middleware(request('/api/img/card-proxy')).status).toBe(200)
+    expect(middleware(request('/api/img/card-proxy/')).status).toBe(200)
+    expect(middleware(request('/api/img/private')).status).toBe(404)
+  })
+
   it('keeps operational cron routes reachable while locked', () => {
     vi.stubEnv('SITE_LOCKED', '1')
     expect(middleware(request('/api/cron/season')).status).toBe(200)
