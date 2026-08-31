@@ -6,19 +6,19 @@
 // /api/analytics/tracker (bounded GoatCounter snapshot). A single
 // outbound link remains for the canonical tracker.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import AnimatedCounter from '@/components/AnimatedCounter'
 import { IconGoatCounter } from '@/components/analytics/IconGoatCounter'
 import { formatNumber } from '@/components/dashboard-v2/format'
 import { goatcounterStatsUrl } from '@/lib/goatcounterPublic'
-import type { TrackerPage } from '@/lib/goatcounterStats'
+import { parseTrackerApiSnapshot, type TrackerStats } from '@/lib/goatcounterStats'
 
 const POLL_MS = 30_000
 const STATS_URL = goatcounterStatsUrl()
 
 type Pulse = { live: number; last12h: number }
-type Tracker = { periodVisits: number; pages: TrackerPage[] }
+type Tracker = Pick<TrackerStats, 'periodVisits' | 'pages'>
 
 function Sep() {
   return (
@@ -94,6 +94,7 @@ function StatsPopup({
           </div>
           <button
             type="button"
+            autoFocus
             onClick={onClose}
             className="text-zinc-500 transition-colors hover:text-zinc-200"
             aria-label="Close"
@@ -187,6 +188,12 @@ export function VisitorTicker() {
   const [tracker, setTracker] = useState<Tracker | null>(null)
   const [trackerError, setTrackerError] = useState(false)
   const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+
+  const closeStats = useCallback(() => {
+    setOpen(false)
+    requestAnimationFrame(() => triggerRef.current?.focus())
+  }, [])
 
   const loadPulse = useCallback(async () => {
     try {
@@ -207,33 +214,16 @@ export function VisitorTicker() {
     try {
       const res = await fetch('/api/analytics/tracker', { cache: 'no-store' })
       const data: unknown = await res.json().catch(() => null)
-      if (!res.ok || !data || typeof data !== 'object') {
-        setTrackerError(true)
-        return
-      }
-      const rec = data as Record<string, unknown>
-      if (rec.success !== true || rec.schemaVersion !== 1) {
-        setTrackerError(true)
-        return
-      }
-      if (typeof rec.periodVisits !== 'number' || !Array.isArray(rec.pages)) {
-        setTrackerError(true)
-        return
-      }
-      const pages: TrackerPage[] = []
-      for (const row of rec.pages) {
-        if (!row || typeof row !== 'object') continue
-        const item = row as Record<string, unknown>
-        if (typeof item.path !== 'string' || typeof item.count !== 'number') continue
-        pages.push({ path: item.path, count: item.count })
-      }
-      if (pages.length === 0) {
+      const snapshot = res.ok ? parseTrackerApiSnapshot(data) : null
+      if (!snapshot) {
+        setTracker(null)
         setTrackerError(true)
         return
       }
       setTrackerError(false)
-      setTracker({ periodVisits: rec.periodVisits, pages })
+      setTracker({ periodVisits: snapshot.periodVisits, pages: snapshot.pages })
     } catch {
+      setTracker(null)
       setTrackerError(true)
     }
   }, [])
@@ -272,6 +262,7 @@ export function VisitorTicker() {
   return (
     <div className="mt-5 flex justify-center px-1">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
@@ -307,7 +298,7 @@ export function VisitorTicker() {
           pulse={pulse}
           tracker={tracker}
           trackerError={trackerError}
-          onClose={() => setOpen(false)}
+          onClose={closeStats}
         />
       )}
     </div>

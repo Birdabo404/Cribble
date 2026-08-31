@@ -31,18 +31,88 @@ function decodeEntities(value: string): string {
 }
 
 function parseNonNegInt(raw: string): number | null {
-  const digits = raw.replace(/[^\d]/g, '')
-  if (!digits) return null
+  const digits = raw.trim().replace(/[\s,.\u00a0_]/g, '')
+  if (!/^\d+$/.test(digits)) return null
   const n = Number(digits)
   if (!Number.isSafeInteger(n) || n < 0) return null
   return n
 }
 
-function isSafePath(path: string): boolean {
-  if (!path.startsWith('/')) return false
-  if (path.length > TRACKER_PATH_MAX) return false
-  if (path.includes('\n') || path.includes('\r') || path.includes('\0')) return false
-  return true
+export async function readResponseTextBounded(
+  response: Response,
+  maxBytes = TRACKER_MAX_HTML_BYTES
+): Promise<string> {
+  const advertisedLength = response.headers.get('content-length')
+  if (advertisedLength !== null) {
+    if (!/^\d+$/.test(advertisedLength) || Number(advertisedLength) > maxBytes) {
+      throw new Error('Tracker payload too large')
+    }
+  }
+
+  if (!response.body) throw new Error('Tracker response body missing')
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    totalBytes += value.byteLength
+    if (totalBytes > maxBytes) {
+      await reader.cancel().catch(() => undefined)
+      throw new Error('Tracker payload too large')
+    }
+    chunks.push(value)
+  }
+
+  const bytes = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+}
+
+function canonicalPublicPath(rawPath: string): string | null {
+  const path = rawPath.split(/[?#]/, 1)[0]
+  if (!path.startsWith('/') || path.startsWith('//')) return null
+  if (path.length > TRACKER_PATH_MAX) return null
+  // Referral codes are bearer-like values. Preserve the route shape, never the code.
+  if (/^\/join\/[^/]+\/?$/.test(path)) return '/join/[code]'
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(path)) return null
+  return path
+}
+
+export function parseTrackerApiSnapshot(input: unknown): TrackerStats | null {
+  if (!input || typeof input !== 'object') return null
+  const record = input as Record<string, unknown>
+  if (record.success !== true || record.schemaVersion !== TRACKER_STATS_SCHEMA_VERSION) return null
+  if (!Number.isSafeInteger(record.periodVisits) || (record.periodVisits as number) < 0) return null
+  if (!Number.isSafeInteger(record.pagesShown)) return null
+  if (!Array.isArray(record.pages) || record.pages.length === 0) return null
+  if (record.pages.length > TRACKER_MAX_PAGES || record.pagesShown !== record.pages.length) return null
+
+  const seen = new Set<string>()
+  const pages: TrackerPage[] = []
+  for (const item of record.pages) {
+    if (!item || typeof item !== 'object') return null
+    const row = item as Record<string, unknown>
+    if (typeof row.path !== 'string' || canonicalPublicPath(row.path) !== row.path) return null
+    if (!Number.isSafeInteger(row.count) || (row.count as number) < 0) return null
+    if (seen.has(row.path)) return null
+    seen.add(row.path)
+    pages.push({ path: row.path, count: row.count as number })
+  }
+
+  return {
+    schemaVersion: TRACKER_STATS_SCHEMA_VERSION,
+    periodVisits: record.periodVisits as number,
+    pagesShown: pages.length,
+    pages
+  }
 }
 
 /**
@@ -57,16 +127,22 @@ export function parseGoatcounterDashboard(html: string): TrackerStats | null {
   const periodVisits = parseNonNegInt(decodeEntities(totalMatch[1]))
   if (periodVisits === null) return null
 
-  const pages: TrackerPage[] = []
+  const pageCounts = new Map<string, number>()
   const rowRe = /<tr id="([^"]+)" data-id="\d+" data-count="(\d+)"/g
   let match: RegExpExecArray | null
   while ((match = rowRe.exec(html)) !== null) {
-    const path = decodeEntities(match[1])
+    const path = canonicalPublicPath(decodeEntities(match[1]))
     const count = parseNonNegInt(match[2])
-    if (count === null || !isSafePath(path)) continue
-    pages.push({ path, count })
-    if (pages.length >= TRACKER_MAX_PAGES) break
+    if (count === null || path === null) continue
+    const aggregate = (pageCounts.get(path) ?? 0) + count
+    if (!Number.isSafeInteger(aggregate)) return null
+    pageCounts.set(path, aggregate)
   }
+
+  const pages = [...pageCounts.entries()]
+    .map(([path, count]) => ({ path, count }))
+    .sort((a, b) => b.count - a.count || a.path.localeCompare(b.path))
+    .slice(0, TRACKER_MAX_PAGES)
 
   if (pages.length === 0) return null
 

@@ -3,9 +3,9 @@ import { NextResponse } from 'next/server'
 import { goatcounterStatsUrl } from '@/lib/goatcounterPublic'
 import {
   TRACKER_FETCH_MS,
-  TRACKER_MAX_HTML_BYTES,
   TRACKER_STATS_SCHEMA_VERSION,
-  parseGoatcounterDashboard
+  parseGoatcounterDashboard,
+  readResponseTextBounded
 } from '@/lib/goatcounterStats'
 
 // Public tracker snapshot for the leaderboard stats popup. Same cache
@@ -29,10 +29,7 @@ const loadTrackerStats = unstable_cache(
         redirect: 'error'
       })
       if (!res.ok) throw new Error(`Tracker HTTP ${res.status}`)
-      const length = Number(res.headers.get('content-length') || '0')
-      if (length > TRACKER_MAX_HTML_BYTES) throw new Error('Tracker payload too large')
-      const html = await res.text()
-      if (html.length > TRACKER_MAX_HTML_BYTES) throw new Error('Tracker payload too large')
+      const html = await readResponseTextBounded(res)
       const stats = parseGoatcounterDashboard(html)
       if (!stats) throw new Error('Tracker snapshot unreadable')
       return stats
@@ -48,7 +45,7 @@ export async function GET() {
   try {
     const stats = await loadTrackerStats()
     return NextResponse.json(
-      { success: true, schemaVersion: TRACKER_STATS_SCHEMA_VERSION, ...stats },
+      { success: true, ...stats },
       {
         headers: {
           'Cache-Control': `public, s-maxage=${REVALIDATE_SECONDS}, stale-while-revalidate=${REVALIDATE_SECONDS * 2}`
