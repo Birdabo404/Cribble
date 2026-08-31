@@ -12,6 +12,7 @@ import { formatNumber } from '@/components/dashboard-v2/format'
 import { goatcounterStatsUrl } from '@/lib/goatcounterPublic'
 import { parseTrackerApiSnapshot, type TrackerStats } from '@/lib/goatcounterStats'
 import {
+  isArenaStatsShellAnimationEnd,
   nextArenaStatsPhase,
   parseVisitorPulseJson,
   type ArenaStatsPhase,
@@ -120,6 +121,16 @@ export function VisitorTicker() {
   }, [phase, loadTracker])
 
   useEffect(() => {
+    if (phase !== 'closing') return
+    const reduced =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (!reduced) return
+    setPhase((p) => nextArenaStatsPhase(p, 'settled'))
+    requestAnimationFrame(() => triggerRef.current?.focus())
+  }, [phase])
+
+  useEffect(() => {
     if (phase !== 'open') return
     const onPointer = (e: PointerEvent) => {
       const el = shellRef.current
@@ -156,7 +167,8 @@ export function VisitorTicker() {
           phase === 'closed' ? 'rounded-full' : 'rounded-2xl'
         }`}
         data-phase={phase}
-        onAnimationEnd={() => {
+        onAnimationEnd={(e) => {
+          if (!isArenaStatsShellAnimationEnd(e)) return
           setPhase((p) => nextArenaStatsPhase(p, 'settled'))
           if (phase === 'closing') requestAnimationFrame(() => triggerRef.current?.focus())
         }}

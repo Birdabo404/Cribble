@@ -54,3 +54,13 @@ export function nextArenaStatsPhase(
   if (event === 'settled') return phase === 'closing' ? 'closed' : phase
   return phase
 }
+
+/** Shell-only: child animationend (e.g. AnimatedCounter 900ms) must not abort collapse. */
+export function isArenaStatsShellAnimationEnd(e: {
+  target: EventTarget | null
+  currentTarget: EventTarget | null
+  animationName: string
+}): boolean {
+  if (e.target !== e.currentTarget) return false
+  return e.animationName === 'arena-stats-expand' || e.animationName === 'arena-stats-collapse'
+}

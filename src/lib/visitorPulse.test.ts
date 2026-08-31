@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   LOCAL_PREVIEW_PULSE,
+  isArenaStatsShellAnimationEnd,
   nextArenaStatsPhase,
   parseVisitorPulseJson,
   visitorPulseResponse
@@ -65,5 +66,41 @@ describe('nextArenaStatsPhase', () => {
     expect(nextArenaStatsPhase('closed', 'dismiss')).toBe('closed')
     expect(nextArenaStatsPhase('open', 'open')).toBe('open')
     expect(nextArenaStatsPhase('closing', 'open')).toBe('closing')
+  })
+})
+
+describe('isArenaStatsShellAnimationEnd', () => {
+  const shell = { id: 'shell' } as unknown as EventTarget
+  const child = { id: 'child' } as unknown as EventTarget
+
+  it('accepts only the shell expand/collapse, not bubbled child animations', () => {
+    expect(
+      isArenaStatsShellAnimationEnd({
+        target: shell,
+        currentTarget: shell,
+        animationName: 'arena-stats-collapse'
+      })
+    ).toBe(true)
+    expect(
+      isArenaStatsShellAnimationEnd({
+        target: shell,
+        currentTarget: shell,
+        animationName: 'arena-stats-expand'
+      })
+    ).toBe(true)
+    expect(
+      isArenaStatsShellAnimationEnd({
+        target: child,
+        currentTarget: shell,
+        animationName: 'arena-stats-collapse'
+      })
+    ).toBe(false)
+    expect(
+      isArenaStatsShellAnimationEnd({
+        target: shell,
+        currentTarget: shell,
+        animationName: 'counter-tick'
+      })
+    ).toBe(false)
   })
 })
