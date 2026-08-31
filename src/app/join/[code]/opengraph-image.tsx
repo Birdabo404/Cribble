@@ -43,9 +43,15 @@ const PERF_W = 30
 const STUB_W = 288
 const MAIN_W = size.width - SPINE_W - PERF_W - STUB_W
 
-const MARK_PATH = path.join(process.cwd(), 'public/brand/cribble-mark.png')
-const PIXEL_FONT_PATH = path.join(process.cwd(), 'src/app/join/[code]/press-start-2p.ttf')
-const MONO_FONT_PATH = path.join(process.cwd(), 'src/app/join/[code]/ibm-plex-mono-500.ttf')
+// These cwd-relative reads only exist inside the Vercel lambda because
+// next.config.mjs lists them in outputFileTracingIncludes — without
+// that, every unfurl silently degraded to fallback fonts with no brand
+// mark in production (public/ deploys to the CDN, not the function, so
+// the mark is a colocated copy of public/brand/cribble-mark.png).
+const ROUTE_DIR = path.join(process.cwd(), 'src/app/join/[code]')
+const PIXEL_FONT_PATH = path.join(ROUTE_DIR, 'press-start-2p.ttf')
+const MONO_FONT_PATH = path.join(ROUTE_DIR, 'ibm-plex-mono-500.ttf')
+const MARK_PATH = path.join(ROUTE_DIR, 'cribble-mark.png')
 
 async function loadOptional(filePath: string): Promise<Buffer | null> {
   try {
