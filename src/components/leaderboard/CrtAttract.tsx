@@ -24,6 +24,7 @@ import {
   type PixelGrid
 } from '@/components/leaderboard/pixelAvatar'
 import type { LeaderRow } from '@/components/leaderboard/types'
+import { useSfx } from '@/components/sfx/SfxProvider'
 import { isXAvatarUrl, xAvatarRefreshUrl } from '@/lib/avatarRefresh'
 import { prefersReducedMotion } from '@/lib/motion'
 
@@ -316,6 +317,7 @@ export const CrtAttract = memo(function CrtAttract({
   onSelect
 }: CrtAttractProps) {
   const reduced = useReducedMotionLive()
+  const { play } = useSfx()
   const [cycle, setCycle] = useState<Cycle | null>(null)
   const [staticGrid, setStaticGrid] = useState<PixelGrid | null>(null)
 
@@ -333,6 +335,10 @@ export const CrtAttract = memo(function CrtAttract({
 
   const rowsRef = useRef(rows)
   rowsRef.current = rows
+  // Timeline callbacks are created once per cycle inside useGSAP; the ref
+  // keeps them on the latest play without widening the effect's deps.
+  const playRef = useRef(play)
+  playRef.current = play
   const topScoreRef = useRef(topScore)
   topScoreRef.current = topScore
   const cycleRef = useRef(cycle)
@@ -575,6 +581,14 @@ export const CrtAttract = memo(function CrtAttract({
       if (!poweredRef.current) {
         poweredRef.current = true
         const coldStart = performance.now() - mountedAtRef.current < 500
+        // Sound rides the rise/snap; on warm handoffs (no visuals) the
+        // channel burst below carries the audio too. Must be added before
+        // the visual tweens: addLabel('glitchIn', '>') resolves against
+        // the most recently added child, and a trailing zero-duration
+        // call would drag the label back to t=0.
+        if (coldStart) {
+          tl.call(() => playRef.current('powerOn'), undefined, 0)
+        }
         if (coldStart && bezelRef.current) {
           tl.from(bezelRef.current, { autoAlpha: 0, y: 18, duration: 0.55, ease: 'power3.out' }, 0)
         }
@@ -596,6 +610,7 @@ export const CrtAttract = memo(function CrtAttract({
 
       // Channel-switch glitch in: static burst, sliced clip reveal.
       tl.addLabel('glitchIn', '>')
+      tl.call(() => playRef.current('channel'), undefined, 'glitchIn')
       if (staticL) {
         tl.set(staticL, { opacity: 0.55 }, 'glitchIn')
         tl.to(staticL, { opacity: 0, duration: 0.16, ease: 'power1.in' }, 'glitchIn+=0.08')
@@ -780,7 +795,9 @@ export const CrtAttract = memo(function CrtAttract({
       : 'CH --'
 
   const handleScreenClick = () => {
-    if (activeRow) onSelect(activeRow)
+    if (!activeRow) return
+    play('pressStart')
+    onSelect(activeRow)
   }
 
   return (
@@ -796,6 +813,9 @@ export const CrtAttract = memo(function CrtAttract({
             <button
               type="button"
               className="crt-screen"
+              // The delegated app-wide listener would layer the default
+              // tap on pointerdown; the click handler owns the audio here.
+              data-sfx="off"
               onClick={handleScreenClick}
               disabled={awaiting}
               aria-label={

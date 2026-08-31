@@ -24,6 +24,7 @@ import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { ACHIEVEMENTS } from '@/lib/achievements'
 import { isProTier } from '@/lib/entitlements'
 import { prefersReducedMotion } from '@/lib/motion'
+import { useSfx } from '@/components/sfx/SfxProvider'
 import { tokenAgentLabel } from '@/lib/tokenLeaderboard'
 import { Avatar, SafeBannerImg } from './Avatar'
 import { SocialLinkRow } from './SocialLinkRow'
@@ -89,6 +90,7 @@ export function PlayerCard({
   const [closing, setClosing] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   const tiltRef = useRef<HTMLDivElement>(null)
+  const { play } = useSfx()
 
   // Latest onClose without re-wiring listeners when the parent re-renders.
   const onCloseRef = useRef(onClose)
@@ -98,19 +100,25 @@ export function PlayerCard({
   const edgeRgb = medal ? medal.rgb : 'var(--lb-panel-edge)'
 
   // ---- graceful close: play the exit animation, then unmount ---------
+  // No `open` counterpart here: the CRT screen click plays its own
+  // pressStart confirm, and other open paths keep the default tap.
   const requestClose = useCallback(() => {
     if (prefersReducedMotion()) {
+      play('close')
       onCloseRef.current()
       return
     }
     setClosing(true)
-  }, [])
+  }, [play])
 
   useEffect(() => {
     if (!closing) return
+    // Sound lives on the state transition, not in requestClose, so
+    // mashing Escape during the exit animation plays it only once.
+    play('close')
     const t = setTimeout(() => onCloseRef.current(), CLOSE_MS)
     return () => clearTimeout(t)
-  }, [closing])
+  }, [closing, play])
 
   // ---- extended profile hydration ----------------------------------
   // Hydrates from the profile endpoint: same payload as the leaderboard
@@ -403,6 +411,7 @@ export function PlayerCard({
               <button
                 type="button"
                 onClick={requestClose}
+                data-sfx="off"
                 autoFocus
                 aria-label="Close profile"
                 className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-300 transition-colors hover:text-zinc-50 sm:h-8 sm:w-8"

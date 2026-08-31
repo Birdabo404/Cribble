@@ -21,6 +21,7 @@ import {
   Switch,
   type SegmentedOption
 } from '@/components/settings'
+import { useSfx } from '@/components/sfx/SfxProvider'
 
 /* ---------- theme preview cards ---------- */
 
@@ -257,6 +258,7 @@ export function AppearanceSection() {
   const { theme, setTheme } = useTheme()
   const navPrefs = useNavPrefs()
   const music = useBackgroundMusic()
+  const sfx = useSfx()
 
   // Theme, nav position and the motion flag all resolve client-side
   // (next-themes / localStorage), so controls render in a neutral state
@@ -385,6 +387,44 @@ export function AppearanceSection() {
                 value={Math.round(music.volume * 100)}
                 onChange={(event) => music.setVolume(Number(event.currentTarget.value) / 100)}
                 aria-label="Background music volume"
+                className="block h-11 w-full cursor-pointer sm:w-48 md:h-5"
+                style={{ accentColor: 'var(--st-accent)' }}
+              />
+            ) : (
+              <Skeleton className="h-11 w-full rounded-full sm:w-48 md:h-5" />
+            )}
+          </SettingsRow>
+          <SettingsRow
+            label="Interface sounds"
+            description="Clicks, toggles, and other UI feedback."
+          >
+            {mounted ? (
+              <Switch
+                checked={!sfx.muted}
+                onChange={(enabled) => sfx.setMuted(!enabled)}
+                aria-label="Interface sounds"
+              />
+            ) : (
+              <Skeleton className="h-7 w-12 rounded-full md:h-5 md:w-9" />
+            )}
+          </SettingsRow>
+          <SettingsRow
+            label="Interface volume"
+            description="Adjusting it while sounds are off turns them back on."
+            stack
+          >
+            {mounted ? (
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={Math.round(sfx.volume * 100)}
+                onChange={(event) => sfx.setVolume(Number(event.currentTarget.value) / 100)}
+                // Audition on release only — firing on every input event
+                // while dragging would machine-gun taps.
+                onPointerUp={() => sfx.play('tap')}
+                aria-label="Interface sounds volume"
                 className="block h-11 w-full cursor-pointer sm:w-48 md:h-5"
                 style={{ accentColor: 'var(--st-accent)' }}
               />

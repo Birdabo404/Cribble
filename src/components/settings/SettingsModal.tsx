@@ -10,8 +10,9 @@
 // overlays, and z-[80] keeps it above page chrome (toasts sit at z-[90]
 // so save feedback fired from inside the modal stays visible).
 
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { useSfx } from '@/components/sfx/SfxProvider'
 import type { SettingsSectionId } from './sectionIds'
 import { SettingsMobileTabs, SettingsSidebar } from './SettingsNav'
 import { AccountSection } from './sections/AccountSection'
@@ -47,9 +48,23 @@ export function SettingsModal({
   onSelectSection,
   onClose
 }: SettingsModalProps) {
+  const { play } = useSfx()
+
+  // The host renders this component only while open, so mount = open.
+  // `close` plays in handleClose (not on unmount) so tearing the whole
+  // tree down on a route change stays silent.
+  useEffect(() => {
+    play('open')
+  }, [play])
+
+  const handleClose = useCallback(() => {
+    play('close')
+    onClose()
+  }, [play, onClose])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') handleClose()
     }
     window.addEventListener('keydown', onKey)
     const prevOverflow = document.body.style.overflow
@@ -58,7 +73,7 @@ export function SettingsModal({
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = prevOverflow
     }
-  }, [onClose])
+  }, [handleClose])
 
   const ActiveSection = SECTION_COMPONENTS[section]
   // The cursor-profile deep link renders the Account page, so Account is
@@ -72,7 +87,7 @@ export function SettingsModal({
       aria-modal="true"
       aria-label="Settings"
     >
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} aria-hidden />
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={handleClose} aria-hidden />
       <div
         className={`settings-scope ${fontVariable} relative flex h-full max-h-[720px] w-full max-w-[960px] flex-col overflow-hidden rounded-2xl border border-[color:var(--st-border-strong)]`}
         style={{
@@ -95,7 +110,8 @@ export function SettingsModal({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
+            data-sfx="off"
             aria-label="Close settings"
             className="-mr-1.5 -mt-1 shrink-0 rounded-md p-1.5 text-[color:var(--st-text-muted)] transition-colors duration-150 hover:bg-[color:var(--st-panel-hover)] hover:text-[color:var(--st-text)]"
           >

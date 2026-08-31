@@ -64,12 +64,16 @@ export function ThemeToggle({
   }
 
   const ariaLabel = isLight ? 'Switch to dark mode' : 'Switch to light mode'
+  // Toggle sound for the theme being entered (dark = "on"): clicking
+  // while light heads into dark, so it gets toggleOn, and vice versa.
+  const sfx = isLight ? 'toggleOn' : 'toggleOff'
 
   if (variant === 'rail') {
     return (
       <button
         type="button"
         onClick={toggleTheme}
+        data-sfx={sfx}
         aria-label={ariaLabel}
         title={ariaLabel}
         className="nav-row relative mx-2 flex h-10 w-[calc(100%-16px)] shrink-0 items-center rounded-lg font-mono text-zinc-400 transition-colors duration-150 hover:bg-white/[0.05] hover:text-zinc-100 active:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
@@ -93,6 +97,7 @@ export function ThemeToggle({
     <button
       type="button"
       onClick={toggleTheme}
+      data-sfx={sfx}
       aria-label={ariaLabel}
       title={ariaLabel}
       className={`flex items-center gap-1.5 text-[10px] tracking-[0.3em] px-3 py-1.5 rounded border border-zinc-800 text-zinc-300 transition-[color,background-color,border-color,transform] duration-150 hover:border-zinc-600 hover:bg-white/[0.04] hover:text-zinc-100 active:scale-[0.98] active:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 font-mono ${className}`}

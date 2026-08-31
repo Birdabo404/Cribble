@@ -26,6 +26,9 @@ export function Switch({ checked, onChange, disabled = false, id, ...aria }: Swi
       aria-checked={checked}
       disabled={disabled}
       onClick={() => onChange(!checked)}
+      // Sound for the state being entered: pointerdown fires before the
+      // click flips `checked`, so the target state is the inverse.
+      data-sfx={checked ? 'toggleOff' : 'toggleOn'}
       className="relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-40 md:h-5 md:w-9"
       style={{
         backgroundColor: checked ? 'var(--st-accent)' : 'var(--st-panel-hover)',

@@ -19,6 +19,7 @@ import { AmbientGlow } from '@/components/dashboard-v3/AmbientGlow'
 import { GlassTilt } from '@/components/dashboard-v3/GlassTilt'
 import { BackgroundMusicProvider } from '@/components/music/BackgroundMusicProvider'
 import { NowPlayingTicker } from '@/components/music/NowPlayingTicker'
+import { SfxProvider } from '@/components/sfx/SfxProvider'
 import { AppNav } from './AppNav'
 import { NavPrefsProvider } from './NavPrefsContext'
 import { NavStatusProvider } from './NavStatusContext'
@@ -40,32 +41,36 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* mounted here (not per page) so route changes never remount the
             Audio element — playback carries across client navigations */}
         <BackgroundMusicProvider>
-          <div className="dossier-canvas min-h-screen bg-black font-mono text-zinc-100 selection:bg-accent/20">
-            {!profileRoute && <SpaceBackdrop />}
-            {!profileRoute && !noGlowRoute && <AmbientGlow />}
-            <GlassTilt />
-            {/* horizon line — thin accent scanline at the bottom for retro hint */}
-            <div
-              aria-hidden
-              className="pointer-events-none fixed inset-x-0 bottom-0 z-0 h-px opacity-25"
-              style={{
-                background:
-                  'linear-gradient(90deg, transparent, rgb(var(--accent-rgb)/0.55), transparent)'
-              }}
-            />
-            <AppNav />
-            <div className="app-nav-inset relative z-10">
-              {/* first in-flow child so the banner pushes page content down;
-                  self-gates by pathname (dashboard/leaderboard) + frequency cap */}
-              <BillboardTicker />
-              {/* fixed sponsor columns flanking the profile pages; self-gates
-                  by pathname (profile routes) + ≥1440px viewports */}
-              <BillboardRails />
-              {children}
+          {/* document-level pointerdown SFX; wraps the whole shell so
+              every useSfx() consumer shares one engine */}
+          <SfxProvider>
+            <div className="dossier-canvas min-h-screen bg-black font-mono text-zinc-100 selection:bg-accent/20">
+              {!profileRoute && <SpaceBackdrop />}
+              {!profileRoute && !noGlowRoute && <AmbientGlow />}
+              <GlassTilt />
+              {/* horizon line — thin accent scanline at the bottom for retro hint */}
+              <div
+                aria-hidden
+                className="pointer-events-none fixed inset-x-0 bottom-0 z-0 h-px opacity-25"
+                style={{
+                  background:
+                    'linear-gradient(90deg, transparent, rgb(var(--accent-rgb)/0.55), transparent)'
+                }}
+              />
+              <AppNav />
+              <div className="app-nav-inset relative z-10">
+                {/* first in-flow child so the banner pushes page content down;
+                    self-gates by pathname (dashboard/leaderboard) + frequency cap */}
+                <BillboardTicker />
+                {/* fixed sponsor columns flanking the profile pages; self-gates
+                    by pathname (profile routes) + ≥1440px viewports */}
+                <BillboardRails />
+                {children}
+              </div>
             </div>
-          </div>
-          {/* fixed lower-right VFD readout; self-gates on playback state */}
-          <NowPlayingTicker />
+            {/* fixed lower-right VFD readout; self-gates on playback state */}
+            <NowPlayingTicker />
+          </SfxProvider>
         </BackgroundMusicProvider>
       </NavStatusProvider>
     </NavPrefsProvider>
