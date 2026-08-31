@@ -128,16 +128,20 @@ export function parseGoatcounterDashboard(html: string): TrackerStats | null {
   if (periodVisits === null) return null
 
   const pageCounts = new Map<string, number>()
+  const candidateRows = html.match(/<tr\s+id=/g)?.length ?? 0
   const rowRe = /<tr id="([^"]+)" data-id="\d+" data-count="(\d+)"/g
+  let parsedRows = 0
   let match: RegExpExecArray | null
   while ((match = rowRe.exec(html)) !== null) {
+    parsedRows += 1
     const path = canonicalPublicPath(decodeEntities(match[1]))
     const count = parseNonNegInt(match[2])
-    if (count === null || path === null) continue
+    if (count === null || path === null) return null
     const aggregate = (pageCounts.get(path) ?? 0) + count
     if (!Number.isSafeInteger(aggregate)) return null
     pageCounts.set(path, aggregate)
   }
+  if (parsedRows !== candidateRows) return null
 
   const pages = [...pageCounts.entries()]
     .map(([path, count]) => ({ path, count }))

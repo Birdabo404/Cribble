@@ -77,18 +77,24 @@ describe('parseGoatcounterDashboard', () => {
     })
   })
 
-  it('skips unsafe paths instead of guessing them into the snapshot', () => {
+  it('fails the snapshot when any path row is unsafe', () => {
     const html = `
-      <span class="hide js-total">3</span>
-      <tr id="javascript:alert(1)" data-id="1" data-count="9" class=" ">
-      <tr id="/ok" data-id="2" data-count="3" class=" ">
+      <span class="hide js-total">12</span>
+      <tr id="not-a-path" data-id="1" data-count="9"></tr>
+      <tr id="/ok" data-id="2" data-count="3"></tr>
     `
-    expect(parseGoatcounterDashboard(html)).toEqual({
-      schemaVersion: 1,
-      periodVisits: 3,
-      pagesShown: 1,
-      pages: [{ path: '/ok', count: 3 }]
-    })
+
+    expect(parseGoatcounterDashboard(html)).toBeNull()
+  })
+
+  it('fails on a partially malformed path table instead of returning partial data', () => {
+    const html = `
+      <span class="hide js-total">12</span>
+      <tr id="/ok" data-id="1" data-count="9"></tr>
+      <tr id="/drifted" data-id="2" data-total="3"></tr>
+    `
+
+    expect(parseGoatcounterDashboard(html)).toBeNull()
   })
 })
 
