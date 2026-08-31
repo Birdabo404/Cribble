@@ -1100,6 +1100,63 @@ html.light .glass-pop {
   }
 }
 
+/* Arena stats: compact ticker grows down and lifts forward (not a modal). */
+@keyframes arena-stats-expand {
+  from {
+    max-height: 2.75rem;
+    transform: translateY(0) scale(1);
+    box-shadow: 0 0 0 rgb(0 0 0 / 0);
+  }
+  to {
+    max-height: 28rem;
+    transform: translateY(-6px) scale(1.02);
+    box-shadow:
+      0 18px 40px rgb(0 0 0 / 0.55),
+      0 0 24px rgb(var(--accent-rgb) / 0.18);
+  }
+}
+
+@keyframes arena-stats-collapse {
+  from {
+    max-height: 28rem;
+    transform: translateY(-6px) scale(1.02);
+    box-shadow:
+      0 18px 40px rgb(0 0 0 / 0.55),
+      0 0 24px rgb(var(--accent-rgb) / 0.18);
+  }
+  to {
+    max-height: 2.75rem;
+    transform: translateY(0) scale(1);
+    box-shadow: 0 0 0 rgb(0 0 0 / 0);
+  }
+}
+
+.arena-stats-shell {
+  position: relative;
+  z-index: 40;
+  overflow: hidden;
+  border: 1px solid rgb(var(--lb-panel-edge, 255 255 255) / 0.14);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.05), transparent 48px),
+    #0b0d0c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.arena-stats-shell[data-phase='open'] {
+  animation: arena-stats-expand 280ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.arena-stats-shell[data-phase='closing'] {
+  animation: arena-stats-collapse 220ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arena-stats-shell[data-phase='open'],
+  .arena-stats-shell[data-phase='closing'] {
+    animation: none;
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Notification panel (NotificationBell.tsx) — the notification feed.
    Deliberately NOT .glass-pop: the feed floats over arbitrary page content
