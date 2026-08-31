@@ -1,30 +1,49 @@
-// One-shot Billboard hype events (migration 052). The leaderboard
-// snapshot diff pass is the only place a climb and the fall it caused
-// exist side by side — deriveHypeEvents captures that pairing into
+// One-shot Billboard hype events (migrations 052 + 065). A snapshot
+// diff pass is the only place a climb and the fall it caused exist
+// side by side — the derivations here capture that pairing into
 // billboard_hype_events rows before it is lost to the persisted
-// snapshot. Kept pure like leaderboardEngine so the tier and victim
-// rules are unit-testable without a database; recordHypeEvents is the
-// tolerant insert both producers (the snapshot diff pass and the
-// score-notification flow) share.
+// snapshot. Two boards feed the same table: the score leaderboard
+// (deriveHypeEvents, via refreshLeaderboardSnapshot) and the Burn
+// Board (deriveBurnHypeEvents, via refreshBurnBoardSnapshot), sharing
+// one classify/victim core so the tier and pairing rules can't drift.
+// Kept pure like leaderboardEngine so those rules are unit-testable
+// without a database; recordHypeEvents is the tolerant insert every
+// producer (both snapshot diff passes, the score-notification flow
+// and the usage route's burn-club pass) shares.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { BillboardHypeTier } from './billboard'
 import { MOVEMENT_WINDOW_MS, type SnapshotUpdate } from './leaderboardEngine'
+import { compareExactDecimals } from './tokenLeaderboard'
 
-/** Everything billboard_hype_events can store: the rank tiers plus the
- *  score-milestone club kind (clubs air as their own BillboardItem
- *  kind — see lib/billboard.ts — because they carry no rank story). */
-export type HypeEventKind = BillboardHypeTier | 'club'
+/** The Burn Board's rank-tier kinds — the burn twins of the score
+ *  tiers, distinct so priority, dedupe and staging can diverge. */
+export type BurnHypeEventKind = 'burn_throne' | 'burn_top3' | 'burn_top10'
 
-/** Airing priority, tightest story first. The billboard API sorts
- *  fetched events by this before recency, and victim claiming below
- *  walks the same order so the throne event names the fallen #1 before
- *  a TOP 3 event can. */
+/** Everything billboard_hype_events can store: the score rank tiers
+ *  plus the score-milestone club kind (migration 052), and the Burn
+ *  Board's rank tiers plus the $-milestone burn club (migration 065).
+ *  Clubs air as their own BillboardItem kind — see lib/billboard.ts —
+ *  because they carry no rank story. */
+export type HypeEventKind = BillboardHypeTier | 'club' | BurnHypeEventKind | 'burn_club'
+
+/** The rank-movement kinds — the ones carrying a rank pair and a
+ *  windowed dedupe key, as opposed to the forever-once clubs. */
+export type HypeRankKind = Exclude<HypeEventKind, 'club' | 'burn_club'>
+
+/** Airing priority, tightest story first with score edging its burn
+ *  twin at each tier. The billboard API sorts fetched events by this
+ *  before recency, and victim claiming below walks the same order so
+ *  a throne event names the fallen #1 before a TOP 3 event can. */
 export const HYPE_KIND_PRIORITY: Record<HypeEventKind, number> = {
   throne: 0,
-  top3: 1,
-  top10: 2,
-  club: 3
+  burn_throne: 1,
+  top3: 2,
+  burn_top3: 3,
+  top10: 4,
+  burn_top10: 5,
+  club: 6,
+  burn_club: 7
 }
 
 /** Lowest score milestone that airs publicly as a club event. Private
@@ -32,9 +51,17 @@ export const HYPE_KIND_PRIORITY: Record<HypeEventKind, number> = {
  *  celebrates the big rooms. */
 export const HYPE_MILESTONE_FLOOR = 100_000
 
+/** The $-milestones a lifetime burn celebrates, ascending. Mirrors
+ *  tokenPersona's spend ladder (WHALE at $100 up to COMPUTE BARON at
+ *  $25K) so the burn club a player joins is the persona the board
+ *  already brands them with. */
+export const BURN_CLUB_THRESHOLDS = [100, 500, 2_500, 10_000, 25_000] as const
+
 /** Row shape written to billboard_hype_events (id and created_at are
  *  the database's). Rank kinds carry the rank pair and optionally a
- *  victim; clubs carry only the threshold. */
+ *  victim; clubs carry only the threshold (points on score, whole USD
+ *  on burn). burn_usd is the celebrant's season burn at climb time —
+ *  burn rank kinds only, null everywhere else. */
 export interface HypeEventInsert {
   kind: HypeEventKind
   user_id: number
@@ -42,6 +69,7 @@ export interface HypeEventInsert {
   prev_rank: number | null
   victim_user_id: number | null
   threshold: number | null
+  burn_usd: string | null
   dedupe_key: string
 }
 
@@ -52,18 +80,31 @@ export type HypeDiffRow = Pick<
   'user_id' | 'rank' | 'prev_rank' | 'rank_moved_at'
 >
 
+/** A Burn Board diff row: the same movement slice plus the row's
+ *  season burn (exact decimal string), which the derived event carries
+ *  so the announcement can flaunt the dollar figure. */
+export type BurnHypeDiffRow = HypeDiffRow & { burn_usd: string }
+
 /** Time-windowed like notifications' demotionDedupeKey, sized to the
  *  same 48h window the board's movement arrows and the billboard's
  *  read cutoff use: retaking the throne in a later window airs again,
- *  a rank oscillation inside one window doesn't. */
-export function hypeRankDedupeKey(tier: BillboardHypeTier, now: Date): string {
-  return `hype_${tier}_${Math.floor(now.getTime() / MOVEMENT_WINDOW_MS)}`
+ *  a rank oscillation inside one window doesn't. Burn kinds key
+ *  separately by carrying their prefix in the kind itself
+ *  (hype_burn_throne_{window} vs hype_throne_{window}). */
+export function hypeRankDedupeKey(kind: HypeRankKind, now: Date): string {
+  return `hype_${kind}_${Math.floor(now.getTime() / MOVEMENT_WINDOW_MS)}`
 }
 
 /** Forever-once: a lifetime score crosses each club threshold exactly
  *  once, so the key carries no window. */
 export function hypeClubDedupeKey(threshold: number): string {
   return `hype_club_${threshold}`
+}
+
+/** Forever-once like hypeClubDedupeKey, for the $-milestone burn
+ *  clubs (threshold in whole dollars). */
+export function hypeBurnClubDedupeKey(threshold: number): string {
+  return `hype_burn_club_${threshold}`
 }
 
 /** The tightest tier a climb lands in, or null when it tells no story
@@ -99,10 +140,35 @@ function tierBucket(tier: BillboardHypeTier): number {
   }
 }
 
+/** Which snapshot ledger a rank derivation reads — decides the event
+ *  kind family and the dedupe-key prefix, nothing else: the tier and
+ *  victim rules are deliberately identical across boards. */
+type HypeBoard = 'score' | 'burn'
+
+const BURN_RANK_KIND: Record<BillboardHypeTier, BurnHypeEventKind> = {
+  throne: 'burn_throne',
+  top3: 'burn_top3',
+  top10: 'burn_top10'
+}
+
+function rankKindOf(board: HypeBoard, tier: BillboardHypeTier): HypeRankKind {
+  switch (board) {
+    case 'score':
+      return tier
+    case 'burn':
+      return BURN_RANK_KIND[tier]
+    default: {
+      const exhaustive: never = board
+      return exhaustive
+    }
+  }
+}
+
 interface HypeMove {
   userId: number
   rank: number
   prevRank: number
+  burnUsd: string | null
 }
 
 /** The unclaimed faller who left the tier's bucket (held prev_rank
@@ -132,10 +198,10 @@ function pickVictim(
 }
 
 /**
- * Derive the hype events one snapshot diff pass produced. Reads the
- * same signal as the demotion pass in refreshLeaderboardSnapshot:
+ * The shared classify/victim core both boards derive through. Reads
+ * the same signal as the demotion pass in the snapshot refreshers:
  * rank_moved_at === now means the move happened on THIS diff
- * (score-only updates keep their old timestamp and are skipped).
+ * (measure-only updates keep their old timestamp and are skipped).
  *
  * Each climber gets at most one event, in the tightest tier the climb
  * reached. Victim pairing is deterministic and exclusive: events claim
@@ -144,9 +210,10 @@ function pickVictim(
  * best (lowest) prev_rank who left that tier's bucket — no faller is
  * named twice, and a climb with no qualifying faller stays victimless.
  */
-export function deriveHypeEvents(
-  updates: readonly HypeDiffRow[],
-  now: Date
+function deriveRankHypeEvents(
+  updates: readonly (HypeDiffRow & { burn_usd?: string | null })[],
+  now: Date,
+  board: HypeBoard
 ): HypeEventInsert[] {
   const nowIso = now.toISOString()
 
@@ -157,7 +224,8 @@ export function deriveHypeEvents(
     const move: HypeMove = {
       userId: update.user_id,
       rank: update.rank,
-      prevRank: update.prev_rank
+      prevRank: update.prev_rank,
+      burnUsd: update.burn_usd ?? null
     }
     if (update.rank < update.prev_rank) {
       const tier = classifyHypeTier(move.rank, move.prevRank)
@@ -170,7 +238,8 @@ export function deriveHypeEvents(
 
   climbs.sort(
     (a, b) =>
-      HYPE_KIND_PRIORITY[a.tier] - HYPE_KIND_PRIORITY[b.tier] ||
+      HYPE_KIND_PRIORITY[rankKindOf(board, a.tier)] -
+        HYPE_KIND_PRIORITY[rankKindOf(board, b.tier)] ||
       a.rank - b.rank ||
       a.userId - b.userId
   )
@@ -179,16 +248,37 @@ export function deriveHypeEvents(
   return climbs.map((climb) => {
     const victim = pickVictim(climb.tier, fallers, claimed)
     if (victim !== null) claimed.add(victim)
+    const kind = rankKindOf(board, climb.tier)
     return {
-      kind: climb.tier,
+      kind,
       user_id: climb.userId,
       rank: climb.rank,
       prev_rank: climb.prevRank,
       victim_user_id: victim,
       threshold: null,
-      dedupe_key: hypeRankDedupeKey(climb.tier, now)
+      burn_usd: board === 'burn' ? climb.burnUsd : null,
+      dedupe_key: hypeRankDedupeKey(kind, now)
     }
   })
+}
+
+/** Derive the score-board hype events one snapshot diff pass produced
+ *  (throne / top3 / top10) — refreshLeaderboardSnapshot feeds this. */
+export function deriveHypeEvents(
+  updates: readonly HypeDiffRow[],
+  now: Date
+): HypeEventInsert[] {
+  return deriveRankHypeEvents(updates, now, 'score')
+}
+
+/** Derive the Burn Board hype events one burn snapshot diff pass
+ *  produced (burn_throne / burn_top3 / burn_top10, each carrying the
+ *  celebrant's season burn) — refreshBurnBoardSnapshot feeds this. */
+export function deriveBurnHypeEvents(
+  updates: readonly BurnHypeDiffRow[],
+  now: Date
+): HypeEventInsert[] {
+  return deriveRankHypeEvents(updates, now, 'burn')
 }
 
 /**
@@ -210,7 +300,46 @@ export function buildClubHypeEvent(
     prev_rank: null,
     victim_user_id: null,
     threshold,
+    burn_usd: null,
     dedupe_key: hypeClubDedupeKey(threshold)
+  }
+}
+
+/**
+ * The BURN_CLUB_THRESHOLDS a lifetime burn crossed between two reads
+ * (exclusive of the baseline, inclusive of the new total), ascending.
+ * Exact-decimal comparison because lifetime burn is NUMERIC money that
+ * must never round-trip through Number. The usage route reads the
+ * lifetime total on both sides of an ingest and feeds the pair here.
+ */
+export function burnClubCrossings(
+  prevBurnUsd: string,
+  nextBurnUsd: string
+): number[] {
+  return BURN_CLUB_THRESHOLDS.filter(
+    (threshold) =>
+      compareExactDecimals(prevBurnUsd, String(threshold)) < 0 &&
+      compareExactDecimals(nextBurnUsd, String(threshold)) >= 0
+  )
+}
+
+/** The burn twin of buildClubHypeEvent, minus the floor: every ladder
+ *  rung is billboard-worthy (the ladder starts at WHALE money), and
+ *  the forever-once dedupe key absorbs re-derivations. threshold is
+ *  whole dollars, matching BURN_CLUB_THRESHOLDS. */
+export function buildBurnClubHypeEvent(
+  userId: number,
+  threshold: number
+): HypeEventInsert {
+  return {
+    kind: 'burn_club',
+    user_id: userId,
+    rank: null,
+    prev_rank: null,
+    victim_user_id: null,
+    threshold,
+    burn_usd: null,
+    dedupe_key: hypeBurnClubDedupeKey(threshold)
   }
 }
 

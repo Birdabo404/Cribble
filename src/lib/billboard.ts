@@ -194,6 +194,12 @@ export type BillboardAd = {
  *  a tier here: they carry no rank story. */
 export type BillboardHypeTier = 'throne' | 'top3' | 'top10'
 
+/** Which leaderboard a hype/club item celebrates: the score season
+ *  board or the Burn Board (migration 065). One discriminator instead
+ *  of doubled item kinds — the staging swaps copy and accent on it
+ *  while the cadence/chrome contract stays board-blind. */
+export type BillboardHypeBoard = 'score' | 'burn'
+
 /** The displaced player a rank hype event optionally calls out. */
 export type BillboardHypeVictim = {
   username: string
@@ -224,6 +230,9 @@ export type BillboardItem =
       /** Event row id — the ticker's per-visitor seen-once gate keys
        *  on it. */
       id: number
+      /** Which board the climb happened on: 'score' airs the classic
+       *  gold staging, 'burn' the ember Burn Board staging. */
+      board: BillboardHypeBoard
       /** The tightest tier the climb reached; drives the staging's
        *  copy and accent via the theme config below. */
       tier: BillboardHypeTier
@@ -238,6 +247,10 @@ export type BillboardItem =
       rank: number
       prevRank: number
       movedAt: string
+      /** The celebrant's season burn at climb time, an exact decimal
+       *  string ('412.5'). Non-null only on burn items — the ember
+       *  staging's dollar chip renders from it. */
+      burnUsd: string | null
       /** The player this climb displaced. Absent/null when nobody fell
        *  out of the tier or the victim is banned/deleted — the
        *  celebration survives, the callout doesn't. */
@@ -250,11 +263,15 @@ export type BillboardItem =
        *  lands the club label where hype rolls the rank reel. */
       kind: 'club'
       id: number
+      /** Which ladder was crossed: 'score' the lifetime-points clubs,
+       *  'burn' the lifetime-$ burn clubs (migration 065). */
+      board: BillboardHypeBoard
       userId: number
       username: string
       displayName: string | null
       avatarUrl: string | null
-      /** The lifetime-score milestone crossed, in points. */
+      /** The lifetime milestone crossed — points on the score board,
+       *  whole USD on the burn board. */
       threshold: number
       reachedAt: string
     }
@@ -487,20 +504,44 @@ export function hypeRankLadder(from: number, to: number): number[] {
 /** The single screen-reader sentence for a hype announcement — every
  *  animated visual fragment is aria-hidden behind it. Mentions the
  *  displaced player exactly when the card's victim register shows one,
- *  so sr users hear the same story sighted users see. */
+ *  so sr users hear the same story sighted users see. Burn items tell
+ *  the same story in Burn Board language: seized/burned/outburned. */
 export function billboardHypeSentence(item: BillboardHypeItem): string {
   const name = item.displayName || item.username
   const victim = item.victim ? item.victim.displayName || item.victim.username : null
-  switch (item.tier) {
-    case 'throne':
-      return victim ? `${name} took rank 1 from ${victim}` : `${name} took rank 1`
-    case 'top3':
-    case 'top10': {
-      const climb = `${name} climbed from rank ${item.prevRank} to rank ${item.rank}`
-      return victim ? `${climb}, deranking ${victim}` : climb
-    }
+  switch (item.board) {
+    case 'score':
+      switch (item.tier) {
+        case 'throne':
+          return victim ? `${name} took rank 1 from ${victim}` : `${name} took rank 1`
+        case 'top3':
+        case 'top10': {
+          const climb = `${name} climbed from rank ${item.prevRank} to rank ${item.rank}`
+          return victim ? `${climb}, deranking ${victim}` : climb
+        }
+        default: {
+          const exhaustive: never = item.tier
+          return exhaustive
+        }
+      }
+    case 'burn':
+      switch (item.tier) {
+        case 'throne':
+          return victim
+            ? `${name} took the top burner spot from ${victim}`
+            : `${name} took the top burner spot`
+        case 'top3':
+        case 'top10': {
+          const climb = `${name} burned from rank ${item.prevRank} to rank ${item.rank}`
+          return victim ? `${climb}, outburning ${victim}` : climb
+        }
+        default: {
+          const exhaustive: never = item.tier
+          return exhaustive
+        }
+      }
     default: {
-      const exhaustive: never = item.tier
+      const exhaustive: never = item.board
       return exhaustive
     }
   }
@@ -510,7 +551,16 @@ export function billboardHypeSentence(item: BillboardHypeItem): string {
  *  as billboardHypeSentence. */
 export function billboardClubSentence(item: BillboardClubItem): string {
   const name = item.displayName || item.username
-  return `${name} joined the ${billboardClubLabel(item.threshold)} club`
+  switch (item.board) {
+    case 'score':
+      return `${name} joined the ${billboardClubLabel(item.threshold)} club`
+    case 'burn':
+      return `${name} torched past ${billboardBurnClubLabel(item.threshold)}`
+    default: {
+      const exhaustive: never = item.board
+      return exhaustive
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -522,8 +572,17 @@ export function billboardClubSentence(item: BillboardClubItem): string {
 
 /** The --lb-* variables a tier's accent may point at. They hold bare
  *  rgb triplets in globals.css (`255 214 68`), so consumers compose
- *  colors as `rgb(var(--hype-accent) / a)`, never use the value raw. */
-export type BillboardAccentVar = '--lb-gold-hi' | '--lb-gold' | '--lb-silver' | '--lb-score'
+ *  colors as `rgb(var(--hype-accent) / a)`, never use the value raw.
+ *  The ember trio is the Burn Board's ladder (hot spark, brand ember,
+ *  deep coal), defined in both theme blocks like the medals. */
+export type BillboardAccentVar =
+  | '--lb-gold-hi'
+  | '--lb-gold'
+  | '--lb-silver'
+  | '--lb-score'
+  | '--lb-ember-hi'
+  | '--lb-ember'
+  | '--lb-ember-lo'
 
 export type BillboardStageTheme = {
   /** One marquee copy unit ('TOP 3') — the component appends the
@@ -537,9 +596,9 @@ export type BillboardStageTheme = {
   accentVar: BillboardAccentVar
 }
 
-/** Static staging copy for the rank tiers: "just took THE THRONE" on
- *  the hot gold, the classic "just entered the TOP 3" on leaderboard
- *  gold, TOP 10 on silver. */
+/** Static staging copy for the score rank tiers: "just took THE
+ *  THRONE" on the hot gold, the classic "just entered the TOP 3" on
+ *  leaderboard gold, TOP 10 on silver. */
 export const HYPE_TIER_THEME: Record<BillboardHypeTier, BillboardStageTheme> = {
   throne: {
     marquee: '#1',
@@ -561,6 +620,30 @@ export const HYPE_TIER_THEME: Record<BillboardHypeTier, BillboardStageTheme> = {
   }
 }
 
+/** The Burn Board's rank staging: same tiers, ember ladder instead of
+ *  medals, and copy that speaks the board's language — "just seized
+ *  THE TOP BURNER" at #1, "just burned into the TOP 3/10" below. */
+export const BURN_HYPE_TIER_THEME: Record<BillboardHypeTier, BillboardStageTheme> = {
+  throne: {
+    marquee: '#1 BURN',
+    kineticWords: ['just', 'seized'],
+    accentWord: 'THE TOP BURNER',
+    accentVar: '--lb-ember-hi'
+  },
+  top3: {
+    marquee: 'TOP 3 · BURN',
+    kineticWords: ['just', 'burned', 'into', 'the'],
+    accentWord: 'TOP 3',
+    accentVar: '--lb-ember'
+  },
+  top10: {
+    marquee: 'TOP 10 · BURN',
+    kineticWords: ['just', 'burned', 'into', 'the'],
+    accentWord: 'TOP 10',
+    accentVar: '--lb-ember-lo'
+  }
+}
+
 /** Compact milestone label (100_000 -> '100K', 1_000_000 -> '1M').
  *  Local mirror of notifications' formatMilestoneLabel — that module
  *  is server-only and this one must stay importable from 'use client'
@@ -569,6 +652,50 @@ export function billboardClubLabel(threshold: number): string {
   if (threshold >= 1_000_000) return `${threshold / 1_000_000}M`
   if (threshold >= 1_000) return `${threshold / 1_000}K`
   return String(threshold)
+}
+
+/** Compact dollar label for the burn club ladder (100 -> '$100',
+ *  2_500 -> '$2.5K') — billboardClubLabel with the currency sign, so
+ *  the two ladders can't drift apart in formatting. */
+export function billboardBurnClubLabel(threshold: number): string {
+  return `$${billboardClubLabel(threshold)}`
+}
+
+/** Compact dollar figure for the burn announcement's EST. BURN chip
+ *  ('412.5' -> '$412', '2534' -> '$2.5K', '1250000' -> '$1.3M') —
+ *  whole dollars, K/M compression from four digits. burnUsd rides the
+ *  API as an exact decimal NUMERIC string, and comparison math must
+ *  stay exact (burnClubCrossings) — but this is display compaction of
+ *  money nowhere near 2^53, so one Number round-trip is safe. Null for
+ *  a malformed string — armor against hand-edited rows, the
+ *  burnClubPersonaLabel stance. */
+export function billboardBurnUsdLabel(burnUsd: string): string | null {
+  const value = Number(burnUsd)
+  if (burnUsd.trim() === '' || !Number.isFinite(value) || value < 0) return null
+  const whole = Math.floor(value)
+  if (whole < 1_000) return `$${whole}`
+  const compact = (scaled: number) => scaled.toFixed(1).replace(/\.0$/, '')
+  if (whole < 1_000_000) return `$${compact(whole / 1_000)}K`
+  return `$${compact(whole / 1_000_000)}M`
+}
+
+/** The persona the Burn Board already brands each spend tier with
+ *  (tokenPersona's descending $-ladder in lib/tokenLeaderboard.ts) —
+ *  mirrored here because that module is server-leaning and this one
+ *  must stay importable from 'use client' components. The burn club
+ *  staging wears it as the right-register chip. Null for a threshold
+ *  outside the ladder (impossible through the producers — armor
+ *  against hand-edited rows). */
+const BURN_CLUB_PERSONA_LABELS: Record<number, string> = {
+  100: 'WHALE',
+  500: 'FINANCIAL INCIDENT',
+  2_500: 'PAYROLL EXPENSE',
+  10_000: 'AUDIT RISK',
+  25_000: 'COMPUTE BARON'
+}
+
+export function burnClubPersonaLabel(threshold: number): string | null {
+  return BURN_CLUB_PERSONA_LABELS[threshold] ?? null
 }
 
 /** Club staging copy is threshold-dependent, so it's built rather than
@@ -583,17 +710,47 @@ export function billboardClubTheme(threshold: number): BillboardStageTheme {
   }
 }
 
+/** The burn club's staging: "just torched $2.5K" on the hot ember,
+ *  '$2.5K TORCHED' rolling the marquee. */
+export function billboardBurnClubTheme(threshold: number): BillboardStageTheme {
+  const label = billboardBurnClubLabel(threshold)
+  return {
+    marquee: `${label} TORCHED`,
+    kineticWords: ['just', 'torched'],
+    accentWord: label,
+    accentVar: '--lb-ember-hi'
+  }
+}
+
 /** The one theme dispatch for everything the hype staging renders —
  *  components take either item kind and can't pick a mismatched
- *  tier/copy pair. */
+ *  board/tier/copy pair. */
 export function billboardStageTheme(
   item: BillboardHypeItem | BillboardClubItem
 ): BillboardStageTheme {
   switch (item.kind) {
     case 'hype':
-      return HYPE_TIER_THEME[item.tier]
+      switch (item.board) {
+        case 'score':
+          return HYPE_TIER_THEME[item.tier]
+        case 'burn':
+          return BURN_HYPE_TIER_THEME[item.tier]
+        default: {
+          const exhaustive: never = item.board
+          return exhaustive
+        }
+      }
     case 'club':
-      return billboardClubTheme(item.threshold)
+      switch (item.board) {
+        case 'score':
+          return billboardClubTheme(item.threshold)
+        case 'burn':
+          return billboardBurnClubTheme(item.threshold)
+        default: {
+          const exhaustive: never = item.board
+          return exhaustive
+        }
+      }
     default: {
       const exhaustive: never = item
       return exhaustive

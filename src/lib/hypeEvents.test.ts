@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { MOVEMENT_WINDOW_MS } from './leaderboardEngine'
 import {
+  buildBurnClubHypeEvent,
   buildClubHypeEvent,
+  BURN_CLUB_THRESHOLDS,
+  burnClubCrossings,
   classifyHypeTier,
+  deriveBurnHypeEvents,
   deriveHypeEvents,
   HYPE_KIND_PRIORITY,
   HYPE_MILESTONE_FLOOR,
+  hypeBurnClubDedupeKey,
   hypeClubDedupeKey,
   hypeRankDedupeKey,
+  type BurnHypeDiffRow,
   type HypeDiffRow
 } from './hypeEvents'
 
@@ -20,6 +26,23 @@ const WINDOW = Math.floor(NOW.getTime() / MOVEMENT_WINDOW_MS)
  *  written from -> to like the climb reads. */
 function moved(userId: number, from: number, to: number): HypeDiffRow {
   return { user_id: userId, rank: to, prev_rank: from, rank_moved_at: NOW_ISO }
+}
+
+/** The burn twin of moved(): a Burn Board diff row carrying its season
+ *  burn (exact decimal string). */
+function burnMoved(
+  userId: number,
+  from: number,
+  to: number,
+  burnUsd = '100'
+): BurnHypeDiffRow {
+  return {
+    user_id: userId,
+    rank: to,
+    prev_rank: from,
+    rank_moved_at: NOW_ISO,
+    burn_usd: burnUsd
+  }
 }
 
 describe('classifyHypeTier', () => {
@@ -63,6 +86,7 @@ describe('deriveHypeEvents', () => {
         prev_rank: 2,
         victim_user_id: 2,
         threshold: null,
+        burn_usd: null,
         dedupe_key: `hype_throne_${WINDOW}`
       }
     ])
@@ -147,6 +171,7 @@ describe('deriveHypeEvents', () => {
         prev_rank: 2,
         victim_user_id: 30,
         threshold: null,
+        burn_usd: null,
         dedupe_key: `hype_throne_${WINDOW}`
       },
       {
@@ -156,6 +181,7 @@ describe('deriveHypeEvents', () => {
         prev_rank: 5,
         victim_user_id: 40,
         threshold: null,
+        burn_usd: null,
         dedupe_key: `hype_top3_${WINDOW}`
       }
     ])
@@ -177,6 +203,90 @@ describe('deriveHypeEvents', () => {
     const events = deriveHypeEvents([moved(1, 15, 9), moved(2, 11, 13)], NOW)
     expect(events).toHaveLength(1)
     expect(events[0].victim_user_id).toBeNull()
+  })
+})
+
+describe('deriveBurnHypeEvents', () => {
+  it('classifies through the shared tiers into the burn kinds, season burn aboard', () => {
+    const events = deriveBurnHypeEvents(
+      [
+        burnMoved(1, 15, 1, '412.5'),
+        burnMoved(2, 12, 3, '250'),
+        burnMoved(3, 20, 10, '99.99'),
+        // Fallers making room.
+        burnMoved(4, 1, 16),
+        burnMoved(5, 3, 13),
+        burnMoved(6, 10, 21)
+      ],
+      NOW
+    )
+    expect(events.map((e) => [e.kind, e.user_id, e.burn_usd])).toEqual([
+      ['burn_throne', 1, '412.5'],
+      ['burn_top3', 2, '250'],
+      ['burn_top10', 3, '99.99']
+    ])
+  })
+
+  it('turns a 2 -> 1 burn climb into one burn_throne event naming the outburned', () => {
+    const events = deriveBurnHypeEvents(
+      [burnMoved(1, 2, 1, '500.25'), burnMoved(2, 1, 2, '499')],
+      NOW
+    )
+    expect(events).toEqual([
+      {
+        kind: 'burn_throne',
+        user_id: 1,
+        rank: 1,
+        prev_rank: 2,
+        victim_user_id: 2,
+        threshold: null,
+        burn_usd: '500.25',
+        dedupe_key: `hype_burn_throne_${WINDOW}`
+      }
+    ])
+  })
+
+  it('claims victims by the score rules, independently of the score pass', () => {
+    // The "never names the same victim twice" scenario, run through
+    // both boards: pairing must land identically — only the kind family
+    // and dedupe prefix differ, and neither pass sees the other's
+    // claimed set (the boards derive from separate snapshot diffs).
+    const rows: [number, number, number][] = [
+      [10, 2, 1],
+      [20, 5, 2],
+      [30, 1, 4],
+      [40, 3, 5]
+    ]
+    const scoreEvents = deriveHypeEvents(
+      rows.map(([u, from, to]) => moved(u, from, to)),
+      NOW
+    )
+    const burnEvents = deriveBurnHypeEvents(
+      rows.map(([u, from, to]) => burnMoved(u, from, to)),
+      NOW
+    )
+    expect(burnEvents.map((e) => [e.kind, e.user_id, e.victim_user_id])).toEqual([
+      ['burn_throne', 10, 30],
+      ['burn_top3', 20, 40]
+    ])
+    expect(burnEvents.map((e) => [e.user_id, e.victim_user_id])).toEqual(
+      scoreEvents.map((e) => [e.user_id, e.victim_user_id])
+    )
+    expect(burnEvents.map((e) => e.dedupe_key)).toEqual([
+      `hype_burn_throne_${WINDOW}`,
+      `hype_burn_top3_${WINDOW}`
+    ])
+  })
+
+  it('airs nothing for new entrants — a first opt-in has no prev_rank', () => {
+    const entrant: BurnHypeDiffRow = {
+      user_id: 1,
+      rank: 1,
+      prev_rank: null,
+      rank_moved_at: NOW_ISO,
+      burn_usd: '900'
+    }
+    expect(deriveBurnHypeEvents([entrant], NOW)).toEqual([])
   })
 })
 
@@ -202,6 +312,63 @@ describe('hypeRankDedupeKey', () => {
     expect(hypeRankDedupeKey('top3', NOW)).toBe(`hype_top3_${WINDOW}`)
     expect(hypeRankDedupeKey('top3', NOW)).not.toBe(hypeRankDedupeKey('top10', NOW))
   })
+
+  it('keys the burn kinds apart from their score twins via the kind prefix', () => {
+    expect(hypeRankDedupeKey('burn_throne', NOW)).toBe(`hype_burn_throne_${WINDOW}`)
+    expect(hypeRankDedupeKey('burn_throne', NOW)).not.toBe(hypeRankDedupeKey('throne', NOW))
+  })
+})
+
+describe('burnClubCrossings', () => {
+  it('returns the rungs where prev < threshold <= next, ascending', () => {
+    expect(burnClubCrossings('0', '99.99')).toEqual([])
+    expect(burnClubCrossings('99.99', '100')).toEqual([100])
+    expect(burnClubCrossings('0', '2500')).toEqual([100, 500, 2500])
+    expect(burnClubCrossings('600', '10000')).toEqual([2500, 10000])
+  })
+
+  it('is exclusive of the baseline — sitting exactly on a rung crosses nothing', () => {
+    expect(burnClubCrossings('100', '499.99')).toEqual([])
+    expect(burnClubCrossings('2500', '2500')).toEqual([])
+  })
+
+  it('is inclusive of the new total — landing exactly on a rung crosses it', () => {
+    expect(burnClubCrossings('499.999999', '500')).toEqual([500])
+  })
+
+  it('compares exactly — a hair below a rung stays below at any precision', () => {
+    // Number('99.999999999999999999') rounds to 100; the exact-decimal
+    // comparison must still see it below the rung.
+    expect(burnClubCrossings('99.999999999999999999', '100')).toEqual([100])
+  })
+
+  it('covers the whole persona ladder in one leap', () => {
+    expect(BURN_CLUB_THRESHOLDS).toEqual([100, 500, 2_500, 10_000, 25_000])
+    expect(burnClubCrossings('0', '25000')).toEqual([...BURN_CLUB_THRESHOLDS])
+  })
+})
+
+describe('buildBurnClubHypeEvent', () => {
+  it('builds a forever-once burn club row — no floor, every rung airs', () => {
+    expect(buildBurnClubHypeEvent(7, 100)).toEqual({
+      kind: 'burn_club',
+      user_id: 7,
+      rank: null,
+      prev_rank: null,
+      victim_user_id: null,
+      threshold: 100,
+      burn_usd: null,
+      dedupe_key: 'hype_burn_club_100'
+    })
+    expect(buildBurnClubHypeEvent(9, 25_000)?.dedupe_key).toBe('hype_burn_club_25000')
+  })
+})
+
+describe('hypeBurnClubDedupeKey', () => {
+  it('carries the whole-dollar threshold, disjoint from the score club keys', () => {
+    expect(hypeBurnClubDedupeKey(2_500)).toBe('hype_burn_club_2500')
+    expect(hypeBurnClubDedupeKey(2_500)).not.toBe(hypeClubDedupeKey(2_500))
+  })
 })
 
 describe('buildClubHypeEvent', () => {
@@ -220,6 +387,7 @@ describe('buildClubHypeEvent', () => {
       prev_rank: null,
       victim_user_id: null,
       threshold: 100_000,
+      burn_usd: null,
       dedupe_key: 'hype_club_100000'
     })
     expect(buildClubHypeEvent(9, 1_000_000)?.dedupe_key).toBe('hype_club_1000000')
@@ -237,5 +405,15 @@ describe('HYPE_KIND_PRIORITY', () => {
     expect(HYPE_KIND_PRIORITY.throne).toBeLessThan(HYPE_KIND_PRIORITY.top3)
     expect(HYPE_KIND_PRIORITY.top3).toBeLessThan(HYPE_KIND_PRIORITY.top10)
     expect(HYPE_KIND_PRIORITY.top10).toBeLessThan(HYPE_KIND_PRIORITY.club)
+  })
+
+  it('seats each burn twin one notch behind its score tier', () => {
+    expect(HYPE_KIND_PRIORITY.throne).toBeLessThan(HYPE_KIND_PRIORITY.burn_throne)
+    expect(HYPE_KIND_PRIORITY.burn_throne).toBeLessThan(HYPE_KIND_PRIORITY.top3)
+    expect(HYPE_KIND_PRIORITY.top3).toBeLessThan(HYPE_KIND_PRIORITY.burn_top3)
+    expect(HYPE_KIND_PRIORITY.burn_top3).toBeLessThan(HYPE_KIND_PRIORITY.top10)
+    expect(HYPE_KIND_PRIORITY.top10).toBeLessThan(HYPE_KIND_PRIORITY.burn_top10)
+    expect(HYPE_KIND_PRIORITY.burn_top10).toBeLessThan(HYPE_KIND_PRIORITY.club)
+    expect(HYPE_KIND_PRIORITY.club).toBeLessThan(HYPE_KIND_PRIORITY.burn_club)
   })
 })

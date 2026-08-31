@@ -1,6 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { z } from 'zod'
 import { hashAgentApiKey } from '@/lib/agentKey'
+import { refreshBurnBoardSnapshot } from '@/lib/burnBoardSnapshot'
+import {
+  buildBurnClubHypeEvent,
+  burnClubCrossings,
+  recordHypeEvents
+} from '@/lib/hypeEvents'
 import {
   checkDistributedRateLimit,
   checkRateLimit,
@@ -13,6 +19,7 @@ import {
   calendarDaysBetween,
   normalizeIanaTimeZone
 } from '@/lib/timeZone'
+import { exactDecimal } from '@/lib/tokenLeaderboard'
 
 export const dynamic = 'force-dynamic'
 
@@ -232,6 +239,53 @@ function totalTokens(row: {
   return row.inputTokens + row.outputTokens + row.cacheCreationTokens + row.cacheReadTokens
 }
 
+/* ------------------------------------------------------------------ *
+ * Burn Board hype (migration 065) — best-effort by construction: the
+ * paid product here is the ingest, so every read below degrades to
+ * "no celebration" instead of failing or delaying the sync response.
+ * ------------------------------------------------------------------ */
+
+/** Whether the user shares usage on the Burn Board — the same gate the
+ *  board ranks with (leaderboard_enabled AND consent v2+). False on
+ *  any failure: no consent signal, no celebration. */
+async function readBurnOptIn(userId: number): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from('agent_usage_sharing')
+      .select('leaderboard_enabled, consent_version')
+      .eq('user_id', userId)
+      .maybeSingle()
+    if (error) {
+      console.warn('[AgentUsage] Sharing opt-in read failed:', error.message)
+      return false
+    }
+    return data?.leaderboard_enabled === true && Number(data.consent_version) >= 2
+  } catch (err) {
+    console.warn('[AgentUsage] Sharing opt-in unavailable:', err)
+    return false
+  }
+}
+
+/** The user's lifetime burn as an exact decimal string, or null when
+ *  the RPC is missing/failing — the caller then skips club derivation
+ *  for this sync (the forever-once dedupe keys make the next sync's
+ *  re-derivation catch up harmlessly). */
+async function readLifetimeBurn(userId: number): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.rpc('agent_lifetime_burn', {
+      p_user_id: userId
+    })
+    if (error) {
+      console.warn('[AgentUsage] Lifetime burn read failed:', error.message)
+      return null
+    }
+    return exactDecimal(data as number | string | null)
+  } catch (err) {
+    console.warn('[AgentUsage] Lifetime burn unavailable:', err)
+    return null
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Keep the process-local IP check as a cheap unauthenticated prefilter.
@@ -377,6 +431,13 @@ export async function POST(request: NextRequest) {
       }))
     }
 
+    // Burn Board pass, part 1: the burn-club story needs the lifetime
+    // total on BOTH sides of the ingest, so the baseline reads here —
+    // opted-in users only. A null baseline (RPC missing/failing) skips
+    // club derivation below without touching the ingest itself.
+    const burnOptedIn = await readBurnOptIn(userId)
+    const burnBaseline = burnOptedIn ? await readLifetimeBurn(userId) : null
+
     const { data: ingestData, error: ingestError } = await supabase.rpc(
       'ingest_agent_usage',
       {
@@ -427,6 +488,33 @@ export async function POST(request: NextRequest) {
         { success: false, error: 'Failed to store token usage' },
         { status: 500 }
       )
+    }
+
+    // Burn Board pass, part 2, off the response path: burn-club
+    // crossings (thresholds crossed between the pre/post lifetime
+    // totals) and the rank snapshot diff — the moves this ingest just
+    // caused — ride after(), the same deferral the extension sync
+    // gives its snapshot. Every step swallows its own failures: hype
+    // must never fail, or delay-fail, the sync that produced it.
+    if (burnOptedIn) {
+      after(async () => {
+        try {
+          if (burnBaseline !== null) {
+            const lifetimeBurn = await readLifetimeBurn(userId)
+            if (lifetimeBurn !== null) {
+              await recordHypeEvents(
+                supabase,
+                burnClubCrossings(burnBaseline, lifetimeBurn).map((threshold) =>
+                  buildBurnClubHypeEvent(userId, threshold)
+                )
+              )
+            }
+          }
+          await refreshBurnBoardSnapshot(supabase)
+        } catch (err) {
+          console.warn('[AgentUsage] Burn hype pass failed:', err)
+        }
+      })
     }
 
     return NextResponse.json({

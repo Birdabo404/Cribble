@@ -1,8 +1,26 @@
 import { unstable_cache } from 'next/cache'
 import { NextResponse } from 'next/server'
-import { BILLBOARD_MAX_LIVE, type BillboardItem } from '@/lib/billboard'
-import { HYPE_KIND_PRIORITY, type HypeEventKind } from '@/lib/hypeEvents'
+import {
+  BILLBOARD_MAX_LIVE,
+  type BillboardHypeTier,
+  type BillboardItem
+} from '@/lib/billboard'
+import {
+  HYPE_KIND_PRIORITY,
+  type BurnHypeEventKind,
+  type HypeEventKind
+} from '@/lib/hypeEvents'
 import { createServiceClient } from '@/lib/supabaseServer'
+import { exactDecimal } from '@/lib/tokenLeaderboard'
+
+/** The rank tier inside each burn kind — the inverse of the kind
+ *  mapping the derivation applies, so the item's tier/copy machinery
+ *  stays board-blind. */
+const BURN_HYPE_TIER: Record<BurnHypeEventKind, BillboardHypeTier> = {
+  burn_throne: 'throne',
+  burn_top3: 'top3',
+  burn_top10: 'top10'
+}
 
 // THE BILLBOARD TRAIN is the same payload for every viewer (no session,
 // no cookies), so it caches like /api/leaderboard/ai: the handler stays
@@ -14,14 +32,16 @@ export const dynamic = 'force-dynamic'
 
 const REVALIDATE_SECONDS = 60
 
-// Hype = one-shot events from billboard_hype_events (migration 052):
-// throne takes, TOP 3 / TOP 10 breakthroughs and 100K+ score clubs,
-// written at the moment they happened by the leaderboard snapshot diff
-// pass and the score-notification flow. The read takes the recent
-// window — mirroring MOVEMENT_WINDOW_MS in leaderboardEngine, the same
-// freshness the board's climb arrows use — newest first, overshooting
-// the airing cap so the in-code pick (tightest kind first, one event
-// per user, inactive celebrants dropped) still fills the train.
+// Hype = one-shot events from billboard_hype_events (migrations 052 +
+// 065): throne takes, TOP 3 / TOP 10 breakthroughs and 100K+ score
+// clubs, plus the Burn Board's burn_* twins and $-milestone burn
+// clubs, written at the moment they happened by the two snapshot diff
+// passes, the score-notification flow and the usage route's burn-club
+// pass. The read takes the recent window — mirroring
+// MOVEMENT_WINDOW_MS in leaderboardEngine, the same freshness the
+// board's climb arrows use — newest first, overshooting the airing cap
+// so the in-code pick (tightest kind first, one event per user,
+// inactive celebrants dropped) still fills the train.
 const HYPE_WINDOW_MS = 48 * 3_600_000
 const HYPE_MAX = 3
 const HYPE_FETCH_MAX = 12
@@ -63,6 +83,9 @@ interface HypeEventRow {
   victim_user_id: number | null
   /** NULL on rank kinds, NOT NULL on clubs. */
   threshold: number | null
+  /** The celebrant's season burn at climb time — burn rank kinds only,
+   *  NULL elsewhere (migration 065). NUMERIC may arrive as a string. */
+  burn_usd: number | string | null
   created_at: string
 }
 
@@ -98,36 +121,61 @@ function hypeEventItemOf(
     displayName: celebrant.twitter_name || null,
     avatarUrl: celebrant.twitter_profile_image || null
   }
+  const victimOf = () => {
+    const victim =
+      row.victim_user_id !== null
+        ? usersById.get(Number(row.victim_user_id))
+        : undefined
+    return victim
+      ? {
+          username: victim.twitter_username || `User${victim.id}`,
+          displayName: victim.twitter_name || null,
+          avatarUrl: victim.twitter_profile_image || null
+        }
+      : null
+  }
   switch (row.kind) {
     case 'throne':
     case 'top3':
     case 'top10': {
       if (row.rank === null || row.prev_rank === null) return null
-      const victim =
-        row.victim_user_id !== null
-          ? usersById.get(Number(row.victim_user_id))
-          : undefined
       return {
         kind: 'hype',
         ...base,
+        board: 'score',
         tier: row.kind,
         rank: Number(row.rank),
         prevRank: Number(row.prev_rank),
         movedAt: row.created_at,
-        victim: victim
-          ? {
-              username: victim.twitter_username || `User${victim.id}`,
-              displayName: victim.twitter_name || null,
-              avatarUrl: victim.twitter_profile_image || null
-            }
-          : null
+        burnUsd: null,
+        victim: victimOf()
       }
     }
-    case 'club': {
+    case 'burn_throne':
+    case 'burn_top3':
+    case 'burn_top10': {
+      if (row.rank === null || row.prev_rank === null) return null
+      return {
+        kind: 'hype',
+        ...base,
+        board: 'burn',
+        tier: BURN_HYPE_TIER[row.kind],
+        rank: Number(row.rank),
+        prevRank: Number(row.prev_rank),
+        movedAt: row.created_at,
+        // The season burn captured at climb time. NULL only through a
+        // hand-edited row — the card then simply drops its dollar chip.
+        burnUsd: row.burn_usd == null ? null : exactDecimal(row.burn_usd),
+        victim: victimOf()
+      }
+    }
+    case 'club':
+    case 'burn_club': {
       if (row.threshold === null) return null
       return {
         kind: 'club',
         ...base,
+        board: row.kind === 'burn_club' ? 'burn' : 'score',
         threshold: Number(row.threshold),
         reachedAt: row.created_at
       }
@@ -168,7 +216,9 @@ const loadBillboardItems = unstable_cache(
         .limit(BILLBOARD_MAX_LIVE),
       supabase
         .from('billboard_hype_events')
-        .select('id, kind, user_id, rank, prev_rank, victim_user_id, threshold, created_at')
+        .select(
+          'id, kind, user_id, rank, prev_rank, victim_user_id, threshold, burn_usd, created_at'
+        )
         .gte('created_at', hypeCutoffIso)
         .order('created_at', { ascending: false })
         .limit(HYPE_FETCH_MAX),
@@ -299,8 +349,10 @@ const loadBillboardItems = unstable_cache(
   // rank/prevRank for the announcement takeover. v4: the announce kind
   // joined the train (migration 051). v5: hype went event-driven off
   // billboard_hype_events (migration 052) — hype items gained
-  // id/tier/victim and the club kind joined the train.
-  ['billboard-items-v5'],
+  // id/tier/victim and the club kind joined the train. v6: the Burn
+  // Board joined (migration 065) — hype/club items gained the board
+  // discriminator and hype items burnUsd.
+  ['billboard-items-v6'],
   { revalidate: REVALIDATE_SECONDS }
 )
 

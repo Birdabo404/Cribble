@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { z } from 'zod'
+import { refreshBurnBoardSnapshot } from '@/lib/burnBoardSnapshot'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
 import { getSessionUserId } from '@/lib/sessionAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
@@ -114,6 +115,13 @@ export async function PUT(request: NextRequest) {
         { status: 500 }
       )
     }
+
+    // A toggle changes who the Burn Board ranks at all, so the snapshot
+    // re-diffs off the response path (migration 065): joins and leaves
+    // reshuffle everyone's rank immediately instead of waiting for the
+    // next opted-in sync. Best-effort — refreshBurnBoardSnapshot never
+    // throws, and a missed refresh only delays the reshuffle.
+    after(() => refreshBurnBoardSnapshot(supabase))
 
     return NextResponse.json({ success: true, ...responseState(data) })
   } catch (error) {

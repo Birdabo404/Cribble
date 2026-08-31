@@ -5,8 +5,10 @@ import {
   BILLBOARD_AD_SOLO_REPLAY_MS,
   BILLBOARD_HYPE_HOLD_MS,
   BILLBOARD_HYPE_SHOW_FOR_MS,
+  BURN_HYPE_TIER_THEME,
   HYPE_LADDER_MAX_RUNGS,
   HYPE_TIER_THEME,
+  billboardBurnUsdLabel,
   billboardChrome,
   billboardClubSentence,
   billboardHoldMs,
@@ -31,6 +33,7 @@ import type {
 const hype = (userId: number, rank = 2, prevRank = 7): BillboardHypeItem => ({
   kind: 'hype',
   id: userId,
+  board: 'score',
   tier: rank === 1 ? 'throne' : rank <= 3 ? 'top3' : 'top10',
   userId,
   username: `pilot${userId}`,
@@ -38,7 +41,8 @@ const hype = (userId: number, rank = 2, prevRank = 7): BillboardHypeItem => ({
   avatarUrl: null,
   rank,
   prevRank,
-  movedAt: '2026-08-21T00:00:00.000Z'
+  movedAt: '2026-08-21T00:00:00.000Z',
+  burnUsd: null
 })
 
 const victim = (username: string): BillboardHypeVictim => ({
@@ -50,12 +54,28 @@ const victim = (username: string): BillboardHypeVictim => ({
 const club = (userId: number, threshold = 100_000): BillboardClubItem => ({
   kind: 'club',
   id: 100 + userId,
+  board: 'score',
   userId,
   username: `pilot${userId}`,
   displayName: null,
   avatarUrl: null,
   threshold,
   reachedAt: '2026-08-21T00:00:00.000Z'
+})
+
+// The burn twins: the same shapes on board 'burn' — hype carries the
+// celebrant's season burn (exact decimal string, non-null by the API
+// contract), clubs a whole-USD threshold off the persona ladder.
+const burnHype = (
+  userId: number,
+  rank = 2,
+  prevRank = 7,
+  burnUsd = '412.5'
+): BillboardHypeItem => ({ ...hype(userId, rank, prevRank), board: 'burn', burnUsd })
+
+const burnClub = (userId: number, threshold = 2_500): BillboardClubItem => ({
+  ...club(userId, threshold),
+  board: 'burn'
 })
 
 const ad = (id: number): BillboardItem => ({
@@ -197,6 +217,17 @@ describe('billboardChrome', () => {
       ariaLabel: 'Announcement'
     })
   })
+
+  it('keeps the announcement chrome for burn items — the board never re-dresses the label', () => {
+    expect(billboardChrome(burnHype(1))).toEqual({
+      label: 'ANNOUNCEMENT',
+      ariaLabel: 'Announcement'
+    })
+    expect(billboardChrome(burnClub(1))).toEqual({
+      label: 'ANNOUNCEMENT',
+      ariaLabel: 'Announcement'
+    })
+  })
 })
 
 describe('billboardRankClimb', () => {
@@ -286,6 +317,22 @@ describe('billboardHypeSentence', () => {
       })
     ).toBe('pilot1 took rank 1 from The Old King')
   })
+
+  it('tells a burn throne take as taking the top burner spot', () => {
+    expect(billboardHypeSentence(burnHype(1, 1, 4))).toBe('pilot1 took the top burner spot')
+    expect(billboardHypeSentence({ ...burnHype(1, 1, 4), victim: victim('oldking') })).toBe(
+      'pilot1 took the top burner spot from oldking'
+    )
+  })
+
+  it('tells burn climbs in Burn Board language, outburning the victim', () => {
+    expect(billboardHypeSentence(burnHype(1, 3, 9))).toBe(
+      'pilot1 burned from rank 9 to rank 3'
+    )
+    expect(billboardHypeSentence({ ...burnHype(1, 8, 14), victim: victim('fallen') })).toBe(
+      'pilot1 burned from rank 14 to rank 8, outburning fallen'
+    )
+  })
 })
 
 describe('billboardClubSentence', () => {
@@ -298,6 +345,14 @@ describe('billboardClubSentence', () => {
   it('prefers the display name', () => {
     expect(billboardClubSentence({ ...club(1), displayName: 'SUI' })).toBe(
       'SUI joined the 100K club'
+    )
+  })
+
+  it('tells a burn club as torching past the dollar label', () => {
+    expect(billboardClubSentence(burnClub(1, 2_500))).toBe('pilot1 torched past $2.5K')
+    expect(billboardClubSentence(burnClub(1, 100))).toBe('pilot1 torched past $100')
+    expect(billboardClubSentence({ ...burnClub(1), displayName: 'SUI' })).toBe(
+      'SUI torched past $2.5K'
     )
   })
 })
@@ -319,6 +374,42 @@ describe('billboardStageTheme', () => {
     expect(theme.accentWord).toBe('100K CLUB')
     expect(theme.kineticWords).toEqual(['just', 'joined', 'the'])
     expect(billboardStageTheme(club(1, 1_000_000)).marquee).toBe('1M CLUB')
+  })
+
+  it('dispatches burn rank tiers to the ember ladder, hot to coal', () => {
+    expect(billboardStageTheme(burnHype(1, 1, 4))).toBe(BURN_HYPE_TIER_THEME.throne)
+    expect(billboardStageTheme(burnHype(1, 1, 4)).accentVar).toBe('--lb-ember-hi')
+    expect(billboardStageTheme(burnHype(1, 2, 7))).toBe(BURN_HYPE_TIER_THEME.top3)
+    expect(billboardStageTheme(burnHype(1, 2, 7)).accentVar).toBe('--lb-ember')
+    expect(billboardStageTheme(burnHype(1, 8, 14))).toBe(BURN_HYPE_TIER_THEME.top10)
+    expect(billboardStageTheme(burnHype(1, 8, 14)).accentVar).toBe('--lb-ember-lo')
+  })
+
+  it('builds burn club themes with the torched marquee on the hot ember', () => {
+    const theme = billboardStageTheme(burnClub(1, 2_500))
+    expect(theme.accentVar).toBe('--lb-ember-hi')
+    expect(theme.marquee).toBe('$2.5K TORCHED')
+    expect(theme.accentWord).toBe('$2.5K')
+    expect(theme.kineticWords).toEqual(['just', 'torched'])
+    expect(billboardStageTheme(burnClub(1, 100)).marquee).toBe('$100 TORCHED')
+    expect(billboardStageTheme(burnClub(1, 25_000)).accentWord).toBe('$25K')
+  })
+})
+
+describe('billboardBurnUsdLabel', () => {
+  it('floors to whole dollars and compacts from four digits', () => {
+    expect(billboardBurnUsdLabel('412.5')).toBe('$412')
+    expect(billboardBurnUsdLabel('0.07')).toBe('$0')
+    expect(billboardBurnUsdLabel('999')).toBe('$999')
+    expect(billboardBurnUsdLabel('2534')).toBe('$2.5K')
+    expect(billboardBurnUsdLabel('25000')).toBe('$25K')
+    expect(billboardBurnUsdLabel('1250000')).toBe('$1.3M')
+  })
+
+  it('nulls out malformed or negative figures instead of flaunting them', () => {
+    expect(billboardBurnUsdLabel('')).toBeNull()
+    expect(billboardBurnUsdLabel('not-money')).toBeNull()
+    expect(billboardBurnUsdLabel('-5')).toBeNull()
   })
 })
 

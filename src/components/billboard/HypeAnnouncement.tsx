@@ -18,6 +18,15 @@
 // here, the hype classes in globals.css and the shader bed (via the
 // accentVar prop) all read it, so a tier can't half-recolor the card.
 //
+// The board discriminator (item.board) picks the copy/accent family
+// upstream in billboardStageTheme; here it layers the burn dressing on
+// top: the shader bed smolders (flavor 'ember'), a burn hype's victim
+// callout reads "outburned" and its right register leads with the
+// ember EST. BURN chip, a burn club lands the theme's torched marquee
+// on the center plate with the persona chip in the register, and the
+// mobile strip speaks burn ("burned", "torched past"). Score items
+// render exactly as before.
+//
 // Preserved anatomy: same strip padding, 3px accent left stripe and
 // avatar seat as BillboardCard's lg shape, so ad-to-hype flips hinge on
 // consistent geometry.
@@ -45,10 +54,12 @@ import dynamic from 'next/dynamic'
 import { formatRelative } from '@/components/dashboard-v2/format'
 import { Avatar } from '@/components/leaderboard/Avatar'
 import {
+  billboardBurnUsdLabel,
   billboardClubSentence,
   billboardHypeSentence,
   billboardRankClimb,
   billboardStageTheme,
+  burnClubPersonaLabel,
   hypeRankLadder
 } from '@/lib/billboard'
 import type { BillboardClubItem, BillboardHypeItem } from '@/lib/billboard'
@@ -163,6 +174,23 @@ export function HypeAnnouncement({
   const ladder = climb ? hypeRankLadder(climb.from, climb.to) : null
   const victim = item.kind === 'hype' ? (item.victim ?? null) : null
   const victimName = victim ? victim.displayName || victim.username : null
+
+  // The burn dressing, all false/null on score items. The EST. BURN
+  // chip's figure: burn hype carries burnUsd by contract, and the label
+  // helper nulls out a malformed row, so the chip simply doesn't render
+  // rather than flaunting garbage. The club plate's landing copy: score
+  // clubs land the accent word ('100K CLUB'); burn clubs land the full
+  // torched marquee ('$2.5K TORCHED' — accentWord is just the dollar
+  // label there, shared with the kinetic line).
+  const burnBoard = item.board === 'burn'
+  const burnUsdLabel =
+    item.kind === 'hype' && burnBoard && item.burnUsd !== null
+      ? billboardBurnUsdLabel(item.burnUsd)
+      : null
+  const personaLabel =
+    item.kind === 'club' && burnBoard ? burnClubPersonaLabel(item.threshold) : null
+  const plateWord =
+    item.kind === 'club' && burnBoard ? theme.marquee.replace(/ /g, '\u00A0') : accentWord
   // Climb track domain: old rank at the left edge, rank 1 at the right —
   // the marker lands short of the summit, so the remaining gap reads as
   // the distance still to climb. Clamped like billboardRankClimb's
@@ -273,6 +301,7 @@ export function HypeAnnouncement({
             burst={burst}
             paused={paused}
             accentVar={theme.accentVar}
+            flavor={burnBoard ? 'ember' : 'caustic'}
             className="h-full w-full"
           />
         </span>
@@ -326,7 +355,7 @@ export function HypeAnnouncement({
                 animate ? 'billboard-build-text' : ''
               }`}
             >
-              <span>climbed</span>
+              <span>{burnBoard ? 'burned' : 'climbed'}</span>
               <span className="tabular-nums text-zinc-500">#{climb.from}</span>
               <span className="text-zinc-600">→</span>
               <span
@@ -344,7 +373,9 @@ export function HypeAnnouncement({
                 animate ? 'billboard-build-text' : ''
               }`}
             >
-              <span>joined the</span>
+              {/* "joined the $2.5K" reads wrong — burn clubs get the
+                  sr sentence's verb instead: "torched past $2.5K". */}
+              <span>{burnBoard ? 'torched past' : 'joined the'}</span>
               <span
                 className={`truncate font-semibold ${
                   playing && landed ? 'billboard-rank-land' : ''
@@ -511,14 +542,17 @@ export function HypeAnnouncement({
                 ...(!playing ? { color: 'rgb(var(--hype-accent))' } : null)
               }}
             >
-              {accentWord}
+              {plateWord}
             </span>
           </span>
         )}
 
-        {/* RIGHT — the register: the derank callout when a rank tier
-            carries a victim, then delta chip + freshness (rank tiers) or
-            freshness in the chip's seat (clubs), then the affordance. */}
+        {/* RIGHT — the register: the derank/outburn callout when a rank
+            tier carries a victim, then the chips — burn hype leads with
+            the ember EST. BURN figure before the shared ▲delta — and
+            freshness (rank tiers), or the burn club's persona chip
+            before freshness in the chip's seat (score clubs: freshness
+            alone), then the affordance. */}
         <span
           className={`flex min-w-0 flex-1 items-center justify-end gap-2.5 ${
             playing ? 'billboard-hype-extra' : ''
@@ -527,7 +561,7 @@ export function HypeAnnouncement({
           {victim && victimName && (
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="shrink-0 text-[9px] uppercase tracking-[0.25em] text-zinc-500">
-                deranked
+                {burnBoard ? 'outburned' : 'deranked'}
               </span>
               <span className="shrink-0">
                 <Avatar
@@ -554,6 +588,18 @@ export function HypeAnnouncement({
           )}
           {climb ? (
             <>
+              {burnUsdLabel !== null && (
+                <span
+                  className="shrink-0 whitespace-nowrap rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums"
+                  style={{
+                    color: 'rgb(var(--hype-accent))',
+                    borderColor: 'rgb(var(--hype-accent) / 0.35)',
+                    background: 'rgb(var(--hype-accent) / 0.08)'
+                  }}
+                >
+                  {burnUsdLabel} EST. BURN
+                </span>
+              )}
               <span
                 className="shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums"
                 style={{
@@ -570,10 +616,25 @@ export function HypeAnnouncement({
             </>
           ) : (
             // No rank delta on a club — freshness takes the chip's seat,
-            // so it shows from sm instead of hiding until md.
-            <span className="whitespace-nowrap text-[10px] tabular-nums tracking-[0.12em] text-zinc-500">
-              {formatRelative(freshAt)}
-            </span>
+            // so it shows from sm instead of hiding until md. Burn clubs
+            // wear their persona brand ahead of it.
+            <>
+              {personaLabel !== null && (
+                <span
+                  className="shrink-0 whitespace-nowrap rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-none tracking-[0.08em]"
+                  style={{
+                    color: 'rgb(var(--hype-accent))',
+                    borderColor: 'rgb(var(--hype-accent) / 0.35)',
+                    background: 'rgb(var(--hype-accent) / 0.08)'
+                  }}
+                >
+                  {personaLabel}
+                </span>
+              )}
+              <span className="whitespace-nowrap text-[10px] tabular-nums tracking-[0.12em] text-zinc-500">
+                {formatRelative(freshAt)}
+              </span>
+            </>
           )}
           <span className="text-sm text-zinc-500 transition-transform duration-150 group-hover:translate-x-0.5">
             →

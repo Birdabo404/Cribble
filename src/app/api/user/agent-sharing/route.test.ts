@@ -75,6 +75,24 @@ vi.mock('@/lib/rateLimit', () => ({
   createRateLimitResponse: () => new Headers({ 'Retry-After': '60' })
 }))
 
+// The route defers the burn-board snapshot refresh via after(), which
+// requires a Next request scope vitest doesn't provide (the real one
+// throws without it). Run the task immediately instead, same shim as
+// the extension sync test; NextRequest/NextResponse stay real.
+vi.mock('next/server', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('next/server')>()
+  return {
+    ...actual,
+    after: (task: Promise<unknown> | (() => unknown)) => {
+      if (typeof task === 'function') void task()
+    }
+  }
+})
+
+vi.mock('@/lib/burnBoardSnapshot', () => ({
+  refreshBurnBoardSnapshot: vi.fn(async () => undefined)
+}))
+
 import { GET, PUT } from './route'
 
 const USER_ID = 42

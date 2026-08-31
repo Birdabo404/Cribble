@@ -175,6 +175,13 @@
   /* 24H delta — neon orange so today's grind doesn't collide with the
      lime score or the semantic gain-green used for rank/online. */
   --lb-delta: 255 95 31;
+  /* Burn Board ember accent ladder — the burn announcements' answer to
+     the gold/silver medals: hot spark (--px-ember-3), brand ember
+     (--ember-rgb), deep coal (--px-ember-2), bare triplets like the
+     other --lb-* accents. Light overrides below. */
+  --lb-ember-hi: 255 138 61;
+  --lb-ember: 255 106 26;
+  --lb-ember-lo: 234 88 12;
   --lb-panel-bg: 9 10 13;
   --lb-panel-edge: 255 255 255;
   /* Neon text-shadow multiplier — glow alphas are authored as
@@ -339,6 +346,11 @@ html.light {
   --lb-down: 225 29 72;
   /* burnt orange ink on white — same AA move as --lb-score / --lb-up */
   --lb-delta: 194 65 12;
+  /* ember ladder deepens to the light --px-ember inks (3/2/1) so the
+     burn accents hold AA on white, the same move as the metals */
+  --lb-ember-hi: 234 88 12;
+  --lb-ember: 194 65 12;
+  --lb-ember-lo: 124 45 18;
   --lb-panel-bg: 255 255 255;
   --lb-panel-edge: 9 9 11;
   /* crisp ink instead of neon: text-shadow glows collapse on white
