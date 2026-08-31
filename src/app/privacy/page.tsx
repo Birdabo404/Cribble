@@ -113,7 +113,7 @@ export default function PrivacyPage() {
             </p>
             <ul className="mt-5 space-y-3">
               <CollectedItem text="Pageviews, via Vercel Analytics — no cookies, no personal identifiers" />
-              <CollectedItem text="Public traffic stats, via GoatCounter — cookie-free pageviews, referrers, and countries anyone can open from the leaderboard ticker" />
+              <CollectedItem text="Public traffic stats, via GoatCounter — cookie-free pageviews, referrers, and countries anyone can open from the leaderboard stats popup, which also links to the public tracker" />
               <CollectedItem text="How many people are on the site right now, and how many in the last 12 hours, shown on the leaderboard ticker" />
             </ul>
             <p className="mt-5">

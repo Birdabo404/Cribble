@@ -167,6 +167,7 @@ describe('middleware site lock', () => {
     expect(middleware(request('/api/billboard/slots')).status).toBe(200)
     expect(middleware(request('/api/analytics/visitors')).status).toBe(200)
     expect(middleware(request('/api/analytics/hit')).status).toBe(200)
+    expect(middleware(request('/api/analytics/tracker')).status).toBe(200)
   })
 
   it('keeps the recruitment board and its team API lanes open while locked', () => {
