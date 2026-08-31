@@ -18,6 +18,14 @@ const migration050 = readFileSync(
   join(process.cwd(), 'migrations/050_agent_usage_v2_preserve_daily.sql'),
   'utf8'
 )
+const migration066 = readFileSync(
+  join(process.cwd(), 'migrations/066_agent_usage_daily_full_history.sql'),
+  'utf8'
+)
+const migration067 = readFileSync(
+  join(process.cwd(), 'migrations/067_token_leaderboard_daily_breakdowns.sql'),
+  'utf8'
+)
 const migration057 = readFileSync(
   join(process.cwd(), 'migrations/057_token_leaderboard_legacy_top_agent.sql'),
   'utf8'
@@ -74,6 +82,36 @@ describe('Agent usage migrations', () => {
     expect(migration050).not.toMatch(
       /delete from public\.agent_usage_daily as daily\s+where daily\.user_id = p_user_id\s+and daily\.client_id = p_client_id;/
     )
+  })
+
+  it('accepts historical daily rows while retaining payload and future-date bounds', () => {
+    expect(migration066).toContain('create or replace function public.ingest_agent_usage')
+    expect(migration066).toContain('v_record_count not between 1 and 365')
+    expect(migration066).toContain('where record.date > v_generated_date')
+    expect(migration066).not.toContain('record.date < v_generated_date')
+    expect(migration066).toContain(
+      "record.occurred_at < p_generated_at - interval '365 days'"
+    )
+  })
+
+  it('ranks schema-v1 agents and models from exact daily token breakdowns', () => {
+    expect(migration067).toContain('jsonb_to_recordset(legacy.agent_breakdown)')
+    expect(migration067).toContain('jsonb_to_recordset(legacy.model_breakdown)')
+    expect(migration067).toContain('sum(agent_facts.total_tokens) as tokens')
+    expect(migration067).toContain('sum(model_facts.total_tokens) as tokens')
+    expect(migration067).toContain(
+      'coalesce(agent_summaries.attributed_tokens, 0) = totals.total_tokens'
+    )
+    expect(migration067).toContain(
+      'coalesce(model_summaries.attributed_tokens, 0) = totals.total_tokens'
+    )
+  })
+
+  it('omits explicit reconstructed unknowns from model reporting', () => {
+    expect(migration067).toContain(
+      "'unknown', '<unknown>', 'reconstructed-unattributed'"
+    )
+    expect(migration067).toContain('jsonb_array_length(legacy.model_breakdown) = 0')
   })
 
   it('restores a legacy top-agent label without inventing token attribution', () => {

@@ -756,7 +756,9 @@ function Breakdown({
         ))}
       </div>
       {!complete && (
-        <div className="mt-2 text-[7px] leading-3 text-zinc-700">PARTIAL · LEGACY DAYS OMITTED</div>
+        <div className="mt-2 text-[7px] leading-3 text-zinc-700">
+          PARTIAL · SOME TOKENS UNATTRIBUTED
+        </div>
       )}
     </div>
   )

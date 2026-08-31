@@ -24,6 +24,8 @@ interface UsageRow {
   cost_usd: number
   agents: string[]
   models: string[]
+  agent_breakdown?: Array<Record<string, unknown>>
+  model_breakdown?: Array<Record<string, unknown>>
   timezone: string | null
   source: string
   cli_version: string | null
@@ -246,6 +248,8 @@ const { state, rateLimitMock, distributedLimitMock, supabaseMock } = vi.hoisted(
         cost_usd: Number(record.cost_usd),
         agents: record.agents as string[],
         models: record.models as string[],
+        agent_breakdown: record.agent_breakdown as Array<Record<string, unknown>>,
+        model_breakdown: record.model_breakdown as Array<Record<string, unknown>>,
         timezone: (args.p_timezone as string | null) ?? null,
         source: String(args.p_source),
         cli_version: String(args.p_cli_version),
@@ -368,7 +372,25 @@ function payload(overrides: Record<string, unknown> = {}) {
         cacheCreationTokens: 30,
         cacheReadTokens: 40,
         totalTokens: 999,
-        costUsd: 0.123456
+        costUsd: 0.123456,
+        agentBreakdowns: [
+          {
+            name: 'codex',
+            inputTokens: 10,
+            outputTokens: 20,
+            cacheCreationTokens: 30,
+            cacheReadTokens: 40
+          }
+        ],
+        modelBreakdowns: [
+          {
+            name: 'gpt-5',
+            inputTokens: 10,
+            outputTokens: 20,
+            cacheCreationTokens: 30,
+            cacheReadTokens: 40
+          }
+        ]
       }
     ],
     ...overrides
@@ -456,7 +478,25 @@ describe('POST /api/agent/usage — storage and staleness', () => {
       date: '2026-08-21',
       total_tokens: 100,
       source: 'ccusage',
-      cli_version: '1.0.0'
+      cli_version: '1.0.0',
+      agent_breakdown: [
+        {
+          name: 'codex',
+          input_tokens: 10,
+          output_tokens: 20,
+          cache_creation_tokens: 30,
+          cache_read_tokens: 40
+        }
+      ],
+      model_breakdown: [
+        {
+          name: 'gpt-5',
+          input_tokens: 10,
+          output_tokens: 20,
+          cache_creation_tokens: 30,
+          cache_read_tokens: 40
+        }
+      ]
     })
     expect(state.usageRows[0].total_tokens).not.toBe(999)
     expect(state.keyTouches[0].filters).toEqual([
@@ -689,6 +729,46 @@ describe('POST /api/agent/usage — strict validation', () => {
     expect(state.upsertBatches).toHaveLength(0)
   })
 
+  it('rejects duplicate or over-attributed daily breakdowns', async () => {
+    addKey()
+    const duplicate = payload()
+    const duplicateDay = (duplicate.daily as Array<Record<string, unknown>>)[0]
+    duplicateDay.agentBreakdowns = [
+      {
+        name: 'codex',
+        inputTokens: 5,
+        outputTokens: 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0
+      },
+      {
+        name: 'CODEX',
+        inputTokens: 5,
+        outputTokens: 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0
+      }
+    ]
+    const overAttributed = payload()
+    const overAttributedDay = (overAttributed.daily as Array<Record<string, unknown>>)[0]
+    overAttributedDay.modelBreakdowns = [
+      {
+        name: 'gpt-5',
+        inputTokens: 11,
+        outputTokens: 20,
+        cacheCreationTokens: 30,
+        cacheReadTokens: 40
+      }
+    ]
+
+    const duplicateResponse = await POST(request(duplicate))
+    const overAttributedResponse = await POST(request(overAttributed))
+
+    expect(duplicateResponse.status).toBe(400)
+    expect(overAttributedResponse.status).toBe(400)
+    expect(state.upsertBatches).toHaveLength(0)
+  })
+
   it('rejects a generatedAt more than one hour in the future', async () => {
     addKey()
     const future = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString()
@@ -699,15 +779,20 @@ describe('POST /api/agent/usage — strict validation', () => {
     expect(state.upsertBatches).toHaveLength(0)
   })
 
-  it('rejects unknown IANA zones and calendar dates outside the snapshot window', async () => {
+  it('accepts historical daily usage but rejects unknown zones and future dates', async () => {
     addKey()
     const badZone = await POST(request(payload({ timezone: 'Mars/Olympus_Mons' })))
-    const distant = payload()
-    ;(distant.daily as Array<Record<string, unknown>>)[0].date = '2020-01-01'
-    const badDate = await POST(request(distant))
+    const historical = payload()
+    ;(historical.daily as Array<Record<string, unknown>>)[0].date = '2025-06-08'
+    const historicalDate = await POST(request(historical))
+    const future = payload()
+    ;(future.daily as Array<Record<string, unknown>>)[0].date = '2026-08-23'
+    const futureDate = await POST(request(future))
 
     expect(badZone.status).toBe(400)
-    expect(badDate.status).toBe(400)
+    expect(historicalDate.status).toBe(200)
+    expect(futureDate.status).toBe(400)
+    expect(state.usageRows.some((row) => row.date === '2025-06-08')).toBe(true)
   })
 
   it('continues when the best-effort last-used update fails', async () => {

@@ -26,7 +26,8 @@ export const dynamic = 'force-dynamic'
 const supabase = createServiceClient()
 const MAX_FUTURE_SKEW_MS = 60 * 60 * 1000
 const MAX_SNAPSHOT_AGE_MS = 7 * 24 * 60 * 60 * 1000
-const MAX_BACKFILL_DAYS = 365
+const MAX_DAILY_ROWS = 365
+const MAX_EVENT_BACKFILL_DAYS = 365
 const MAX_TOKENS_PER_RECORD = 1_000_000_000_000
 const MAX_COST_USD_PER_RECORD = 1_000_000
 
@@ -94,6 +95,13 @@ const tokenFields = {
   costUsd: costUsdSchema
 }
 
+const breakdownTokenFields = {
+  inputTokens: tokenCountSchema,
+  outputTokens: tokenCountSchema,
+  cacheCreationTokens: tokenCountSchema,
+  cacheReadTokens: tokenCountSchema
+}
+
 function validateTokenTotal(
   row: {
     inputTokens: number
@@ -114,15 +122,76 @@ function validateTokenTotal(
   }
 }
 
+const tokenBreakdownSchema = z
+  .object({
+    name: usageNameSchema,
+    ...breakdownTokenFields
+  })
+  .strict()
+
+type TokenBreakdown = z.infer<typeof tokenBreakdownSchema>
+
+function validateBreakdowns(
+  row: {
+    inputTokens: number
+    outputTokens: number
+    cacheCreationTokens: number
+    cacheReadTokens: number
+    agentBreakdowns: TokenBreakdown[]
+    modelBreakdowns: TokenBreakdown[]
+  },
+  context: z.RefinementCtx
+) {
+  const fields = [
+    'inputTokens',
+    'outputTokens',
+    'cacheCreationTokens',
+    'cacheReadTokens'
+  ] as const
+  const validateGroup = (
+    breakdowns: TokenBreakdown[],
+    path: 'agentBreakdowns' | 'modelBreakdowns'
+  ) => {
+    const seen = new Set<string>()
+    breakdowns.forEach((breakdown, index) => {
+      const canonicalName = breakdown.name.toLowerCase()
+      if (seen.has(canonicalName)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Duplicate breakdown name',
+          path: [path, index, 'name']
+        })
+      }
+      seen.add(canonicalName)
+    })
+    for (const field of fields) {
+      const attributed = breakdowns.reduce((sum, breakdown) => sum + breakdown[field], 0)
+      if (!Number.isSafeInteger(attributed) || attributed > row[field]) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Breakdown tokens exceed the daily total',
+          path: [path]
+        })
+      }
+    }
+  }
+
+  validateGroup(row.agentBreakdowns, 'agentBreakdowns')
+  validateGroup(row.modelBreakdowns, 'modelBreakdowns')
+}
+
 const dailyUsageSchema = z
   .object({
     date: dailyDateSchema,
     agents: z.array(usageNameSchema).max(32),
     models: z.array(usageNameSchema).max(32),
+    agentBreakdowns: z.array(tokenBreakdownSchema).default([]),
+    modelBreakdowns: z.array(tokenBreakdownSchema).default([]),
     ...tokenFields
   })
   .strict()
   .superRefine(validateTokenTotal)
+  .superRefine(validateBreakdowns)
 
 const eventUsageSchema = z
   .object({
@@ -145,7 +214,7 @@ const provenanceSchema = z
 const dailyRowsSchema = z
   .array(dailyUsageSchema)
   .min(1)
-  .max(MAX_BACKFILL_DAYS)
+  .max(MAX_DAILY_ROWS)
   .superRefine((rows, context) => {
     const seen = new Set<string>()
     rows.forEach((row, index) => {
@@ -380,13 +449,13 @@ export async function POST(request: NextRequest) {
         generatedTime,
         canonicalTimezone ?? 'UTC'
       )
-      const distantDate = parsed.data.daily.find((row) => {
+      const futureDate = parsed.data.daily.find((row) => {
         const age = calendarDaysBetween(row.date, generatedDate)
-        return age < 0 || age >= MAX_BACKFILL_DAYS
+        return age < 0
       })
-      if (distantDate) {
+      if (futureDate) {
         return NextResponse.json(
-          { success: false, error: 'Daily dates must be within the 365-day snapshot window' },
+          { success: false, error: 'Daily dates cannot be after generatedAt' },
           { status: 400 }
         )
       }
@@ -400,14 +469,28 @@ export async function POST(request: NextRequest) {
         total_tokens: totalTokens(row),
         cost_usd: row.costUsd,
         agents: row.agents,
-        models: row.models
+        models: row.models,
+        agent_breakdown: row.agentBreakdowns.map((breakdown) => ({
+          name: breakdown.name,
+          input_tokens: breakdown.inputTokens,
+          output_tokens: breakdown.outputTokens,
+          cache_creation_tokens: breakdown.cacheCreationTokens,
+          cache_read_tokens: breakdown.cacheReadTokens
+        })),
+        model_breakdown: row.modelBreakdowns.map((breakdown) => ({
+          name: breakdown.name,
+          input_tokens: breakdown.inputTokens,
+          output_tokens: breakdown.outputTokens,
+          cache_creation_tokens: breakdown.cacheCreationTokens,
+          cache_read_tokens: breakdown.cacheReadTokens
+        }))
       }))
     } else {
       const distantEvent = parsed.data.events.find((row) => {
         const occurredAt = Date.parse(row.occurredAt)
         return (
           occurredAt > generatedTime + MAX_FUTURE_SKEW_MS ||
-          occurredAt < generatedTime - MAX_BACKFILL_DAYS * 86_400_000
+          occurredAt < generatedTime - MAX_EVENT_BACKFILL_DAYS * 86_400_000
         )
       })
       if (distantEvent) {
