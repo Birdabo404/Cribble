@@ -21,6 +21,10 @@ export const metadata: Metadata = {
   title: 'AI Usage Leaderboard',
   description: DESCRIPTION,
   alternates: { canonical: '/leaderboard' },
+  // Unfurl image: the generated root card (src/app/opengraph-image.tsx),
+  // referenced explicitly — defining openGraph here replaces the parent's
+  // whole openGraph object, so the root file-based image does NOT cascade
+  // into this page (Next merges metadata shallowly, by design).
   openGraph: {
     title: 'AI Usage Leaderboard',
     description: DESCRIPTION,
@@ -28,10 +32,10 @@ export const metadata: Metadata = {
     type: 'website',
     images: [
       {
-        url: '/preview.png',
+        url: '/opengraph-image',
         width: 1200,
         height: 630,
-        alt: 'Cribble — the AI usage leaderboard'
+        alt: 'Cribble — a worldwide leaderboard for AI users.'
       }
     ]
   },
@@ -39,7 +43,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'AI Usage Leaderboard',
     description: DESCRIPTION,
-    images: ['/preview.png']
+    images: ['/opengraph-image']
   }
 }
 

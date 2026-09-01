@@ -199,7 +199,7 @@ export const TAKEOVER_EVENTS: { enter: SimPilot; drop: string }[] = [
 
 export const ARENA_STATS = [
   { label: 'PILOTS', value: 2_929, format: 'number' as const },
-  { label: 'ONLINE NOW', value: 369, format: 'number' as const, live: true },
+  { label: 'PLAYING NOW', value: 369, format: 'number' as const, live: true },
   { label: 'TOP SCORE', value: 929_369, format: 'score' as const },
   { label: 'SEASON ENDS', value: 29, format: 'days' as const }
 ]

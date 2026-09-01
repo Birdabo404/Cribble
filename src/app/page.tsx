@@ -18,26 +18,19 @@ export const metadata: Metadata = {
   title: { absolute: TITLE },
   description: DESCRIPTION,
   alternates: { canonical: '/' },
+  // og/twitter images come from the file-based src/app/opengraph-image.tsx
+  // card — no explicit entry, or it would override the generated one.
   openGraph: {
     title: TITLE,
     description: DESCRIPTION,
     type: 'website',
     url: '/',
-    siteName: 'Cribble',
-    images: [
-      {
-        url: '/preview.png',
-        width: 1200,
-        height: 789,
-        alt: 'Cribble — a worldwide leaderboard for developers'
-      }
-    ]
+    siteName: 'Cribble'
   },
   twitter: {
     card: 'summary_large_image',
     title: TITLE,
-    description: DESCRIPTION,
-    images: ['/preview.png']
+    description: DESCRIPTION
   }
 }
 

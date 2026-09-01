@@ -16,9 +16,17 @@ const nextConfig = {
   // directory (no point duplicating ~340KB of binaries), so its route key
   // must pull them into that lambda too. Route groups are stripped before
   // key matching — '/u/**' matches /(app)/u/[username]/opengraph-image.
+  //
+  // The root OG card (src/app/opengraph-image.tsx) colocates its serif
+  // faces at src/app/*.ttf and borrows the join route's mono + mark.
   outputFileTracingIncludes: {
     '/join/**': ['./src/app/join/**/*.ttf', './src/app/join/**/*.png'],
     '/u/**': ['./src/app/join/**/*.ttf', './src/app/join/**/*.png'],
+    '/opengraph-image': [
+      './src/app/*.ttf',
+      './src/app/join/**/*.ttf',
+      './src/app/join/**/*.png',
+    ],
   },
   experimental: {
     // This app exercises many routes during local visual verification.

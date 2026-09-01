@@ -126,22 +126,16 @@ export const metadata: Metadata = {
     'ranks you worldwide.',
   // No root-level canonical: alternates cascade to every nested page, so
   // each public page declares its own canonical instead.
+  //
+  // No explicit og/twitter images: the file-based src/app/opengraph-image.tsx
+  // card cascades to every route without a closer one.
   openGraph: {
     siteName: 'Cribble',
     type: 'website',
-    url: '/',
-    images: [
-      {
-        url: '/preview.png',
-        width: 1200,
-        height: 789,
-        alt: 'Cribble — a worldwide leaderboard for developers'
-      }
-    ]
+    url: '/'
   },
   twitter: {
-    card: 'summary_large_image',
-    images: ['/preview.png']
+    card: 'summary_large_image'
   },
   icons: {
     icon: [

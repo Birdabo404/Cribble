@@ -16,19 +16,30 @@ export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
   robots: { index: true, follow: true },
+  // Unfurl image: the generated root card (src/app/opengraph-image.tsx),
+  // referenced explicitly — defining openGraph here replaces the parent's
+  // whole openGraph object, so the root file-based image does NOT cascade
+  // into this page (Next merges metadata shallowly, by design).
   openGraph: {
     title: TITLE,
     description: DESCRIPTION,
     type: 'website',
     url: '/status',
     siteName: 'Cribble',
-    images: [{ url: '/preview.png' }]
+    images: [
+      {
+        url: '/opengraph-image',
+        width: 1200,
+        height: 630,
+        alt: 'Cribble — a worldwide leaderboard for AI users.'
+      }
+    ]
   },
   twitter: {
     card: 'summary_large_image',
     title: TITLE,
     description: DESCRIPTION,
-    images: ['/preview.png']
+    images: ['/opengraph-image']
   }
 }
 
