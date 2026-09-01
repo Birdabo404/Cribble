@@ -52,6 +52,10 @@ async function snapshotProfile(rawUsername: string): Promise<ProfileSnapshot> {
   }
 }
 
+// SERP snippets truncate around 160 chars; the description builder
+// appends whole sentences only while they fit under this cap.
+const MAX_DESCRIPTION_LENGTH = 160
+
 /** '@handle ranks #N on Cribble with a score of S. Best streak: … Top
  *  tools: …' — only from fields the anonymous gate left visible. */
 function buildDescription(profile: PublicProfile): string {
@@ -76,7 +80,14 @@ function buildDescription(profile: PublicProfile): string {
   if (profile.topTools.length > 0) {
     parts.push(`Top tools: ${profile.topTools.map((t) => t.name).join(', ')}.`)
   }
-  return parts.join(' ')
+  // Whole sentences only: a snippet that ends cleanly beats one that
+  // squeezes in a final clause just to get ellipsized by Google.
+  let description = parts[0]
+  for (const part of parts.slice(1)) {
+    if (description.length + 1 + part.length > MAX_DESCRIPTION_LENGTH) break
+    description += ` ${part}`
+  }
+  return description
 }
 
 // Titles are bare — the root layout's '%s · Cribble' template appends
@@ -111,17 +122,19 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   if (profile.isPrivate) {
     // Private mode: the account stays reachable but out of the index,
-    // and no stats leak through the description.
+    // and no stats leak through the description — including the root
+    // layout's marketing description, which would otherwise cascade in.
     return {
       title: `@${handle}`,
+      description: `@${handle} flies in private mode on Cribble, the AI coding leaderboard.`,
       robots: { index: false, follow: false }
     }
   }
 
   const title =
     profile.rank !== null
-      ? `@${handle} — Rank #${profile.rank}`
-      : `@${handle} on the AI leaderboard`
+      ? `@${handle} — Rank #${profile.rank} on the AI Coding Leaderboard`
+      : `@${handle} — Pilot Profile on the AI Coding Leaderboard`
   const description = buildDescription(profile)
   // Canonical uses the profile's own casing so every typed variant of
   // the handle consolidates onto one indexed URL.

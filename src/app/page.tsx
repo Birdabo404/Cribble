@@ -6,10 +6,11 @@ import type { Metadata } from 'next'
 import HomeV2 from '@/components/landing/HomeV2'
 
 const TITLE = 'Cribble — AI Usage Leaderboard for Developers'
+// <= 160 chars so search snippets and unfurls show the whole pitch.
 const DESCRIPTION =
-  'The AI usage leaderboard: see how your time in Cursor, ChatGPT, Claude ' +
-  'and 47 AI sites stacks up against developers worldwide. One quiet ' +
-  'extension keeps score — install it, forget it, check your rank.'
+  'The AI usage leaderboard: see how your time in Cursor, ChatGPT and ' +
+  'Claude stacks up against developers worldwide. One quiet extension ' +
+  'keeps score.'
 
 export const metadata: Metadata = {
   // absolute: the homepage is the site name itself, so the '%s · Cribble'
