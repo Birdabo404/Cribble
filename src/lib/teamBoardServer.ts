@@ -1,4 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  cursorBurnDayFloor,
+  cursorEstimateUsd,
+  sumCursorTokensFromDay
+} from '@/lib/cursorBurn'
 import type { SeasonState } from '@/lib/season'
 import { fetchSeasonState } from '@/lib/seasonServer'
 import {
@@ -29,6 +34,8 @@ interface BoardTeamRow {
 
 interface BoardRosterJoinRow {
   team_user_id: number
+  invited_at: string
+  accepted_at: string | null
   member: {
     id: number
     twitter_username: string | null
@@ -97,6 +104,124 @@ async function fetchBurnByUser(
   return burnByUser
 }
 
+/** One ACTIVE affiliation's coordinates for the Cursor day floor: the
+ *  member, the team, and when the member's seat on THAT team went live
+ *  (accepted_at; rows predating the accept stamp fall back to
+ *  invited_at, NOT NULL since migration 029). */
+interface RosterAffiliation {
+  teamUserId: number
+  userId: number
+  activeAt: string
+}
+
+/**
+ * Cursor-token burn estimates per (team, member) — the CURSOR fuel of
+ * the team burn column, beside fetchBurnByUser's CLI dollars. Roster
+ * members with a cursor_profiles row that is board_enabled (the
+ * consent bit) AND ownership-verified (verified_at set by the claim
+ * flow's display-name challenge, NULL until proven, reset on handle
+ * change) get their cursor_profile_daily tokens summed over the same
+ * season window fetchBurnByUser uses, floored per (team, member) at
+ * max(verified day, affiliation activation day, season start) so a
+ * late claim can't import pre-claim or pre-roster history, and priced
+ * at the season house rate (read time only — no USD is ever stored).
+ * A verified member with zero counted tokens still maps at '0': like
+ * the CLI map, a mapped zero is a real opted-in zero, not a null.
+ * Same degradation contract as fetchBurnByUser: estimates are
+ * display-only and must never sink the board, so any failure —
+ * including the verified_at column's migration not being deployed
+ * yet — answers an empty map.
+ */
+async function fetchCursorBurnByTeamMember(
+  supabase: SupabaseClient,
+  seasonState: SeasonState,
+  affiliations: readonly RosterAffiliation[]
+): Promise<Map<number, Map<number, string>>> {
+  const estimates = new Map<number, Map<number, string>>()
+  if (affiliations.length === 0) return estimates
+  try {
+    // Mirror fetchBurnByUser's window: the season's calendar dates
+    // bound the daily rows; no season calendar means all-time.
+    const seasonWindow = seasonState.current
+      ? resolveTokenBoardWindow('season', seasonState, Date.now(), 'UTC')
+      : null
+
+    const memberIds = [...new Set(affiliations.map((row) => row.userId))]
+    const { data: profileData, error: profilesError } = await supabase
+      .from('cursor_profiles')
+      .select('user_id, verified_at')
+      .in('user_id', memberIds)
+      .eq('board_enabled', true)
+      .not('verified_at', 'is', null)
+
+    if (profilesError) {
+      console.warn(
+        '[Team Leaderboard] Cursor profiles read failed:',
+        profilesError.message
+      )
+      return estimates
+    }
+
+    const verifiedAtByUser = new Map<number, string>()
+    for (const row of (profileData ?? []) as {
+      user_id: number | string
+      verified_at: string | null
+    }[]) {
+      if (row.verified_at) {
+        verifiedAtByUser.set(Math.round(Number(row.user_id)), row.verified_at)
+      }
+    }
+    if (verifiedAtByUser.size === 0) return estimates
+
+    let dailyQuery = supabase
+      .from('cursor_profile_daily')
+      .select('user_id, day, tokens')
+      .in('user_id', [...verifiedAtByUser.keys()])
+    if (seasonWindow?.since) dailyQuery = dailyQuery.gte('day', seasonWindow.since)
+    if (seasonWindow?.until) dailyQuery = dailyQuery.lte('day', seasonWindow.until)
+    const { data: dailyData, error: dailyError } = await dailyQuery
+
+    if (dailyError) {
+      console.warn('[Team Leaderboard] Cursor daily read failed:', dailyError.message)
+      return estimates
+    }
+
+    const dailyByUser = new Map<number, { day: string; tokens: number | string | null }[]>()
+    for (const row of (dailyData ?? []) as {
+      user_id: number | string
+      day: string
+      tokens: number | string | null
+    }[]) {
+      const userId = Math.round(Number(row.user_id))
+      const rows = dailyByUser.get(userId)
+      const fact = { day: row.day, tokens: row.tokens }
+      if (rows) rows.push(fact)
+      else dailyByUser.set(userId, [fact])
+    }
+
+    for (const affiliation of affiliations) {
+      const verifiedAt = verifiedAtByUser.get(affiliation.userId)
+      if (verifiedAt === undefined) continue
+      const floorDay = cursorBurnDayFloor(
+        verifiedAt,
+        affiliation.activeAt,
+        seasonWindow?.since ?? null
+      )
+      const tokens = sumCursorTokensFromDay(
+        dailyByUser.get(affiliation.userId) ?? [],
+        floorDay
+      )
+      const teamEstimates =
+        estimates.get(affiliation.teamUserId) ?? new Map<number, string>()
+      teamEstimates.set(affiliation.userId, cursorEstimateUsd(tokens))
+      estimates.set(affiliation.teamUserId, teamEstimates)
+    }
+  } catch (err) {
+    console.warn('[Team Leaderboard] Cursor burn estimates unavailable:', err)
+  }
+  return estimates
+}
+
 export interface AssembledTeamBoard {
   rows: TeamBoardRow[]
   totals: TeamBoardTotals
@@ -117,8 +242,10 @@ export async function assembleTeamBoard(supabase: SupabaseClient): Promise<Assem
   // raw season_score (intermission / no calendar).
   const seasonState = await fetchSeasonState(supabase)
 
-  // Display-only burn column: opted-in members' USD over the season
-  // window. Fetched alongside the roster queries below; never ranks.
+  // Display-only burn column, CLI fuel: opted-in members' reported USD
+  // over the season window. Fetched alongside the roster queries below;
+  // never ranks. (The Cursor fuel needs the roster's affiliation dates,
+  // so it fetches after the roster query.)
   const burnByUserPromise = fetchBurnByUser(supabase, seasonState)
 
   // Eligible teams: the isApprovedTeam gate as a query — tier TEAM
@@ -151,11 +278,12 @@ export async function assembleTeamBoard(supabase: SupabaseClient): Promise<Assem
   // instead of null-ing the embed. Scores ride the nested embed —
   // user_scores keys on user_id, so it lands as a single object.
   const members: TeamBoardMemberInput[] = []
+  const affiliations: RosterAffiliation[] = []
   if (teams.length > 0) {
     const { data: rosterData, error: rosterError } = await supabase
       .from('team_affiliations')
       .select(
-        `team_user_id,
+        `team_user_id, invited_at, accepted_at,
          member:users!team_affiliations_member_user_id_fkey!inner(
            id, twitter_username, twitter_name, twitter_profile_image,
            subscription_tier, status,
@@ -183,11 +311,25 @@ export async function assembleTeamBoard(supabase: SupabaseClient): Promise<Assem
         season_score: member.user_scores?.season_score ?? null,
         last_calculated_at: member.user_scores?.last_calculated_at ?? null
       })
+      affiliations.push({
+        teamUserId: Number(row.team_user_id),
+        userId: Number(member.id),
+        activeAt: row.accepted_at ?? row.invited_at
+      })
     }
   }
 
-  const burnByUser = await burnByUserPromise
-  const { rows, totals } = buildTeamBoard(teams, members, seasonState, burnByUser)
+  const [burnByUser, cursorBurnByTeamMember] = await Promise.all([
+    burnByUserPromise,
+    fetchCursorBurnByTeamMember(supabase, seasonState, affiliations)
+  ])
+  const { rows, totals } = buildTeamBoard(
+    teams,
+    members,
+    seasonState,
+    burnByUser,
+    cursorBurnByTeamMember
+  )
 
   return { rows, totals, season: seasonState }
 }

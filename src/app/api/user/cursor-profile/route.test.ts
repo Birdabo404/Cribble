@@ -7,7 +7,9 @@ import type { CursorProfileData } from '@/lib/cursorProfile'
 // deleted only AFTER the cursor_profiles upsert has durably won the
 // claim, so losing the 23505 race (someone else claims the handle
 // between our pre-check and the write) leaves the user on their old
-// handle WITH their history intact — and the per-account distributed
+// handle WITH their history intact — the ownership-proof reset (a
+// handle switch nulls verified_at/verify_code, migration 067, while a
+// same-handle re-claim keeps them), and the per-account distributed
 // rate budget that keeps cursor.com scrapes human-paced across
 // serverless instances. upsertCursorProfileDaily and loadLinkedState
 // run REAL against the stateful fake, so the op log below is the
@@ -211,6 +213,57 @@ describe('POST /api/user/cursor-profile (claim)', () => {
     expect(response.status).toBe(200)
     expect(db.ops).toEqual(['profiles.upsert', 'daily.upsert'])
     expect(db.daily.map((row) => row.day).sort()).toEqual(['2026-05-01', '2026-08-29'])
+  })
+
+  it('voids the ownership proof when the handle changes — old proof, old profile', async () => {
+    // verified_at and verify_code belong to different sub-states
+    // (proven vs mid-challenge); the switch must clear whichever is
+    // present, so seed both.
+    db.profiles = [
+      {
+        user_id: 7,
+        cursor_username: 'oldhandle',
+        board_enabled: true,
+        verified_at: '2026-08-01T00:00:00.000Z',
+        verify_code: 'CRIB-7XK2'
+      }
+    ]
+
+    const response = await POST(claimRequest('newhandle'))
+
+    expect(response.status).toBe(200)
+    expect(db.profiles[0]).toMatchObject({
+      cursor_username: 'newhandle',
+      verified_at: null,
+      verify_code: null
+    })
+    await expect(response.json()).resolves.toMatchObject({
+      success: true,
+      linked: true,
+      profile: { verification: { verifiedAt: null, verifyCode: null } }
+    })
+  })
+
+  it('keeps the ownership proof on a re-claim of the same handle', async () => {
+    db.profiles = [
+      {
+        user_id: 7,
+        cursor_username: 'samehandle',
+        board_enabled: true,
+        verified_at: '2026-08-01T00:00:00.000Z',
+        verify_code: null
+      }
+    ]
+
+    const response = await POST(claimRequest('samehandle'))
+
+    expect(response.status).toBe(200)
+    expect(db.profiles[0].verified_at).toBe('2026-08-01T00:00:00.000Z')
+    await expect(response.json()).resolves.toMatchObject({
+      profile: {
+        verification: { verifiedAt: '2026-08-01T00:00:00.000Z', verifyCode: null }
+      }
+    })
   })
 
   it('holds claims to the per-account distributed budget before anything fetches or writes', async () => {

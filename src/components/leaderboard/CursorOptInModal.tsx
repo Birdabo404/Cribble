@@ -855,6 +855,11 @@ export function CursorOptInModal({
 
                     <p className="cu-foot">
                       OPT-IN · FIRST CLAIM WINS · UNLINK ANYTIME IN SETTINGS
+                      {/* Team burn gates on the settings-side ownership
+                          challenge — the claim itself stays trust-based. */}
+                      <span className="block">
+                        TEAM BURN COUNTS VERIFIED CLAIMS ONLY — VERIFY IN SETTINGS
+                      </span>
                     </p>
                   </form>
                 )}

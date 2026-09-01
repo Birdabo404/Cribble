@@ -7,6 +7,11 @@
 import type { SeasonState } from '@/lib/season'
 import { addExactDecimals, exactDecimal } from '@/lib/tokenLeaderboard'
 
+/** Where a member's burnUsd came from. 'cli' is the consent-gated CLI
+ *  RPC's reported cost; 'cursor' is verified Cursor tokens × the season
+ *  house rate — a read-time estimate the UI must mark as house math. */
+export type TeamBurnSource = 'cli' | 'cursor'
+
 /** One roster member inside an expanded team row. */
 export interface TeamBoardMember {
   userId: number
@@ -21,10 +26,15 @@ export interface TeamBoardMember {
    *  so a team's shares sum to exactly 100; all 0 when the team total
    *  is 0. */
   share: number
-  /** Display-only exact-decimal USD burn for this member, or null when
-   *  they never opted into token sharing (absent from the burn map).
-   *  A mapped '0' is a real opted-in zero, not a null. */
+  /** Display-only exact-decimal USD burn for this member: opt-in CLI
+   *  dollars when they shared token usage, else the Cursor house-rate
+   *  estimate when they hold a verified board-enabled cursor.com claim,
+   *  else null (absent from both maps). A mapped '0' is a real opted-in
+   *  zero, not a null. */
   burnUsd: string | null
+  /** Which fuel burnUsd is, or null when burnUsd is null. CLI beats the
+   *  estimate — the two are NEVER summed for one member. */
+  burnSource: TeamBurnSource | null
 }
 
 /** One ranked team on the TEAMS board. */
@@ -37,13 +47,19 @@ export interface TeamBoardRow {
   /** Combined season score of all active members. */
   score: number
   memberCount: number
-  /** Display-only exact-decimal USD burn summed over active members who
-   *  opted into token sharing ('0' when none). NEVER a sort key — the
-   *  rank stays score-only. */
+  /** Display-only exact-decimal USD burn summed over active members
+   *  with a burn source — opt-in CLI dollars or verified Cursor
+   *  estimates ('0' when neither). NEVER a sort key — the rank stays
+   *  score-only. */
   burnUsd: string
-  /** How many active members contributed to burnUsd (had opted-in usage
-   *  in the burn map). 0 renders as an em dash, not $0. */
+  /** How many active members contributed to burnUsd, from either
+   *  source. 0 renders as an em dash, not $0. */
   burnPilots: number
+  /** True when any counted member's burnUsd is the Cursor house-rate
+   *  estimate — the UI marks such values (~ prefix + EST chip) as house
+   *  math. False for CLI-only (or zero-pilot) teams, whose dollars
+   *  render as today. */
+  burnIncludesEstimate: boolean
   /** Active members, season score desc. Seat-limited (≤10), always
    *  embedded so expanding a row never fetches. */
   members: TeamBoardMember[]
@@ -55,10 +71,15 @@ export interface TeamBoardTotals {
   members: number
   topScore: number
   /** Combined exact-decimal USD burn across every team ('0' when no
-   *  member anywhere opted in). Display-only, same rule as the rows. */
+   *  member anywhere has a burn source). Display-only, same rule as
+   *  the rows. */
   burnUsd: string
-  /** Total opted-in members contributing to burnUsd across the board. */
+  /** Total members contributing to burnUsd across the board, from
+   *  either source. */
   burnPilots: number
+  /** True when any team's burn includes a Cursor house-rate estimate —
+   *  the stat strip marks the board total as house math. */
+  burnIncludesEstimate: boolean
 }
 
 /** An approved team account, as selected by the route (identity only —
@@ -134,16 +155,24 @@ export function largestRemainderShares(scores: number[]): number[] {
  * ties break by memberCount, then username, so equal teams never
  * flip-flop between reads. Members sort score desc inside their team.
  *
- * burnByUser (userId -> exact-decimal USD from the consent-gated token
- * RPC) only decorates: each mapped ACTIVE member carries their own
- * burnUsd, each team sums those with addExactDecimals, and the totals
- * fold the teams. It never touches the sort.
+ * Burn only decorates — it never touches the sort — and has two fuels:
+ * burnByUser (userId -> exact-decimal USD reported through the
+ * consent-gated CLI token RPC) and cursorBurnByTeamMember
+ * (teamUserId -> userId -> exact-decimal USD estimated from verified
+ * Cursor tokens at the season house rate; per (team, member) because
+ * the server's day floor depends on when THAT affiliation went
+ * active). Per member the fold is CLI ?? estimate — real dollars beat
+ * house math and the two are never summed, so double-pay is
+ * structurally impossible. Each team sums its members' folded burn
+ * with addExactDecimals and raises burnIncludesEstimate when any
+ * counted member's source is 'cursor'; the totals fold the teams.
  */
 export function buildTeamBoard(
   teams: TeamBoardTeamInput[],
   members: TeamBoardMemberInput[],
   seasonState: SeasonState,
-  burnByUser: ReadonlyMap<number, string> = new Map()
+  burnByUser: ReadonlyMap<number, string> = new Map(),
+  cursorBurnByTeamMember: ReadonlyMap<number, ReadonlyMap<number, string>> = new Map()
 ): { rows: TeamBoardRow[]; totals: TeamBoardTotals } {
   const membersByTeam = new Map<number, TeamBoardMemberInput[]>()
   for (const member of members) {
@@ -156,7 +185,17 @@ export function buildTeamBoard(
     const roster = (membersByTeam.get(team.id) ?? [])
       .map((member) => {
         const username = member.twitter_username || `User${member.userId}`
-        const memberBurn = burnByUser.get(member.userId)
+        const cliBurn = burnByUser.get(member.userId)
+        const cursorBurn = cursorBurnByTeamMember.get(team.id)?.get(member.userId)
+        // The per-member fold: CLI ?? estimate, never both.
+        const burnUsd =
+          cliBurn !== undefined
+            ? exactDecimal(cliBurn)
+            : cursorBurn !== undefined
+              ? exactDecimal(cursorBurn)
+              : null
+        const burnSource: TeamBurnSource | null =
+          cliBurn !== undefined ? 'cli' : cursorBurn !== undefined ? 'cursor' : null
         return {
           userId: member.userId,
           username,
@@ -168,7 +207,8 @@ export function buildTeamBoard(
             member.last_calculated_at,
             seasonState
           ),
-          burnUsd: memberBurn === undefined ? null : exactDecimal(memberBurn)
+          burnUsd,
+          burnSource
         }
       })
       .sort((a, b) => b.score - a.score || a.userId - b.userId)
@@ -178,10 +218,12 @@ export function buildTeamBoard(
 
     let burnUsd = '0'
     let burnPilots = 0
+    let burnIncludesEstimate = false
     for (const member of roster) {
       if (member.burnUsd === null) continue
       burnUsd = addExactDecimals(burnUsd, member.burnUsd)
       burnPilots += 1
+      if (member.burnSource === 'cursor') burnIncludesEstimate = true
     }
 
     return {
@@ -193,6 +235,7 @@ export function buildTeamBoard(
       memberCount: roster.length,
       burnUsd,
       burnPilots,
+      burnIncludesEstimate,
       members: roster.map((member, idx): TeamBoardMember => ({
         ...member,
         share: shares[idx]
@@ -216,7 +259,8 @@ export function buildTeamBoard(
       members: rows.reduce((sum, row) => sum + row.memberCount, 0),
       topScore: rows[0]?.score ?? 0,
       burnUsd: rows.reduce((sum, row) => addExactDecimals(sum, row.burnUsd), '0'),
-      burnPilots: rows.reduce((sum, row) => sum + row.burnPilots, 0)
+      burnPilots: rows.reduce((sum, row) => sum + row.burnPilots, 0),
+      burnIncludesEstimate: rows.some((row) => row.burnIncludesEstimate)
     }
   }
 }
