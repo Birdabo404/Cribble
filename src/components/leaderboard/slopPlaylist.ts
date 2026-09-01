@@ -1,4 +1,4 @@
-// CH 99 program guide — genuinely public-domain / Creative Commons
+// CH 92 SLOPTOONS program guide — genuinely public-domain / Creative Commons
 // cartoons hotlinked straight from archive.org. Every entry was vetted
 // at curation time: the license is PD or CC (no copyright uploads from
 // the animationandcartoons grab-bag), and the file is the h.264 MP4

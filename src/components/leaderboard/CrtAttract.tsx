@@ -32,8 +32,8 @@ import { prefersReducedMotion } from '@/lib/motion'
 
 gsap.registerPlugin(useGSAP)
 
-// Lazy: the CH 99 player (archive.org cartoon playlist driver) only
-// downloads when someone actually flips to CH 99 — it never rides the
+// Lazy: the CH 92 player (archive.org cartoon playlist driver) only
+// downloads when someone actually flips to CH 92 — it never rides the
 // leaderboard's initial bundle. ssr:false because an autoplaying
 // <video> is meaningless markup on the server.
 const SlopChannel = dynamic(
@@ -41,6 +41,7 @@ const SlopChannel = dynamic(
   { ssr: false }
 )
 
+const SLOP_CHANNEL_LABEL = 'CH 92 SLOPTOONS'
 const BAR_CELLS = 18
 const SPARK_GLYPHS = '▁▂▃▄▅▆▇█'
 
@@ -891,7 +892,7 @@ export const CrtAttract = memo(function CrtAttract({
       data-channel={channelMode}
       aria-label={
         slop
-          ? 'Slop TV — pirate broadcast'
+          ? 'Sloptoons — pirate broadcast'
           : 'Attract mode — top pilots showcase'
       }
     >
@@ -909,8 +910,8 @@ export const CrtAttract = memo(function CrtAttract({
               aria-label={
                 slop
                   ? slopMuted
-                    ? 'Slop TV — press to enable sound'
-                    : 'Slop TV — press to mute'
+                    ? 'Sloptoons — press to enable sound'
+                    : 'Sloptoons — press to mute'
                   : activeRow
                     ? `Open pilot card — @${activeRow.username}, rank ${activeRow.rank}`
                     : 'Awaiting signal'
@@ -941,7 +942,7 @@ export const CrtAttract = memo(function CrtAttract({
                     aria-label={
                       slop
                         ? 'Change channel — back to attract mode'
-                        : 'Change channel — Slop TV'
+                        : 'Change channel — Sloptoons'
                     }
                     onClick={(e) => {
                       e.stopPropagation()
@@ -955,7 +956,7 @@ export const CrtAttract = memo(function CrtAttract({
                       }
                     }}
                   >
-                    {slop ? 'CH 99 SLOP' : channel}
+                    {slop ? SLOP_CHANNEL_LABEL : channel}
                   </span>
                 </div>
                 {slop ? (
@@ -970,7 +971,7 @@ export const CrtAttract = memo(function CrtAttract({
                     </div>
                   ) : (
                     <div className="crt-await">
-                      <div className="crt-await-title">CH 99 SLOP</div>
+                      <div className="crt-await-title">{SLOP_CHANNEL_LABEL}</div>
                       <div className="crt-await-sub">
                         {slopStatus === 'connecting'
                           ? 'TUNING SIGNAL'
@@ -1003,7 +1004,7 @@ export const CrtAttract = memo(function CrtAttract({
                     pctRef={pctRef}
                   />
                 ) : !slop ? (
-                  // Suppressed on CH 99: the slop overlay above owns the
+                  // Suppressed on CH 92: the slop overlay above owns the
                   // await treatment there.
                   <div className="crt-await">
                     <div className="crt-await-title">AWAITING SIGNAL</div>
@@ -1036,7 +1037,7 @@ export const CrtAttract = memo(function CrtAttract({
               data-sfx="off"
               onClick={flipChannel}
               aria-pressed={slop}
-              aria-label="Change channel — Slop TV"
+              aria-label="Change channel — Sloptoons"
             >
               CH
             </button>
@@ -1339,7 +1340,7 @@ export const CrtAttract = memo(function CrtAttract({
           }
         }
 
-        /* ---- CH 99 SLOP (pirate channel) ---- */
+        /* ---- CH 92 SLOPTOONS (pirate channel) ---- */
         /* The attract stage stays mounted so its paused GSAP timeline
            keeps its nodes (and resumes exactly where it parked on
            flip-back) — display:none because GSAP owns inline opacity

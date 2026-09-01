@@ -1,6 +1,6 @@
 'use client'
 
-// CH 99 SLOP — the CRT's pirate channel, now PUBLIC DOMAIN THEATER.
+// CH 92 SLOPTOONS — the CRT's pirate channel, now PUBLIC DOMAIN THEATER.
 // Loops a shuffled playlist of vetted public-domain / CC cartoons
 // hotlinked from archive.org (see slopPlaylist.ts for the curation
 // gate). archive.org serves the bytes with 206 range support, so the
@@ -103,7 +103,8 @@ export default function SlopChannel({ muted, onStatus }: SlopChannelProps) {
 
     video.addEventListener('loadstart', onBuffering)
     video.addEventListener('waiting', onBuffering)
-    video.addEventListener('stalled', onBuffering)
+    // Do not listen for `stalled`: buffered playback may continue without
+    // another `playing` event, which would leave the tuning overlay stuck.
     video.addEventListener('playing', onPlaying)
     video.addEventListener('ended', onEnded)
     video.addEventListener('error', onError)
@@ -130,7 +131,6 @@ export default function SlopChannel({ muted, onStatus }: SlopChannelProps) {
       clearSkipTimer()
       video.removeEventListener('loadstart', onBuffering)
       video.removeEventListener('waiting', onBuffering)
-      video.removeEventListener('stalled', onBuffering)
       video.removeEventListener('playing', onPlaying)
       video.removeEventListener('ended', onEnded)
       video.removeEventListener('error', onError)

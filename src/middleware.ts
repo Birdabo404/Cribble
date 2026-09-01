@@ -28,7 +28,7 @@ export function middleware(request: NextRequest) {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: https: blob:",
-    // archive.org hosts the SLOP channel's public-domain cartoon reels:
+    // archive.org hosts the SLOPTOONS channel's public-domain cartoon reels:
     // download/<id>/<file> 302s to whichever storage node holds the item
     // — most live under *.us.archive.org, some under *.ca.archive.org —
     // so all three hosts must clear media-src for the <video> to stream.
