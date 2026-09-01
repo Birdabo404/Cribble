@@ -11,8 +11,10 @@ import LeaderboardClient from './LeaderboardClient'
 // minutes stale without putting the page render on the request path.
 export const revalidate = 300
 
+// <= 160 chars so search snippets and unfurls show the whole pitch.
 const DESCRIPTION =
-  'The live AI usage leaderboard: top AI developers ranked by real usage of Cursor, ChatGPT, Claude, and more. Track ranks, scores, streaks, and 24h gains across season and all-time standings.'
+  'The live AI usage leaderboard: developers ranked by real usage of ' +
+  'Cursor, ChatGPT, Claude and more. Track ranks, scores, streaks and 24h gains.'
 
 // Bare title — the root layout supplies the '%s · Cribble' template.
 export const metadata: Metadata = {

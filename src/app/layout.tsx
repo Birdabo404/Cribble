@@ -119,10 +119,11 @@ export const metadata: Metadata = {
     default: 'Cribble — AI Usage Leaderboard for Developers',
     template: '%s · Cribble'
   },
+  // <= 160 chars so SERPs and unfurls never truncate it mid-sentence.
   description:
-    'Cribble is the global leaderboard for AI-powered developers. One quiet ' +
-    'browser extension tracks your real usage across Cursor, ChatGPT, Claude ' +
-    'and 47 AI sites, turns it into a score, and ranks you worldwide.',
+    'The AI usage leaderboard for developers. One quiet extension tracks ' +
+    'your real usage across Cursor, ChatGPT, Claude and 47 AI sites, and ' +
+    'ranks you worldwide.',
   // No root-level canonical: alternates cascade to every nested page, so
   // each public page declares its own canonical instead.
   openGraph: {
