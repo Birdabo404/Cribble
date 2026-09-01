@@ -7,6 +7,7 @@
 // strictly opt-in via the token-sharing consent — their agent CLI mix.
 // Never emails, devices or admin fields.
 
+import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   ACHIEVEMENTS_BY_ID,
@@ -25,12 +26,18 @@ import {
   type AgentProfileRow,
   type PublicProfileAgent
 } from '@/lib/profileAgents'
+import { createServiceClient } from '@/lib/supabaseServer'
 import { getAffiliatedTeamsBatch } from '@/lib/teams'
 import {
   ensureUserStatsRollup,
   USER_STATS_ROLLUP_SELECT,
   type UserStatsRollupColumns
 } from '@/lib/userStats'
+
+/** Handle validation shared by the /api/profile/[username] route and the
+ *  /u/[username] server page — one regex so a URL either resolves on both
+ *  surfaces or on neither. */
+export const PROFILE_USERNAME_RE = /^[A-Za-z0-9_.-]{1,40}$/
 
 /**
  * Data Cache tag for one handle's cached /api/profile/[username] payload.
@@ -41,6 +48,44 @@ import {
 export function publicProfileCacheTag(username: string): string {
   return `public-profile:${username.trim().toLowerCase()}`
 }
+
+const PROFILE_REVALIDATE_SECONDS = 60
+
+/** Thrown (never returned) inside the cached loader so a transient
+ *  database failure is not cached for the whole revalidate window;
+ *  genuine 404s ARE cached — an absent user stays absent. */
+export const PROFILE_LOAD_FAILED = 'PROFILE_LOAD_FAILED'
+
+// The assembled profile is identical for every viewer (privacy gating,
+// follow counts and viewer context are applied per request by callers),
+// so it lives in the Data Cache for a minute, keyed by the lowercased
+// handle — the lookup is case-insensitive, so every casing of a shared
+// /u/ link rides one cache entry.
+//
+// The wrapper is built per request because tags must carry the handle:
+// profile writes (PATCH /api/user/profile, OAuth identity refresh)
+// revalidate publicProfileCacheTag(handle) so the owner sees their edit
+// immediately instead of a stale snapshot for the rest of the TTL. The
+// cache entry itself is still shared — unstable_cache keys on the
+// keyParts, not on wrapper identity. One entry feeds the API route, the
+// /u/[username] metadata and its OG card.
+export const loadPublicProfileCached = (usernameLower: string) =>
+  unstable_cache(
+    async () => {
+      const result = await loadPublicProfile(createServiceClient(), {
+        username: usernameLower
+      })
+      if (!result.ok && result.status >= 500) {
+        throw new Error(PROFILE_LOAD_FAILED)
+      }
+      return result
+    },
+    ['public-profile', usernameLower],
+    {
+      revalidate: PROFILE_REVALIDATE_SECONDS,
+      tags: [publicProfileCacheTag(usernameLower)]
+    }
+  )
 
 export interface PublicProfileTool {
   name: string

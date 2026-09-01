@@ -10,7 +10,10 @@ import {
   GOATCOUNTER_SCRIPT_SRC,
   goatcounterEndpoint
 } from '@/lib/goatcounterPublic'
+import { JsonLd } from '@/lib/seo'
 import './globals.css'
+
+const shareOrigin = resolveShareOrigin()
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -111,9 +114,34 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   // Canonical share origin so relative OG/twitter image URLs (e.g. the
   // /join/[code] invite card) resolve to absolute https://cribble.dev links.
-  metadataBase: new URL(resolveShareOrigin()),
-  title: 'Cribble - AI Usage Leaderboard for Developers',
-  description: 'Discover your rank among AI-powered developers globally.',
+  metadataBase: new URL(shareOrigin),
+  title: {
+    default: 'Cribble — AI Usage Leaderboard for Developers',
+    template: '%s · Cribble'
+  },
+  description:
+    'Cribble is the global leaderboard for AI-powered developers. One quiet ' +
+    'browser extension tracks your real usage across Cursor, ChatGPT, Claude ' +
+    'and 47 AI sites, turns it into a score, and ranks you worldwide.',
+  // No root-level canonical: alternates cascade to every nested page, so
+  // each public page declares its own canonical instead.
+  openGraph: {
+    siteName: 'Cribble',
+    type: 'website',
+    url: '/',
+    images: [
+      {
+        url: '/preview.png',
+        width: 1200,
+        height: 789,
+        alt: 'Cribble — a worldwide leaderboard for developers'
+      }
+    ]
+  },
+  twitter: {
+    card: 'summary_large_image',
+    images: ['/preview.png']
+  },
   icons: {
     icon: [
       {
@@ -142,6 +170,25 @@ export default function RootLayout({
         {/* Seeds nav position/expansion attributes on <html> before first
             paint so the app shell inset renders correctly with no flash. */}
         <script dangerouslySetInnerHTML={{ __html: NAV_BOOT_SCRIPT }} />
+        {/* Sitewide schema.org identity — page-specific JSON-LD
+            (ProfilePage, ItemList) renders in the page components. */}
+        <JsonLd
+          data={{
+            '@context': 'https://schema.org',
+            '@type': 'Organization',
+            name: 'Cribble',
+            url: shareOrigin,
+            logo: `${shareOrigin}/brand/cribble-mark.png`
+          }}
+        />
+        <JsonLd
+          data={{
+            '@context': 'https://schema.org',
+            '@type': 'WebSite',
+            name: 'Cribble',
+            url: shareOrigin
+          }}
+        />
         <ThemeProvider>
           {children}
           <Analytics />

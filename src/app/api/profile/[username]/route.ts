@@ -1,4 +1,3 @@
-import { unstable_cache } from 'next/cache'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabaseServer'
 import { getSessionUserId } from '@/lib/sessionAuth'
@@ -7,8 +6,9 @@ import {
   getFollowCounts,
   getMutualFollowerProof,
   getViewerFollowContext,
-  loadPublicProfile,
-  publicProfileCacheTag
+  loadPublicProfileCached,
+  PROFILE_LOAD_FAILED,
+  PROFILE_USERNAME_RE
 } from '@/lib/publicProfile'
 import { getTeamAffiliatesList } from '@/lib/teamAffiliates'
 
@@ -22,51 +22,16 @@ import { getTeamAffiliatesList } from '@/lib/teamAffiliates'
 
 export const dynamic = 'force-dynamic'
 
-const USERNAME_RE = /^[A-Za-z0-9_.-]{1,40}$/
-
-const PROFILE_REVALIDATE_SECONDS = 60
-
-/** Thrown (never returned) inside the cached loader so a transient
- *  database failure is not cached for the whole revalidate window;
- *  genuine 404s ARE cached — an absent user stays absent. */
-const PROFILE_LOAD_FAILED = 'PROFILE_LOAD_FAILED'
-
-// The assembled profile is identical for every viewer (privacy gating,
-// follow counts and viewer context are applied per request below), so it
-// lives in the Data Cache for a minute, keyed by the lowercased handle —
-// the lookup is case-insensitive, so every casing of a shared /u/ link
-// rides one cache entry.
-//
-// The wrapper is built per request because tags must carry the handle:
-// profile writes (PATCH /api/user/profile, OAuth identity refresh)
-// revalidate publicProfileCacheTag(handle) so the owner sees their edit
-// immediately instead of a stale snapshot for the rest of the TTL. The
-// cache entry itself is still shared — unstable_cache keys on the
-// keyParts, not on wrapper identity.
-const loadPublicProfileCached = (usernameLower: string) =>
-  unstable_cache(
-    async () => {
-      const result = await loadPublicProfile(createServiceClient(), {
-        username: usernameLower
-      })
-      if (!result.ok && result.status >= 500) {
-        throw new Error(PROFILE_LOAD_FAILED)
-      }
-      return result
-    },
-    ['public-profile', usernameLower],
-    {
-      revalidate: PROFILE_REVALIDATE_SECONDS,
-      tags: [publicProfileCacheTag(usernameLower)]
-    }
-  )
+// The cached loader (unstable_cache around loadPublicProfile, 60s TTL,
+// tagged per handle) lives in @/lib/publicProfile so the /u/[username]
+// page metadata and OG card share this route's Data Cache entry.
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ username: string }> }
 ) {
   const username = String((await params).username || '').trim()
-  if (!USERNAME_RE.test(username)) {
+  if (!PROFILE_USERNAME_RE.test(username)) {
     return NextResponse.json(
       { success: false, error: 'Invalid username' },
       { status: 400 }

@@ -11,8 +11,14 @@ const nextConfig = {
   // imported), so without this the lambda renders every invite unfurl in
   // fallback fonts with no mark. Glob key covers the page and the
   // colocated opengraph-image route.
+  //
+  // The /u/[username] OG card reads the SAME files from the join route
+  // directory (no point duplicating ~340KB of binaries), so its route key
+  // must pull them into that lambda too. Route groups are stripped before
+  // key matching — '/u/**' matches /(app)/u/[username]/opengraph-image.
   outputFileTracingIncludes: {
     '/join/**': ['./src/app/join/**/*.ttf', './src/app/join/**/*.png'],
+    '/u/**': ['./src/app/join/**/*.ttf', './src/app/join/**/*.png'],
   },
   experimental: {
     // This app exercises many routes during local visual verification.
