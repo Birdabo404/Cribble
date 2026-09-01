@@ -60,3 +60,6 @@ Desktop.ini
 .smoke/
 .cursor-verify/
 scripts/shots-*/
+.curation-scout-*/
+.sfx-audition/
+.share-verify/
