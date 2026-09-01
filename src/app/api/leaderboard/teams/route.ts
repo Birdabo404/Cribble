@@ -27,7 +27,10 @@ const loadTeamBoard = unstable_cache(
       generatedAt: new Date().toISOString()
     }
   },
-  ['team-leaderboard-v3'],
+  // v4: rows/members carry burnSource + burnIncludesEstimate (the
+  // Cursor house-rate fold) — bumped so cached v3 payloads without the
+  // fields never reach the new UI.
+  ['team-leaderboard-v4'],
   { revalidate: REVALIDATE_SECONDS }
 )
 

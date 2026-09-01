@@ -47,6 +47,7 @@ import { TeamBadge } from '@/components/premium/TeamBadge'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { TeamsDirectory } from '@/components/teams/TeamsDirectory'
 import { fetchMe } from '@/lib/client/fetchMe'
+import { CURSOR_HOUSE_RATE_USD_PER_MTOK } from '@/lib/cursorBurn'
 import { isProTier } from '@/lib/entitlements'
 import { prefersReducedMotion } from '@/lib/motion'
 import {
@@ -57,7 +58,8 @@ import {
 import type {
   TeamBoardMember,
   TeamBoardRow,
-  TeamBoardTotals
+  TeamBoardTotals,
+  TeamBurnSource
 } from '@/lib/teamLeaderboard'
 
 const ROW_GRID =
@@ -339,7 +341,16 @@ export function TeamBoard() {
               label="SEASON BURN"
               hint="OPT-IN ESTIMATES"
             >
-              <BurnValue value={totals?.burnUsd ?? '0'} animated />
+              <span className="inline-flex items-center gap-1.5">
+                <span>
+                  <BurnValue
+                    value={totals?.burnUsd ?? '0'}
+                    animated
+                    estimated={totals?.burnIncludesEstimate === true}
+                  />
+                </span>
+                {totals?.burnIncludesEstimate === true && <EstChip />}
+              </span>
             </StatCell>
           </div>
         </LeaderboardSponsorFlip>
@@ -469,7 +480,10 @@ export function TeamBoard() {
                 : 'RANKED BY THE COMBINED SEASON SCORE OF ACTIVE AFFILIATES'}
             </p>
             <p className="mt-1 text-center text-[9px] tracking-[0.22em] text-zinc-700">
-              BURN = OPT-IN AGENT ESTIMATES · NOT A COMPANY BILL
+              BURN = CLI EST + CURSOR TOKENS × HOUSE RATE · NOT A COMPANY BILL
+            </p>
+            <p className="mt-1 text-center text-[9px] tracking-[0.22em] text-zinc-700">
+              SEASON HOUSE RATE: ${CURSOR_HOUSE_RATE_USD_PER_MTOK.toFixed(2)} / MTOK
             </p>
           </>
         ) : (
@@ -609,13 +623,23 @@ function formatUsdNumber(value: number): string {
 
 /** Same USD markup the Burn Board uses: optional "<" for sub-cent
  *  values, green dollar mark, exact-decimal display parts (an optional
- *  animated counter for the stat strip). */
-function BurnValue({ value, animated = false }: { value: string; animated?: boolean }) {
+ *  animated counter for the stat strip). `estimated` marks house math —
+ *  any value containing the Cursor house-rate estimate wears a ~. */
+function BurnValue({
+  value,
+  animated = false,
+  estimated = false
+}: {
+  value: string
+  animated?: boolean
+  estimated?: boolean
+}) {
   const display = usdDisplayParts(value)
   const approximate = decimalToApproxNumber(display.tiny ? '0.01' : value)
   const canAnimate = animated && approximate <= Number.MAX_SAFE_INTEGER
   return (
     <>
+      {estimated ? '~' : null}
       {display.tiny ? '<' : null}
       <span className="text-[#39ff88]">$</span>
       {canAnimate ? (
@@ -625,6 +649,31 @@ function BurnValue({ value, animated = false }: { value: string; animated?: bool
       )}
     </>
   )
+}
+
+/** The house-math marker: rides beside any USD value that contains the
+ *  Cursor house-rate estimate. Burn green, arcade tracking. */
+function EstChip() {
+  return (
+    <span className="rounded border border-[#39ff88]/30 bg-[#39ff88]/5 px-1 py-[2px] text-[7px] leading-none tracking-[0.25em] text-[#39ff88]/80">
+      EST
+    </span>
+  )
+}
+
+/** Member burn source tag copy — exhaustive over TeamBurnSource so a
+ *  new fuel can't ship untagged. */
+function burnSourceTag(source: TeamBurnSource): string {
+  switch (source) {
+    case 'cli':
+      return 'CLI'
+    case 'cursor':
+      return 'CURSOR'
+    default: {
+      const exhaustive: never = source
+      return exhaustive
+    }
+  }
 }
 
 /* ================= lens toggle ================= */
@@ -833,12 +882,15 @@ function TeamRow({
             lens === 'burn' ? (
               <>
                 <div
-                  className="text-[13px] leading-none tabular-nums text-zinc-100 [font-family:var(--font-pixel)]"
+                  className="flex items-center justify-end gap-1.5 text-[13px] leading-none tabular-nums text-zinc-100 [font-family:var(--font-pixel)]"
                   style={{
                     textShadow: '0 0 10px rgb(57 255 136 / calc(0.3 * var(--lb-glow, 1)))'
                   }}
                 >
-                  <BurnValue value={team.burnUsd} />
+                  <span>
+                    <BurnValue value={team.burnUsd} estimated={team.burnIncludesEstimate} />
+                  </span>
+                  {team.burnIncludesEstimate && <EstChip />}
                 </div>
                 <div className="mt-1.5 h-[3px] overflow-hidden rounded-full bg-[rgb(var(--lb-panel-edge)/0.07)]">
                   <div
@@ -852,8 +904,11 @@ function TeamRow({
                 </div>
               </>
             ) : (
-              <span className="text-[11px] tabular-nums text-zinc-400">
-                <BurnValue value={team.burnUsd} />
+              <span className="inline-flex items-center gap-1.5 text-[11px] tabular-nums text-zinc-400">
+                <span>
+                  <BurnValue value={team.burnUsd} estimated={team.burnIncludesEstimate} />
+                </span>
+                {team.burnIncludesEstimate && <EstChip />}
               </span>
             )
           ) : (
@@ -1167,12 +1222,22 @@ function MemberRow({
           <span className="block text-[11px] leading-none tabular-nums text-zinc-200 [font-family:var(--font-pixel)]">
             {formatNumber(member.score)}
           </span>
-          {member.burnUsd !== null && (
+          {member.burnUsd !== null && member.burnSource !== null && (
             <span
               className="mt-1 block text-[9px] leading-none tabular-nums text-zinc-500"
-              title="Opt-in season burn estimate — not a bill"
+              title={
+                member.burnSource === 'cursor'
+                  ? 'Verified Cursor tokens × the season house rate — not a bill'
+                  : 'Opt-in season burn estimate — not a bill'
+              }
             >
-              <BurnValue value={member.burnUsd} />
+              <BurnValue
+                value={member.burnUsd}
+                estimated={member.burnSource === 'cursor'}
+              />
+              <span className="ml-1 text-[7px] tracking-[0.2em] text-zinc-600">
+                · {burnSourceTag(member.burnSource)}
+              </span>
             </span>
           )}
         </span>
