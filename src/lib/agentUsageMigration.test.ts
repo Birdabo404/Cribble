@@ -107,9 +107,15 @@ describe('Agent usage migrations', () => {
     )
   })
 
-  it('omits explicit reconstructed unknowns from model reporting', () => {
+  it('normalizes ccusage aliases and omits invalid model labels from reporting', () => {
     expect(migration067).toContain(
-      "'unknown', '<unknown>', 'reconstructed-unattributed'"
+      "'unknown', '<unknown>', '<synthetic>', 'ccm-translated'"
+    )
+    expect(migration067).toContain(
+      "when '~deepseek/deepseek-v4-flash-latest' then 'deepseek-v4-flash'"
+    )
+    expect(migration067).toContain(
+      "when 'deepseek-v4-flash:0731' then 'deepseek-v4-flash-0731'"
     )
     expect(migration067).toContain('jsonb_array_length(legacy.model_breakdown) = 0')
   })

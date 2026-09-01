@@ -3,8 +3,8 @@
 -- ============================================================
 -- Schema-v1 daily snapshots now retain ccusage's exact per-agent and
 -- per-model token components. Prefer those facts, keep the established
--- single-label legacy fallback for older rows, and exclude explicitly
--- unattributed reconstructed model names from rankings.
+-- single-label legacy fallback for older rows, normalize known ccusage
+-- aliases, and exclude transport or invalid model names from rankings.
 -- ============================================================
 
 create or replace function public.agent_token_leaderboard(
@@ -109,7 +109,11 @@ as $$
       event.total_tokens::numeric as total_tokens,
       event.cost_usd,
       lower(btrim(event.agent)) as agent,
-      lower(btrim(event.model)) as model,
+      case lower(btrim(event.model))
+        when '~deepseek/deepseek-v4-flash-latest' then 'deepseek-v4-flash'
+        when 'deepseek-v4-flash:0731' then 'deepseek-v4-flash-0731'
+        else lower(btrim(event.model))
+      end as model,
       event.ingested_at
     from public.agent_usage_events as event
     inner join enabled_users on enabled_users.user_id = event.user_id
@@ -250,12 +254,17 @@ as $$
       events.ingested_at
     from events
     where events.model not in (
-      'unknown', '<unknown>', 'reconstructed-unattributed'
+      'unknown', '<unknown>', '<synthetic>', 'ccm-translated',
+      'reconstructed-unattributed'
     )
     union all
     select
       legacy.user_id,
-      lower(btrim(breakdown.name)) as name,
+      case lower(btrim(breakdown.name))
+        when '~deepseek/deepseek-v4-flash-latest' then 'deepseek-v4-flash'
+        when 'deepseek-v4-flash:0731' then 'deepseek-v4-flash-0731'
+        else lower(btrim(breakdown.name))
+      end as name,
       legacy.usage_day,
       (
         breakdown.input_tokens
@@ -273,14 +282,19 @@ as $$
       cache_read_tokens bigint
     )
     where lower(btrim(coalesce(breakdown.name, ''))) not in (
-        '', 'unknown', '<unknown>', 'reconstructed-unattributed'
+        '', 'unknown', '<unknown>', '<synthetic>', 'ccm-translated',
+        'reconstructed-unattributed'
       )
       and breakdown.input_tokens + breakdown.output_tokens
         + breakdown.cache_creation_tokens + breakdown.cache_read_tokens > 0
     union all
     select
       legacy.user_id,
-      lower(btrim(legacy.models[1])) as name,
+      case lower(btrim(legacy.models[1]))
+        when '~deepseek/deepseek-v4-flash-latest' then 'deepseek-v4-flash'
+        when 'deepseek-v4-flash:0731' then 'deepseek-v4-flash-0731'
+        else lower(btrim(legacy.models[1]))
+      end as name,
       legacy.usage_day,
       legacy.total_tokens,
       legacy.ingested_at
@@ -289,7 +303,8 @@ as $$
       and cardinality(legacy.models) = 1
       and btrim(legacy.models[1]) <> ''
       and lower(btrim(legacy.models[1])) not in (
-        'unknown', '<unknown>', 'reconstructed-unattributed'
+        'unknown', '<unknown>', '<synthetic>', 'ccm-translated',
+        'reconstructed-unattributed'
       )
   ),
   -- Ranking facts additionally accept the privacy-preserving v1.2+ daily
@@ -305,7 +320,11 @@ as $$
     union all
     select
       legacy.user_id,
-      lower(btrim(legacy.models[1])) as name,
+      case lower(btrim(legacy.models[1]))
+        when '~deepseek/deepseek-v4-flash-latest' then 'deepseek-v4-flash'
+        when 'deepseek-v4-flash:0731' then 'deepseek-v4-flash-0731'
+        else lower(btrim(legacy.models[1]))
+      end as name,
       legacy.usage_day,
       legacy.total_tokens,
       legacy.ingested_at
@@ -314,7 +333,8 @@ as $$
       and cardinality(legacy.models) > 1
       and legacy.ordered_primary_model is not null
       and lower(btrim(coalesce(legacy.models[1], ''))) not in (
-        '', 'unknown', '<unknown>', 'reconstructed-unattributed'
+        '', 'unknown', '<unknown>', '<synthetic>', 'ccm-translated',
+        'reconstructed-unattributed'
       )
   ),
   agent_weights as (
@@ -435,11 +455,16 @@ as $$
   legacy_model_mix as (
     select distinct
       legacy.user_id,
-      lower(btrim(model_name)) as name
+      case lower(btrim(model_name))
+        when '~deepseek/deepseek-v4-flash-latest' then 'deepseek-v4-flash'
+        when 'deepseek-v4-flash:0731' then 'deepseek-v4-flash-0731'
+        else lower(btrim(model_name))
+      end as name
     from legacy
     cross join lateral unnest(legacy.models) as model_name
     where lower(btrim(model_name)) not in (
-      '', 'unknown', '<unknown>', 'reconstructed-unattributed'
+      '', 'unknown', '<unknown>', '<synthetic>', 'ccm-translated',
+      'reconstructed-unattributed'
     )
   ),
   all_agents as (

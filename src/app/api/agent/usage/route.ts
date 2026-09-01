@@ -166,10 +166,14 @@ function validateBreakdowns(
     })
     for (const field of fields) {
       const attributed = breakdowns.reduce((sum, breakdown) => sum + breakdown[field], 0)
-      if (!Number.isSafeInteger(attributed) || attributed > row[field]) {
+      if (
+        !Number.isSafeInteger(attributed) ||
+        attributed > row[field] ||
+        (breakdowns.length > 0 && attributed !== row[field])
+      ) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
-          message: 'Breakdown tokens exceed the daily total',
+          message: 'Breakdown tokens must equal the daily total',
           path: [path]
         })
       }

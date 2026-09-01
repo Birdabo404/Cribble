@@ -729,7 +729,7 @@ describe('POST /api/agent/usage — strict validation', () => {
     expect(state.upsertBatches).toHaveLength(0)
   })
 
-  it('rejects duplicate or over-attributed daily breakdowns', async () => {
+  it('rejects duplicate, over-attributed, or incomplete daily breakdowns', async () => {
     addKey()
     const duplicate = payload()
     const duplicateDay = (duplicate.daily as Array<Record<string, unknown>>)[0]
@@ -760,12 +760,25 @@ describe('POST /api/agent/usage — strict validation', () => {
         cacheReadTokens: 40
       }
     ]
+    const incomplete = payload()
+    const incompleteDay = (incomplete.daily as Array<Record<string, unknown>>)[0]
+    incompleteDay.modelBreakdowns = [
+      {
+        name: 'gpt-5',
+        inputTokens: 9,
+        outputTokens: 20,
+        cacheCreationTokens: 30,
+        cacheReadTokens: 40
+      }
+    ]
 
     const duplicateResponse = await POST(request(duplicate))
     const overAttributedResponse = await POST(request(overAttributed))
+    const incompleteResponse = await POST(request(incomplete))
 
     expect(duplicateResponse.status).toBe(400)
     expect(overAttributedResponse.status).toBe(400)
+    expect(incompleteResponse.status).toBe(400)
     expect(state.upsertBatches).toHaveLength(0)
   })
 
