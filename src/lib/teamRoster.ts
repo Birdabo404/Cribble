@@ -149,3 +149,48 @@ export async function resolveTeamAuthority(
 
   return { teamUserId: Number(row.team_user_id), via: 'owner' }
 }
+
+/** Row shape of the any-role affiliation -> team join below. */
+interface MemberAffiliationJoinRow {
+  team_user_id: number
+  team: TeamUserRow | null
+}
+
+/**
+ * Resolve the team a signed member may VIEW: the id of the live team
+ * behind their ACTIVE affiliation, any role, or null. The read-only
+ * counterpart to resolveTeamAuthority — the same probe minus the owner
+ * filter, the same dissolve-for-free shape (leaving or being released
+ * drops the row; a lapsed or banned team fails teamIsLive), and the
+ * same rule that a failed read never grants anything (it resolves
+ * null). Command surfaces must keep gating on resolveTeamAuthority —
+ * membership only ever earns a read.
+ */
+export async function resolveTeamMembership(
+  supabase: SupabaseClient,
+  userId: number
+): Promise<number | null> {
+  // At most one row: the one-active partial index (029) caps ACTIVE
+  // affiliations per member at one, so maybeSingle stays honest even
+  // without a role filter. Two FKs point at users, so the embed names
+  // the team-side constraint.
+  const { data, error } = await supabase
+    .from('team_affiliations')
+    .select(
+      `team_user_id,
+       team:users!team_affiliations_team_user_id_fkey(${TEAM_USER_SELECT})`
+    )
+    .eq('member_user_id', userId)
+    .eq('status', 'active')
+    .maybeSingle()
+
+  if (error) {
+    console.error('[Team] Membership lookup failed:', error)
+    return null
+  }
+
+  const row = data as unknown as MemberAffiliationJoinRow | null
+  if (!row?.team || !teamIsLive(row.team)) return null
+
+  return Number(row.team_user_id)
+}

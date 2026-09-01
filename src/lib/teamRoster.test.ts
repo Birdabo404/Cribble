@@ -1,7 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { describe, expect, it, vi } from 'vitest'
 
-import { resolveTeamAuthority, teamIsLive, type TeamUserRow } from './teamRoster'
+import {
+  resolveTeamAuthority,
+  resolveTeamMembership,
+  teamIsLive,
+  type TeamUserRow
+} from './teamRoster'
 
 // teamIsLive is the join/stay gate every affiliation surface shares —
 // invites, applications, badge joins. Pinned here: liveness requires
@@ -102,11 +107,13 @@ function fakeClient({
                 error: { message: 'affiliation read down' }
               })
             }
+            // Role only constrains when the probe set it: the owner
+            // probe scopes by role, the membership probe by seat alone.
             const match = affiliations.find(
               (candidate) =>
                 candidate.member_user_id === filters.member_user_id &&
                 candidate.status === filters.status &&
-                candidate.role === filters.role
+                (filters.role === undefined || candidate.role === filters.role)
             )
             return Promise.resolve({
               data: match
@@ -220,6 +227,74 @@ describe('resolveTeamAuthority', () => {
 
       await expect(resolveTeamAuthority(usersDown, 42)).resolves.toBeNull()
       await expect(resolveTeamAuthority(affiliationsDown, 33)).resolves.toBeNull()
+    } finally {
+      silence.mockRestore()
+    }
+  })
+})
+
+// resolveTeamMembership is the GET-only read gate: an ACTIVE seat on a
+// live team — any role — earns the read-only console view and nothing
+// else. Same dissolve-for-free shape as the authority probe (the row
+// and the team's liveness carry everything), same never-grant-on-
+// failed-read rule; command surfaces keep gating on
+// resolveTeamAuthority. Never reads the caller's own users row — the
+// seat is the whole grant.
+
+describe('resolveTeamMembership', () => {
+  it("resolves the live team's id for an ACTIVE plain member — no owner role required", async () => {
+    const client = fakeClient({
+      affiliations: [ownerAffiliation({ role: 'member' })]
+    })
+
+    await expect(resolveTeamMembership(client, 33)).resolves.toBe(42)
+  })
+
+  it('resolves for an ACTIVE owner too — any role holds a seat', async () => {
+    const client = fakeClient({ affiliations: [ownerAffiliation()] })
+
+    await expect(resolveTeamMembership(client, 33)).resolves.toBe(42)
+  })
+
+  it("resolves null for a PENDING seat — the probe's status filter", async () => {
+    const client = fakeClient({
+      affiliations: [ownerAffiliation({ role: 'member', status: 'pending' })]
+    })
+
+    await expect(resolveTeamMembership(client, 33)).resolves.toBeNull()
+  })
+
+  it('resolves null with no affiliation at all', async () => {
+    const client = fakeClient({})
+
+    await expect(resolveTeamMembership(client, 33)).resolves.toBeNull()
+  })
+
+  it('dissolves when the team lapses or is banned — the same liveness gate as authority', async () => {
+    const lapsed = fakeClient({
+      affiliations: [
+        ownerAffiliation({ role: 'member', team: row({ subscription_tier: 'FREE' }) })
+      ]
+    })
+    const banned = fakeClient({
+      affiliations: [
+        ownerAffiliation({ role: 'member', team: row({ status: 'banned' }) })
+      ]
+    })
+
+    await expect(resolveTeamMembership(lapsed, 33)).resolves.toBeNull()
+    await expect(resolveTeamMembership(banned, 33)).resolves.toBeNull()
+  })
+
+  it('never grants a view off a failed read', async () => {
+    const silence = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const client = fakeClient({
+        affiliations: [ownerAffiliation({ role: 'member' })],
+        affiliationsError: true
+      })
+
+      await expect(resolveTeamMembership(client, 33)).resolves.toBeNull()
     } finally {
       silence.mockRestore()
     }

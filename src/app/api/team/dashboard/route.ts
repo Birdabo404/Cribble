@@ -22,6 +22,7 @@ import {
   isTeamTier,
   loadUserRow,
   resolveTeamAuthority,
+  resolveTeamMembership,
   teamIdentity,
   type TeamAuthority,
   type TeamUserRow
@@ -36,12 +37,16 @@ import {
 // and/or rewrites the bar — tier-gated but NOT approval-gated, so a
 // team still under review can pre-set both.
 //
-// Both verbs answer for TWO kinds of caller: the franchise's own TEAM
+// PATCH answers for TWO kinds of caller: the franchise's own TEAM
 // login, or a signed OWNER commanding it from a personal account
-// (resolveTeamAuthority, migration 066). A caller with neither keeps
-// today's 403 — TeamsHub relies on 401/403 falling through to the
-// public landing. Only role changes and member removal stay
-// franchise-only, and those live on /api/team/roster.
+// (resolveTeamAuthority, migration 066). GET adds a third, read-only
+// arm: a signed ACTIVE member (any role) sees the same console minus
+// the transfer queue (applicant messages are private to the operators
+// who can action them) and with the bar nulled (hiring-bar config is
+// an operator concern). A caller with none of these keeps today's
+// 403 — TeamsHub relies on 401/403 falling through to the public
+// landing. Only role changes and member removal stay franchise-only,
+// and those live on /api/team/roster.
 
 export const dynamic = 'force-dynamic'
 
@@ -68,17 +73,28 @@ function unverifiedStamp(bar: HiringBar): BarStamp {
   }
 }
 
+/** Who is looking at the deck: TeamAuthority's two command arms plus
+ *  the GET-only read arm for signed members. Kept apart from
+ *  TeamAuthority so 'member' can never leak into a mutation gate. */
+interface DeckViewer {
+  teamUserId: number
+  via: TeamAuthority['via'] | 'member'
+}
+
 /**
- * The team this session may command, plus that team's deck row. The
- * franchise arm is tier-gated only (an under-review team still sees its
- * deck); the owner arm rides resolveTeamAuthority, whose live gate
- * means an owner's team is always approved. Callers with neither
- * answer null and the routes 403.
+ * The team this session may see, plus that team's deck row — GET's
+ * gate only (PATCH resolves its own, mutation-grade authority inline).
+ * The franchise arm is tier-gated only (an under-review team still
+ * sees its deck); the owner arm rides resolveTeamAuthority, whose live
+ * gate means an owner's team is always approved; the member arm rides
+ * resolveTeamMembership and earns the read-only view, nothing more.
+ * Callers with none of the three answer the 403 the hub falls
+ * through on.
  */
 async function resolveDeck(
   userId: number
 ): Promise<
-  | { ok: true; authority: TeamAuthority; deck: DeckUserRow }
+  | { ok: true; viewer: DeckViewer; deck: DeckUserRow }
   | { ok: false; status: number; error: string }
 > {
   const { data: callerRow, error: callerError } = await supabase
@@ -99,32 +115,41 @@ async function resolveDeck(
   if (isTeamTier(caller.subscription_tier)) {
     return {
       ok: true,
-      authority: { teamUserId: userId, via: 'team-account' },
+      viewer: { teamUserId: userId, via: 'team-account' },
       deck: caller
     }
   }
 
+  // Owner first — it is the stronger grant and the payload reports
+  // which arm answered. Only a caller with no command at all falls
+  // through to the membership probe.
   const authority = await resolveTeamAuthority(supabase, userId)
-  if (!authority) {
+  const memberTeamId = authority
+    ? null
+    : await resolveTeamMembership(supabase, userId)
+  const viewer: DeckViewer | null =
+    authority ??
+    (memberTeamId !== null ? { teamUserId: memberTeamId, via: 'member' } : null)
+  if (!viewer) {
     return { ok: false, status: 403, error: 'Team accounts only' }
   }
 
   const { data: teamRow, error: teamError } = await supabase
     .from('users')
     .select(DECK_USER_SELECT)
-    .eq('id', authority.teamUserId)
+    .eq('id', viewer.teamUserId)
     .maybeSingle()
 
   if (teamError) {
     console.error('[Team] Dashboard team lookup failed:', teamError)
     return { ok: false, status: 500, error: 'Lookup failed' }
   }
-  // Authority dissolved mid-flight (team row gone): not yours to see.
+  // The grant dissolved mid-flight (team row gone): not yours to see.
   if (!teamRow) {
     return { ok: false, status: 403, error: 'Team accounts only' }
   }
 
-  return { ok: true, authority, deck: teamRow as unknown as DeckUserRow }
+  return { ok: true, viewer, deck: teamRow as unknown as DeckUserRow }
 }
 
 /** Roster + queue in one query: every affiliation row this team holds,
@@ -175,15 +200,21 @@ export async function GET(request: NextRequest) {
     if (!resolved.ok) {
       return NextResponse.json({ error: resolved.error }, { status: resolved.status })
     }
-    const { authority, deck } = resolved
-    const bar = hiringBarFromColumns(deck)
+    const { viewer, deck } = resolved
+    // Hiring-bar config is an operator concern: the member arm carries
+    // an all-null bar, which also keeps the stamp path below inert
+    // (hasBar reads false, so the facts read can never fire).
+    const bar: HiringBar =
+      viewer.via === 'member'
+        ? { minScore: null, minTokens: null, minBurnUsd: null }
+        : hiringBarFromColumns(deck)
 
     // The board pipeline and this team's own rows are independent reads.
     const boardPromise = assembleTeamBoard(supabase)
     const { data: rowData, error: rowsError } = await supabase
       .from('team_affiliations')
       .select(DECK_JOIN_SELECT)
-      .eq('team_user_id', authority.teamUserId)
+      .eq('team_user_id', viewer.teamUserId)
       .order('invited_at', { ascending: true })
 
     if (rowsError) {
@@ -192,7 +223,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { rows: boardRows, totals, season } = await boardPromise
-    const seatsUsed = await getTeamSeatUsage(supabase, authority.teamUserId)
+    const seatsUsed = await getTeamSeatUsage(supabase, viewer.teamUserId)
 
     const all = ((rowData ?? []) as unknown as DeckAffiliationRow[]).filter(
       (row) => row.member !== null
@@ -237,14 +268,19 @@ export async function GET(request: NextRequest) {
       share: shareByUserId.get(row.userId) ?? 0
     }))
 
-    // The transfer queue. Moderated applicants are hidden — actioning
+    // The transfer queue — operators only: applicant messages are
+    // private to the people who can action them, so the member arm
+    // never sees a row. Moderated applicants are hidden — actioning
     // them 404s-and-purges in /api/team/applications anyway.
-    const applicationRows = all
-      .filter((row) => row.status === 'applied')
-      .filter((row) => {
-        const status = (row.member as DeckMemberRow).status
-        return status !== 'banned' && status !== 'suspended'
-      })
+    const applicationRows =
+      viewer.via === 'member'
+        ? []
+        : all
+            .filter((row) => row.status === 'applied')
+            .filter((row) => {
+              const status = (row.member as DeckMemberRow).status
+              return status !== 'banned' && status !== 'suspended'
+            })
 
     // Stamps are display-only — a facts failure must not sink the deck.
     // fetchPilotHiringFacts degrades burn reads on its own; the one
@@ -285,7 +321,7 @@ export async function GET(request: NextRequest) {
     // Rank/score/burn from the team's board row; a team not on the
     // board (e.g. still under review) reads rank null with the squad
     // score summed locally from the same roster numbers.
-    const boardRow = boardRows.find((row) => row.userId === authority.teamUserId) ?? null
+    const boardRow = boardRows.find((row) => row.userId === viewer.teamUserId) ?? null
     const board = {
       rank: boardRow ? boardRow.rank : null,
       teams: totals.teams,
@@ -298,7 +334,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      authority: authority.via,
+      authority: viewer.via,
       team: teamIdentity(deck),
       reviewStatus: deck.team_review_status,
       approved: isApprovedTeam(deck),

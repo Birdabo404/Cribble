@@ -1271,6 +1271,230 @@ html.light .lb-pill-active {
   font-weight: 600;
 }
 
+/* ============================================================
+   Command deck recipes (/teams TeamDashboard + teams chrome) — the
+   deck's gold styling as theme-aware classes instead of inline alpha
+   washes. Dark: gold instrument light on near-black ink, neon glows
+   riding the --lb-glow multiplier. Light (html.light): true dual-tone
+   paper — near-black ink structure with the deep amber --lb-gold at
+   full strength (solid borders and fills, zero glow), the same move
+   .lb-pill-active makes above.
+   ============================================================ */
+
+/* The gold hero/queue panel (teams/chrome.tsx GoldPanel). */
+.deck-panel-gold {
+  border: 1px solid rgb(var(--lb-gold) / 0.24);
+  background:
+    linear-gradient(180deg, rgb(var(--lb-gold) / 0.05), transparent 55%),
+    rgb(var(--lb-panel-bg));
+  box-shadow:
+    0 24px 70px -30px rgb(var(--lb-gold) / 0.22),
+    0 18px 50px -24px rgb(0 0 0 / 0.6);
+}
+html.light .deck-panel-gold {
+  border-color: rgb(var(--lb-panel-edge) / 0.14);
+  background: rgb(var(--lb-panel-bg));
+  box-shadow: 0 12px 26px -24px rgb(9 9 11 / 0.3);
+}
+/* Its top keyline: a gold gradient glowing on ink, a solid amber rule
+   edge-to-edge on paper. */
+.deck-keyline {
+  background: linear-gradient(
+    90deg,
+    transparent 4%,
+    rgb(var(--lb-gold) / 0.85) 50%,
+    transparent 96%
+  );
+  box-shadow: 0 0 12px rgb(var(--lb-gold) / 0.45);
+}
+html.light .deck-keyline {
+  background: rgb(var(--lb-gold));
+  box-shadow: none;
+}
+
+/* Pixel-face page title. */
+.deck-title {
+  color: rgb(var(--lb-gold));
+  text-shadow:
+    0 0 22px rgb(var(--lb-gold) / calc(0.4 * var(--lb-glow, 1))),
+    0 0 52px rgb(var(--lb-gold) / calc(0.16 * var(--lb-glow, 1)));
+}
+
+/* Gold text glow for nameplate chips — light zeroes it via --lb-glow. */
+.deck-glow-text {
+  text-shadow: 0 0 10px rgb(var(--lb-gold) / calc(0.5 * var(--lb-glow, 1)));
+}
+
+/* Status / verdict / stamp chips — shape here, tone modifiers below.
+   10px is the deck's type floor; tones also dress lit toggle buttons. */
+.deck-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  border: 1px solid rgb(var(--lb-panel-edge) / 0.25);
+  border-radius: 0.25rem;
+  padding: 3px 7px;
+  font-size: 10px;
+  line-height: 1.25;
+  letter-spacing: 0.18em;
+  white-space: nowrap;
+}
+.deck-chip-mute {
+  color: rgb(var(--z400));
+  border-color: rgb(var(--lb-panel-edge) / 0.25);
+}
+.deck-chip-gold {
+  color: rgb(var(--lb-gold));
+  border-color: rgb(var(--lb-gold) / 0.4);
+  background: rgb(var(--lb-gold) / 0.07);
+}
+.deck-chip-up {
+  color: rgb(var(--lb-up));
+  border-color: rgb(var(--lb-up) / 0.4);
+  background: rgb(var(--lb-up) / 0.06);
+}
+.deck-chip-down {
+  color: rgb(var(--lb-down));
+  border-color: rgb(var(--lb-down) / 0.4);
+  background: rgb(var(--lb-down) / 0.06);
+}
+/* On white the alpha washes vanish — full-strength borders, deeper
+   fills and a weight bump (the .lb-pill-active move). */
+html.light .deck-chip-mute {
+  border-color: rgb(var(--lb-panel-edge) / 0.35);
+}
+html.light .deck-chip-gold {
+  border-color: rgb(var(--lb-gold));
+  background: rgb(var(--lb-gold) / 0.12);
+  font-weight: 600;
+}
+html.light .deck-chip-up {
+  border-color: rgb(var(--lb-up));
+  background: rgb(var(--lb-up) / 0.1);
+  font-weight: 600;
+}
+html.light .deck-chip-down {
+  border-color: rgb(var(--lb-down));
+  background: rgb(var(--lb-down) / 0.1);
+  font-weight: 600;
+}
+
+/* Deck buttons — real targets (36px, 32px small) with tracked caps.
+   Compose with .deck-btn-primary (solid gold), .deck-btn-quiet
+   (outline), or a .deck-chip-* tone for lit toggles. */
+.deck-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 2.25rem;
+  padding: 0 1rem;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  font-size: 11px;
+  letter-spacing: 0.25em;
+  white-space: nowrap;
+  transition:
+    color 200ms ease,
+    border-color 200ms ease,
+    background-color 200ms ease;
+}
+.deck-btn-sm {
+  height: 2rem;
+  padding: 0 0.625rem;
+  border-radius: 0.375rem;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+}
+/* Solid primary (SIGN): gold plate + ink text on dark, full amber +
+   paper text on light — rgb(var(--lb-panel-bg)) reads ink-on-dark /
+   white-on-light, so one color rule serves both themes. */
+.deck-btn-primary {
+  border-color: rgb(var(--lb-gold) / 0.9);
+  background: rgb(var(--lb-gold) / 0.9);
+  color: rgb(var(--lb-panel-bg));
+  font-weight: 600;
+}
+html.light .deck-btn-primary {
+  border-color: rgb(var(--lb-gold));
+  background: rgb(var(--lb-gold));
+}
+/* Quiet outline (PASS, console links, idle toggles) — hairline on ink,
+   full-strength ink outline on paper. */
+.deck-btn-quiet {
+  border-color: rgb(var(--lb-panel-edge) / 0.16);
+  color: rgb(var(--z500));
+}
+html.light .deck-btn-quiet {
+  border-color: rgb(var(--lb-panel-edge));
+  color: rgb(var(--lb-panel-edge) / 0.85);
+}
+@media (hover: hover) and (pointer: fine) {
+  .deck-btn-primary:not(:disabled):hover {
+    border-color: rgb(var(--lb-gold));
+    background: rgb(var(--lb-gold));
+  }
+  .deck-btn-quiet:not(:disabled):hover {
+    border-color: rgb(var(--lb-panel-edge) / 0.35);
+    color: rgb(var(--z200));
+  }
+  html.light .deck-btn-quiet:not(:disabled):hover {
+    background: rgb(var(--lb-panel-edge) / 0.05);
+    color: rgb(var(--lb-panel-edge));
+  }
+  /* Verdict hovers on quiet buttons: PASS warms rose, PROMOTE gold. */
+  .deck-btn-rose:not(:disabled):hover {
+    border-color: rgb(var(--lb-down) / 0.55);
+    background: transparent;
+    color: rgb(var(--lb-down));
+  }
+  html.light .deck-btn-rose:not(:disabled):hover {
+    border-color: rgb(var(--lb-down));
+    background: transparent;
+    color: rgb(var(--lb-down));
+  }
+  .deck-btn-gold:not(:disabled):hover {
+    border-color: rgb(var(--lb-gold) / 0.5);
+    background: transparent;
+    color: rgb(var(--lb-gold));
+  }
+  html.light .deck-btn-gold:not(:disabled):hover {
+    border-color: rgb(var(--lb-gold));
+    background: transparent;
+    color: rgb(var(--lb-gold));
+  }
+}
+
+/* Instrument lamps (metric toggles, roster lamp) and seat-gauge cells. */
+.deck-dot-on {
+  background: rgb(var(--lb-gold));
+  box-shadow: 0 0 8px rgb(var(--lb-gold) / calc(0.6 * var(--lb-glow, 1)));
+}
+.deck-dot-off {
+  background: rgb(var(--lb-panel-edge) / 0.35);
+}
+.deck-seat-on {
+  background: rgb(var(--lb-gold) / 0.85);
+  box-shadow: 0 0 8px rgb(var(--lb-gold) / calc(0.5 * var(--lb-glow, 1)));
+}
+html.light .deck-seat-on {
+  background: rgb(var(--lb-gold));
+}
+.deck-seat-off {
+  background: rgb(var(--lb-panel-edge) / 0.14);
+}
+html.light .deck-seat-off {
+  background: rgb(var(--lb-panel-edge) / 0.18);
+}
+
+/* Roster contribution-share bar fill. */
+.deck-share-fill {
+  background: rgb(var(--lb-gold) / 0.85);
+}
+html.light .deck-share-fill {
+  background: rgb(var(--lb-gold));
+}
+
 /* Competitive display face (Space Grotesk, loaded in the root layout). */
 .font-display {
   font-family: var(--font-display), 'Inter', system-ui, sans-serif;
