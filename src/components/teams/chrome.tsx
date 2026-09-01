@@ -2,9 +2,9 @@
 
 // Shared chrome for the /teams surface — the same gold panel recipe the
 // /team console established (keyline, wash, heavy drop shadow), plus the
-// section header lockup every band on the page opens with.
-
-const GOLD = 'var(--lb-gold)'
+// section header lockup every band on the page opens with. Styled via
+// the theme-aware deck-* recipes in globals.css so html.light swaps the
+// gold washes for solid amber-on-paper instead of collapsing to cream.
 
 export function GoldPanel({
   children,
@@ -14,22 +14,8 @@ export function GoldPanel({
   className?: string
 }) {
   return (
-    <div
-      className={`relative overflow-hidden rounded-2xl ${className}`}
-      style={{
-        border: `1px solid rgb(${GOLD} / 0.24)`,
-        background: `linear-gradient(180deg, rgb(${GOLD} / 0.05), transparent 55%), rgb(var(--lb-panel-bg))`,
-        boxShadow: `0 24px 70px -30px rgb(${GOLD} / 0.22), 0 18px 50px -24px rgb(0 0 0 / 0.6)`
-      }}
-    >
-      <span
-        aria-hidden
-        className="absolute inset-x-0 top-0 z-10 h-[2px]"
-        style={{
-          background: `linear-gradient(90deg, transparent 4%, rgb(${GOLD} / 0.85) 50%, transparent 96%)`,
-          boxShadow: `0 0 12px rgb(${GOLD} / 0.45)`
-        }}
-      />
+    <div className={`deck-panel-gold relative overflow-hidden rounded-2xl ${className}`}>
+      <span aria-hidden className="deck-keyline absolute inset-x-0 top-0 z-10 h-[2px]" />
       {children}
     </div>
   )
@@ -47,17 +33,15 @@ export function SectionHead({ label, note }: { label: string; note?: string }) {
 }
 
 /** The gold pixel chip — CRIBBLE TEAM's nameplate, same recipe as the
- *  shop's FOR COMPANIES / THE VAULT chips. */
+ *  shop's FOR COMPANIES / THE VAULT chips. Inline letter-spacing keeps
+ *  the wide nameplate tracking over .deck-chip's 0.18em, and the pinned
+ *  weight stops html.light's chip weight bump from faux-bolding the
+ *  single-weight pixel face. */
 export function GoldChip({ children }: { children: React.ReactNode }) {
   return (
     <span
-      className="rounded px-2 py-1 text-[9px] leading-none tracking-[0.3em] [font-family:var(--font-pixel)]"
-      style={{
-        color: `rgb(${GOLD})`,
-        border: `1px solid rgb(${GOLD} / 0.45)`,
-        background: `rgb(${GOLD} / 0.07)`,
-        textShadow: `0 0 10px rgb(${GOLD} / 0.5)`
-      }}
+      className="deck-chip deck-chip-gold deck-glow-text [font-family:var(--font-pixel)]"
+      style={{ letterSpacing: '0.3em', fontWeight: 400 }}
     >
       {children}
     </span>

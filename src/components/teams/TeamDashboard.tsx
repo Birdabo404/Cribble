@@ -1,15 +1,19 @@
 'use client'
 
 // The command deck — what a TEAM-tier account, or a signed OWNER on a
-// personal login, sees on /teams. One screen of squad telemetry (KPI
-// strip, roster shares) plus the action center: the INBOUND TRANSFERS
-// queue where pilots' applications get SIGNED or PASSED (each stamped
-// against the published HIRING BAR — a soft signal, never a gate), the
-// OPEN ROSTER lamp that gates new requests, and the HIRING BAR panel
-// where the thresholds themselves are set. Owners get everything except
-// the franchise-only controls (promote/demote lives behind the team
-// login). Invite/revoke management stays on the /team console — this
-// surface links out to it instead of duplicating that machinery.
+// personal login, sees on /teams. One screen of squad telemetry (hero
+// band with KPI cells, roster shares) plus the action center: the
+// INBOUND TRANSFERS queue where pilots' applications get SIGNED or
+// PASSED (each stamped against the published HIRING BAR — a soft
+// signal, never a gate), the OPEN ROSTER lamp that gates new requests,
+// and the HIRING BAR panel where the thresholds themselves are set.
+// Owners get everything except the franchise-only controls
+// (promote/demote lives behind the team login). Signed MEMBERS get the
+// read-only TEAM CONSOLE cut: masthead, hero band and roster in a
+// single centered column — no bar, queue, toggles or role controls
+// (the server already strips applications and nulls the bar for them).
+// Invite/revoke management stays on the /team console — this surface
+// links out to it instead of duplicating that machinery.
 
 import { useCallback, useMemo, useState } from 'react'
 import Link from 'next/link'
@@ -35,8 +39,6 @@ import {
 import { TEAM_OWNER_LIMIT } from '@/lib/teams'
 import { usdDisplayParts } from '@/lib/tokenLeaderboard'
 import { GoldPanel } from './chrome'
-
-const GOLD = 'var(--lb-gold)'
 
 /* ================= payload (pinned /api/team/dashboard contract) ================= */
 
@@ -69,8 +71,10 @@ export interface DashboardApplication {
 }
 
 export interface TeamDashboardData {
-  /** Whose keys opened the deck: the franchise login or a signed owner. */
-  authority: 'team-account' | 'owner'
+  /** Whose keys opened the deck: the franchise login, a signed owner,
+   *  or a signed member (read-only — the server returns the normal
+   *  payload with applications emptied and the bar all-null). */
+  authority: 'team-account' | 'owner' | 'member'
   team: { userId: number; username: string; name: string; avatar: string | null }
   reviewStatus: 'pending' | 'approved' | 'rejected' | null
   approved: boolean
@@ -171,7 +175,12 @@ export function parseTeamDashboard(payload: unknown): TeamDashboardData | null {
   >
 
   return {
-    authority: body.authority === 'owner' ? 'owner' : 'team-account',
+    authority:
+      body.authority === 'owner'
+        ? 'owner'
+        : body.authority === 'member'
+          ? 'member'
+          : 'team-account',
     team: {
       userId: Number(team.userId) || 0,
       username: team.username,
@@ -237,28 +246,51 @@ function reviewLamp(status: TeamDashboardData['reviewStatus']): {
   }
 }
 
-function toneStyle(tone: ReviewTone): React.CSSProperties {
+/** Tone → deck-chip modifier (globals.css) — the classes carry both
+ *  themes, so light mode gets full borders instead of alpha washes. */
+function toneClass(tone: ReviewTone): string {
   switch (tone) {
     case 'up':
-      return {
-        color: 'rgb(var(--lb-up))',
-        borderColor: 'rgb(var(--lb-up) / 0.4)',
-        background: 'rgb(var(--lb-up) / 0.06)'
-      }
+      return 'deck-chip-up'
     case 'gold':
-      return {
-        color: `rgb(${GOLD})`,
-        borderColor: `rgb(${GOLD} / 0.4)`,
-        background: `rgb(${GOLD} / 0.06)`
-      }
+      return 'deck-chip-gold'
     case 'down':
-      return {
-        color: 'rgb(var(--lb-down))',
-        borderColor: 'rgb(var(--lb-down) / 0.4)',
-        background: 'rgb(var(--lb-down) / 0.06)'
-      }
+      return 'deck-chip-down'
     default: {
       const exhaustive: never = tone
+      return exhaustive
+    }
+  }
+}
+
+/** The masthead reads COMMAND DECK for operators, TEAM CONSOLE for the
+ *  read-only member cut. */
+function deckTitle(authority: TeamDashboardData['authority']): string {
+  switch (authority) {
+    case 'team-account':
+    case 'owner':
+      return 'COMMAND DECK'
+    case 'member':
+      return 'TEAM CONSOLE'
+    default: {
+      const exhaustive: never = authority
+      return exhaustive
+    }
+  }
+}
+
+/** Operators (franchise login or signed owner) get the action center —
+ *  hiring bar, transfers queue, roster lamp, console link. Members get
+ *  none of it. */
+function isDeckOperator(authority: TeamDashboardData['authority']): boolean {
+  switch (authority) {
+    case 'team-account':
+    case 'owner':
+      return true
+    case 'member':
+      return false
+    default: {
+      const exhaustive: never = authority
       return exhaustive
     }
   }
@@ -279,19 +311,19 @@ function KpiCell({
 }) {
   return (
     <div
-      className={`flex min-w-0 flex-col items-center overflow-hidden px-4 py-4 text-center ${className}`}
+      className={`flex min-w-0 flex-col items-center overflow-hidden px-4 py-3.5 text-center ${className}`}
     >
-      <div className="text-[9px] tracking-[0.16em] text-zinc-500 sm:tracking-[0.28em]">
+      <div className="text-[10px] tracking-[0.14em] text-zinc-500 sm:tracking-[0.24em]">
         {label}
       </div>
       <div
-        className="mt-2.5 max-w-full truncate text-[clamp(12px,2.6vw,16px)] text-zinc-50 tabular-nums [font-family:var(--font-pixel)]"
+        className="mt-2 max-w-full truncate text-[clamp(14px,2vw,20px)] text-zinc-50 tabular-nums [font-family:var(--font-pixel)]"
         style={valueStyle}
       >
         {children}
       </div>
       {hint && (
-        <div className="mt-1 max-w-full truncate text-[9px] tracking-[0.16em] text-zinc-600">
+        <div className="mt-1 max-w-full truncate text-[10px] tracking-[0.14em] text-zinc-600">
           {hint}
         </div>
       )}
@@ -357,7 +389,7 @@ function BarMetricControl({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[rgb(var(--lb-panel-edge)/0.06)] px-4 py-3 last:border-b-0 md:px-5">
+    <div className="border-b border-[rgb(var(--lb-panel-edge)/0.06)] px-4 py-3 last:border-b-0 md:px-5">
       {/* label doubles as the metric's lamp: on = last-touched value,
           off = metric cleared (NULL server-side) */}
       <button
@@ -366,23 +398,18 @@ function BarMetricControl({
         disabled={busy}
         aria-pressed={enabled}
         title={enabled ? 'SWITCH THIS METRIC OFF' : 'SWITCH THIS METRIC ON'}
-        className={`flex w-32 shrink-0 items-center gap-2 text-left text-[9px] tracking-[0.2em] transition-colors disabled:cursor-wait disabled:opacity-60 ${
+        className={`flex items-center gap-2 text-left text-[10px] tracking-[0.2em] transition-colors disabled:cursor-wait disabled:opacity-60 ${
           enabled ? 'text-zinc-200' : 'text-zinc-600 hover:text-zinc-400'
         }`}
       >
         <span
           aria-hidden
-          className="h-1.5 w-1.5 shrink-0 rounded-full"
-          style={
-            enabled
-              ? { background: `rgb(${GOLD})`, boxShadow: `0 0 8px rgb(${GOLD} / 0.6)` }
-              : { background: 'rgb(var(--lb-panel-edge) / 0.35)' }
-          }
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${enabled ? 'deck-dot-on' : 'deck-dot-off'}`}
         />
         {spec.label}
       </button>
 
-      <div className="flex flex-1 flex-wrap items-center gap-1.5">
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
         {spec.quickPicks.map((pick) => (
           <button
             key={pick}
@@ -390,19 +417,9 @@ function BarMetricControl({
             disabled={busy}
             onClick={() => onSet(pick)}
             aria-pressed={value === pick}
-            className="rounded border px-2 py-1 text-[9px] tabular-nums tracking-[0.15em] transition-colors disabled:cursor-wait disabled:opacity-60"
-            style={
-              value === pick
-                ? {
-                    color: `rgb(${GOLD})`,
-                    borderColor: `rgb(${GOLD} / 0.45)`,
-                    background: `rgb(${GOLD} / 0.07)`
-                  }
-                : {
-                    color: 'rgb(161 161 170)',
-                    borderColor: 'rgb(var(--lb-panel-edge) / 0.25)'
-                  }
-            }
+            className={`deck-btn deck-btn-sm tabular-nums disabled:cursor-wait disabled:opacity-60 ${
+              value === pick ? 'deck-chip-gold' : 'deck-btn-quiet'
+            }`}
           >
             {spec.format(pick)}
           </button>
@@ -426,12 +443,12 @@ function BarMetricControl({
                 : 'CUSTOM'
             }
             aria-label={`Custom ${spec.label} threshold`}
-            className="lb-inset w-20 rounded px-2 py-1 text-[9px] tabular-nums tracking-[0.12em] text-zinc-200 placeholder:text-zinc-700 focus:outline-none"
+            className="lb-inset h-8 w-20 rounded-md px-2 text-[10px] tabular-nums tracking-[0.12em] text-zinc-200 placeholder:text-zinc-700 focus:outline-none"
           />
           <button
             type="submit"
             disabled={busy || draft === ''}
-            className="rounded border border-zinc-800 px-2 py-1 text-[9px] tracking-[0.2em] text-zinc-500 transition-colors hover:border-zinc-600 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
+            className="deck-btn deck-btn-sm deck-btn-quiet disabled:cursor-not-allowed disabled:opacity-40"
           >
             SET
           </button>
@@ -473,25 +490,14 @@ function stampMark(stamp: MetricStamp): string {
   }
 }
 
-function stampChipStyle(stamp: MetricStamp): React.CSSProperties {
+function stampChipClass(stamp: MetricStamp): string {
   switch (stamp) {
     case 'met':
-      return {
-        color: `rgb(${GOLD})`,
-        borderColor: `rgb(${GOLD} / 0.4)`,
-        background: `rgb(${GOLD} / 0.06)`
-      }
+      return 'deck-chip-gold'
     case 'missed':
-      return {
-        color: 'rgb(var(--lb-down))',
-        borderColor: 'rgb(var(--lb-down) / 0.4)',
-        background: 'rgb(var(--lb-down) / 0.06)'
-      }
+      return 'deck-chip-down'
     case 'unverified':
-      return {
-        color: 'rgb(113 113 122)',
-        borderColor: 'rgb(var(--lb-panel-edge) / 0.25)'
-      }
+      return 'deck-chip-mute'
     default: {
       const exhaustive: never = stamp
       return exhaustive
@@ -500,22 +506,13 @@ function stampChipStyle(stamp: MetricStamp): React.CSSProperties {
 }
 
 function OverallStampPlate({ overall }: { overall: BarStamp['overall'] }) {
-  const plate = 'shrink-0 rounded border px-1.5 py-0.5 text-[8px] tracking-[0.2em]'
   switch (overall) {
     case 'clears':
-      return (
-        <span className={plate} style={toneStyle('up')}>
-          CLEARS BAR
-        </span>
-      )
+      return <span className={`deck-chip shrink-0 ${toneClass('up')}`}>CLEARS BAR</span>
     case 'below':
-      return (
-        <span className={plate} style={toneStyle('down')}>
-          BELOW BAR
-        </span>
-      )
+      return <span className={`deck-chip shrink-0 ${toneClass('down')}`}>BELOW BAR</span>
     case 'partial':
-      return <span className={`${plate} border-zinc-800 text-zinc-500`}>UNVERIFIED</span>
+      return <span className="deck-chip deck-chip-mute shrink-0">UNVERIFIED</span>
     case 'no-bar':
       return null
     default: {
@@ -559,8 +556,7 @@ function QueueStamps({ bar, stamp }: { bar: HiringBar; stamp: BarStamp }) {
         <span
           key={metric.label}
           title={`${metric.label} — ${verdictWord(metric.verdict)}`}
-          className="rounded border px-1.5 py-0.5 text-[8px] tabular-nums tracking-[0.15em]"
-          style={stampChipStyle(metric.verdict)}
+          className={`deck-chip tabular-nums ${stampChipClass(metric.verdict)}`}
         >
           {metric.amount} {stampMark(metric.verdict)}
         </span>
@@ -590,7 +586,7 @@ function RosterRow({
   const pendingRow = entry.status === 'pending'
   return (
     <li
-      className={`flex items-center gap-3 border-b border-[rgb(var(--lb-panel-edge)/0.06)] px-4 py-3 last:border-b-0 ${
+      className={`flex h-12 items-center gap-3 border-b border-[rgb(var(--lb-panel-edge)/0.06)] px-4 last:border-b-0 ${
         pendingRow ? 'opacity-60' : ''
       }`}
     >
@@ -605,38 +601,49 @@ function RosterRow({
         fallbackClassName="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900 font-display text-[10px] text-zinc-400"
       />
 
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-          <Link
-            href={`/u/${encodeURIComponent(entry.username)}`}
-            className="truncate text-xs text-zinc-100 transition-colors hover:text-white hover:underline underline-offset-2"
+      <div className="flex min-w-0 flex-1 items-center gap-x-2">
+        <Link
+          href={`/u/${encodeURIComponent(entry.username)}`}
+          className="truncate text-[13px] text-zinc-100 transition-colors hover:text-white hover:underline underline-offset-2"
+        >
+          @{entry.username}
+        </Link>
+        {pendingRow && <span className="deck-chip deck-chip-gold shrink-0">PENDING</span>}
+        {!pendingRow && entry.role === 'owner' && (
+          <span
+            className="deck-chip deck-chip-gold shrink-0"
+            title="Holds the front-office keys — full deck control from their own login"
           >
-            @{entry.username}
-          </Link>
-          {pendingRow && (
-            <span
-              className="shrink-0 rounded border px-1.5 py-0.5 text-[8px] tracking-[0.25em]"
-              style={toneStyle('gold')}
-            >
-              PENDING
-            </span>
-          )}
-          {!pendingRow && entry.role === 'owner' && (
-            <span
-              className="shrink-0 rounded border px-1.5 py-0.5 text-[8px] tracking-[0.25em]"
-              style={toneStyle('gold')}
-              title="Holds the front-office keys — full deck control from their own login"
-            >
-              OWNER
-            </span>
-          )}
-        </div>
-        <div className="mt-0.5 truncate text-[10px] tracking-[0.15em] text-zinc-600">
+            OWNER
+          </span>
+        )}
+        <span className="hidden min-w-0 truncate text-[10px] tracking-[0.12em] text-zinc-600 md:inline">
           {pendingRow
             ? `invited ${formatRelative(entry.invitedAt)}`
             : `signed ${formatRelative(entry.acceptedAt)}`}
-        </div>
+        </span>
       </div>
+
+      {/* contribution share — the percent always shows, the bar is
+          desktop garnish (same trade as the TEAMS board roster) */}
+      <span
+        className="flex w-10 shrink-0 items-center gap-2 sm:w-24"
+        title={`${entry.share}% of the squad score`}
+      >
+        <span className="hidden h-1 flex-1 overflow-hidden rounded-full bg-[rgb(var(--lb-panel-edge)/0.08)] sm:block">
+          <span
+            className="deck-share-fill block h-full rounded-full"
+            style={{ width: `${entry.share}%`, opacity: entry.share > 0 ? 1 : 0 }}
+          />
+        </span>
+        <span className="w-full shrink-0 text-right text-[10px] leading-none tabular-nums text-zinc-500 [font-family:var(--font-pixel)] sm:w-auto sm:min-w-[2.5rem]">
+          {entry.share}%
+        </span>
+      </span>
+
+      <span className="w-16 shrink-0 text-right text-[12px] leading-none tabular-nums text-zinc-200 [font-family:var(--font-pixel)]">
+        {formatNumber(entry.score)}
+      </span>
 
       {/* promote/demote — franchise login only (owners can't mint or
           strip other owners), active pilots only */}
@@ -646,7 +653,7 @@ function RosterRow({
             type="button"
             disabled={roleBusy}
             onClick={() => onRoleChange('member')}
-            className="shrink-0 rounded border border-zinc-800 px-2 py-1 text-[8px] tracking-[0.2em] text-zinc-500 transition-colors hover:border-zinc-600 hover:text-zinc-200 disabled:cursor-wait disabled:opacity-60"
+            className="deck-btn deck-btn-sm deck-btn-quiet w-[4.75rem] shrink-0 disabled:cursor-wait disabled:opacity-60"
           >
             DEMOTE
           </button>
@@ -656,37 +663,12 @@ function RosterRow({
             disabled={roleBusy || ownersFull}
             title={ownersFull ? `ALL ${TEAM_OWNER_LIMIT} OWNER SEATS HELD` : undefined}
             onClick={() => onRoleChange('owner')}
-            className="shrink-0 rounded border border-zinc-800 px-2 py-1 text-[8px] tracking-[0.2em] text-zinc-500 transition-colors hover:border-yellow-400/40 hover:text-yellow-200 disabled:cursor-not-allowed disabled:opacity-40"
+            className="deck-btn deck-btn-sm deck-btn-quiet deck-btn-gold w-[4.75rem] shrink-0 disabled:cursor-not-allowed disabled:opacity-40"
           >
             PROMOTE
           </button>
         )
       )}
-
-      {/* contribution share — the percent always shows, the bar is
-          desktop garnish (same trade as the TEAMS board roster) */}
-      <span
-        className="flex w-10 shrink-0 items-center gap-2 sm:w-28"
-        title={`${entry.share}% of the squad score`}
-      >
-        <span className="hidden h-0.5 flex-1 overflow-hidden rounded-full bg-[rgb(var(--lb-panel-edge)/0.07)] sm:block">
-          <span
-            className="block h-full rounded-full"
-            style={{
-              width: `${entry.share}%`,
-              background: `rgb(${GOLD})`,
-              opacity: entry.share > 0 ? 0.8 : 0
-            }}
-          />
-        </span>
-        <span className="w-full shrink-0 text-right text-[10px] leading-none tabular-nums text-zinc-500 [font-family:var(--font-pixel)] sm:w-auto sm:min-w-[2.5rem]">
-          {entry.share}%
-        </span>
-      </span>
-
-      <span className="w-16 shrink-0 text-right text-[11px] leading-none tabular-nums text-zinc-200 [font-family:var(--font-pixel)]">
-        {formatNumber(entry.score)}
-      </span>
     </li>
   )
 }
@@ -734,7 +716,7 @@ function ApplicationRow({
       : undefined
   return (
     <li className="border-b border-[rgb(var(--lb-panel-edge)/0.06)] px-4 py-3.5 last:border-b-0 md:px-5">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Avatar
           src={app.avatar}
           char={app.username[0]?.toUpperCase() ?? '?'}
@@ -742,21 +724,21 @@ function ApplicationRow({
           fallbackClassName="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900 font-display text-[11px] text-zinc-400"
         />
 
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-32">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
             <Link
               href={`/u/${encodeURIComponent(app.username)}`}
-              className="truncate text-xs text-zinc-100 transition-colors hover:text-white hover:underline underline-offset-2"
+              className="truncate text-[13px] text-zinc-100 transition-colors hover:text-white hover:underline underline-offset-2"
             >
               @{app.username}
             </Link>
             <span
-              className="shrink-0 text-[10px] leading-none tabular-nums [font-family:var(--font-pixel)]"
+              className="shrink-0 text-[11px] leading-none tabular-nums [font-family:var(--font-pixel)]"
               style={{ color: 'rgb(var(--lb-score))' }}
             >
               {formatNumber(app.score)}
             </span>
-            <span className="shrink-0 text-[8px] tracking-[0.2em] text-zinc-600">
+            <span className="shrink-0 text-[10px] tracking-[0.18em] text-zinc-600">
               SEASON PTS
             </span>
           </div>
@@ -771,12 +753,7 @@ function ApplicationRow({
             disabled={busy || seatsFull || !approved}
             title={signTitle}
             onClick={() => onDecide('accept')}
-            className="rounded-lg border px-3 py-1.5 text-[9px] tracking-[0.3em] transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-            style={{
-              color: `rgb(${GOLD})`,
-              borderColor: `rgb(${GOLD} / 0.45)`,
-              background: `rgb(${GOLD} / 0.07)`
-            }}
+            className="deck-btn deck-btn-primary disabled:cursor-not-allowed disabled:opacity-40"
           >
             {busyAction === 'accept' ? '…' : 'SIGN'}
           </button>
@@ -784,7 +761,7 @@ function ApplicationRow({
             type="button"
             disabled={busy}
             onClick={() => onDecide('decline')}
-            className="rounded-lg border border-zinc-800 px-3 py-1.5 text-[9px] tracking-[0.3em] text-zinc-500 transition-colors hover:border-rose-400/40 hover:text-rose-300 disabled:cursor-wait disabled:opacity-60"
+            className="deck-btn deck-btn-quiet deck-btn-rose disabled:cursor-wait disabled:opacity-60"
           >
             {busyAction === 'decline' ? '…' : 'PASS'}
           </button>
@@ -1045,28 +1022,31 @@ export function TeamDashboard({ initial }: { initial: TeamDashboardData }) {
   )
 
   const lamp = reviewLamp(data.reviewStatus)
+  const operator = isDeckOperator(data.authority)
 
   return (
-    <div className="page-zoom-out mx-auto max-w-3xl px-6 pb-16 pt-6">
-      {/* ---------- title lockup ---------- */}
-      <header className="tdb-rise mt-3 flex flex-col items-center">
-        <span className="text-[9px] tracking-[0.5em] text-zinc-600">COMPANY OPERATIONS</span>
-        <h1
-          className="mt-3 select-none text-center text-2xl leading-none [font-family:var(--font-pixel)] md:text-3xl"
-          style={{
-            color: `rgb(${GOLD})`,
-            textShadow: `0 0 22px rgb(${GOLD} / 0.4), 0 0 52px rgb(${GOLD} / 0.16)`
-          }}
-        >
-          COMMAND DECK
-        </h1>
-        <p className="mt-3 text-center text-[10px] tracking-[0.3em] text-zinc-600">
-          SQUAD TELEMETRY · INBOUND TRANSFERS · UP TO {data.seatLimit} PILOTS
+    <div
+      className={`page-zoom-out mx-auto px-4 pb-16 pt-6 sm:px-6 ${
+        operator ? 'max-w-6xl' : 'max-w-4xl'
+      }`}
+    >
+      {/* ---------- masthead: compact, left-aligned ---------- */}
+      <header className="tdb-rise mt-2 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          <h1 className="deck-title select-none text-xl leading-none [font-family:var(--font-pixel)] md:text-2xl">
+            {deckTitle(data.authority)}
+          </h1>
+          <span className="text-[10px] tracking-[0.4em] text-zinc-600">COMPANY OPERATIONS</span>
+        </div>
+        <p className="text-[10px] tracking-[0.25em] text-zinc-600">
+          {operator
+            ? `SQUAD TELEMETRY · INBOUND TRANSFERS · UP TO ${data.seatLimit} PILOTS`
+            : `SQUAD TELEMETRY · UP TO ${data.seatLimit} PILOTS`}
         </p>
       </header>
 
-      <main className="mt-8 space-y-4">
-        {/* ---------- identity header ---------- */}
+      <main className="mt-5">
+        {/* ---------- hero band: identity + KPI cells + controls ---------- */}
         <div className="tdb-rise" style={{ ['--rv' as string]: '60ms' }}>
           <GoldPanel>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4 md:px-6">
@@ -1079,275 +1059,268 @@ export function TeamDashboard({ initial }: { initial: TeamDashboardData }) {
                 />
               </span>
 
-              <div className="min-w-0 flex-1 basis-40">
+              <div className="min-w-0 flex-1 basis-48">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className="truncate font-display text-[15px] font-medium tracking-tight text-zinc-100">
+                  <span className="truncate font-display text-[16px] font-medium tracking-tight text-zinc-100">
                     {data.team.name}
                   </span>
                   {data.approved && <TeamBadge size={15} />}
-                  <span
-                    className="shrink-0 rounded border px-1.5 py-0.5 text-[8px] tracking-[0.25em]"
-                    style={toneStyle(lamp.tone)}
-                  >
+                  <span className={`deck-chip shrink-0 ${toneClass(lamp.tone)}`}>
                     {lamp.label}
                   </span>
                   {data.authority === 'owner' && (
                     <span
-                      className="shrink-0 rounded border px-1.5 py-0.5 text-[8px] tracking-[0.25em]"
-                      style={toneStyle('gold')}
+                      className={`deck-chip shrink-0 ${toneClass('gold')}`}
                       title="You command this deck as a team owner — role changes and releases need the team login"
                     >
                       FRONT OFFICE
                     </span>
                   )}
                 </div>
-                <div className="mt-0.5 truncate text-[10px] tracking-[0.15em] text-zinc-600">
+                <div className="mt-0.5 truncate text-[11px] tracking-[0.15em] text-zinc-600">
                   @{data.team.username}
                 </div>
               </div>
 
-              <div className="flex shrink-0 flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void toggleRecruiting()}
-                  disabled={recruitingBusy}
-                  aria-pressed={data.recruiting}
-                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-[9px] tracking-[0.25em] transition-colors disabled:cursor-wait disabled:opacity-60 ${
-                    data.recruiting ? '' : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
-                  }`}
-                  style={
-                    data.recruiting
-                      ? {
-                          color: `rgb(${GOLD})`,
-                          borderColor: `rgb(${GOLD} / 0.45)`,
-                          background: `rgb(${GOLD} / 0.07)`
-                        }
-                      : undefined
-                  }
-                >
-                  <span
-                    aria-hidden
-                    className="h-1.5 w-1.5 rounded-full"
-                    style={
-                      data.recruiting
-                        ? {
-                            background: `rgb(${GOLD})`,
-                            boxShadow: `0 0 8px rgb(${GOLD} / 0.6)`
-                          }
-                        : { background: 'rgb(var(--lb-panel-edge) / 0.35)' }
-                    }
-                  />
-                  {data.recruiting ? 'OPEN ROSTER' : 'ROSTER CLOSED'}
-                </button>
+              {operator && (
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void toggleRecruiting()}
+                    disabled={recruitingBusy}
+                    aria-pressed={data.recruiting}
+                    className={`deck-btn disabled:cursor-wait disabled:opacity-60 ${
+                      data.recruiting ? 'deck-chip-gold' : 'deck-btn-quiet'
+                    }`}
+                  >
+                    <span
+                      aria-hidden
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        data.recruiting ? 'deck-dot-on' : 'deck-dot-off'
+                      }`}
+                    />
+                    {data.recruiting ? 'OPEN ROSTER' : 'ROSTER CLOSED'}
+                  </button>
 
-                <Link
-                  href="/team"
-                  className="rounded-lg border border-zinc-800 px-3 py-2 text-[9px] tracking-[0.25em] text-zinc-500 transition-colors hover:border-zinc-600 hover:text-zinc-200"
-                >
-                  ROSTER CONSOLE →
-                </Link>
-              </div>
+                  <Link href="/team" className="deck-btn deck-btn-quiet">
+                    ROSTER CONSOLE →
+                  </Link>
+                </div>
+              )}
+            </div>
+
+            {/* KPI cells ride inside the hero band */}
+            <div className="grid grid-cols-2 border-t border-[rgb(var(--lb-panel-edge)/0.08)] md:grid-cols-4">
+              <KpiCell
+                label="SQUAD SCORE"
+                valueStyle={{
+                  color: 'rgb(var(--lb-score))',
+                  textShadow: '0 0 12px rgb(var(--lb-score) / calc(0.3 * var(--lb-glow, 1)))'
+                }}
+              >
+                {formatNumber(data.board.score)}
+              </KpiCell>
+
+              <KpiCell
+                className="border-l border-[rgb(var(--lb-panel-edge)/0.08)]"
+                label="BOARD RANK"
+                hint={
+                  data.board.teams > 0 ? `OF ${formatNumber(data.board.teams)} TEAMS` : undefined
+                }
+              >
+                {data.board.rank !== null ? (
+                  `#${data.board.rank}`
+                ) : (
+                  <span className="text-zinc-700">—</span>
+                )}
+              </KpiCell>
+
+              <KpiCell
+                className="border-t border-[rgb(var(--lb-panel-edge)/0.08)] md:border-l md:border-t-0"
+                label="ACTIVE PILOTS"
+                hint={
+                  pendingCount > 0
+                    ? `${pendingCount} PENDING HOLD SEATS`
+                    : `${Math.max(0, data.seatLimit - data.seatsUsed)} SEATS OPEN`
+                }
+              >
+                {activeCount}/{data.seatLimit}
+              </KpiCell>
+
+              <KpiCell
+                className="border-l border-t border-[rgb(var(--lb-panel-edge)/0.08)] md:border-t-0"
+                label="BURN"
+                hint="OPT-IN ESTIMATES"
+              >
+                {data.board.burnPilots > 0 ? (
+                  <BurnUsd value={data.board.burnUsd} />
+                ) : (
+                  <span className="text-zinc-700">—</span>
+                )}
+              </KpiCell>
             </div>
           </GoldPanel>
         </div>
 
-        {/* ---------- hiring bar ---------- */}
+        {/* ---------- working grid: roster left, action rail right;
+            members lose the rail and run a single centered column ---------- */}
         <div
-          className="tdb-rise lb-panel overflow-hidden rounded-2xl"
-          style={{ ['--rv' as string]: '90ms' }}
+          className={`mt-4 ${
+            operator ? 'grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px] lg:items-start' : ''
+          }`}
         >
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[rgb(var(--lb-panel-edge)/0.08)] px-4 py-3 md:px-5">
-            <span className="text-[9px] tracking-[0.35em] text-zinc-500">HIRING BAR</span>
-            <span className="flex flex-wrap items-center gap-1.5">
-              {hasBar(data.bar) ? (
-                hiringBarChips(data.bar).map((chip) => (
-                  <span
-                    key={chip}
-                    className="rounded border px-1.5 py-0.5 text-[8px] tabular-nums tracking-[0.2em]"
-                    style={toneStyle('gold')}
-                  >
-                    {chip}
-                  </span>
-                ))
-              ) : (
-                <span className="text-[9px] tracking-[0.2em] text-zinc-600">NO BAR SET</span>
-              )}
-            </span>
-          </div>
-
-          {BAR_METRICS.map((spec) => (
-            <BarMetricControl
-              key={spec.key}
-              spec={spec}
-              value={data.bar[spec.key]}
-              busy={barBusy}
-              onSet={(value) => void saveBar({ ...data.bar, [spec.key]: value })}
-            />
-          ))}
-
-          <div className="border-t border-[rgb(var(--lb-panel-edge)/0.06)] px-4 py-2.5 text-[8px] tracking-[0.2em] text-zinc-700 md:px-5">
-            SOFT SIGNAL — APPLICANTS ARE STAMPED AGAINST THE BAR, NEVER BLOCKED BY IT
-          </div>
-        </div>
-
-        {/* ---------- KPI strip ---------- */}
-        <div
-          className="tdb-rise lb-panel grid grid-cols-2 overflow-hidden rounded-2xl md:grid-cols-4"
-          style={{ ['--rv' as string]: '120ms' }}
-        >
-          <KpiCell
-            label="SQUAD SCORE"
-            valueStyle={{
-              color: 'rgb(var(--lb-score))',
-              textShadow: '0 0 12px rgb(var(--lb-score) / calc(0.3 * var(--lb-glow, 1)))'
-            }}
+          {/* ---------- squad roster ---------- */}
+          <section
+            className="tdb-rise lb-panel overflow-hidden rounded-2xl"
+            style={{ ['--rv' as string]: '120ms' }}
           >
-            {formatNumber(data.board.score)}
-          </KpiCell>
-
-          <KpiCell
-            className="border-l border-[rgb(var(--lb-panel-edge)/0.08)]"
-            label="BOARD RANK"
-            hint={data.board.teams > 0 ? `OF ${formatNumber(data.board.teams)} TEAMS` : undefined}
-          >
-            {data.board.rank !== null ? `#${data.board.rank}` : <span className="text-zinc-700">—</span>}
-          </KpiCell>
-
-          <KpiCell
-            className="border-t border-[rgb(var(--lb-panel-edge)/0.08)] md:border-l md:border-t-0"
-            label="ACTIVE PILOTS"
-            hint={
-              pendingCount > 0
-                ? `${pendingCount} PENDING HOLD SEATS`
-                : `${Math.max(0, data.seatLimit - data.seatsUsed)} SEATS OPEN`
-            }
-          >
-            {activeCount}/{data.seatLimit}
-          </KpiCell>
-
-          <KpiCell
-            className="border-l border-t border-[rgb(var(--lb-panel-edge)/0.08)] md:border-t-0"
-            label="BURN"
-            hint="OPT-IN ESTIMATES"
-          >
-            {data.board.burnPilots > 0 ? (
-              <BurnUsd value={data.board.burnUsd} />
-            ) : (
-              <span className="text-zinc-700">—</span>
-            )}
-          </KpiCell>
-        </div>
-
-        {/* ---------- squad roster ---------- */}
-        <div
-          className="tdb-rise lb-panel overflow-hidden rounded-2xl"
-          style={{ ['--rv' as string]: '180ms' }}
-        >
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[rgb(var(--lb-panel-edge)/0.08)] px-4 py-3">
-            <span className="text-[9px] tracking-[0.35em] text-zinc-500">SQUAD ROSTER</span>
-            <div className="flex items-center gap-3">
-              <span
-                className="flex gap-1"
-                role="img"
-                aria-label={`${data.seatsUsed} of ${data.seatLimit} seats used`}
-              >
-                {Array.from({ length: data.seatLimit }, (_, i) => (
-                  <span
-                    key={i}
-                    className="h-3 w-2 rounded-[2px]"
-                    style={
-                      i < data.seatsUsed
-                        ? {
-                            background: `rgb(${GOLD} / 0.85)`,
-                            boxShadow: `0 0 8px rgb(${GOLD} / 0.5)`
-                          }
-                        : { background: 'rgb(var(--lb-panel-edge) / 0.14)' }
-                    }
-                  />
-                ))}
-              </span>
-              <span className="text-[9px] tabular-nums tracking-[0.2em] text-zinc-600">
-                {activeCount} ACTIVE · {pendingCount} PENDING
-              </span>
-            </div>
-          </div>
-
-          {orderedRoster.length === 0 ? (
-            <div className="px-6 py-10 text-center">
-              <div className="text-[10px] tracking-[0.35em] text-zinc-300">NO PILOTS SIGNED</div>
-              <p className="mx-auto mt-2 max-w-[300px] text-[11px] leading-relaxed text-zinc-500">
-                Open the roster lamp so pilots can apply, or invite them by callsign from the
-                roster console.
-              </p>
-            </div>
-          ) : (
-            <ul>
-              {orderedRoster.map((entry, index) => (
-                <RosterRow
-                  key={entry.affiliationId}
-                  entry={entry}
-                  index={index}
-                  canManageRoles={data.authority === 'team-account'}
-                  ownersFull={ownersFull}
-                  roleBusy={roleBusy !== null}
-                  onRoleChange={(role) => void changeRole(entry, role)}
-                />
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* ---------- inbound transfers ---------- */}
-        <div className="tdb-rise" style={{ ['--rv' as string]: '240ms' }}>
-          <GoldPanel>
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[rgb(var(--lb-panel-edge)/0.08)] px-4 py-3 md:px-5">
-              <span className="text-[9px] tracking-[0.35em] text-zinc-500">
-                INBOUND TRANSFERS
-              </span>
-              <span className="text-[9px] tabular-nums tracking-[0.2em]">
-                {seatsFull ? (
-                  <span style={{ color: 'rgb(var(--lb-down))' }}>
-                    ALL SEATS FILLED — FREE A SEAT TO SIGN
-                  </span>
-                ) : (
-                  <span className="text-zinc-600">
-                    {data.applications.length} WAITING
-                  </span>
-                )}
-              </span>
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[rgb(var(--lb-panel-edge)/0.08)] px-4 py-3">
+              <span className="text-[11px] tracking-[0.3em] text-zinc-500">SQUAD ROSTER</span>
+              <div className="flex items-center gap-3">
+                <span
+                  className="flex gap-1"
+                  role="img"
+                  aria-label={`${data.seatsUsed} of ${data.seatLimit} seats used`}
+                >
+                  {Array.from({ length: data.seatLimit }, (_, i) => (
+                    <span
+                      key={i}
+                      className={`h-3.5 w-2.5 rounded-[2px] ${
+                        i < data.seatsUsed ? 'deck-seat-on' : 'deck-seat-off'
+                      }`}
+                    />
+                  ))}
+                </span>
+                <span className="text-[10px] tabular-nums tracking-[0.18em] text-zinc-600">
+                  {activeCount} ACTIVE · {pendingCount} PENDING
+                </span>
+              </div>
             </div>
 
-            {data.applications.length === 0 ? (
+            {orderedRoster.length === 0 ? (
               <div className="px-6 py-10 text-center">
-                <div className="text-[10px] tracking-[0.35em] text-zinc-300">
-                  NO INBOUND TRANSFERS
-                </div>
+                <div className="text-[10px] tracking-[0.35em] text-zinc-300">NO PILOTS SIGNED</div>
                 <p className="mx-auto mt-2 max-w-[300px] text-[11px] leading-relaxed text-zinc-500">
-                  Pilots apply from the HIRING tab on the team board.
-                  {!data.recruiting && ' Your roster lamp is dark — nobody can file one right now.'}
+                  Open the roster lamp so pilots can apply, or invite them by callsign from the
+                  roster console.
                 </p>
               </div>
             ) : (
               <ul>
-                {data.applications.map((app) => (
-                  <ApplicationRow
-                    key={app.applicationId}
-                    app={app}
-                    bar={data.bar}
-                    seatsFull={seatsFull}
-                    approved={data.approved}
-                    busyAction={appBusy?.id === app.applicationId ? appBusy.action : null}
-                    onDecide={(action) => void decide(app, action)}
+                {orderedRoster.map((entry, index) => (
+                  <RosterRow
+                    key={entry.affiliationId}
+                    entry={entry}
+                    index={index}
+                    canManageRoles={data.authority === 'team-account'}
+                    ownersFull={ownersFull}
+                    roleBusy={roleBusy !== null}
+                    onRoleChange={(role) => void changeRole(entry, role)}
                   />
                 ))}
               </ul>
             )}
-          </GoldPanel>
+          </section>
+
+          {/* ---------- action rail: transfers queue over hiring bar ---------- */}
+          {operator && (
+            <div className="flex min-w-0 flex-col gap-4">
+              {/* ---------- inbound transfers ---------- */}
+              <div className="tdb-rise" style={{ ['--rv' as string]: '180ms' }}>
+                <GoldPanel>
+                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[rgb(var(--lb-panel-edge)/0.08)] px-4 py-3 md:px-5">
+                    <span className="text-[11px] tracking-[0.3em] text-zinc-500">
+                      INBOUND TRANSFERS
+                    </span>
+                    <span className="text-[10px] tabular-nums tracking-[0.18em]">
+                      {seatsFull ? (
+                        <span style={{ color: 'rgb(var(--lb-down))' }}>
+                          ALL SEATS FILLED — FREE A SEAT TO SIGN
+                        </span>
+                      ) : (
+                        <span className="text-zinc-600">
+                          {data.applications.length} WAITING
+                        </span>
+                      )}
+                    </span>
+                  </div>
+
+                  {data.applications.length === 0 ? (
+                    <div className="px-6 py-10 text-center">
+                      <div className="text-[10px] tracking-[0.35em] text-zinc-300">
+                        NO INBOUND TRANSFERS
+                      </div>
+                      <p className="mx-auto mt-2 max-w-[300px] text-[11px] leading-relaxed text-zinc-500">
+                        Pilots apply from the HIRING tab on the team board.
+                        {!data.recruiting &&
+                          ' Your roster lamp is dark — nobody can file one right now.'}
+                      </p>
+                    </div>
+                  ) : (
+                    /* the queue scrolls internally past ~3 entries — the
+                       roster column never scrolls */
+                    <ul className="max-h-[380px] overflow-y-auto overscroll-contain">
+                      {data.applications.map((app) => (
+                        <ApplicationRow
+                          key={app.applicationId}
+                          app={app}
+                          bar={data.bar}
+                          seatsFull={seatsFull}
+                          approved={data.approved}
+                          busyAction={appBusy?.id === app.applicationId ? appBusy.action : null}
+                          onDecide={(action) => void decide(app, action)}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </GoldPanel>
+              </div>
+
+              {/* ---------- hiring bar — config sits under the queue ---------- */}
+              <section
+                className="tdb-rise lb-panel overflow-hidden rounded-2xl"
+                style={{ ['--rv' as string]: '240ms' }}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[rgb(var(--lb-panel-edge)/0.08)] px-4 py-3 md:px-5">
+                  <span className="text-[11px] tracking-[0.3em] text-zinc-500">HIRING BAR</span>
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    {hasBar(data.bar) ? (
+                      hiringBarChips(data.bar).map((chip) => (
+                        <span key={chip} className="deck-chip deck-chip-gold tabular-nums">
+                          {chip}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-[10px] tracking-[0.2em] text-zinc-600">
+                        NO BAR SET
+                      </span>
+                    )}
+                  </span>
+                </div>
+
+                {BAR_METRICS.map((spec) => (
+                  <BarMetricControl
+                    key={spec.key}
+                    spec={spec}
+                    value={data.bar[spec.key]}
+                    busy={barBusy}
+                    onSet={(value) => void saveBar({ ...data.bar, [spec.key]: value })}
+                  />
+                ))}
+
+                <div className="border-t border-[rgb(var(--lb-panel-edge)/0.06)] px-4 py-2.5 text-[10px] tracking-[0.18em] text-zinc-700 md:px-5">
+                  SOFT SIGNAL — APPLICANTS ARE STAMPED AGAINST THE BAR, NEVER BLOCKED BY IT
+                </div>
+              </section>
+            </div>
+          )}
         </div>
 
-        <p className="text-center text-[9px] tracking-[0.25em] text-zinc-700">
-          TRANSFER REQUESTS DON&apos;T HOLD A SEAT — THE CAP IS CHECKED WHEN YOU SIGN
-        </p>
+        {operator && (
+          <p className="mt-4 text-center text-[10px] tracking-[0.25em] text-zinc-700">
+            TRANSFER REQUESTS DON&apos;T HOLD A SEAT — THE CAP IS CHECKED WHEN YOU SIGN
+          </p>
+        )}
       </main>
 
       <style jsx global>{`

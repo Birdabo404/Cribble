@@ -12,6 +12,10 @@ export interface MeUser {
    *  null for accounts that never bought the Team plan. Feed it together
    *  with subscription_tier to isApprovedTeam() — never read it alone. */
   team_review_status?: string | null
+  /** resolveTeamAuthority verdict: 'team-account' for a live TEAM login,
+   *  'owner' for an active OWNER affiliate of a live team, else null.
+   *  Optional defensively: older server builds don't send it. */
+  team_authority?: 'team-account' | 'owner' | null
   last_extension_sync?: string | null
   active_device_uuid?: string | null
   created_at?: string

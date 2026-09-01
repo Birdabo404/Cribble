@@ -5,11 +5,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // franchise's TEAM login (tier-gated but NOT approval-gated — a team
 // still under review sees its deck and may pre-set the OPEN ROSTER
 // lamp and the hiring bar) or a signed OWNER on a personal login
-// (resolveTeamAuthority, 066); everyone else keeps the 403 the hub
-// falls through on. What's under test is the gate → HTTP mapping,
-// PATCH's guarded write (lamp and/or bar, clamped by hiringBarSchema),
-// and the queue's display-only stamps; the board assembly and the
-// hiring-facts read are mocked (their math lives in their own tests).
+// (resolveTeamAuthority, 066). GET alone adds a read-only arm: a
+// signed ACTIVE member (any role, resolveTeamMembership) gets the
+// same console with the transfer queue and the bar stripped; everyone
+// else keeps the 403 the hub falls through on. What's under test is
+// the gate → HTTP mapping, PATCH's guarded write (lamp and/or bar,
+// clamped by hiringBarSchema), and the queue's display-only stamps;
+// the board assembly and the hiring-facts read are mocked (their math
+// lives in their own tests).
 
 const { sessionMock, boardMock, seatUsageMock, factsMock, rateLimitMock, state } = vi.hoisted(() => ({
   sessionMock: vi.fn(),
@@ -23,6 +26,8 @@ const { sessionMock, boardMock, seatUsageMock, factsMock, rateLimitMock, state }
     usersById: {} as Record<number, Record<string, unknown> | null>,
     // resolveTeamAuthority's owner-affiliation join row (role='owner').
     ownerAffiliation: null as Record<string, unknown> | null,
+    // resolveTeamMembership's any-role join row (no role filter).
+    memberAffiliation: null as Record<string, unknown> | null,
     // The deck's roster/queue rows (the .order() terminal).
     affiliationRows: [] as Record<string, unknown>[],
     affiliationFilters: {} as Record<string, unknown>,
@@ -88,10 +93,17 @@ vi.mock('@/lib/supabaseServer', () => ({
             filters[column] = value
             return builder
           },
-          // resolveTeamAuthority's owner-affiliation lookup terminal.
+          // The owner probe (role='owner') and the membership probe
+          // (no role filter) share this terminal; the role filter's
+          // presence says which one is asking.
           maybeSingle: () =>
             Promise.resolve({
-              data: filters.role === 'owner' ? state.ownerAffiliation : null,
+              data:
+                filters.role === 'owner'
+                  ? state.ownerAffiliation
+                  : filters.role === undefined
+                    ? state.memberAffiliation
+                    : null,
               error: null
             }),
           // The deck roster/queue query terminal.
@@ -190,6 +202,7 @@ beforeEach(() => {
   })
   state.usersById = { 7: { ...TEAM_CALLER } }
   state.ownerAffiliation = null
+  state.memberAffiliation = null
   state.affiliationRows = []
   state.affiliationFilters = {}
   state.userUpdates = []
@@ -226,16 +239,71 @@ describe('GET /api/team/dashboard — authority gate', () => {
     expect(boardMock).not.toHaveBeenCalled()
   })
 
-  it('403s a plain ACTIVE member — the role rides the affiliation row, not the seat', async () => {
+  it('403s a signed user with no affiliation row at all — neither command nor read arm', async () => {
     sessionMock.mockResolvedValue({ ok: true, userId: 33 })
     state.usersById = { 33: { ...OWNER_CALLER }, 7: { ...APPROVED_TEAM } }
-    // No role='owner' row for this member.
+    // No owner row AND no active seat: both probes come back empty.
     state.ownerAffiliation = null
+    state.memberAffiliation = null
 
     const response = await GET(getRequest())
 
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toEqual({ error: 'Team accounts only' })
+  })
+
+  it("answers a signed ACTIVE member read-only — authority 'member', queue and bar stripped", async () => {
+    sessionMock.mockResolvedValue({ ok: true, userId: 33 })
+    // The franchise HAS a bar and a live applicant — neither may reach
+    // a member: applicant messages are private to operators, and the
+    // bar is operator config.
+    state.usersById = {
+      33: { ...OWNER_CALLER },
+      7: { ...APPROVED_TEAM, team_req_min_score: 50_000 }
+    }
+    state.ownerAffiliation = null
+    state.memberAffiliation = { team_user_id: 7, team: { ...APPROVED_TEAM } }
+    state.affiliationRows = [
+      {
+        id: 44,
+        status: 'active',
+        role: 'member',
+        invited_at: '2026-08-01T00:00:00Z',
+        accepted_at: '2026-08-01T01:00:00Z',
+        message: null,
+        member: { ...APPLIED_ROW.member }
+      },
+      { ...APPLIED_ROW, id: 901 }
+    ]
+
+    const response = await GET(getRequest())
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body).toMatchObject({
+      success: true,
+      authority: 'member',
+      approved: true,
+      recruiting: true,
+      bar: { minScore: null, minTokens: null, minBurnUsd: null },
+      seatLimit: 10,
+      seatsUsed: 3,
+      applications: []
+    })
+    // Reads key on the team id, and the roster arrives whole — roles,
+    // scores and shares included.
+    expect(body.team.userId).toBe(7)
+    expect(state.affiliationFilters).toMatchObject({ team_user_id: 7 })
+    expect(seatUsageMock).toHaveBeenCalledWith(expect.anything(), 7)
+    expect(body.roster).toHaveLength(1)
+    expect(body.roster[0]).toMatchObject({
+      affiliationId: 44,
+      role: 'member',
+      score: 500,
+      share: 100
+    })
+    // The queue never leaves the server: not even the facts read fires.
+    expect(factsMock).not.toHaveBeenCalled()
   })
 
   it('answers for a TEAM caller still under review — the deck renders pre-approval', async () => {
@@ -473,10 +541,12 @@ describe('PATCH /api/team/dashboard — the hiring bar', () => {
     expect(state.userUpdateFilters).toEqual({ id: 7 })
   })
 
-  it('403s a plain member trying to write', async () => {
+  it('403s a plain member trying to write — the ACTIVE seat that reads the deck never writes it', async () => {
     sessionMock.mockResolvedValue({ ok: true, userId: 33 })
     state.usersById = { 33: { ...OWNER_CALLER }, 7: { ...APPROVED_TEAM } }
     state.ownerAffiliation = null
+    // The very seat that earns the member GET arm.
+    state.memberAffiliation = { team_user_id: 7, team: { ...APPROVED_TEAM } }
 
     const response = await PATCH(
       patchRequest({ bar: { minScore: 10_000, minTokens: null, minBurnUsd: null } })
