@@ -185,7 +185,8 @@ describe('buildTeamBoard', () => {
       members: 3,
       topScore: 200,
       burnUsd: '0',
-      burnPilots: 0
+      burnPilots: 0,
+      burnIncludesEstimate: false
     })
   })
 
@@ -198,7 +199,8 @@ describe('buildTeamBoard', () => {
       members: 0,
       topScore: 0,
       burnUsd: '0',
-      burnPilots: 0
+      burnPilots: 0,
+      burnIncludesEstimate: false
     })
   })
 })
@@ -306,5 +308,149 @@ describe('buildTeamBoard burn column', () => {
 
     expect(totals.burnUsd).toBe('5.3')
     expect(totals.burnPilots).toBe(3)
+  })
+})
+
+describe('buildTeamBoard cursor estimate fold', () => {
+  const cursorMap = (
+    entries: [teamId: number, userId: number, usd: string][]
+  ): Map<number, Map<number, string>> => {
+    const map = new Map<number, Map<number, string>>()
+    for (const [teamId, userId, usd] of entries) {
+      const teamMap = map.get(teamId) ?? new Map<number, string>()
+      teamMap.set(userId, usd)
+      map.set(teamId, teamMap)
+    }
+    return map
+  }
+
+  it('folds a cursor-only member as the estimate, tagged and flagged as house math', () => {
+    const { rows, totals } = buildTeamBoard(
+      [team(1)],
+      [member(1, 11, 100)],
+      noCalendar,
+      new Map(),
+      cursorMap([[1, 11, '4.2']])
+    )
+
+    expect(rows[0].members[0]).toMatchObject({ burnUsd: '4.2', burnSource: 'cursor' })
+    expect(rows[0]).toMatchObject({
+      burnUsd: '4.2',
+      burnPilots: 1,
+      burnIncludesEstimate: true
+    })
+    expect(totals).toMatchObject({
+      burnUsd: '4.2',
+      burnPilots: 1,
+      burnIncludesEstimate: true
+    })
+  })
+
+  it('lets CLI beat the estimate for a mixed member — never summed', () => {
+    const { rows } = buildTeamBoard(
+      [team(1)],
+      [member(1, 11, 100)],
+      noCalendar,
+      new Map([[11, '5']]),
+      cursorMap([[1, 11, '3']])
+    )
+
+    // '5', not '8' — real dollars win and the estimate is discarded.
+    expect(rows[0].members[0]).toMatchObject({ burnUsd: '5', burnSource: 'cli' })
+    expect(rows[0]).toMatchObject({
+      burnUsd: '5',
+      burnPilots: 1,
+      burnIncludesEstimate: false
+    })
+  })
+
+  it('tags CLI-only members cli and untracked members null', () => {
+    const { rows } = buildTeamBoard(
+      [team(1)],
+      [member(1, 11, 100), member(1, 12, 50)],
+      noCalendar,
+      new Map([[11, '2']])
+    )
+
+    expect(rows[0].members.map((m) => m.burnSource)).toEqual(['cli', null])
+    expect(rows[0].burnIncludesEstimate).toBe(false)
+  })
+
+  it('sums mixed-roster burn across sources and raises the estimate flag', () => {
+    const { rows, totals } = buildTeamBoard(
+      [team(1, 'mixed'), team(2, 'cliOnly')],
+      [member(1, 11, 300), member(1, 12, 100), member(2, 21, 50)],
+      noCalendar,
+      new Map([
+        [11, '0.1'],
+        [21, '7']
+      ]),
+      cursorMap([[1, 12, '0.2']])
+    )
+
+    const mixed = rows.find((row) => row.username === 'mixed')!
+    const cliOnly = rows.find((row) => row.username === 'cliOnly')!
+
+    expect(mixed).toMatchObject({
+      burnUsd: '0.3',
+      burnPilots: 2,
+      burnIncludesEstimate: true
+    })
+    expect(cliOnly).toMatchObject({
+      burnUsd: '7',
+      burnPilots: 1,
+      burnIncludesEstimate: false
+    })
+    // One estimated team is enough to mark the board total as house math.
+    expect(totals).toMatchObject({
+      burnUsd: '7.3',
+      burnPilots: 3,
+      burnIncludesEstimate: true
+    })
+  })
+
+  it('keys estimates per (team, member) — one team\'s floor never leaks to another', () => {
+    const { rows } = buildTeamBoard(
+      [team(1, 'alpha'), team(2, 'beta')],
+      [member(1, 11, 100), member(2, 11, 100)],
+      noCalendar,
+      new Map(),
+      // The same member carries different post-floor sums on each team.
+      cursorMap([
+        [1, 11, '9'],
+        [2, 11, '1.5']
+      ])
+    )
+
+    const alpha = rows.find((row) => row.username === 'alpha')!
+    const beta = rows.find((row) => row.username === 'beta')!
+    expect(alpha.members[0].burnUsd).toBe('9')
+    expect(beta.members[0].burnUsd).toBe('1.5')
+  })
+
+  it('keeps a verified zero-token member visible — a mapped $0 estimate is a pilot', () => {
+    const { rows } = buildTeamBoard(
+      [team(1)],
+      [member(1, 11, 100)],
+      noCalendar,
+      new Map(),
+      cursorMap([[1, 11, '0']])
+    )
+
+    expect(rows[0].members[0]).toMatchObject({ burnUsd: '0', burnSource: 'cursor' })
+    expect(rows[0]).toMatchObject({ burnPilots: 1, burnIncludesEstimate: true })
+  })
+
+  it('never lets an estimate rank score — a cursor-only whale team stays below on points', () => {
+    const { rows } = buildTeamBoard(
+      [team(1, 'grinders'), team(2, 'cursorWhales')],
+      [member(1, 11, 500), member(2, 21, 100)],
+      noCalendar,
+      new Map(),
+      cursorMap([[2, 21, '9999.99']])
+    )
+
+    expect(rows.map((row) => row.username)).toEqual(['grinders', 'cursorWhales'])
+    expect(rows[1]).toMatchObject({ rank: 2, burnUsd: '9999.99' })
   })
 })

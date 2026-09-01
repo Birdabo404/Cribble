@@ -26,6 +26,12 @@ import { addCalendarDays, calendarDateInTimeZone } from '@/lib/timeZone'
 //             profile + daily history
 //   PATCH  -> toggle {boardEnabled} without unlinking
 //   DELETE -> unlink and erase the accumulated daily history
+//
+// Ownership verification (the display-name challenge team burn gates
+// on) lives in the sibling ./verify route; GET reports its state under
+// profile.verification, and switching handles resets it here — the
+// claim upsert nulls verified_at/verify_code because the old proof was
+// for the old profile. A re-claim of the same handle keeps both.
 
 export const dynamic = 'force-dynamic'
 
@@ -40,7 +46,7 @@ const toggleSchema = z.object({ boardEnabled: z.boolean() }).strict()
 const PROFILE_COLUMNS =
   'cursor_username, display_name, avatar_url, board_enabled, last_synced_at, ' +
   'last_sync_status, current_streak, longest_streak, agents_local, agents_cloud, ' +
-  'longest_agent_seconds, top_models'
+  'longest_agent_seconds, top_models, verified_at, verify_code'
 
 interface CursorProfileDbRow {
   cursor_username: string
@@ -55,6 +61,8 @@ interface CursorProfileDbRow {
   agents_cloud: number | null
   longest_agent_seconds: number | null
   top_models: unknown
+  verified_at: string | null
+  verify_code: string | null
 }
 
 type LinkedStateResult =
@@ -116,6 +124,12 @@ async function loadLinkedState(userId: number): Promise<LinkedStateResult> {
         boardEnabled: row.board_enabled === true,
         lastSyncedAt: row.last_synced_at,
         lastSyncStatus: row.last_sync_status,
+        // Ownership-challenge state (./verify): both NULL until a code
+        // is minted; verifiedAt set + code cleared once proven.
+        verification: {
+          verifiedAt: row.verified_at,
+          verifyCode: row.verify_code
+        },
         stats: {
           tokens30d,
           agentsLocal: count(row.agents_local),
@@ -250,6 +264,9 @@ export async function POST(request: NextRequest) {
       return failure('Failed to claim cursor profile', 500)
     }
 
+    const handleChanged =
+      existing !== null && existing.cursor_username !== username
+
     const now = new Date().toISOString()
     // board_enabled rides the column default on first claim and keeps
     // the user's existing toggle on a re-claim.
@@ -257,7 +274,12 @@ export async function POST(request: NextRequest) {
       {
         user_id: session.userId,
         cursor_username: username,
-        ...cursorProfileSnapshotColumns(result.profile, now)
+        ...cursorProfileSnapshotColumns(result.profile, now),
+        // A handle switch voids the ownership proof — verified_at and
+        // any outstanding challenge code belong to the OLD profile.
+        // Re-claiming the SAME handle keeps both (the spread is empty),
+        // and a first claim starts NULL by column default anyway.
+        ...(handleChanged ? { verified_at: null, verify_code: null } : {})
       },
       { onConflict: 'user_id' }
     )
@@ -275,7 +297,7 @@ export async function POST(request: NextRequest) {
 
     // The claim is durably ours: drop the old handle's history before
     // writing the new handle's first daily rows below.
-    if (existing && existing.cursor_username !== username) {
+    if (handleChanged) {
       const { error: resetError } = await supabase
         .from('cursor_profile_daily')
         .delete()
