@@ -32,6 +32,7 @@ import {
 import AnimatedCounter from '@/components/AnimatedCounter'
 import { formatCompact, formatNumber } from '@/components/dashboard-v2/format'
 import { Avatar } from '@/components/leaderboard/Avatar'
+import { leaderboardScrollTo } from '@/components/leaderboard/LeaderboardScrollRuntime'
 import { LeaderboardSponsorFlip } from '@/components/leaderboard/LeaderboardSponsorFlip'
 import {
   IconChevronDown,
@@ -276,10 +277,10 @@ export function TeamBoard() {
     const el = rowRefs.current.get(id)
     if (!el) return // row still filtered out — the next `displayed` commit retries
     pendingJumpId.current = null
-    el.scrollIntoView({
-      block: 'center',
-      behavior: prefersReducedMotion() ? 'auto' : 'smooth'
-    })
+    // Routed through the leaderboard smoother when it's live (a native
+    // scrollIntoView would fight the transform-based smoothing); falls
+    // back to scrollIntoView with the same animated/instant intent.
+    leaderboardScrollTo(el, !prefersReducedMotion())
   }, [displayed, jumpNonce])
 
   return (
@@ -495,8 +496,13 @@ export function TeamBoard() {
         )}
 
         {/* ---------- sticky YOUR TEAM / recruit bar ---------- */}
+        {/* data-lb-dock: docked by LeaderboardScrollRuntime while the
+            scroll smoother is live; CSS sticky is the native fallback. */}
         {myTeam ? (
-          <div className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 mt-4">
+          <div
+            data-lb-dock
+            className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 mt-4"
+          >
             <YourTeamBar
               team={myTeam}
               rank={
@@ -506,7 +512,10 @@ export function TeamBoard() {
             />
           </div>
         ) : viewerChecked && teams !== null && !failed ? (
-          <div className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 mt-4">
+          <div
+            data-lb-dock
+            className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 mt-4"
+          >
             <RecruitBar />
           </div>
         ) : null}

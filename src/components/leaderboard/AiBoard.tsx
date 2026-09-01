@@ -40,6 +40,7 @@ import {
   IconUsers,
   ToolIcon
 } from '@/components/leaderboard/icons'
+import { leaderboardScrollTo } from '@/components/leaderboard/LeaderboardScrollRuntime'
 import { ToolCard } from '@/components/leaderboard/ToolCard'
 import { medalA, medalFor, medalGlow } from '@/components/leaderboard/types'
 import type { AiBoards, AiToolRow } from '@/lib/aiLeaderboard'
@@ -256,8 +257,10 @@ export function AiBoard({
     if (!el) return // row still filtered out — the next commit retries
     pendingJump.current = null
     // Instant, not smooth: the ToolCard opens in the same commit and its
-    // scroll-lock would cut a smooth glide off mid-flight.
-    el.scrollIntoView({ block: 'center', behavior: 'auto' })
+    // scroll-lock would cut a smooth glide off mid-flight. Routed through
+    // the leaderboard smoother when it's live (a native scrollIntoView
+    // would fight the transform-based smoothing), scrollIntoView otherwise.
+    leaderboardScrollTo(el, false)
   }, [filtered, jumpNonce])
 
   return (
@@ -464,8 +467,13 @@ export function AiBoard({
         </p>
 
         {/* ---------- sticky YOUR TEAM / recruit bar ---------- */}
+        {/* data-lb-dock: docked by LeaderboardScrollRuntime while the
+            scroll smoother is live; CSS sticky is the native fallback. */}
         {!loading && !failed && tools !== null && viewerFaction !== undefined && (
-          <div className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 mt-4">
+          <div
+            data-lb-dock
+            className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 mt-4"
+          >
             {yourRow ? (
               <YourFactionBar tool={yourRow} onJump={jumpToYourTeam} />
             ) : (

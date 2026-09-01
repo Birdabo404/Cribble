@@ -8,6 +8,7 @@ import AnimatedCounter from '@/components/AnimatedCounter'
 import { formatCompact, formatNumber } from '@/components/dashboard-v2/format'
 import { Avatar } from '@/components/leaderboard/Avatar'
 import { CursorBoard } from '@/components/leaderboard/CursorBoard'
+import { leaderboardScrollTo } from '@/components/leaderboard/LeaderboardScrollRuntime'
 import { LeaderboardSponsorFlip } from '@/components/leaderboard/LeaderboardSponsorFlip'
 import { TokenAgentIcon } from '@/components/leaderboard/TokenAgentIcon'
 import { TokenPlayerCard } from '@/components/leaderboard/TokenPlayerCard'
@@ -291,7 +292,10 @@ function CliTokenBoard({
 
       const reduced =
         prefersReducedMotion() || document.documentElement.dataset.motion === 'reduced'
-      el.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' })
+      // Routed through the leaderboard smoother when it's live (a native
+      // scrollIntoView would fight the transform-based smoothing); falls
+      // back to scrollIntoView with the same animated/instant intent.
+      leaderboardScrollTo(el, !reduced)
       if (reduced) return
 
       // Ignition: flare in the Burn Board orange, then decay. clearProps

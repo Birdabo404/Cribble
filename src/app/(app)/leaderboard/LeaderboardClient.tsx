@@ -44,10 +44,10 @@ import {
   ToolIcon
 } from '@/components/leaderboard/icons'
 import { PlateLayer } from '@/components/cosmetics/PlateLayer'
-import { AsteroidShower } from '@/components/dashboard-v3/AsteroidShower'
 import { AiBoard } from '@/components/leaderboard/AiBoard'
 import { CrtAttract, HeroTitle } from '@/components/leaderboard/CrtAttract'
 import { CursorClaimPrompt } from '@/components/leaderboard/CursorClaimPrompt'
+import { LeaderboardScrollRuntime } from '@/components/leaderboard/LeaderboardScrollRuntime'
 import { LeaderboardSponsorFlip } from '@/components/leaderboard/LeaderboardSponsorFlip'
 import { PlayerCard, type ChaseInfo } from '@/components/leaderboard/PlayerCard'
 import { RankAvatar } from '@/components/leaderboard/RankRegalia'
@@ -372,7 +372,11 @@ function LeaderboardArena() {
 
   return (
     <>
-      <AsteroidShower />
+      {/* Scroll friction (desktop fine-pointer only; native fallback
+          otherwise). The asteroid shower that used to render here is
+          hoisted to AppShell — its fixed layers must stay outside the
+          smoothed content. */}
+      <LeaderboardScrollRuntime />
 
       <div
         className={`page-zoom-out lb4-root relative mx-auto max-w-6xl px-4 sm:px-6 pb-16 pt-6 ${
@@ -587,8 +591,14 @@ function LeaderboardArena() {
             )}
 
             {/* ---------- sticky YOU bar ---------- */}
+            {/* data-lb-dock: while the scroll smoother is live, CSS sticky
+                can't work inside the transformed content, so the runtime
+                docks this bar itself (see LeaderboardScrollRuntime). */}
             {me && (
-              <div className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 mt-4">
+              <div
+                data-lb-dock
+                className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 mt-4"
+              >
                 <YouBar me={me} chase={chaseFor(me)} onSelect={handleSelect} />
               </div>
             )}
@@ -1155,7 +1165,7 @@ function StatBar({
       <div className={`flex min-w-0 flex-col items-center overflow-hidden px-3.5 py-3.5 text-center sm:px-4 sm:py-4 ${divCls(1)}`}>
         <div className="flex flex-wrap items-center justify-center gap-1.5 text-[9px] tracking-[0.16em] sm:tracking-[0.28em] text-zinc-400">
           <IconPulse size={11} className="text-zinc-500" />
-          ONLINE NOW
+          PLAYING NOW
         </div>
         <div className="mt-2.5 flex max-w-full items-center justify-center gap-2 text-[clamp(11px,2.6vw,16px)] text-zinc-50 tabular-nums [font-family:var(--font-pixel)]">
           <AnimatedCounter value={activePlayers} duration={1100} formatter={(v) => formatNumber(Math.round(v))} />

@@ -1916,6 +1916,20 @@ html[data-nav-exp='1'] {
   }
 }
 
+/* Leaderboard scroll friction (LeaderboardScrollRuntime.tsx): html.lb-smooth
+   is on while the route's ScrollSmoother is live. position:sticky can't work
+   inside the transformed #app-flow-content — sticky resolves against the
+   fixed wrapper's scrollport, whose scroll offset never moves, so the
+   boards' bottom bars would clamp to their sections' TOP edges. The runtime
+   docks [data-lb-dock] bars itself with a per-frame translate; this rule
+   stands the CSS sticky down so the two mechanisms never fight. Native
+   modes (touch, small screens, reduced motion) never get the class and
+   keep the Tailwind sticky untouched. */
+html.lb-smooth [data-lb-dock] {
+  position: relative;
+  bottom: auto;
+}
+
 /* Rail chassis — width follows the shared variable. */
 .app-nav-rail {
   width: var(--nav-rail-w);

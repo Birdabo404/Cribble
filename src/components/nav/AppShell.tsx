@@ -16,6 +16,7 @@ import SpaceBackdrop from '@/components/SpaceBackdrop'
 import { BillboardRails } from '@/components/billboard/BillboardRails'
 import { BillboardTicker } from '@/components/billboard/BillboardTicker'
 import { AmbientGlow } from '@/components/dashboard-v3/AmbientGlow'
+import { AsteroidShower } from '@/components/dashboard-v3/AsteroidShower'
 import { GlassTilt } from '@/components/dashboard-v3/GlassTilt'
 import { BackgroundMusicProvider } from '@/components/music/BackgroundMusicProvider'
 import { NowPlayingTicker } from '@/components/music/NowPlayingTicker'
@@ -58,14 +59,35 @@ export function AppShell({ children }: { children: ReactNode }) {
                 }}
               />
               <AppNav />
-              <div className="app-nav-inset relative z-10">
-                {/* first in-flow child so the banner pushes page content down;
-                    self-gates by pathname (dashboard/leaderboard) + frequency cap */}
-                <BillboardTicker />
-                {/* fixed sponsor columns flanking the profile pages; self-gates
-                    by pathname (profile routes) + ≥1440px viewports */}
-                <BillboardRails />
-                {children}
+              {/* The arena's fixed streak layers, hoisted out of
+                  LeaderboardClient: position:fixed dies inside the
+                  transformed scroll-friction content below, so the
+                  leaderboard's instance must live at shell level.
+                  Route-gated — other pages don't pay for it (the
+                  dashboard keeps its own in-page instance; it never
+                  scroll-smooths). */}
+              {pathname === '/leaderboard' && <AsteroidShower />}
+              {/* Stable scroll-friction boundary: LeaderboardScrollRuntime
+                  mounts a GSAP ScrollSmoother on these two divs while
+                  /leaderboard is on stage. Inert, style-free wrappers on
+                  every other route — no positioning, no stacking context —
+                  so nothing else changes. Everything that must stay
+                  position:fixed (nav, backdrops, asteroids, portaled
+                  modals) sits OUTSIDE; the billboard stays INSIDE so its
+                  expand keeps pushing page content down in-flow. */}
+              <div id="app-flow-wrapper">
+                <div id="app-flow-content">
+                  <div className="app-nav-inset relative z-10">
+                    {/* first in-flow child so the banner pushes page content down;
+                        self-gates by pathname (dashboard/leaderboard) + frequency cap */}
+                    <BillboardTicker />
+                    {/* fixed sponsor columns flanking the profile pages; self-gates
+                        by pathname (profile routes) + ≥1440px viewports — never
+                        rendered on /leaderboard, so never inside live smoothing */}
+                    <BillboardRails />
+                    {children}
+                  </div>
+                </div>
               </div>
             </div>
             {/* fixed lower-right VFD readout; self-gates on playback state */}
