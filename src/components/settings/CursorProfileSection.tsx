@@ -337,8 +337,9 @@ function VerificationBlock({
             label="Ownership"
             description={
               <span className="text-[11px] uppercase tracking-[0.14em]">
-                Put this code in your cursor.com display name, then hit check —
-                remove it after
+                Open cursor.com/settings and add this code anywhere in your public
+                display name — not your @username. Example: Birdabo {phase.code}. Save
+                it, then hit check. Remove the code after verification.
               </span>
             }
             stack
