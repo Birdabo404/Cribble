@@ -273,10 +273,11 @@ export function AccountMenu({
               ACHIEVEMENTS
               <span className={arrowCls}>→</span>
             </Link>
-            {/* Company accounts get their command deck (which links on to
-                the roster console); the row is invisible to every other
-                tier (same gating as the nav). */}
-            {user.subscription_tier === 'TEAM' && (
+            {/* Company accounts and active OWNER affiliates get the
+                command deck (which links on to the roster console); the
+                row is invisible to everyone else (same gating as the
+                nav). */}
+            {(user.subscription_tier === 'TEAM' || user.team_authority === 'owner') && (
               <Link
                 href="/teams"
                 onClick={() => setOpen(false)}

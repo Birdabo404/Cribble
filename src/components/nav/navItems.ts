@@ -32,14 +32,17 @@ export const NAV_ITEMS: NavItemDef[] = [
   { href: '/teams', label: 'TEAM', icon: 'team', exact: true, teamOnly: true }
 ]
 
-/** Nav items the current session may see. Tier gating only — the TEAM row
- *  shows for any TEAM-tier account (even mid-review; the page itself
- *  explains the pending state). Signed-out visitors get the base set. */
+/** Nav items the current session may see. The TEAM row shows for any
+ *  TEAM-tier account (even mid-review; the page itself explains the
+ *  pending state) and for active OWNER affiliates — /api/user/me carries
+ *  the resolveTeamAuthority verdict so the deck they can already run is
+ *  one click away. Signed-out visitors get the base set. */
 export function visibleNavItems(
-  user: Pick<MeUser, 'subscription_tier'> | null | undefined
+  user: Pick<MeUser, 'subscription_tier' | 'team_authority'> | null | undefined
 ): NavItemDef[] {
-  const isTeam = user?.subscription_tier === 'TEAM'
-  return NAV_ITEMS.filter((item) => !item.teamOnly || isTeam)
+  const seesTeamRow =
+    user?.subscription_tier === 'TEAM' || user?.team_authority === 'owner'
+  return NAV_ITEMS.filter((item) => !item.teamOnly || seesTeamRow)
 }
 
 export function isNavItemActive(item: NavItemDef, pathname: string): boolean {

@@ -9,6 +9,7 @@ import { fetchActiveSeasonWindow } from '@/lib/seasonServer'
 import { getSessionUserId } from '@/lib/sessionAuth'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { createServiceClient } from '@/lib/supabaseServer'
+import { resolveTeamAuthority } from '@/lib/teamRoster'
 import {
   ensureUserStatsRollup,
   type UserStatsRollupColumns
@@ -120,8 +121,16 @@ export async function GET(request: NextRequest) {
     // touch is the bounded today-window read (rows since UTC midnight);
     // user_scores is read with * so deployments that lag an additive
     // migration (bonus/season/rollup columns) keep working unchanged.
-    const [userRes, scoreRes, deviceRes, seasonLookup, rankRes, rankCountRes, todayAgg] =
-      await Promise.all([
+    const [
+      userRes,
+      scoreRes,
+      deviceRes,
+      seasonLookup,
+      rankRes,
+      rankCountRes,
+      todayAgg,
+      teamAuthority
+    ] = await Promise.all([
         supabase
           .from('users')
           // is_admin is deliberately NOT selected: no client code consumes it and
@@ -154,7 +163,10 @@ export async function GET(request: NextRequest) {
         supabase
           .from('leaderboard_ranks')
           .select('user_id', { count: 'exact', head: true }),
-        fetchTodayAggregates(userId, new Date(todayStartMs).toISOString())
+        fetchTodayAggregates(userId, new Date(todayStartMs).toISOString()),
+        // Lights the TEAM nav row for active OWNER affiliates (and team
+        // logins) — degrades to null on any failed read, never throws.
+        resolveTeamAuthority(supabase, userId)
       ])
 
     if (userRes.error || !userRes.data) {
@@ -249,7 +261,7 @@ export async function GET(request: NextRequest) {
     const activeDevice = deviceRes.error ? null : deviceRes.data
 
     return NextResponse.json({
-      user,
+      user: { ...user, team_authority: teamAuthority?.via ?? null },
       scores,
       stats,
       scoring: {
