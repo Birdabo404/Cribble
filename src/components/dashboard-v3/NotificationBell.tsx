@@ -88,6 +88,7 @@ function typeMeta(type: NotificationType, data: Record<string, unknown>): TypeMe
     case 'team_invite_accepted':
     case 'team_application':
     case 'team_application_accepted':
+    case 'team_promotion':
       // Team-affiliation flow wears the TEAM tier's gold.
       return { icon: ICON_PATHS.users, cls: 'text-yellow-300' }
     case 'team_removed':
@@ -310,11 +311,12 @@ function SingleFeedRow({
     n.type === 'team_application_accepted' ||
     n.type === 'team_application_declined'
       ? '/team/invites'
-      : n.type === 'team_application'
+      : n.type === 'team_application' ||
+          n.type === 'team_promotion' ||
+          n.type === 'team_invite_accepted' ||
+          n.data?.kind === 'team_review'
         ? '/teams'
-        : n.type === 'team_invite_accepted' || n.data?.kind === 'team_review'
-          ? '/team'
-          : n.data?.kind === 'billboard_review'
+        : n.data?.kind === 'billboard_review'
             ? '/sponsorship'
             : actorUsername
               ? `/u/${encodeURIComponent(actorUsername)}`

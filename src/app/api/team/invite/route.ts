@@ -12,16 +12,21 @@ import {
   isTeamTier,
   isUniqueViolation,
   loadUserRow,
+  resolveTeamAuthority,
   teamIdentity,
+  type TeamAuthority,
   type TeamUserRow
 } from '@/lib/teamRoster'
 
 // Invite a member by callsign. Only a fully-lit team (TEAM tier AND
-// approved review) may invite; pending invites hold a seat, so the cap
-// check counts pending + active. The pre-checks give friendly errors;
-// the two unique indexes (one row per team+member pair, one ACTIVE
-// affiliation per member) are the race backstop — a 23505 on insert is
-// reported as "already invited" instead of a 500.
+// approved review) may invite — through its franchise login or a
+// signed OWNER's personal account (resolveTeamAuthority, 066); pending
+// invites hold a seat, so the cap check counts pending + active. The
+// pre-checks give friendly errors; the two unique indexes (one row per
+// team+member pair, one ACTIVE affiliation per member) are the race
+// backstop — a 23505 on insert is reported as "already invited"
+// instead of a 500. (Revoking a pending invite lives on
+// /api/team/roster, where owners may revoke too.)
 
 export const dynamic = 'force-dynamic'
 
@@ -69,10 +74,26 @@ export async function POST(request: NextRequest) {
     if (!caller.ok) {
       return NextResponse.json({ error: caller.error }, { status: caller.status })
     }
-    if (!isTeamTier(caller.user.subscription_tier)) {
-      return NextResponse.json({ error: 'Team accounts only' }, { status: 403 })
+    // Franchise login or a signed owner — either may send invites.
+    let authority: TeamAuthority | null
+    let teamRow: TeamUserRow
+    if (isTeamTier(caller.user.subscription_tier)) {
+      authority = { teamUserId: session.userId, via: 'team-account' }
+      teamRow = caller.user
+    } else {
+      authority = await resolveTeamAuthority(supabase, session.userId)
+      if (!authority) {
+        return NextResponse.json({ error: 'Team accounts only' }, { status: 403 })
+      }
+      const team = await loadUserRow(supabase, authority.teamUserId)
+      if (!team.ok) {
+        return NextResponse.json({ error: team.error }, { status: team.status })
+      }
+      teamRow = team.user
     }
-    if (!isApprovedTeam(caller.user)) {
+    // An owner's team is live (approved) by the authority gate — this
+    // only ever bites the franchise arm, same as before.
+    if (!isApprovedTeam(teamRow)) {
       return NextResponse.json(
         { error: 'Invites unlock once your team passes review' },
         { status: 403 }
@@ -81,7 +102,7 @@ export async function POST(request: NextRequest) {
 
     // getTeamSeatUsage throws on a failed read — never enforce the cap on
     // a guessed count.
-    const seatsUsed = await getTeamSeatUsage(supabase, session.userId)
+    const seatsUsed = await getTeamSeatUsage(supabase, authority.teamUserId)
     if (seatsUsed >= TEAM_SEAT_LIMIT) {
       return NextResponse.json(
         { error: `All ${TEAM_SEAT_LIMIT} affiliate seats are in use` },
@@ -107,7 +128,7 @@ export async function POST(request: NextRequest) {
     if (!target || target.status === 'banned' || target.status === 'suspended') {
       return NextResponse.json({ error: 'Callsign not found' }, { status: 404 })
     }
-    if (Number(target.id) === session.userId) {
+    if (Number(target.id) === authority.teamUserId) {
       return NextResponse.json(
         { error: 'A team cannot affiliate itself' },
         { status: 400 }
@@ -142,7 +163,7 @@ export async function POST(request: NextRequest) {
     const { data: inserted, error: insertError } = await supabase
       .from('team_affiliations')
       .insert({
-        team_user_id: session.userId,
+        team_user_id: authority.teamUserId,
         member_user_id: target.id,
         status: 'pending'
       })
@@ -161,7 +182,8 @@ export async function POST(request: NextRequest) {
     }
 
     const affiliationId = Number(inserted?.id)
-    const team = teamIdentity(caller.user)
+    // The invite speaks as the FRANCHISE even when an owner sent it.
+    const team = teamIdentity(teamRow)
 
     // Keyed by the affiliation row id: a declined-then-reissued invite is
     // a NEW row, so the member is notified again; re-processing the same

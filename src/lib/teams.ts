@@ -11,6 +11,12 @@ import { isApprovedTeam } from '@/lib/entitlements'
  *  transfer requests (064) are seatless until the team signs them. */
 export const TEAM_SEAT_LIMIT = 10
 
+/** OWNER roles per team (team_affiliations.role, migration 066).
+ *  Owners are signed members holding command-deck keys from their
+ *  personal login; promote/demote stays franchise-login-only and the
+ *  cap is enforced at promote time in /api/team/roster, not in the DB. */
+export const TEAM_OWNER_LIMIT = 3
+
 /** What badge surfaces need to render an affiliate's team mini-logo. */
 export interface AffiliatedTeam {
   teamUserId: number

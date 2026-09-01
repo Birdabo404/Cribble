@@ -12,7 +12,8 @@ export const NOTIFICATION_TYPES = [
   'team_removed',
   'team_application',
   'team_application_accepted',
-  'team_application_declined'
+  'team_application_declined',
+  'team_promotion'
 ] as const
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
@@ -46,7 +47,8 @@ const TEAM_ACTOR_TYPES: ReadonlySet<NotificationType> = new Set([
   'team_removed',
   'team_application',
   'team_application_accepted',
-  'team_application_declined'
+  'team_application_declined',
+  'team_promotion'
 ])
 
 /** Team-flow rows (invites and transfer requests, in both directions)

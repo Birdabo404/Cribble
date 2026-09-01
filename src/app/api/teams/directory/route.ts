@@ -3,11 +3,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
 import { createServiceClient } from '@/lib/supabaseServer'
 import { assembleTeamBoard } from '@/lib/teamBoardServer'
+import { hasBar, hiringBarFromColumns, type HiringBar } from '@/lib/teamHiring'
 import { TEAM_SEAT_LIMIT } from '@/lib/teams'
 
 // The public recruitment board: every approved live team, ranked by the
-// SAME pipeline as the TEAMS leaderboard, decorated with the two bits
-// that make it a directory — open seats and the recruiting lamp.
+// SAME pipeline as the TEAMS leaderboard, decorated with the bits that
+// make it a directory — open seats, the recruiting lamp, and the
+// published hiring bar (066) for card chips. The bar is public flex;
+// viewer-specific stamps live on the authed apply GET, never here.
 // Identities and scores are already public on the board; no session
 // required, but rate-limited like every other public read. The payload
 // is the same for every viewer, so like its leaderboard twin it caches
@@ -18,6 +21,15 @@ import { TEAM_SEAT_LIMIT } from '@/lib/teams'
 export const dynamic = 'force-dynamic'
 
 const REVALIDATE_SECONDS = 60
+
+/** The lamps read, widened with the bar columns it shares a row with. */
+interface LampRow {
+  id: number
+  team_recruiting: boolean | null
+  team_req_min_score: number | string | null
+  team_req_min_tokens: number | string | null
+  team_req_min_burn_usd: number | string | null
+}
 
 const loadTeamsDirectory = unstable_cache(
   async () => {
@@ -31,6 +43,7 @@ const loadTeamsDirectory = unstable_cache(
     // like assembleTeamBoard — never decorate from guessed counts.
     const seatsByTeam = new Map<number, number>()
     const recruitingByTeam = new Map<number, boolean>()
+    const barByTeam = new Map<number, HiringBar>()
     if (teamIds.length > 0) {
       const [seatsResult, lampsResult] = await Promise.all([
         supabase
@@ -38,7 +51,12 @@ const loadTeamsDirectory = unstable_cache(
           .select('team_user_id, status')
           .in('team_user_id', teamIds)
           .in('status', ['pending', 'active']),
-        supabase.from('users').select('id, team_recruiting').in('id', teamIds)
+        supabase
+          .from('users')
+          .select(
+            'id, team_recruiting, team_req_min_score, team_req_min_tokens, team_req_min_burn_usd'
+          )
+          .in('id', teamIds)
       ])
 
       if (seatsResult.error) {
@@ -52,11 +70,13 @@ const loadTeamsDirectory = unstable_cache(
         const teamId = Number(row.team_user_id)
         seatsByTeam.set(teamId, (seatsByTeam.get(teamId) ?? 0) + 1)
       }
-      for (const row of (lampsResult.data ?? []) as {
-        id: number
-        team_recruiting: boolean | null
-      }[]) {
-        recruitingByTeam.set(Number(row.id), row.team_recruiting !== false)
+      for (const row of (lampsResult.data ?? []) as LampRow[]) {
+        const teamId = Number(row.id)
+        recruitingByTeam.set(teamId, row.team_recruiting !== false)
+        const bar = hiringBarFromColumns(row)
+        // Only teams that set a metric carry a bar — null keeps barless
+        // cards clean instead of shipping three-null objects everywhere.
+        if (hasBar(bar)) barByTeam.set(teamId, bar)
       }
     }
 
@@ -74,6 +94,7 @@ const loadTeamsDirectory = unstable_cache(
         seatLimit: TEAM_SEAT_LIMIT,
         openSeats: Math.max(0, TEAM_SEAT_LIMIT - seatsUsed),
         recruiting: recruitingByTeam.get(row.userId) !== false,
+        bar: barByTeam.get(row.userId) ?? null,
         burnUsd: row.burnUsd,
         burnPilots: row.burnPilots
       }
@@ -88,7 +109,8 @@ const loadTeamsDirectory = unstable_cache(
       }
     }
   },
-  ['teams-directory-v1'],
+  // v2: rows gained `bar` — the key bump retires stale-shape entries.
+  ['teams-directory-v2'],
   { revalidate: REVALIDATE_SECONDS }
 )
 

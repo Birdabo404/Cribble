@@ -1,9 +1,11 @@
 import { NextRequest } from 'next/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-// The SIGN/PASS route's contract: SIGN needs an approved TEAM account,
-// PASS just a TEAM-tier one (an under-review team must be able to clear
-// its queue); the row must still be this team's APPLIED one, and the
+// The SIGN/PASS route's contract: SIGN needs an approved team, PASS
+// just a TEAM-tier one (an under-review team must be able to clear its
+// queue) — and both actions now answer to a signed OWNER on a personal
+// login (resolveTeamAuthority, 066), with every row scoped to the
+// TEAM's id. The row must still be this team's APPLIED one, and the
 // seat cap bites at SIGN time (applications held no seat until now).
 // The guarded update's zero-rows and 23505 outcomes are distinct 409s —
 // "no longer available" vs "signed elsewhere" (flagged applicationGone
@@ -17,7 +19,11 @@ const { sessionMock, seatUsageMock, notifyMock, state } = vi.hoisted(() => ({
   seatUsageMock: vi.fn(),
   notifyMock: vi.fn(),
   state: {
-    caller: null as Record<string, unknown> | null,
+    // users rows keyed by id — the caller's and (for owner callers) the
+    // franchise's are distinct reads against the same table.
+    usersById: {} as Record<number, Record<string, unknown> | null>,
+    // resolveTeamAuthority's owner-affiliation join row (role='owner').
+    ownerAffiliation: null as Record<string, unknown> | null,
     applicationRow: null as Record<string, unknown> | null,
     updateResult: {
       data: [{ id: 900 }] as { id: number }[] | null,
@@ -57,11 +63,20 @@ vi.mock('@/lib/supabaseServer', () => ({
   createServiceClient: () => ({
     from: (table: string) => {
       if (table === 'users') {
+        const filters: Record<string, unknown> = {}
         const builder = {
           select: () => builder,
-          eq: () => builder,
-          // loadUserRow terminal — the team caller's own row.
-          maybeSingle: () => Promise.resolve({ data: state.caller, error: null })
+          eq: (column: string, value: unknown) => {
+            filters[column] = value
+            return builder
+          },
+          // loadUserRow terminal — keyed by id so the caller's row and
+          // the franchise's row resolve independently.
+          maybeSingle: () =>
+            Promise.resolve({
+              data: state.usersById[Number(filters.id)] ?? null,
+              error: null
+            })
         }
         return builder
       }
@@ -74,8 +89,14 @@ vi.mock('@/lib/supabaseServer', () => ({
             filters[column] = value
             return builder
           },
-          // Application lookup terminal.
-          maybeSingle: () => Promise.resolve({ data: state.applicationRow, error: null }),
+          // Two maybeSingle lookups share this table: the owner-authority
+          // probe (role='owner') and the application row itself.
+          maybeSingle: () =>
+            Promise.resolve({
+              data:
+                filters.role === 'owner' ? state.ownerAffiliation : state.applicationRow,
+              error: null
+            }),
           update: (values: Record<string, unknown>) => {
             op = 'update'
             state.updates.push(values)
@@ -152,7 +173,8 @@ beforeEach(() => {
   seatUsageMock.mockResolvedValue(3)
   notifyMock.mockReset()
   notifyMock.mockResolvedValue(undefined)
-  state.caller = { ...TEAM_CALLER }
+  state.usersById = { 7: { ...TEAM_CALLER } }
+  state.ownerAffiliation = null
   state.applicationRow = { ...APPLICATION, member: { ...APPLICANT } }
   state.updateResult = { data: [{ id: 900 }], error: null }
   state.updates = []
@@ -171,8 +193,8 @@ describe('POST /api/team/applications — guards', () => {
     expect(state.updates).toHaveLength(0)
   })
 
-  it('403s a non-team caller outright', async () => {
-    state.caller = { ...TEAM_CALLER, subscription_tier: 'PRO' }
+  it('403s a caller with no authority outright', async () => {
+    state.usersById = { 7: { ...TEAM_CALLER, subscription_tier: 'PRO' } }
 
     const response = await POST(actionRequest({ applicationId: 900, action: 'accept' }))
 
@@ -181,7 +203,7 @@ describe('POST /api/team/applications — guards', () => {
   })
 
   it('403s an under-review SIGN — pay-first does not unlock signing', async () => {
-    state.caller = { ...TEAM_CALLER, team_review_status: 'pending' }
+    state.usersById = { 7: { ...TEAM_CALLER, team_review_status: 'pending' } }
 
     const response = await POST(actionRequest({ applicationId: 900, action: 'accept' }))
 
@@ -193,7 +215,7 @@ describe('POST /api/team/applications — guards', () => {
   })
 
   it('allows an under-review PASS — clearing dead requests never waits on review', async () => {
-    state.caller = { ...TEAM_CALLER, team_review_status: 'pending' }
+    state.usersById = { 7: { ...TEAM_CALLER, team_review_status: 'pending' } }
 
     const response = await POST(actionRequest({ applicationId: 900, action: 'decline' }))
 
@@ -329,5 +351,62 @@ describe('POST /api/team/applications — decline (PASS)', () => {
         data: expect.objectContaining({ teamUserId: 7, applicationId: 900 })
       })
     ])
+  })
+})
+
+describe('POST /api/team/applications — owner authority', () => {
+  const OWNER_CALLER = {
+    id: 33,
+    twitter_username: 'skipper',
+    twitter_name: 'Skipper',
+    twitter_profile_image: null,
+    subscription_tier: 'FREE',
+    team_review_status: null,
+    status: 'active'
+  }
+
+  beforeEach(() => {
+    sessionMock.mockResolvedValue({ ok: true, userId: 33 })
+    state.usersById = { 33: { ...OWNER_CALLER }, 7: { ...TEAM_CALLER } }
+    state.ownerAffiliation = { team_user_id: 7, team: { ...TEAM_CALLER } }
+  })
+
+  it("SIGNs from a personal login, scoped to the FRANCHISE's row and speaking as it", async () => {
+    const response = await POST(actionRequest({ applicationId: 900, action: 'accept' }))
+
+    expect(response.status).toBe(200)
+    // Every write keys on the team id, never the owner's session id.
+    expect(state.updateFilters).toEqual({ id: 900, team_user_id: 7, status: 'applied' })
+    expect(seatUsageMock).toHaveBeenCalledWith(expect.anything(), 7)
+    expect(notifyMock).toHaveBeenCalledWith(expect.anything(), 21, [
+      expect.objectContaining({
+        type: 'team_application_accepted',
+        body: '@acme signed your transfer request.',
+        data: expect.objectContaining({ teamUserId: 7 })
+      })
+    ])
+  })
+
+  it('PASSes from a personal login with the same team-scoped delete', async () => {
+    const response = await POST(actionRequest({ applicationId: 900, action: 'decline' }))
+
+    expect(response.status).toBe(200)
+    expect(state.deletes).toEqual([{ id: 900, team_user_id: 7, status: 'applied' }])
+    expect(notifyMock).toHaveBeenCalledWith(expect.anything(), 21, [
+      expect.objectContaining({
+        type: 'team_application_declined',
+        data: expect.objectContaining({ teamUserId: 7 })
+      })
+    ])
+  })
+
+  it('403s a plain ACTIVE member — the queue never answers without the owner role', async () => {
+    state.ownerAffiliation = null
+
+    const response = await POST(actionRequest({ applicationId: 900, action: 'accept' }))
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({ error: 'Team accounts only' })
+    expect(state.updates).toHaveLength(0)
   })
 })

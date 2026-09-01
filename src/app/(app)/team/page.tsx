@@ -500,6 +500,15 @@ function TeamConsole() {
         <p className="mt-3 text-center text-[10px] tracking-[0.3em] text-zinc-600">
           UP TO {roster.seatLimit} AFFILIATED PILOTS · PENDING INVITES HOLD A SEAT
         </p>
+        {/* The deck is the primary team surface (nav lands there); the
+            checkout bounce still lands here, so hand newcomers onward. */}
+        <Link
+          href="/teams"
+          className="mt-4 inline-flex items-center gap-1.5 text-[9px] tracking-[0.3em] transition-opacity hover:opacity-80"
+          style={{ color: `rgb(${GOLD})` }}
+        >
+          OPEN THE COMMAND DECK <span aria-hidden>→</span>
+        </Link>
       </header>
 
       <main className="mt-8 space-y-4">

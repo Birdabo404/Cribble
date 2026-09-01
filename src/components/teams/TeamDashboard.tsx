@@ -1,11 +1,15 @@
 'use client'
 
-// The command deck — what a TEAM-tier account sees on /teams. One screen
-// of squad telemetry (KPI strip, roster shares) plus the action center:
-// the INBOUND TRANSFERS queue where pilots' applications get SIGNED or
-// PASSED, and the OPEN ROSTER lamp that gates new requests. Invite/revoke
-// management stays on the /team console — this surface links out to it
-// instead of duplicating that machinery.
+// The command deck — what a TEAM-tier account, or a signed OWNER on a
+// personal login, sees on /teams. One screen of squad telemetry (KPI
+// strip, roster shares) plus the action center: the INBOUND TRANSFERS
+// queue where pilots' applications get SIGNED or PASSED (each stamped
+// against the published HIRING BAR — a soft signal, never a gate), the
+// OPEN ROSTER lamp that gates new requests, and the HIRING BAR panel
+// where the thresholds themselves are set. Owners get everything except
+// the franchise-only controls (promote/demote lives behind the team
+// login). Invite/revoke management stays on the /team console — this
+// surface links out to it instead of duplicating that machinery.
 
 import { useCallback, useMemo, useState } from 'react'
 import Link from 'next/link'
@@ -14,6 +18,21 @@ import { Avatar } from '@/components/leaderboard/Avatar'
 import { TeamBadge } from '@/components/premium/TeamBadge'
 import { toast } from '@/components/Toaster'
 import { requestNotificationsRefresh } from '@/hooks/useNotifications'
+import {
+  HIRING_BAR_MAX_BURN_USD,
+  HIRING_BAR_MAX_SCORE,
+  HIRING_BAR_MAX_TOKENS,
+  formatHiringScore,
+  formatHiringTokens,
+  formatHiringUsd,
+  hasBar,
+  hiringBarChips,
+  type BarStamp,
+  type HiringBar,
+  type MetricStamp,
+  type TeamRole
+} from '@/lib/teamHiring'
+import { TEAM_OWNER_LIMIT } from '@/lib/teams'
 import { usdDisplayParts } from '@/lib/tokenLeaderboard'
 import { GoldPanel } from './chrome'
 
@@ -24,6 +43,7 @@ const GOLD = 'var(--lb-gold)'
 export interface DashboardRosterEntry {
   affiliationId: number
   status: 'pending' | 'active'
+  role: TeamRole
   userId: number
   username: string
   name: string
@@ -42,15 +62,20 @@ export interface DashboardApplication {
   name: string
   avatar: string | null
   score: number
+  /** The applicant measured against the bar — display-only soft signal. */
+  stamp: BarStamp
   message: string | null
   appliedAt: string
 }
 
 export interface TeamDashboardData {
+  /** Whose keys opened the deck: the franchise login or a signed owner. */
+  authority: 'team-account' | 'owner'
   team: { userId: number; username: string; name: string; avatar: string | null }
   reviewStatus: 'pending' | 'approved' | 'rejected' | null
   approved: boolean
   recruiting: boolean
+  bar: HiringBar
   seatLimit: number
   seatsUsed: number
   board: {
@@ -62,6 +87,35 @@ export interface TeamDashboardData {
   }
   roster: DashboardRosterEntry[]
   applications: DashboardApplication[]
+}
+
+const METRIC_STAMPS = ['met', 'missed', 'unverified'] as const
+
+function parseThreshold(raw: unknown): number | null {
+  const value = Number(raw)
+  return Number.isFinite(value) && value > 0 ? value : null
+}
+
+function parseMetricStamp(raw: unknown): MetricStamp | null {
+  return typeof raw === 'string' && (METRIC_STAMPS as readonly string[]).includes(raw)
+    ? (raw as MetricStamp)
+    : null
+}
+
+/** Defensive stamp read — anything malformed reads as 'no-bar', which
+ *  renders nothing rather than a wrong verdict. */
+function parseBarStamp(raw: unknown): BarStamp {
+  const stamp = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
+  const overall =
+    stamp.overall === 'clears' || stamp.overall === 'below' || stamp.overall === 'partial'
+      ? stamp.overall
+      : 'no-bar'
+  return {
+    score: parseMetricStamp(stamp.score),
+    tokens: parseMetricStamp(stamp.tokens),
+    burnUsd: parseMetricStamp(stamp.burnUsd),
+    overall
+  }
 }
 
 /** Defensive read of the GET payload — the hub probes with this, and the
@@ -84,6 +138,7 @@ export function parseTeamDashboard(payload: unknown): TeamDashboardData | null {
     ? (body.roster as Record<string, unknown>[]).map((row) => ({
         affiliationId: Number(row.affiliationId) || 0,
         status: row.status === 'active' ? 'active' : 'pending',
+        role: row.role === 'owner' ? 'owner' : 'member',
         userId: Number(row.userId) || 0,
         username: typeof row.username === 'string' ? row.username : '',
         name: typeof row.name === 'string' ? row.name : '',
@@ -103,14 +158,20 @@ export function parseTeamDashboard(payload: unknown): TeamDashboardData | null {
         name: typeof row.name === 'string' ? row.name : '',
         avatar: typeof row.avatar === 'string' ? row.avatar : null,
         score: Number(row.score) || 0,
+        stamp: parseBarStamp(row.stamp),
         message: typeof row.message === 'string' ? row.message : null,
         appliedAt: typeof row.appliedAt === 'string' ? row.appliedAt : ''
       }))
     : []
 
   const rank = Number(board.rank)
+  const rawBar = (typeof body.bar === 'object' && body.bar !== null ? body.bar : {}) as Record<
+    string,
+    unknown
+  >
 
   return {
+    authority: body.authority === 'owner' ? 'owner' : 'team-account',
     team: {
       userId: Number(team.userId) || 0,
       username: team.username,
@@ -120,6 +181,11 @@ export function parseTeamDashboard(payload: unknown): TeamDashboardData | null {
     reviewStatus,
     approved: body.approved === true,
     recruiting: body.recruiting === true,
+    bar: {
+      minScore: parseThreshold(rawBar.minScore),
+      minTokens: parseThreshold(rawBar.minTokens),
+      minBurnUsd: parseThreshold(rawBar.minBurnUsd)
+    },
     seatLimit: Number(body.seatLimit) || 10,
     seatsUsed: Number(body.seatsUsed) || 0,
     board: {
@@ -233,9 +299,294 @@ function KpiCell({
   )
 }
 
+/* ================= hiring bar controls ================= */
+
+interface BarMetricSpec {
+  key: keyof HiringBar
+  label: string
+  quickPicks: number[]
+  max: number
+  format: (value: number) => string
+}
+
+/** The three published thresholds with their quick-pick ladders. Maxima
+ *  mirror hiringBarSchema so a custom entry can never 400 server-side. */
+const BAR_METRICS: BarMetricSpec[] = [
+  {
+    key: 'minScore',
+    label: 'GLOBAL SCORE',
+    quickPicks: [10_000, 50_000, 100_000],
+    max: HIRING_BAR_MAX_SCORE,
+    format: formatHiringScore
+  },
+  {
+    key: 'minTokens',
+    label: 'TOKENS BURNED',
+    quickPicks: [10_000_000, 100_000_000, 1_000_000_000],
+    max: HIRING_BAR_MAX_TOKENS,
+    format: formatHiringTokens
+  },
+  {
+    key: 'minBurnUsd',
+    label: 'USD BURNED',
+    quickPicks: [100, 1_000, 10_000],
+    max: HIRING_BAR_MAX_BURN_USD,
+    format: formatHiringUsd
+  }
+]
+
+function BarMetricControl({
+  spec,
+  value,
+  busy,
+  onSet
+}: {
+  spec: BarMetricSpec
+  value: number | null
+  busy: boolean
+  onSet: (value: number | null) => void
+}) {
+  const [draft, setDraft] = useState('')
+  const enabled = value !== null
+
+  const submitDraft = () => {
+    const parsed = Number(draft)
+    if (!Number.isFinite(parsed) || parsed < 1) return
+    onSet(Math.min(spec.max, Math.trunc(parsed)))
+    setDraft('')
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[rgb(var(--lb-panel-edge)/0.06)] px-4 py-3 last:border-b-0 md:px-5">
+      {/* label doubles as the metric's lamp: on = last-touched value,
+          off = metric cleared (NULL server-side) */}
+      <button
+        type="button"
+        onClick={() => onSet(enabled ? null : spec.quickPicks[0])}
+        disabled={busy}
+        aria-pressed={enabled}
+        title={enabled ? 'SWITCH THIS METRIC OFF' : 'SWITCH THIS METRIC ON'}
+        className={`flex w-32 shrink-0 items-center gap-2 text-left text-[9px] tracking-[0.2em] transition-colors disabled:cursor-wait disabled:opacity-60 ${
+          enabled ? 'text-zinc-200' : 'text-zinc-600 hover:text-zinc-400'
+        }`}
+      >
+        <span
+          aria-hidden
+          className="h-1.5 w-1.5 shrink-0 rounded-full"
+          style={
+            enabled
+              ? { background: `rgb(${GOLD})`, boxShadow: `0 0 8px rgb(${GOLD} / 0.6)` }
+              : { background: 'rgb(var(--lb-panel-edge) / 0.35)' }
+          }
+        />
+        {spec.label}
+      </button>
+
+      <div className="flex flex-1 flex-wrap items-center gap-1.5">
+        {spec.quickPicks.map((pick) => (
+          <button
+            key={pick}
+            type="button"
+            disabled={busy}
+            onClick={() => onSet(pick)}
+            aria-pressed={value === pick}
+            className="rounded border px-2 py-1 text-[9px] tabular-nums tracking-[0.15em] transition-colors disabled:cursor-wait disabled:opacity-60"
+            style={
+              value === pick
+                ? {
+                    color: `rgb(${GOLD})`,
+                    borderColor: `rgb(${GOLD} / 0.45)`,
+                    background: `rgb(${GOLD} / 0.07)`
+                  }
+                : {
+                    color: 'rgb(161 161 170)',
+                    borderColor: 'rgb(var(--lb-panel-edge) / 0.25)'
+                  }
+            }
+          >
+            {spec.format(pick)}
+          </button>
+        ))}
+
+        <form
+          className="flex items-center gap-1.5"
+          onSubmit={(event) => {
+            event.preventDefault()
+            submitDraft()
+          }}
+        >
+          <input
+            value={draft}
+            onChange={(event) => setDraft(event.target.value.replace(/[^\d]/g, ''))}
+            inputMode="numeric"
+            disabled={busy}
+            placeholder={
+              value !== null && !spec.quickPicks.includes(value)
+                ? spec.format(value)
+                : 'CUSTOM'
+            }
+            aria-label={`Custom ${spec.label} threshold`}
+            className="lb-inset w-20 rounded px-2 py-1 text-[9px] tabular-nums tracking-[0.12em] text-zinc-200 placeholder:text-zinc-700 focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={busy || draft === ''}
+            className="rounded border border-zinc-800 px-2 py-1 text-[9px] tracking-[0.2em] text-zinc-500 transition-colors hover:border-zinc-600 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            SET
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+/* ================= applicant stamps ================= */
+
+function verdictWord(stamp: MetricStamp): string {
+  switch (stamp) {
+    case 'met':
+      return 'MET'
+    case 'missed':
+      return 'BELOW BAR'
+    case 'unverified':
+      return 'UNVERIFIED'
+    default: {
+      const exhaustive: never = stamp
+      return exhaustive
+    }
+  }
+}
+
+function stampMark(stamp: MetricStamp): string {
+  switch (stamp) {
+    case 'met':
+      return '✓'
+    case 'missed':
+      return '✕'
+    case 'unverified':
+      return '?'
+    default: {
+      const exhaustive: never = stamp
+      return exhaustive
+    }
+  }
+}
+
+function stampChipStyle(stamp: MetricStamp): React.CSSProperties {
+  switch (stamp) {
+    case 'met':
+      return {
+        color: `rgb(${GOLD})`,
+        borderColor: `rgb(${GOLD} / 0.4)`,
+        background: `rgb(${GOLD} / 0.06)`
+      }
+    case 'missed':
+      return {
+        color: 'rgb(var(--lb-down))',
+        borderColor: 'rgb(var(--lb-down) / 0.4)',
+        background: 'rgb(var(--lb-down) / 0.06)'
+      }
+    case 'unverified':
+      return {
+        color: 'rgb(113 113 122)',
+        borderColor: 'rgb(var(--lb-panel-edge) / 0.25)'
+      }
+    default: {
+      const exhaustive: never = stamp
+      return exhaustive
+    }
+  }
+}
+
+function OverallStampPlate({ overall }: { overall: BarStamp['overall'] }) {
+  const plate = 'shrink-0 rounded border px-1.5 py-0.5 text-[8px] tracking-[0.2em]'
+  switch (overall) {
+    case 'clears':
+      return (
+        <span className={plate} style={toneStyle('up')}>
+          CLEARS BAR
+        </span>
+      )
+    case 'below':
+      return (
+        <span className={plate} style={toneStyle('down')}>
+          BELOW BAR
+        </span>
+      )
+    case 'partial':
+      return <span className={`${plate} border-zinc-800 text-zinc-500`}>UNVERIFIED</span>
+    case 'no-bar':
+      return null
+    default: {
+      const exhaustive: never = overall
+      return exhaustive
+    }
+  }
+}
+
+/** The published bar re-rendered per applicant, each threshold tinted by
+ *  their stamp — a soft signal beside the SIGN/PASS buttons, never a gate. */
+function QueueStamps({ bar, stamp }: { bar: HiringBar; stamp: BarStamp }) {
+  const metrics: { label: string; amount: string; verdict: MetricStamp }[] = []
+  if (bar.minScore !== null) {
+    metrics.push({
+      label: 'GLOBAL SCORE',
+      amount: `${formatHiringScore(bar.minScore)} GS`,
+      verdict: stamp.score ?? 'unverified'
+    })
+  }
+  if (bar.minTokens !== null) {
+    metrics.push({
+      label: 'TOKENS BURNED',
+      amount: `${formatHiringTokens(bar.minTokens)} TOKENS`,
+      verdict: stamp.tokens ?? 'unverified'
+    })
+  }
+  if (bar.minBurnUsd !== null) {
+    metrics.push({
+      label: 'USD BURNED',
+      amount: `${formatHiringUsd(bar.minBurnUsd)} BURN`,
+      verdict: stamp.burnUsd ?? 'unverified'
+    })
+  }
+  if (metrics.length === 0) return null
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-12">
+      <OverallStampPlate overall={stamp.overall} />
+      {metrics.map((metric) => (
+        <span
+          key={metric.label}
+          title={`${metric.label} — ${verdictWord(metric.verdict)}`}
+          className="rounded border px-1.5 py-0.5 text-[8px] tabular-nums tracking-[0.15em]"
+          style={stampChipStyle(metric.verdict)}
+        >
+          {metric.amount} {stampMark(metric.verdict)}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 /* ================= roster row ================= */
 
-function RosterRow({ entry, index }: { entry: DashboardRosterEntry; index: number }) {
+function RosterRow({
+  entry,
+  index,
+  canManageRoles,
+  ownersFull,
+  roleBusy,
+  onRoleChange
+}: {
+  entry: DashboardRosterEntry
+  index: number
+  /** True only on the franchise login — owners never see role controls. */
+  canManageRoles: boolean
+  ownersFull: boolean
+  roleBusy: boolean
+  onRoleChange: (role: TeamRole) => void
+}) {
   const pendingRow = entry.status === 'pending'
   return (
     <li
@@ -270,6 +621,15 @@ function RosterRow({ entry, index }: { entry: DashboardRosterEntry; index: numbe
               PENDING
             </span>
           )}
+          {!pendingRow && entry.role === 'owner' && (
+            <span
+              className="shrink-0 rounded border px-1.5 py-0.5 text-[8px] tracking-[0.25em]"
+              style={toneStyle('gold')}
+              title="Holds the front-office keys — full deck control from their own login"
+            >
+              OWNER
+            </span>
+          )}
         </div>
         <div className="mt-0.5 truncate text-[10px] tracking-[0.15em] text-zinc-600">
           {pendingRow
@@ -277,6 +637,31 @@ function RosterRow({ entry, index }: { entry: DashboardRosterEntry; index: numbe
             : `signed ${formatRelative(entry.acceptedAt)}`}
         </div>
       </div>
+
+      {/* promote/demote — franchise login only (owners can't mint or
+          strip other owners), active pilots only */}
+      {canManageRoles && !pendingRow && (
+        entry.role === 'owner' ? (
+          <button
+            type="button"
+            disabled={roleBusy}
+            onClick={() => onRoleChange('member')}
+            className="shrink-0 rounded border border-zinc-800 px-2 py-1 text-[8px] tracking-[0.2em] text-zinc-500 transition-colors hover:border-zinc-600 hover:text-zinc-200 disabled:cursor-wait disabled:opacity-60"
+          >
+            DEMOTE
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={roleBusy || ownersFull}
+            title={ownersFull ? `ALL ${TEAM_OWNER_LIMIT} OWNER SEATS HELD` : undefined}
+            onClick={() => onRoleChange('owner')}
+            className="shrink-0 rounded border border-zinc-800 px-2 py-1 text-[8px] tracking-[0.2em] text-zinc-500 transition-colors hover:border-yellow-400/40 hover:text-yellow-200 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            PROMOTE
+          </button>
+        )
+      )}
 
       {/* contribution share — the percent always shows, the bar is
           desktop garnish (same trade as the TEAMS board roster) */}
@@ -325,12 +710,14 @@ function decisionToast(action: SignAction, username: string): { title: string; b
 
 function ApplicationRow({
   app,
+  bar,
   seatsFull,
   approved,
   busyAction,
   onDecide
 }: {
   app: DashboardApplication
+  bar: HiringBar
   seatsFull: boolean
   approved: boolean
   busyAction: SignAction | null
@@ -404,6 +791,8 @@ function ApplicationRow({
         </div>
       </div>
 
+      {hasBar(bar) && <QueueStamps bar={bar} stamp={app.stamp} />}
+
       <div className="mt-2 pl-12">
         {app.message ? (
           <p className="font-data text-[11px] leading-relaxed text-zinc-400">
@@ -422,6 +811,8 @@ function ApplicationRow({
 export function TeamDashboard({ initial }: { initial: TeamDashboardData }) {
   const [data, setData] = useState<TeamDashboardData>(initial)
   const [recruitingBusy, setRecruitingBusy] = useState(false)
+  const [barBusy, setBarBusy] = useState(false)
+  const [roleBusy, setRoleBusy] = useState<number | null>(null)
   const [appBusy, setAppBusy] = useState<{ id: number; action: SignAction } | null>(null)
 
   const seatsFull = data.seatsUsed >= data.seatLimit
@@ -430,6 +821,13 @@ export function TeamDashboard({ initial }: { initial: TeamDashboardData }) {
     [data.roster]
   )
   const pendingCount = data.roster.length - activeCount
+  const ownerCount = useMemo(
+    () =>
+      data.roster.filter((entry) => entry.status === 'active' && entry.role === 'owner')
+        .length,
+    [data.roster]
+  )
+  const ownersFull = ownerCount >= TEAM_OWNER_LIMIT
 
   // Actives ranked by contribution, pending invites trailing dimmed.
   const orderedRoster = useMemo(() => {
@@ -498,6 +896,95 @@ export function TeamDashboard({ initial }: { initial: TeamDashboardData }) {
       setRecruitingBusy(false)
     }
   }, [data.recruiting, recruitingBusy])
+
+  /** One whole-bar write per interaction — the PATCH carries all three
+   *  metrics, so an optimistic rollback restores exactly what stood. */
+  const saveBar = useCallback(
+    async (next: HiringBar) => {
+      if (barBusy) return
+      const previous = data.bar
+      setBarBusy(true)
+      setData((prev) => ({ ...prev, bar: next }))
+      try {
+        const res = await fetch('/api/team/dashboard', {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bar: next })
+        })
+        const payload = await res.json().catch(() => null)
+        if (!res.ok || !payload?.success) {
+          setData((prev) => ({ ...prev, bar: previous }))
+          toast({
+            kind: 'error',
+            title: 'BAR STUCK',
+            body:
+              typeof payload?.error === 'string'
+                ? payload.error
+                : 'Could not update the hiring bar. Try again.'
+          })
+          return
+        }
+        toast({
+          kind: 'success',
+          title: hasBar(next) ? 'HIRING BAR SET' : 'HIRING BAR CLEARED',
+          body: hasBar(next)
+            ? hiringBarChips(next).join(' · ')
+            : 'Applications flow unstamped while no bar is published.'
+        })
+      } catch {
+        setData((prev) => ({ ...prev, bar: previous }))
+        toast({ kind: 'error', title: 'BAR STUCK', body: 'Could not update the hiring bar. Try again.' })
+      } finally {
+        setBarBusy(false)
+      }
+    },
+    [barBusy, data.bar]
+  )
+
+  const changeRole = useCallback(
+    async (entry: DashboardRosterEntry, role: TeamRole) => {
+      if (roleBusy !== null) return
+      setRoleBusy(entry.affiliationId)
+      try {
+        const res = await fetch('/api/team/roster', {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ memberUserId: entry.userId, role })
+        })
+        const payload = await res.json().catch(() => null)
+        if (!res.ok || !payload?.success) {
+          toast({
+            kind: 'error',
+            title: 'ROLE CHANGE FAILED',
+            body:
+              typeof payload?.error === 'string'
+                ? payload.error
+                : 'Could not update the role. Try again.'
+          })
+          return
+        }
+        setData((prev) => ({
+          ...prev,
+          roster: prev.roster.map((row) =>
+            row.affiliationId === entry.affiliationId ? { ...row, role } : row
+          )
+        }))
+        toast({
+          kind: 'success',
+          ...(role === 'owner'
+            ? { title: 'FRONT OFFICE', body: `@${entry.username} now holds the keys.` }
+            : { title: 'KEYS RETURNED', body: `@${entry.username} is back to a member role.` })
+        })
+      } catch {
+        toast({ kind: 'error', title: 'ROLE CHANGE FAILED', body: 'Could not update the role. Try again.' })
+      } finally {
+        setRoleBusy(null)
+      }
+    },
+    [roleBusy]
+  )
 
   const decide = useCallback(
     async (app: DashboardApplication, action: SignAction) => {
@@ -604,6 +1091,15 @@ export function TeamDashboard({ initial }: { initial: TeamDashboardData }) {
                   >
                     {lamp.label}
                   </span>
+                  {data.authority === 'owner' && (
+                    <span
+                      className="shrink-0 rounded border px-1.5 py-0.5 text-[8px] tracking-[0.25em]"
+                      style={toneStyle('gold')}
+                      title="You command this deck as a team owner — role changes and releases need the team login"
+                    >
+                      FRONT OFFICE
+                    </span>
+                  )}
                 </div>
                 <div className="mt-0.5 truncate text-[10px] tracking-[0.15em] text-zinc-600">
                   @{data.team.username}
@@ -653,6 +1149,45 @@ export function TeamDashboard({ initial }: { initial: TeamDashboardData }) {
               </div>
             </div>
           </GoldPanel>
+        </div>
+
+        {/* ---------- hiring bar ---------- */}
+        <div
+          className="tdb-rise lb-panel overflow-hidden rounded-2xl"
+          style={{ ['--rv' as string]: '90ms' }}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[rgb(var(--lb-panel-edge)/0.08)] px-4 py-3 md:px-5">
+            <span className="text-[9px] tracking-[0.35em] text-zinc-500">HIRING BAR</span>
+            <span className="flex flex-wrap items-center gap-1.5">
+              {hasBar(data.bar) ? (
+                hiringBarChips(data.bar).map((chip) => (
+                  <span
+                    key={chip}
+                    className="rounded border px-1.5 py-0.5 text-[8px] tabular-nums tracking-[0.2em]"
+                    style={toneStyle('gold')}
+                  >
+                    {chip}
+                  </span>
+                ))
+              ) : (
+                <span className="text-[9px] tracking-[0.2em] text-zinc-600">NO BAR SET</span>
+              )}
+            </span>
+          </div>
+
+          {BAR_METRICS.map((spec) => (
+            <BarMetricControl
+              key={spec.key}
+              spec={spec}
+              value={data.bar[spec.key]}
+              busy={barBusy}
+              onSet={(value) => void saveBar({ ...data.bar, [spec.key]: value })}
+            />
+          ))}
+
+          <div className="border-t border-[rgb(var(--lb-panel-edge)/0.06)] px-4 py-2.5 text-[8px] tracking-[0.2em] text-zinc-700 md:px-5">
+            SOFT SIGNAL — APPLICANTS ARE STAMPED AGAINST THE BAR, NEVER BLOCKED BY IT
+          </div>
         </div>
 
         {/* ---------- KPI strip ---------- */}
@@ -748,7 +1283,15 @@ export function TeamDashboard({ initial }: { initial: TeamDashboardData }) {
           ) : (
             <ul>
               {orderedRoster.map((entry, index) => (
-                <RosterRow key={entry.affiliationId} entry={entry} index={index} />
+                <RosterRow
+                  key={entry.affiliationId}
+                  entry={entry}
+                  index={index}
+                  canManageRoles={data.authority === 'team-account'}
+                  ownersFull={ownersFull}
+                  roleBusy={roleBusy !== null}
+                  onRoleChange={(role) => void changeRole(entry, role)}
+                />
               ))}
             </ul>
           )}
@@ -790,6 +1333,7 @@ export function TeamDashboard({ initial }: { initial: TeamDashboardData }) {
                   <ApplicationRow
                     key={app.applicationId}
                     app={app}
+                    bar={data.bar}
                     seatsFull={seatsFull}
                     approved={data.approved}
                     busyAction={appBusy?.id === app.applicationId ? appBusy.action : null}

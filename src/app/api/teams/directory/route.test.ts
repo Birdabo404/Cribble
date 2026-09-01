@@ -5,7 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // TEAMS leaderboard (approved live teams only — that scoping lives in
 // assembleTeamBoard, mocked here), so what's under test is the
 // decoration: seat meters counted over pending + active rows scoped to
-// the board's teams, the recruiting lamp defaulting to open, and the
+// the board's teams, the recruiting lamp defaulting to open, the hiring
+// bar riding each row (null when the team sets no metric — the payload
+// stays viewer-agnostic, stamps live on the authed apply GET), and the
 // cache headers that make the anonymous read cheap.
 
 const { boardMock, state } = vi.hoisted(() => ({
@@ -13,7 +15,13 @@ const { boardMock, state } = vi.hoisted(() => ({
   state: {
     seatRows: [] as { team_user_id: number; status: string }[],
     seatFilters: {} as Record<string, unknown>,
-    lampRows: [] as { id: number; team_recruiting: boolean | null }[],
+    lampRows: [] as {
+      id: number
+      team_recruiting: boolean | null
+      team_req_min_score?: number | null
+      team_req_min_tokens?: number | null
+      team_req_min_burn_usd?: number | null
+    }[],
     lampFilters: {} as Record<string, unknown>
   }
 }))
@@ -148,6 +156,40 @@ describe('GET /api/teams/directory', () => {
       })
     ])
     expect(body.totals).toEqual({ teams: 2, members: 4, topScore: 999 })
+  })
+
+  it('carries each team\'s hiring bar — null when no metric is set', async () => {
+    // Team 7 publishes score + burn thresholds (tokens off); team 8's
+    // lamp row holds no thresholds at all, and a team with no users row
+    // whatsoever would read the same null.
+    state.lampRows = [
+      {
+        id: 7,
+        team_recruiting: true,
+        team_req_min_score: 50_000,
+        team_req_min_tokens: null,
+        team_req_min_burn_usd: 1000
+      },
+      {
+        id: 8,
+        team_recruiting: true,
+        team_req_min_score: null,
+        team_req_min_tokens: null,
+        team_req_min_burn_usd: null
+      }
+    ]
+
+    const response = await GET(getRequest())
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.teams).toEqual([
+      expect.objectContaining({
+        userId: 7,
+        bar: { minScore: 50_000, minTokens: null, minBurnUsd: 1000 }
+      }),
+      expect.objectContaining({ userId: 8, bar: null })
+    ])
   })
 
   it('scopes the decoration queries to the board\'s (approved-only) team ids', async () => {

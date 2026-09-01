@@ -6,7 +6,10 @@
 // APPLY action that files a transfer request through ApplyModal. A
 // second read of GET /api/team/apply personalizes the rows: REQUESTED
 // (withdrawable) where the viewer already applied, YOUR TEAM on their
-// own squad, and no apply affordances at all when signed out. Two
+// own squad, and no apply affordances at all when signed out. HIRING
+// cards also carry the team's published bar as compact chips (e.g.
+// 50K GS · 100M TOKENS · $1K BURN) — public flex from the cached
+// directory payload; viewer stamps stay on the apply surfaces. Two
 // dressings: standalone with its own page chrome (header lockup,
 // max-width section), or `embedded` inside the TEAMS leaderboard's
 // HIRING tab, where the arena supplies the chrome and this component
@@ -19,6 +22,7 @@ import { Avatar } from '@/components/leaderboard/Avatar'
 import { medalA, medalFor, medalGlow } from '@/components/leaderboard/types'
 import { TeamBadge } from '@/components/premium/TeamBadge'
 import { toast } from '@/components/Toaster'
+import { hasBar, hiringBarChips, type HiringBar } from '@/lib/teamHiring'
 import { ApplyModal } from './ApplyModal'
 
 const GOLD = 'var(--lb-gold)'
@@ -42,6 +46,8 @@ interface DirectoryTeam {
   seatLimit: number
   openSeats: number
   recruiting: boolean
+  /** Published hiring bar; null when the team sets no metric. */
+  bar: HiringBar | null
   burnUsd: string
   burnPilots: number
 }
@@ -67,6 +73,21 @@ const EMPTY_VIEWER: ViewerContext = {
   membershipTeamId: null
 }
 
+/** Same trust level as the rest of the pinned contract: anything
+ *  malformed or empty reads as no bar at all. */
+function parseBar(value: unknown): HiringBar | null {
+  if (typeof value !== 'object' || value === null) return null
+  const raw = value as Record<string, unknown>
+  const metric = (v: unknown) =>
+    typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null
+  const bar: HiringBar = {
+    minScore: metric(raw.minScore),
+    minTokens: metric(raw.minTokens),
+    minBurnUsd: metric(raw.minBurnUsd)
+  }
+  return hasBar(bar) ? bar : null
+}
+
 function parseTeams(payload: unknown): { teams: DirectoryTeam[]; totals: DirectoryTotals } | null {
   if (typeof payload !== 'object' || payload === null) return null
   const body = payload as Record<string, unknown>
@@ -83,6 +104,7 @@ function parseTeams(payload: unknown): { teams: DirectoryTeam[]; totals: Directo
     seatLimit: Number(row.seatLimit) || 10,
     openSeats: Number(row.openSeats) || 0,
     recruiting: row.recruiting === true,
+    bar: parseBar(row.bar),
     burnUsd: typeof row.burnUsd === 'string' ? row.burnUsd : '0',
     burnPilots: Number(row.burnPilots) || 0
   }))
@@ -372,6 +394,16 @@ function DirectoryRow({
               {team.recruiting ? 'RECRUITING' : 'ROSTER CLOSED'}
             </span>
           </span>
+          {/* hiring bar — the published minimums as compact chips, only
+              where the lamp is on (a closed roster's bar asks nothing). */}
+          {team.recruiting && team.bar && (
+            <span
+              className="mt-1 block text-[8px] leading-3 tracking-[0.15em]"
+              style={{ color: `rgb(${GOLD} / 0.65)` }}
+            >
+              {hiringBarChips(team.bar).join(' · ')}
+            </span>
+          )}
           {/* mobile sub-line — the seat story compressed. Wraps inside its
               grid track so the lamp word can never overflow into the
               score/action zone on narrow rows. */}
@@ -648,6 +680,11 @@ export function TeamsDirectory({ embedded = false }: { embedded?: boolean }) {
         name: applyTarget.name || `@${applyTarget.username}`,
         avatar: applyTarget.avatar
       }}
+      // The directory payload carries bars but never viewer stamps, so a
+      // bar-setting team leaves `hiring` undefined and the modal probes
+      // the apply GET for the stamp itself; a barless team passes null
+      // to skip that probe outright.
+      hiring={applyTarget.bar ? undefined : null}
       onClose={() => setApplyTarget(null)}
       onApplied={(applicationId) => handleApplied(applyTarget, applicationId)}
     />

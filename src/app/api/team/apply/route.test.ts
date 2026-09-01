@@ -9,14 +9,20 @@ import { MAX_OPEN_APPLICATIONS } from '@/lib/teamApplications'
 // roster-closed / roster-full / open-cap 409s (banned-team rows never
 // counting), the 23505 race backstop, and the row-id-keyed
 // notification. GET must hide banned-team rows from every list it
-// returns and hand the row id back only on an 'applied' verdict.
-// DELETE must stay scoped to the caller's own APPLIED row —
-// withdrawing can never touch an invite or a membership.
+// returns and hand the row id back only on an 'applied' verdict; a live
+// target also carries the team's hiring bar plus the viewer's
+// display-only stamp (real evaluateHiringBar over mocked facts) — empty
+// bars skip the facts fetch, and a facts failure degrades to
+// bar-without-stamp instead of a 500. DELETE must stay scoped to the
+// caller's own APPLIED row — withdrawing can never touch an invite or
+// a membership.
 
-const { sessionMock, seatUsageMock, notifyMock, state } = vi.hoisted(() => ({
+const { sessionMock, seatUsageMock, notifyMock, factsMock, rateLimitMock, state } = vi.hoisted(() => ({
   sessionMock: vi.fn(),
   seatUsageMock: vi.fn(),
   notifyMock: vi.fn(),
+  factsMock: vi.fn(),
+  rateLimitMock: vi.fn(),
   state: {
     usersById: {} as Record<number, Record<string, unknown> | undefined>,
     memberRows: [] as Record<string, unknown>[],
@@ -37,12 +43,7 @@ const { sessionMock, seatUsageMock, notifyMock, state } = vi.hoisted(() => ({
 vi.mock('@/lib/sessionAuth', () => ({ getSessionUserId: sessionMock }))
 
 vi.mock('@/lib/rateLimit', () => ({
-  checkRateLimit: () => ({
-    success: true,
-    limit: 60,
-    remaining: 59,
-    resetTime: Date.now() + 60_000
-  }),
+  checkRateLimit: rateLimitMock,
   createRateLimitResponse: () => new Headers(),
   rateLimitConfigs: { api: { windowMs: 60_000, maxRequests: 60 } }
 }))
@@ -53,6 +54,10 @@ vi.mock('@/lib/teams', () => ({
 }))
 
 vi.mock('@/lib/notifications', () => ({ insertMissingNotifications: notifyMock }))
+
+// Facts only — evaluateHiringBar stays real, so the stamps asserted
+// below are the ones every surface would actually render.
+vi.mock('@/lib/teamHiringServer', () => ({ fetchPilotHiringFacts: factsMock }))
 
 vi.mock('@/lib/supabaseServer', () => ({
   createServiceClient: () => ({
@@ -136,8 +141,25 @@ const LIVE_TEAM = {
   subscription_tier: 'TEAM',
   team_review_status: 'approved',
   status: 'active',
-  team_recruiting: true
+  team_recruiting: true,
+  team_req_min_score: null as number | null,
+  team_req_min_tokens: null as number | null,
+  team_req_min_burn_usd: null as number | null
 }
+
+/** LIVE_TEAM with every hiring-bar metric set. */
+const BAR_TEAM = {
+  ...LIVE_TEAM,
+  team_req_min_score: 50_000,
+  team_req_min_tokens: 100_000_000,
+  team_req_min_burn_usd: 1000
+}
+
+/** The all-metrics-off bar a live target without thresholds ships. */
+const NO_BAR = { minScore: null, minTokens: null, minBurnUsd: null }
+
+/** fetchPilotHiringFacts result for the one caller under test. */
+const factsFor = (facts: Record<string, unknown>) => new Map([[21, facts]])
 
 function applyRequest(body: unknown) {
   return new NextRequest('https://cribble.dev/api/team/apply', {
@@ -180,6 +202,15 @@ beforeEach(() => {
   seatUsageMock.mockResolvedValue(3)
   notifyMock.mockReset()
   notifyMock.mockResolvedValue(undefined)
+  factsMock.mockReset()
+  factsMock.mockResolvedValue(new Map())
+  rateLimitMock.mockReset()
+  rateLimitMock.mockReturnValue({
+    success: true,
+    limit: 60,
+    remaining: 59,
+    resetTime: Date.now() + 60_000
+  })
   state.usersById = { 21: { ...PILOT_CALLER }, 7: { ...LIVE_TEAM } }
   state.memberRows = []
   state.joinRows = []
@@ -382,6 +413,16 @@ describe('GET /api/team/apply — banned-team hiding and the target handoff', ()
   const BANNED_TEAM = { ...LIVE_TEAM, id: 8, twitter_username: 'ghosts', status: 'banned' }
   const LAPSED_TEAM = { ...LIVE_TEAM, id: 9, twitter_username: 'lapsed', subscription_tier: 'FREE' }
 
+  it('429s past the rate limit before the session or any read — a bar target can drag this GET into the full-population burn scan', async () => {
+    rateLimitMock.mockReturnValue({ success: false, limit: 60, remaining: 0, resetTime: Date.now() })
+
+    const response = await GET(getRequest(7))
+
+    expect(response.status).toBe(429)
+    expect(sessionMock).not.toHaveBeenCalled()
+    expect(factsMock).not.toHaveBeenCalled()
+  })
+
   it('hides banned-team rows from applications and invites; lapsed teams stay, greyed', async () => {
     state.joinRows = [
       joinRow({ id: 901, team_user_id: 7 }, { ...LIVE_TEAM }),
@@ -419,7 +460,7 @@ describe('GET /api/team/apply — banned-team hiding and the target handoff', ()
 
     expect(response.status).toBe(200)
     const body = await response.json()
-    expect(body.target).toEqual({ state: 'applied', applicationId: 901 })
+    expect(body.target).toEqual({ state: 'applied', applicationId: 901, bar: NO_BAR })
   })
 
   it('returns a bare can-apply verdict — no applicationId to withdraw', async () => {
@@ -427,8 +468,107 @@ describe('GET /api/team/apply — banned-team hiding and the target handoff', ()
 
     expect(response.status).toBe(200)
     const body = await response.json()
-    expect(body.target).toEqual({ state: 'can-apply' })
+    expect(body.target).toEqual({ state: 'can-apply', bar: NO_BAR })
     expect(body.target).not.toHaveProperty('applicationId')
+  })
+})
+
+describe('GET /api/team/apply — hiring bar decoration', () => {
+  it("decorates a live bar-setting target with the bar and the viewer's stamps", async () => {
+    state.usersById[7] = { ...BAR_TEAM }
+    factsMock.mockResolvedValue(
+      factsFor({
+        totalScore: 60_000,
+        burnVerified: true,
+        totalTokens: 200_000_000,
+        burnUsd: 1500
+      })
+    )
+
+    const response = await GET(getRequest(7))
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.target).toEqual({
+      state: 'can-apply',
+      bar: { minScore: 50_000, minTokens: 100_000_000, minBurnUsd: 1000 },
+      stamp: { score: 'met', tokens: 'met', burnUsd: 'met', overall: 'clears' }
+    })
+    expect(factsMock).toHaveBeenCalledWith(expect.anything(), [21])
+  })
+
+  it('ships an all-null bar with no stamp for a barless team — the facts fetch is skipped', async () => {
+    const response = await GET(getRequest(7))
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.target).toEqual({ state: 'can-apply', bar: NO_BAR })
+    expect(body.target).not.toHaveProperty('stamp')
+    expect(factsMock).not.toHaveBeenCalled()
+  })
+
+  it('stamps a non-consented viewer UNVERIFIED on burn metrics, never missed', async () => {
+    state.usersById[7] = { ...BAR_TEAM }
+    factsMock.mockResolvedValue(
+      factsFor({ totalScore: 60_000, burnVerified: false, totalTokens: null, burnUsd: null })
+    )
+
+    const response = await GET(getRequest(7))
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.target.stamp).toEqual({
+      score: 'met',
+      tokens: 'unverified',
+      burnUsd: 'unverified',
+      overall: 'partial'
+    })
+  })
+
+  it('a below-bar viewer still reads can-apply — the bar never gates', async () => {
+    state.usersById[7] = { ...BAR_TEAM }
+    factsMock.mockResolvedValue(
+      factsFor({ totalScore: 10_000, burnVerified: true, totalTokens: 0, burnUsd: 0 })
+    )
+
+    const response = await GET(getRequest(7))
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.target.state).toBe('can-apply')
+    expect(body.target.stamp).toEqual({
+      score: 'missed',
+      tokens: 'missed',
+      burnUsd: 'missed',
+      overall: 'below'
+    })
+  })
+
+  it('degrades a facts failure to bar-without-stamp instead of sinking the GET', async () => {
+    state.usersById[7] = { ...BAR_TEAM }
+    factsMock.mockRejectedValue(new Error('score read failed'))
+
+    const response = await GET(getRequest(7))
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.target.bar).toEqual({
+      minScore: 50_000,
+      minTokens: 100_000_000,
+      minBurnUsd: 1000
+    })
+    expect(body.target).not.toHaveProperty('stamp')
+  })
+
+  it('a dead target answers not-live with no bar decoration at all', async () => {
+    state.usersById[7] = { ...BAR_TEAM, status: 'banned' }
+
+    const response = await GET(getRequest(7))
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.target).toEqual({ state: 'not-live' })
+    expect(factsMock).not.toHaveBeenCalled()
   })
 })
 

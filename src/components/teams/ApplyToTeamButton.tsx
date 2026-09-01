@@ -6,12 +6,17 @@
 // modal), REQUESTED (two-click withdraw), INVITED — RESPOND (deep link
 // to /team/invites), a SIGNED tag for members, dim ROSTER CLOSED / FULL
 // plates, or nothing at all (signed out, the team itself, a pilot who
-// already flies other colors, or a team that isn't live).
+// already flies other colors, or a team that isn't live). The same
+// probe carries the team's HIRING BAR and the viewer's stamp, rendered
+// as a compact verdict chip beside APPLY (CLEARS BAR / BELOW BAR /
+// BAR UNVERIFIED) with the full per-metric breakdown in the modal —
+// soft signal only, APPLY never disables on it.
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { toast } from '@/components/Toaster'
-import { ApplyModal } from './ApplyModal'
+import { hiringBarChips, type BarStamp, type HiringBar } from '@/lib/teamHiring'
+import { ApplyModal, parseHiringSignal, type HiringSignal } from './ApplyModal'
 
 const GOLD = 'var(--lb-gold)'
 
@@ -78,6 +83,44 @@ const goldStyle = {
   background: `rgb(${GOLD} / 0.07)`
 } as const
 
+/** The one-word verdict beside APPLY; the title spells out the bar so
+ *  the chip stays compact in the profile header. */
+function BarVerdictChip({ bar, stamp }: { bar: HiringBar; stamp: BarStamp }) {
+  const title = `HIRING BAR — ${hiringBarChips(bar).join(' · ')}`
+  switch (stamp.overall) {
+    case 'clears':
+      return (
+        <span
+          className={CHIP}
+          title={title}
+          style={{ color: `rgb(${GOLD})`, borderColor: `rgb(${GOLD} / 0.3)` }}
+        >
+          CLEARS BAR
+        </span>
+      )
+    case 'below':
+      return (
+        <span className={`${CHIP} border-rose-400/25 text-rose-300/70`} title={title}>
+          BELOW BAR
+        </span>
+      )
+    case 'partial':
+      return (
+        <span className={`${CHIP} border-zinc-800 text-zinc-500`} title={title}>
+          BAR UNVERIFIED
+        </span>
+      )
+    case 'no-bar':
+      // Unreachable — parseHiringSignal drops empty bars — but the
+      // union says it exists, so the arm does too.
+      return null
+    default: {
+      const exhaustive: never = stamp.overall
+      return exhaustive
+    }
+  }
+}
+
 export function ApplyToTeamButton({
   teamUserId,
   teamUsername,
@@ -90,6 +133,7 @@ export function ApplyToTeamButton({
   teamAvatar: string | null
 }) {
   const [view, setView] = useState<View>({ id: 'loading' })
+  const [hiring, setHiring] = useState<HiringSignal | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [armed, setArmed] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -114,6 +158,7 @@ export function ApplyToTeamButton({
           setView({ id: 'hidden' })
           return
         }
+        setHiring(parseHiringSignal(data?.target))
         setView(viewForTarget(state, Number(data?.target?.applicationId) || 0))
       } catch {
         if (!cancelled) setView({ id: 'hidden' })
@@ -169,15 +214,18 @@ export function ApplyToTeamButton({
     case 'can-apply':
       return (
         <>
-          <button
-            type="button"
-            onClick={() => setModalOpen(true)}
-            className={`${CHIP} transition-colors hover:brightness-125`}
-            style={goldStyle}
-            aria-label={`Apply to join ${teamName}`}
-          >
-            APPLY
-          </button>
+          <span className="inline-flex flex-wrap items-center gap-2">
+            {hiring?.stamp && <BarVerdictChip bar={hiring.bar} stamp={hiring.stamp} />}
+            <button
+              type="button"
+              onClick={() => setModalOpen(true)}
+              className={`${CHIP} transition-colors hover:brightness-125`}
+              style={goldStyle}
+              aria-label={`Apply to join ${teamName}`}
+            >
+              APPLY
+            </button>
+          </span>
           {modalOpen && (
             <ApplyModal
               team={{
@@ -186,6 +234,7 @@ export function ApplyToTeamButton({
                 name: teamName,
                 avatar: teamAvatar
               }}
+              hiring={hiring}
               onClose={() => setModalOpen(false)}
               onApplied={(applicationId) => {
                 setModalOpen(false)

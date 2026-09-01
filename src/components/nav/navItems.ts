@@ -25,9 +25,11 @@ export const NAV_ITEMS: NavItemDef[] = [
   // BAG earns a top-bar chip too: it is the collection page, and its
   // short label lets a fourth chip fit without crowding the md bar.
   { href: '/bag', label: 'BAG', icon: 'bag', topBar: true },
-  // The team console exists only for company accounts; everyone else
-  // never sees the row (visibleNavItems filters it out).
-  { href: '/team', label: 'TEAM', icon: 'team', exact: true, teamOnly: true }
+  // Company accounts get their command deck (/teams adapts: deck for
+  // TEAM tier, buy page for everyone else); the roster/invite console
+  // at /team stays reachable from the deck. Everyone else never sees
+  // the row (visibleNavItems filters it out).
+  { href: '/teams', label: 'TEAM', icon: 'team', exact: true, teamOnly: true }
 ]
 
 /** Nav items the current session may see. Tier gating only — the TEAM row

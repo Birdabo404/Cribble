@@ -12,6 +12,14 @@ import {
   type AffiliationStatus,
   type ApplyViewerFacts
 } from '@/lib/teamApplications'
+import {
+  evaluateHiringBar,
+  hasBar,
+  hiringBarFromColumns,
+  type BarStamp,
+  type HiringBar
+} from '@/lib/teamHiring'
+import { fetchPilotHiringFacts } from '@/lib/teamHiringServer'
 import { getTeamSeatUsage } from '@/lib/teams'
 import {
   TEAM_USER_SELECT,
@@ -30,17 +38,25 @@ import {
 // POST's guards run through the same canApply verdict the buttons
 // render, so what a pilot sees and what the server enforces can never
 // drift; the (team, member) UNIQUE index is the race backstop and its
-// 23505 answers as a friendly 409.
+// 23505 answers as a friendly 409. GET's target also carries the team's
+// HIRING BAR and the viewer's stamp against it — this route is authed,
+// uncached and viewer-specific, so per-viewer verdicts belong here and
+// never in the cached public directory. Stamps are a soft signal only:
+// POST never reads the bar.
 
 export const dynamic = 'force-dynamic'
 
 const supabase = createServiceClient()
 
-/** Team-side users row plus the OPEN ROSTER / CLOSED lamp (064). */
-const TEAM_TARGET_SELECT = `${TEAM_USER_SELECT}, team_recruiting`
+/** Team-side users row plus the OPEN ROSTER / CLOSED lamp (064) and the
+ *  published hiring-bar thresholds (066). */
+const TEAM_TARGET_SELECT = `${TEAM_USER_SELECT}, team_recruiting, team_req_min_score, team_req_min_tokens, team_req_min_burn_usd`
 
 interface TeamTargetRow extends TeamUserRow {
   team_recruiting: boolean | null
+  team_req_min_score: number | string | null
+  team_req_min_tokens: number | string | null
+  team_req_min_burn_usd: number | string | null
 }
 
 /** The caller's member-side rows joined to their teams — one query
@@ -259,6 +275,16 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    // Same guard as POST: a target with a bar set drags this GET into
+    // the full-population burn aggregate, so it must not be free to spam.
+    const rateLimitResult = checkRateLimit(request, rateLimitConfigs.api)
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded. Please try again later.' },
+        { status: 429, headers: createRateLimitResponse(rateLimitResult) }
+      )
+    }
+
     const session = await getSessionUserId(request)
     if (!session.ok) {
       return NextResponse.json({ error: session.error }, { status: session.status })
@@ -280,7 +306,9 @@ export async function GET(request: NextRequest) {
 
     // Team accounts never hold member-side rows, so skip the queries.
     // canApply's identity gates fire before any team fact is read, so
-    // placeholder team facts are safe here (and save the lookups).
+    // placeholder team facts are safe here (and save the lookups). No
+    // bar/stamp decoration either: a team account never renders an
+    // apply surface, and the target row is never fetched on this path.
     if (isTeamTier(caller.user.subscription_tier)) {
       const target =
         targetTeamUserId !== null
@@ -358,7 +386,16 @@ export async function GET(request: NextRequest) {
         teamUserId: Number(row.team_user_id)
       }))
 
-    let target: { state: string; applicationId?: number } | undefined
+    // Target payload: the verdict, the row id when withdrawable, and on
+    // live targets the team's hiring bar plus the viewer's stamp.
+    // `stamp` is OMITTED (never overall: 'no-bar') when the bar has no
+    // metric set — surfaces gate the whole bar panel on hasBar(bar), so
+    // an empty bar needs no verdict — and omitted again when the facts
+    // read fails: stamps are display-only decoration and must never
+    // sink the GET.
+    let target:
+      | { state: string; applicationId?: number; bar?: HiringBar; stamp?: BarStamp }
+      | undefined
     if (targetTeamUserId !== null) {
       const { data: targetRow, error: targetError } = await supabase
         .from('users')
@@ -400,6 +437,27 @@ export async function GET(request: NextRequest) {
       if (verdict.state === 'applied' && existingRow) {
         // Hand the row id back so the surface can offer WITHDRAW in place.
         target.applicationId = Number(existingRow.id)
+      }
+
+      // The bar rides every live target (all-null when unset); the
+      // facts fetch is skipped entirely for an empty bar — there is
+      // nothing to stamp against.
+      if (team && live) {
+        const bar = hiringBarFromColumns(team)
+        target.bar = bar
+        if (hasBar(bar)) {
+          try {
+            const facts = await fetchPilotHiringFacts(supabase, [session.userId])
+            const viewerFacts = facts.get(session.userId)
+            if (viewerFacts) {
+              target.stamp = evaluateHiringBar(bar, viewerFacts)
+            }
+          } catch (factsError) {
+            // The score read inside fetchPilotHiringFacts throws on
+            // failure; a bar without a stamp beats a 500 for decoration.
+            console.warn('[Team] Hiring stamp unavailable:', factsError)
+          }
+        }
       }
     }
 

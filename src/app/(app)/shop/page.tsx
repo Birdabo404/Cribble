@@ -244,7 +244,7 @@ function SectionHead({
  * Deliberately quiet: these are doors out of the store, not products. */
 function ShopDoors({ isTeam }: { isTeam: boolean }) {
   const doors: { href: string; label: string; gold?: boolean; native?: boolean }[] = [
-    { href: isTeam ? '/team' : '/teams', label: isTeam ? 'TEAM CONSOLE' : 'TEAM', gold: true },
+    { href: '/teams', label: isTeam ? 'COMMAND DECK' : 'TEAM', gold: true },
     { href: '/sponsorship#pitch', label: 'SPONSORSHIP' },
     { href: '/api/portal', label: 'MANAGE', native: true }
   ]

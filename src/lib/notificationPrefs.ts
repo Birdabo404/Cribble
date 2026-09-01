@@ -33,7 +33,8 @@ export const CATEGORY_NOTIFICATION_TYPES: Record<
     'team_removed',
     'team_application',
     'team_application_accepted',
-    'team_application_declined'
+    'team_application_declined',
+    'team_promotion'
   ],
   season: ['season'],
   shop: ['shop', 'premium']

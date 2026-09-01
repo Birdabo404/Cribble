@@ -1,9 +1,11 @@
 import { NextRequest } from 'next/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-// The invite route's guard chain, in the order it runs: approved-team
-// caller → free seat → resolvable target (not banned/suspended, not the
-// caller, not another team, not already on a team) → insert. The unique
+// The invite route's guard chain, in the order it runs: an approved
+// team (through its franchise login or a signed OWNER's personal
+// account, resolveTeamAuthority 066) → free seat → resolvable target
+// (not banned/suspended, not the team itself, not another team, not
+// already on a team) → insert scoped to the TEAM's id. The unique
 // indexes are the race backstop: a 23505 must come back as a friendly
 // 409, never a 500. Session auth, rate limiting, seat counting and the
 // notification writer are mocked; the guard logic and the Supabase
@@ -14,7 +16,11 @@ const { sessionMock, seatUsageMock, notifyMock, state } = vi.hoisted(() => ({
   seatUsageMock: vi.fn(),
   notifyMock: vi.fn(),
   state: {
-    caller: null as Record<string, unknown> | null,
+    // users rows keyed by id — the caller's and (for owner callers) the
+    // franchise's are distinct reads against the same table.
+    usersById: {} as Record<number, Record<string, unknown> | null>,
+    // resolveTeamAuthority's owner-affiliation join row (role='owner').
+    ownerAffiliation: null as Record<string, unknown> | null,
     targets: [] as Record<string, unknown>[],
     activeCount: 0,
     insertResult: { data: { id: 501 } as { id: number } | null, error: null as { code?: string } | null },
@@ -46,21 +52,40 @@ vi.mock('@/lib/supabaseServer', () => ({
   createServiceClient: () => ({
     from: (table: string) => {
       if (table === 'users') {
+        const filters: Record<string, unknown> = {}
         const builder = {
           select: () => builder,
-          eq: () => builder,
+          eq: (column: string, value: unknown) => {
+            filters[column] = value
+            return builder
+          },
           ilike: () => builder,
-          // loadUserRow terminal — the caller's own row.
-          maybeSingle: () => Promise.resolve({ data: state.caller, error: null }),
+          // loadUserRow terminal — keyed by id so the caller's row and
+          // the franchise's row resolve independently.
+          maybeSingle: () =>
+            Promise.resolve({
+              data: state.usersById[Number(filters.id)] ?? null,
+              error: null
+            }),
           // Callsign lookup terminal.
           limit: () => Promise.resolve({ data: state.targets, error: null })
         }
         return builder
       }
       if (table === 'team_affiliations') {
+        const filters: Record<string, unknown> = {}
         const builder = {
           select: () => builder,
-          eq: () => builder,
+          eq: (column: string, value: unknown) => {
+            filters[column] = value
+            return builder
+          },
+          // resolveTeamAuthority's owner-affiliation lookup terminal.
+          maybeSingle: () =>
+            Promise.resolve({
+              data: filters.role === 'owner' ? state.ownerAffiliation : null,
+              error: null
+            }),
           // Awaited head-count query (active-affiliation check).
           then: (
             onFulfilled: (value: { count: number; error: null }) => unknown,
@@ -122,7 +147,8 @@ describe('POST /api/team/invite — guard chain and race backstop', () => {
     seatUsageMock.mockResolvedValue(3)
     notifyMock.mockReset()
     notifyMock.mockResolvedValue(undefined)
-    state.caller = { ...TEAM_CALLER }
+    state.usersById = { 7: { ...TEAM_CALLER } }
+    state.ownerAffiliation = null
     state.targets = [{ ...FREE_TARGET }]
     state.activeCount = 0
     state.insertResult = { data: { id: 501 }, error: null }
@@ -130,7 +156,7 @@ describe('POST /api/team/invite — guard chain and race backstop', () => {
   })
 
   it('403s a TEAM account still under review — pay-first does not unlock invites', async () => {
-    state.caller = { ...TEAM_CALLER, team_review_status: 'pending' }
+    state.usersById = { 7: { ...TEAM_CALLER, team_review_status: 'pending' } }
 
     const response = await POST(inviteRequest('pilot'))
 
@@ -139,8 +165,8 @@ describe('POST /api/team/invite — guard chain and race backstop', () => {
     expect(notifyMock).not.toHaveBeenCalled()
   })
 
-  it('403s a non-team caller outright', async () => {
-    state.caller = { ...TEAM_CALLER, subscription_tier: 'PRO' }
+  it('403s a caller with no authority outright', async () => {
+    state.usersById = { 7: { ...TEAM_CALLER, subscription_tier: 'PRO' } }
 
     const response = await POST(inviteRequest('pilot'))
 
@@ -213,5 +239,59 @@ describe('POST /api/team/invite — guard chain and race backstop', () => {
     expect(response.status).toBe(409)
     await expect(response.json()).resolves.toEqual({ error: 'Already invited' })
     expect(notifyMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/team/invite — owner authority', () => {
+  const OWNER_CALLER = {
+    id: 33,
+    twitter_username: 'skipper',
+    twitter_name: 'Skipper',
+    twitter_profile_image: null,
+    subscription_tier: 'FREE',
+    team_review_status: null,
+    status: 'active'
+  }
+
+  beforeEach(() => {
+    sessionMock.mockReset()
+    sessionMock.mockResolvedValue({ ok: true, userId: 33 })
+    seatUsageMock.mockReset()
+    seatUsageMock.mockResolvedValue(3)
+    notifyMock.mockReset()
+    notifyMock.mockResolvedValue(undefined)
+    state.usersById = { 33: { ...OWNER_CALLER }, 7: { ...TEAM_CALLER } }
+    state.ownerAffiliation = { team_user_id: 7, team: { ...TEAM_CALLER } }
+    state.targets = [{ ...FREE_TARGET }]
+    state.activeCount = 0
+    state.insertResult = { data: { id: 501 }, error: null }
+    state.insertedRows = []
+  })
+
+  it("sends the invite as the FRANCHISE — the row and notification carry the team's identity", async () => {
+    const response = await POST(inviteRequest('pilot'))
+
+    expect(response.status).toBe(200)
+    expect(seatUsageMock).toHaveBeenCalledWith(expect.anything(), 7)
+    expect(state.insertedRows).toEqual([
+      { team_user_id: 7, member_user_id: 21, status: 'pending' }
+    ])
+    expect(notifyMock).toHaveBeenCalledWith(expect.anything(), 21, [
+      expect.objectContaining({
+        type: 'team_invite',
+        body: '@acme wants you on their affiliate roster.',
+        data: expect.objectContaining({ teamUserId: 7 })
+      })
+    ])
+  })
+
+  it('403s a plain ACTIVE member — inviting needs the owner role', async () => {
+    state.ownerAffiliation = null
+
+    const response = await POST(inviteRequest('pilot'))
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({ error: 'Team accounts only' })
+    expect(state.insertedRows).toHaveLength(0)
   })
 })

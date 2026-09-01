@@ -120,6 +120,7 @@ describe('disabledNotificationTypes', () => {
       'team_application_declined',
       'team_invite',
       'team_invite_accepted',
+      'team_promotion',
       'team_removed'
     ])
     expect(

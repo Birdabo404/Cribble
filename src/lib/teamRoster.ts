@@ -92,3 +92,60 @@ export async function loadUserRow(
 export function escapeLikePattern(raw: string): string {
   return raw.replace(/([%_\\])/g, '\\$1')
 }
+
+/** The team a session user may command, and on what grounds: their own
+ *  users row when it is a live team, else the live team behind their
+ *  ACTIVE + role='owner' affiliation (migration 066). */
+export interface TeamAuthority {
+  teamUserId: number
+  via: 'team-account' | 'owner'
+}
+
+/** Row shape of the owner-affiliation -> team join below. */
+interface OwnerAffiliationJoinRow {
+  team_user_id: number
+  team: TeamUserRow | null
+}
+
+/**
+ * Resolve who this user speaks for. Authority rides the affiliation row
+ * and the team's liveness, so it dissolves for free: an owner who
+ * leaves or is released loses the row (and with it the role), and a
+ * lapsed/banned team fails teamIsLive — no cleanup writes anywhere.
+ * A failed read never grants authority (it resolves null); routes that
+ * must distinguish 500 from 403 load the user row themselves first.
+ */
+export async function resolveTeamAuthority(
+  supabase: SupabaseClient,
+  userId: number
+): Promise<TeamAuthority | null> {
+  const loaded = await loadUserRow(supabase, userId)
+  if (!loaded.ok) return null
+  if (teamIsLive(loaded.user)) {
+    return { teamUserId: userId, via: 'team-account' }
+  }
+
+  // At most one row: the one-active partial index (029) caps ACTIVE
+  // affiliations per member at one. Two FKs point at users, so the
+  // embed names the team-side constraint.
+  const { data, error } = await supabase
+    .from('team_affiliations')
+    .select(
+      `team_user_id,
+       team:users!team_affiliations_team_user_id_fkey(${TEAM_USER_SELECT})`
+    )
+    .eq('member_user_id', userId)
+    .eq('status', 'active')
+    .eq('role', 'owner')
+    .maybeSingle()
+
+  if (error) {
+    console.error('[Team] Owner authority lookup failed:', error)
+    return null
+  }
+
+  const row = data as unknown as OwnerAffiliationJoinRow | null
+  if (!row?.team || !teamIsLive(row.team)) return null
+
+  return { teamUserId: Number(row.team_user_id), via: 'owner' }
+}

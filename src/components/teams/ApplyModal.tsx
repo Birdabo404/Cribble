@@ -6,13 +6,26 @@
 // recruitment board or a team profile, optionally attaches a pitch, and
 // POST /api/team/apply files the request; the server owns every guard
 // (one team per pilot, open-request cap, roster lamp) and replies with
-// friendly strings we surface verbatim.
+// friendly strings we surface verbatim. When the team publishes a
+// HIRING BAR, a panel above the pitch shows each threshold with the
+// viewer's stamp (check / cross / dimmed UNVERIFIED) and the overall
+// CLEARS BAR / BELOW BAR verdict — a soft signal only: FILE REQUEST
+// never disables on it, matching the server, which never gates.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Avatar } from '@/components/leaderboard/Avatar'
 import { TeamBadge } from '@/components/premium/TeamBadge'
 import { toast } from '@/components/Toaster'
 import { requestNotificationsRefresh } from '@/hooks/useNotifications'
+import {
+  formatHiringScore,
+  formatHiringTokens,
+  formatHiringUsd,
+  hasBar,
+  type BarStamp,
+  type HiringBar,
+  type MetricStamp
+} from '@/lib/teamHiring'
 
 const GOLD = 'var(--lb-gold)'
 
@@ -27,24 +40,234 @@ export interface ApplyModalTeam {
   avatar: string | null
 }
 
+/* ================= hiring bar (apply GET target decoration) ================= */
+
+/** The apply GET target's hiring decoration: the team's published bar
+ *  and, when the viewer's facts resolved server-side, their per-metric
+ *  stamps. The server omits `stamp` for empty bars and failed facts
+ *  reads, so it rides as null here. */
+export interface HiringSignal {
+  bar: HiringBar
+  stamp: BarStamp | null
+}
+
+const METRIC_STAMPS = ['met', 'missed', 'unverified'] as const
+const OVERALL_VERDICTS = ['clears', 'below', 'partial', 'no-bar'] as const
+
+const parseThreshold = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
+
+const parseMetricStamp = (value: unknown): MetricStamp | null =>
+  typeof value === 'string' && (METRIC_STAMPS as readonly string[]).includes(value)
+    ? (value as MetricStamp)
+    : null
+
+/** Defensive read of `target.bar` / `target.stamp` off the apply GET —
+ *  shared with ApplyToTeamButton so both surfaces parse (and therefore
+ *  render) the same signal. Malformed or empty bars read as null. */
+export function parseHiringSignal(target: unknown): HiringSignal | null {
+  if (typeof target !== 'object' || target === null) return null
+  const fields = target as Record<string, unknown>
+  if (typeof fields.bar !== 'object' || fields.bar === null) return null
+  const rawBar = fields.bar as Record<string, unknown>
+  const bar: HiringBar = {
+    minScore: parseThreshold(rawBar.minScore),
+    minTokens: parseThreshold(rawBar.minTokens),
+    minBurnUsd: parseThreshold(rawBar.minBurnUsd)
+  }
+  if (!hasBar(bar)) return null
+
+  let stamp: BarStamp | null = null
+  if (typeof fields.stamp === 'object' && fields.stamp !== null) {
+    const rawStamp = fields.stamp as Record<string, unknown>
+    const overall = rawStamp.overall
+    if (
+      typeof overall === 'string' &&
+      (OVERALL_VERDICTS as readonly string[]).includes(overall)
+    ) {
+      stamp = {
+        score: parseMetricStamp(rawStamp.score),
+        tokens: parseMetricStamp(rawStamp.tokens),
+        burnUsd: parseMetricStamp(rawStamp.burnUsd),
+        overall: overall as BarStamp['overall']
+      }
+    }
+  }
+  return { bar, stamp }
+}
+
+function StampMark({ stamp }: { stamp: MetricStamp | null }) {
+  if (stamp === null) return null
+  switch (stamp) {
+    case 'met':
+      return (
+        <span aria-label="met" style={{ color: `rgb(${GOLD})` }}>
+          ✓
+        </span>
+      )
+    case 'missed':
+      return (
+        <span aria-label="missed" className="text-rose-300/80">
+          ✕
+        </span>
+      )
+    case 'unverified':
+      return (
+        <span className="text-[8px] tracking-[0.18em] text-zinc-600">UNVERIFIED</span>
+      )
+    default: {
+      const exhaustive: never = stamp
+      return exhaustive
+    }
+  }
+}
+
+function OverallPlate({ overall }: { overall: BarStamp['overall'] }) {
+  const plate = 'rounded border px-1.5 py-0.5 text-[8px] tracking-[0.2em]'
+  switch (overall) {
+    case 'clears':
+      return (
+        <span
+          className={plate}
+          style={{
+            color: `rgb(${GOLD})`,
+            borderColor: `rgb(${GOLD} / 0.4)`,
+            background: `rgb(${GOLD} / 0.06)`
+          }}
+        >
+          CLEARS BAR
+        </span>
+      )
+    case 'below':
+      return (
+        <span className={`${plate} border-rose-400/30 text-rose-300/80`}>BELOW BAR</span>
+      )
+    case 'partial':
+      return <span className={`${plate} border-zinc-800 text-zinc-500`}>UNVERIFIED</span>
+    case 'no-bar':
+      // Unreachable — the panel only renders behind hasBar — but the
+      // union says it exists, so the arm does too.
+      return null
+    default: {
+      const exhaustive: never = overall
+      return exhaustive
+    }
+  }
+}
+
+function BarMetricRow({
+  label,
+  amount,
+  stamp
+}: {
+  label: string
+  amount: string
+  stamp: MetricStamp | null
+}) {
+  return (
+    <li className="flex items-center justify-between gap-2 text-[9px] tracking-[0.18em]">
+      <span className="text-zinc-500">{label}</span>
+      <span className="flex items-center gap-2">
+        <span className="tabular-nums text-zinc-300">{amount}</span>
+        <StampMark stamp={stamp} />
+      </span>
+    </li>
+  )
+}
+
+function HiringBarPanel({ signal }: { signal: HiringSignal }) {
+  const { bar, stamp } = signal
+  const unverified = stamp?.tokens === 'unverified' || stamp?.burnUsd === 'unverified'
+  return (
+    <div
+      className="mt-4 border px-3.5 py-3 text-left"
+      style={{ borderColor: `rgb(${GOLD} / 0.16)`, background: 'rgb(255 255 255 / 0.02)' }}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[8px] tracking-[0.3em] text-zinc-600">HIRING BAR</span>
+        {stamp && <OverallPlate overall={stamp.overall} />}
+      </div>
+      <ul className="mt-2.5 space-y-1.5">
+        {bar.minScore !== null && (
+          <BarMetricRow
+            label="GLOBAL SCORE"
+            amount={formatHiringScore(bar.minScore)}
+            stamp={stamp?.score ?? null}
+          />
+        )}
+        {bar.minTokens !== null && (
+          <BarMetricRow
+            label="TOKENS BURNED"
+            amount={formatHiringTokens(bar.minTokens)}
+            stamp={stamp?.tokens ?? null}
+          />
+        )}
+        {bar.minBurnUsd !== null && (
+          <BarMetricRow
+            label="USD BURNED"
+            amount={formatHiringUsd(bar.minBurnUsd)}
+            stamp={stamp?.burnUsd ?? null}
+          />
+        )}
+      </ul>
+      {unverified && (
+        <p className="mt-2 text-[8px] leading-4 tracking-[0.12em] text-zinc-600">
+          OPT INTO THE BURN BOARD TO VERIFY YOUR BURN
+        </p>
+      )}
+    </div>
+  )
+}
+
 export function ApplyModal({
   team,
+  hiring,
   onClose,
   onApplied
 }: {
   team: ApplyModalTeam
+  /** The team's hiring bar + viewer stamp. undefined = unknown (the
+   *  modal probes GET /api/team/apply?teamUserId itself); null = the
+   *  caller already knows there is no bar, so the probe is skipped. */
+  hiring?: HiringSignal | null
   onClose: () => void
   /** Fires once the request lands so the caller can flip its row state. */
   onApplied: (applicationId: number) => void
 }) {
   const [message, setMessage] = useState('')
   const [pending, setPending] = useState(false)
+  const [hiringSignal, setHiringSignal] = useState<HiringSignal | null>(hiring ?? null)
   const pendingRef = useRef(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     textareaRef.current?.focus()
   }, [])
+
+  // Self-probe for callers that only know the bar exists (the directory
+  // payload carries bars but never viewer stamps). Display-only: any
+  // failure just means the pitch window opens without the bar panel.
+  useEffect(() => {
+    if (hiring !== undefined) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(`/api/team/apply?teamUserId=${team.userId}`, {
+          cache: 'no-store',
+          credentials: 'include'
+        })
+        if (cancelled || !res.ok) return
+        const data = await res.json().catch(() => null)
+        if (cancelled || !data?.success) return
+        setHiringSignal(parseHiringSignal(data.target))
+      } catch {
+        // Soft signal — stay silent.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [hiring, team.userId])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -152,6 +375,8 @@ export function ApplyModal({
             <div className="truncate text-[10px] text-zinc-600">@{team.username}</div>
           </div>
         </div>
+
+        {hiringSignal && <HiringBarPanel signal={hiringSignal} />}
 
         <form
           className="mt-5"

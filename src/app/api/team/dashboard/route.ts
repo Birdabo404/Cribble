@@ -5,38 +5,131 @@ import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib
 import { getSessionUserId } from '@/lib/sessionAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 import { assembleTeamBoard } from '@/lib/teamBoardServer'
+import {
+  evaluateHiringBar,
+  hasBar,
+  hiringBarFromColumns,
+  hiringBarSchema,
+  type BarStamp,
+  type HiringBar,
+  type PilotHiringFacts
+} from '@/lib/teamHiring'
+import { fetchPilotHiringFacts } from '@/lib/teamHiringServer'
 import { largestRemainderShares, memberSeasonScore } from '@/lib/teamLeaderboard'
 import { TEAM_SEAT_LIMIT, getTeamSeatUsage } from '@/lib/teams'
 import {
   TEAM_USER_SELECT,
   isTeamTier,
   loadUserRow,
+  resolveTeamAuthority,
   teamIdentity,
+  type TeamAuthority,
   type TeamUserRow
 } from '@/lib/teamRoster'
 
 // The command deck's one payload: identity + review lamp, seat meter,
 // board rank/score/burn (assembled through the SAME pipeline as the
 // public TEAMS leaderboard, so the KPIs can never disagree with the
-// board), the roster with per-pilot season scores and contribution
-// shares, and the inbound-transfer queue. PATCH flips the OPEN ROSTER /
-// CLOSED lamp — tier-gated but NOT approval-gated, so a team still
-// under review can pre-close its roster.
+// board), the roster with per-pilot roles, season scores and
+// contribution shares, and the inbound-transfer queue stamped against
+// the team's hiring bar. PATCH flips the OPEN ROSTER / CLOSED lamp
+// and/or rewrites the bar — tier-gated but NOT approval-gated, so a
+// team still under review can pre-set both.
+//
+// Both verbs answer for TWO kinds of caller: the franchise's own TEAM
+// login, or a signed OWNER commanding it from a personal account
+// (resolveTeamAuthority, migration 066). A caller with neither keeps
+// today's 403 — TeamsHub relies on 401/403 falling through to the
+// public landing. Only role changes and member removal stay
+// franchise-only, and those live on /api/team/roster.
 
 export const dynamic = 'force-dynamic'
 
 const supabase = createServiceClient()
 
-/** Caller's users row plus the recruiting lamp (064). */
-const DECK_USER_SELECT = `${TEAM_USER_SELECT}, team_recruiting`
+/** Team users row plus the recruiting lamp (064) and hiring bar (066). */
+const DECK_USER_SELECT = `${TEAM_USER_SELECT}, team_recruiting, team_req_min_score, team_req_min_tokens, team_req_min_burn_usd`
 
 interface DeckUserRow extends TeamUserRow {
   team_recruiting: boolean | null
+  team_req_min_score: number | string | null
+  team_req_min_tokens: number | string | null
+  team_req_min_burn_usd: number | string | null
+}
+
+/** Stamp fallback when the facts read failed outright: every enabled
+ *  metric reads 'unverified' — the honest answer, never a fake BELOW. */
+function unverifiedStamp(bar: HiringBar): BarStamp {
+  return {
+    score: bar.minScore !== null ? 'unverified' : null,
+    tokens: bar.minTokens !== null ? 'unverified' : null,
+    burnUsd: bar.minBurnUsd !== null ? 'unverified' : null,
+    overall: hasBar(bar) ? 'partial' : 'no-bar'
+  }
+}
+
+/**
+ * The team this session may command, plus that team's deck row. The
+ * franchise arm is tier-gated only (an under-review team still sees its
+ * deck); the owner arm rides resolveTeamAuthority, whose live gate
+ * means an owner's team is always approved. Callers with neither
+ * answer null and the routes 403.
+ */
+async function resolveDeck(
+  userId: number
+): Promise<
+  | { ok: true; authority: TeamAuthority; deck: DeckUserRow }
+  | { ok: false; status: number; error: string }
+> {
+  const { data: callerRow, error: callerError } = await supabase
+    .from('users')
+    .select(DECK_USER_SELECT)
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (callerError) {
+    console.error('[Team] Dashboard user lookup failed:', callerError)
+    return { ok: false, status: 500, error: 'Lookup failed' }
+  }
+  if (!callerRow) {
+    return { ok: false, status: 404, error: 'User not found' }
+  }
+  const caller = callerRow as unknown as DeckUserRow
+
+  if (isTeamTier(caller.subscription_tier)) {
+    return {
+      ok: true,
+      authority: { teamUserId: userId, via: 'team-account' },
+      deck: caller
+    }
+  }
+
+  const authority = await resolveTeamAuthority(supabase, userId)
+  if (!authority) {
+    return { ok: false, status: 403, error: 'Team accounts only' }
+  }
+
+  const { data: teamRow, error: teamError } = await supabase
+    .from('users')
+    .select(DECK_USER_SELECT)
+    .eq('id', authority.teamUserId)
+    .maybeSingle()
+
+  if (teamError) {
+    console.error('[Team] Dashboard team lookup failed:', teamError)
+    return { ok: false, status: 500, error: 'Lookup failed' }
+  }
+  // Authority dissolved mid-flight (team row gone): not yours to see.
+  if (!teamRow) {
+    return { ok: false, status: 403, error: 'Team accounts only' }
+  }
+
+  return { ok: true, authority, deck: teamRow as unknown as DeckUserRow }
 }
 
 /** Roster + queue in one query: every affiliation row this team holds,
  *  joined to the member's identity and score row. */
-const DECK_JOIN_SELECT = `id, status, invited_at, accepted_at, message,
+const DECK_JOIN_SELECT = `id, status, role, invited_at, accepted_at, message,
   member:users!team_affiliations_member_user_id_fkey(
     id, twitter_username, twitter_name, twitter_profile_image,
     subscription_tier, team_review_status, status,
@@ -53,6 +146,7 @@ interface DeckMemberRow extends TeamUserRow {
 interface DeckAffiliationRow {
   id: number
   status: string
+  role: string
   invited_at: string
   accepted_at: string | null
   message: string | null
@@ -61,35 +155,35 @@ interface DeckAffiliationRow {
 
 export async function GET(request: NextRequest) {
   try {
+    // Same guard as PATCH: an authed deck read fans out into the board
+    // pipeline and (behind a bar) the full-population burn aggregate,
+    // so it is at least as expensive as the writes it sits beside.
+    const rateLimitResult = checkRateLimit(request, rateLimitConfigs.api)
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded. Please try again later.' },
+        { status: 429, headers: createRateLimitResponse(rateLimitResult) }
+      )
+    }
+
     const session = await getSessionUserId(request)
     if (!session.ok) {
       return NextResponse.json({ error: session.error }, { status: session.status })
     }
 
-    const { data: callerRow, error: callerError } = await supabase
-      .from('users')
-      .select(DECK_USER_SELECT)
-      .eq('id', session.userId)
-      .maybeSingle()
-
-    if (callerError) {
-      console.error('[Team] Dashboard user lookup failed:', callerError)
-      return NextResponse.json({ error: 'Lookup failed' }, { status: 500 })
+    const resolved = await resolveDeck(session.userId)
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.error }, { status: resolved.status })
     }
-    if (!callerRow) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 })
-    }
-    const caller = callerRow as unknown as DeckUserRow
-    if (!isTeamTier(caller.subscription_tier)) {
-      return NextResponse.json({ error: 'Team accounts only' }, { status: 403 })
-    }
+    const { authority, deck } = resolved
+    const bar = hiringBarFromColumns(deck)
 
     // The board pipeline and this team's own rows are independent reads.
     const boardPromise = assembleTeamBoard(supabase)
     const { data: rowData, error: rowsError } = await supabase
       .from('team_affiliations')
       .select(DECK_JOIN_SELECT)
-      .eq('team_user_id', session.userId)
+      .eq('team_user_id', authority.teamUserId)
       .order('invited_at', { ascending: true })
 
     if (rowsError) {
@@ -98,7 +192,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { rows: boardRows, totals, season } = await boardPromise
-    const seatsUsed = await getTeamSeatUsage(supabase, session.userId)
+    const seatsUsed = await getTeamSeatUsage(supabase, authority.teamUserId)
 
     const all = ((rowData ?? []) as unknown as DeckAffiliationRow[]).filter(
       (row) => row.member !== null
@@ -114,6 +208,7 @@ export async function GET(request: NextRequest) {
         return {
           affiliationId: Number(row.id),
           status: row.status as 'pending' | 'active',
+          role: row.role === 'owner' ? ('owner' as const) : ('member' as const),
           ...teamIdentity(member),
           score: memberSeasonScore(
             member.user_scores?.season_score ?? null,
@@ -144,14 +239,33 @@ export async function GET(request: NextRequest) {
 
     // The transfer queue. Moderated applicants are hidden — actioning
     // them 404s-and-purges in /api/team/applications anyway.
-    const applications = all
+    const applicationRows = all
       .filter((row) => row.status === 'applied')
       .filter((row) => {
         const status = (row.member as DeckMemberRow).status
         return status !== 'banned' && status !== 'suspended'
       })
+
+    // Stamps are display-only — a facts failure must not sink the deck.
+    // fetchPilotHiringFacts degrades burn reads on its own; the one
+    // thing it throws on (the score read) degrades HERE to all-metrics
+    // UNVERIFIED instead of a wrong verdict.
+    let factsByUser = new Map<number, PilotHiringFacts>()
+    if (applicationRows.length > 0 && hasBar(bar)) {
+      try {
+        factsByUser = await fetchPilotHiringFacts(
+          supabase,
+          applicationRows.map((row) => Number((row.member as DeckMemberRow).id))
+        )
+      } catch (error) {
+        console.warn('[Team] Applicant hiring facts unavailable:', error)
+      }
+    }
+
+    const applications = applicationRows
       .map((row) => {
         const member = row.member as DeckMemberRow
+        const facts = factsByUser.get(Number(member.id))
         return {
           applicationId: Number(row.id),
           ...teamIdentity(member),
@@ -160,6 +274,7 @@ export async function GET(request: NextRequest) {
             member.user_scores?.last_calculated_at ?? null,
             season
           ),
+          stamp: facts ? evaluateHiringBar(bar, facts) : unverifiedStamp(bar),
           message: row.message,
           appliedAt: row.invited_at
         }
@@ -167,10 +282,10 @@ export async function GET(request: NextRequest) {
       // Newest request first, matching the invites feed.
       .sort((a, b) => b.appliedAt.localeCompare(a.appliedAt))
 
-    // Rank/score/burn from the caller's board row; a team not on the
+    // Rank/score/burn from the team's board row; a team not on the
     // board (e.g. still under review) reads rank null with the squad
     // score summed locally from the same roster numbers.
-    const boardRow = boardRows.find((row) => row.userId === session.userId) ?? null
+    const boardRow = boardRows.find((row) => row.userId === authority.teamUserId) ?? null
     const board = {
       rank: boardRow ? boardRow.rank : null,
       teams: totals.teams,
@@ -183,10 +298,12 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      team: teamIdentity(caller),
-      reviewStatus: caller.team_review_status,
-      approved: isApprovedTeam(caller),
-      recruiting: caller.team_recruiting !== false,
+      authority: authority.via,
+      team: teamIdentity(deck),
+      reviewStatus: deck.team_review_status,
+      approved: isApprovedTeam(deck),
+      recruiting: deck.team_recruiting !== false,
+      bar,
       seatLimit: TEAM_SEAT_LIMIT,
       seatsUsed,
       board,
@@ -199,9 +316,17 @@ export async function GET(request: NextRequest) {
   }
 }
 
-const patchSchema = z.object({
-  recruiting: z.boolean()
-})
+/** Lamp and/or bar — at least one. A bar write carries all three
+ *  metrics (null = that metric off), so a partial body can never
+ *  silently clear a threshold the caller didn't touch. */
+const patchSchema = z
+  .object({
+    recruiting: z.boolean().optional(),
+    bar: hiringBarSchema.optional()
+  })
+  .refine((body) => body.recruiting !== undefined || body.bar !== undefined, {
+    message: 'Nothing to update'
+  })
 
 export async function PATCH(request: NextRequest) {
   try {
@@ -228,28 +353,49 @@ export async function PATCH(request: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
     }
-    const recruiting = parsed.data.recruiting
+    const { recruiting, bar } = parsed.data
 
     const caller = await loadUserRow(supabase, session.userId)
     if (!caller.ok) {
       return NextResponse.json({ error: caller.error }, { status: caller.status })
     }
-    // Tier-gated only: a team still under review may pre-set its lamp.
-    if (!isTeamTier(caller.user.subscription_tier)) {
+    // Franchise arm stays tier-gated only (an under-review team may
+    // pre-set its lamp and bar); owners write through their authority.
+    let authority: TeamAuthority | null
+    if (isTeamTier(caller.user.subscription_tier)) {
+      authority = { teamUserId: session.userId, via: 'team-account' }
+    } else {
+      authority = await resolveTeamAuthority(supabase, session.userId)
+    }
+    if (!authority) {
       return NextResponse.json({ error: 'Team accounts only' }, { status: 403 })
+    }
+
+    const updates: Record<string, unknown> = {}
+    if (recruiting !== undefined) {
+      updates.team_recruiting = recruiting
+    }
+    if (bar !== undefined) {
+      updates.team_req_min_score = bar.minScore
+      updates.team_req_min_tokens = bar.minTokens
+      updates.team_req_min_burn_usd = bar.minBurnUsd
     }
 
     const { error: updateError } = await supabase
       .from('users')
-      .update({ team_recruiting: recruiting })
-      .eq('id', session.userId)
+      .update(updates)
+      .eq('id', authority.teamUserId)
 
     if (updateError) {
       console.error('[Team] Recruiting update failed:', updateError)
       return NextResponse.json({ error: 'Failed to update roster status' }, { status: 500 })
     }
 
-    return NextResponse.json({ success: true, recruiting })
+    return NextResponse.json({
+      success: true,
+      ...(recruiting !== undefined ? { recruiting } : {}),
+      ...(bar !== undefined ? { bar } : {})
+    })
   } catch (error) {
     console.error('[Team] Dashboard PATCH error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

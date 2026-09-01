@@ -10,7 +10,9 @@ import {
   isTeamTier,
   isUniqueViolation,
   loadUserRow,
+  resolveTeamAuthority,
   teamIdentity,
+  type TeamAuthority,
   type TeamUserRow
 } from '@/lib/teamRoster'
 
@@ -20,6 +22,10 @@ import {
 // update only flips a row that is still this team's APPLIED request;
 // the one-active-affiliation partial unique index turns a pilot who
 // signed elsewhere mid-flight into a 23505, answered as a friendly 409.
+// The queue answers to the franchise login OR a signed OWNER
+// (resolveTeamAuthority, 066) — an owner processes transfers from
+// their personal account. Signed applicants land as plain members
+// (role rides the column default).
 
 export const dynamic = 'force-dynamic'
 
@@ -75,14 +81,29 @@ export async function POST(request: NextRequest) {
     if (!caller.ok) {
       return NextResponse.json({ error: caller.error }, { status: caller.status })
     }
-    if (!isTeamTier(caller.user.subscription_tier)) {
-      return NextResponse.json({ error: 'Team accounts only' }, { status: 403 })
+    // Franchise login or a signed owner — either may work the queue.
+    let authority: TeamAuthority | null
+    let teamRow: TeamUserRow
+    if (isTeamTier(caller.user.subscription_tier)) {
+      authority = { teamUserId: session.userId, via: 'team-account' }
+      teamRow = caller.user
+    } else {
+      authority = await resolveTeamAuthority(supabase, session.userId)
+      if (!authority) {
+        return NextResponse.json({ error: 'Team accounts only' }, { status: 403 })
+      }
+      const team = await loadUserRow(supabase, authority.teamUserId)
+      if (!team.ok) {
+        return NextResponse.json({ error: team.error }, { status: team.status })
+      }
+      teamRow = team.user
     }
     // Only SIGN is review-gated. PASS stays open to any TEAM-tier owner
     // of the row: an under-review team must be able to clear dead
     // requests from its queue, and the decline notification is correct
-    // either way.
-    if (action === 'accept' && !isApprovedTeam(caller.user)) {
+    // either way. (An owner's team is live — approved — by the
+    // authority gate, so this only ever bites the franchise arm.)
+    if (action === 'accept' && !isApprovedTeam(teamRow)) {
       return NextResponse.json(
         { error: 'Signing unlocks once your team passes review' },
         { status: 403 }
@@ -93,7 +114,7 @@ export async function POST(request: NextRequest) {
       .from('team_affiliations')
       .select(APPLICATION_JOIN_SELECT)
       .eq('id', applicationId)
-      .eq('team_user_id', session.userId)
+      .eq('team_user_id', authority.teamUserId)
       .eq('status', 'applied')
       .maybeSingle()
 
@@ -116,7 +137,7 @@ export async function POST(request: NextRequest) {
         .from('team_affiliations')
         .delete()
         .eq('id', applicationId)
-        .eq('team_user_id', session.userId)
+        .eq('team_user_id', authority.teamUserId)
         .eq('status', 'applied')
       if (purgeError) {
         console.error('[Team] Moderated application purge failed:', purgeError)
@@ -124,7 +145,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Application not found' }, { status: 404 })
     }
 
-    const team = teamIdentity(caller.user)
+    // Notifications speak as the FRANCHISE even when an owner clicked.
+    const team = teamIdentity(teamRow)
     const member = teamIdentity(applicant)
 
     switch (action) {
@@ -136,7 +158,7 @@ export async function POST(request: NextRequest) {
         // at 9/10 can both pass the count and land 11 actives. Accepted —
         // the window is tiny and an over-cap roster is self-evident on
         // the console, not corrupting.
-        const seatsUsed = await getTeamSeatUsage(supabase, session.userId)
+        const seatsUsed = await getTeamSeatUsage(supabase, authority.teamUserId)
         if (seatsUsed >= TEAM_SEAT_LIMIT) {
           return NextResponse.json(
             { error: `All ${TEAM_SEAT_LIMIT} affiliate seats are in use` },
@@ -146,12 +168,13 @@ export async function POST(request: NextRequest) {
 
         // Guarded update: only flips a row that is still this team's
         // APPLIED request. The one-ACTIVE-affiliation partial unique
-        // index turns a lost sign-race into a 23505.
+        // index turns a lost sign-race into a 23505. role is untouched:
+        // a signed applicant is a plain member (the column default).
         const { data: updated, error: updateError } = await supabase
           .from('team_affiliations')
           .update({ status: 'active', accepted_at: new Date().toISOString() })
           .eq('id', applicationId)
-          .eq('team_user_id', session.userId)
+          .eq('team_user_id', authority.teamUserId)
           .eq('status', 'applied')
           .select('id')
 
@@ -220,7 +243,7 @@ export async function POST(request: NextRequest) {
           .from('team_affiliations')
           .delete()
           .eq('id', applicationId)
-          .eq('team_user_id', session.userId)
+          .eq('team_user_id', authority.teamUserId)
           .eq('status', 'applied')
           .select('id')
 

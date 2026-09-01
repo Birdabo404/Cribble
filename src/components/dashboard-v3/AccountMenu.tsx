@@ -273,11 +273,12 @@ export function AccountMenu({
               ACHIEVEMENTS
               <span className={arrowCls}>→</span>
             </Link>
-            {/* Company accounts get their roster console; the row is
-                invisible to every other tier (same gating as the nav). */}
+            {/* Company accounts get their command deck (which links on to
+                the roster console); the row is invisible to every other
+                tier (same gating as the nav). */}
             {user.subscription_tier === 'TEAM' && (
               <Link
-                href="/team"
+                href="/teams"
                 onClick={() => setOpen(false)}
                 role="menuitem"
                 className="group w-full flex items-center gap-3 px-3.5 py-2.5 text-left text-[11px] tracking-[0.2em] text-zinc-300 hover:text-zinc-50 hover:bg-yellow-300/[0.06] transition-colors"
@@ -285,7 +286,7 @@ export function AccountMenu({
                 <span className="text-zinc-500 transition-colors group-hover:text-yellow-300">
                   <Icon d={ICONS.team} />
                 </span>
-                TEAM CONSOLE
+                COMMAND DECK
                 <span className={arrowCls}>→</span>
               </Link>
             )}
