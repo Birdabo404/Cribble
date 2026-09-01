@@ -14,6 +14,7 @@
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { animate, createTimer } from 'animejs'
+import dynamic from 'next/dynamic'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { formatCompact, formatNumber } from '@/components/dashboard-v2/format'
 import { IconCrown } from '@/components/leaderboard/icons'
@@ -23,12 +24,22 @@ import {
   imageGrid,
   type PixelGrid
 } from '@/components/leaderboard/pixelAvatar'
+import type { SlopStatus } from '@/components/leaderboard/SlopChannel'
 import type { LeaderRow } from '@/components/leaderboard/types'
 import { useSfx } from '@/components/sfx/SfxProvider'
 import { isXAvatarUrl, xAvatarRefreshUrl } from '@/lib/avatarRefresh'
 import { prefersReducedMotion } from '@/lib/motion'
 
 gsap.registerPlugin(useGSAP)
+
+// Lazy: the CH 99 player (archive.org cartoon playlist driver) only
+// downloads when someone actually flips to CH 99 — it never rides the
+// leaderboard's initial bundle. ssr:false because an autoplaying
+// <video> is meaningless markup on the server.
+const SlopChannel = dynamic(
+  () => import('@/components/leaderboard/SlopChannel'),
+  { ssr: false }
+)
 
 const BAR_CELLS = 18
 const SPARK_GLYPHS = '▁▂▃▄▅▆▇█'
@@ -41,6 +52,9 @@ type Ambient = {
 }
 
 type Cycle = { row: LeaderRow; index: number; grid: PixelGrid | null }
+
+/** What the tube is tuned to: the attract rotation or the pirate feed. */
+type ChannelMode = 'attract' | 'slop'
 
 type GridLine = { ch: string; a: number }[]
 
@@ -320,6 +334,11 @@ export const CrtAttract = memo(function CrtAttract({
   const { play } = useSfx()
   const [cycle, setCycle] = useState<Cycle | null>(null)
   const [staticGrid, setStaticGrid] = useState<PixelGrid | null>(null)
+  const [channelMode, setChannelMode] = useState<ChannelMode>('attract')
+  const [slopStatus, setSlopStatus] = useState<SlopStatus>('connecting')
+  // Autoplay policy: the feed always lands muted; the screen click is the
+  // user gesture that turns sound on.
+  const [slopMuted, setSlopMuted] = useState(true)
 
   const rootRef = useRef<HTMLElement>(null)
   const bezelRef = useRef<HTMLDivElement>(null)
@@ -351,7 +370,12 @@ export const CrtAttract = memo(function CrtAttract({
 
   const tlRef = useRef<gsap.core.Timeline | null>(null)
   const ambientRef = useRef<Ambient[]>([])
-  const holdsRef = useRef({ frozen: false, offscreen: false, hidden: false })
+  const holdsRef = useRef({
+    frozen: false,
+    offscreen: false,
+    hidden: false,
+    slop: false
+  })
 
   useEffect(() => {
     disposedRef.current = false
@@ -391,13 +415,16 @@ export const CrtAttract = memo(function CrtAttract({
     return grid
   }, [])
 
-  // ---- playback holds: frozen prop, offscreen, hidden tab ---------------
+  // ---- playback holds: frozen prop, offscreen, hidden tab, slop mode ----
   const syncPlayState = useCallback(() => {
     const h = holdsRef.current
     const paused = h.frozen || h.offscreen || h.hidden
     const tl = tlRef.current
     if (tl) {
-      if (paused) tl.pause()
+      // The slop channel parks the attract rotation but NOT the ambient
+      // layer — flicker, rollbar and LED are tube physics, and they keep
+      // running over the video feed.
+      if (paused || h.slop) tl.pause()
       else tl.resume()
     }
     // anime's engine already sleeps on document.hidden; frozen/offscreen
@@ -412,6 +439,17 @@ export const CrtAttract = memo(function CrtAttract({
     holdsRef.current.frozen = frozen
     syncPlayState()
   }, [frozen, syncPlayState])
+
+  useEffect(() => {
+    holdsRef.current.slop = channelMode === 'slop'
+    syncPlayState()
+    // Every tune-in starts from the same place: dead air until the room
+    // connects, sound off until the viewer asks for it.
+    if (channelMode === 'slop') {
+      setSlopStatus('connecting')
+      setSlopMuted(true)
+    }
+  }, [channelMode, syncPlayState])
 
   useEffect(() => {
     const root = rootRef.current
@@ -763,7 +801,7 @@ export const CrtAttract = memo(function CrtAttract({
       if (staticL) tl.to(staticL, { opacity: 0.55, duration: 0.08 }, 'out+=0.1')
 
       const h = holdsRef.current
-      if (h.frozen || h.offscreen || h.hidden) tl.pause()
+      if (h.frozen || h.offscreen || h.hidden || h.slop) tl.pause()
 
       return () => {
         if (tlRef.current === tl) tlRef.current = null
@@ -794,18 +832,68 @@ export const CrtAttract = memo(function CrtAttract({
       ? `CH ${pad(cycle.index + 1, 2)}`
       : 'CH --'
 
+  // Channel flip: static burst + the channel zap, then swap what the tube
+  // is tuned to. The burst is a one-shot outside the master timeline (which
+  // parks while the slop channel is up); clearProps hands opacity control
+  // back to the data-on attribute rule once it fades.
+  const flipChannel = useCallback(() => {
+    playRef.current('channel')
+    const staticL = staticRef.current
+    if (staticL && !reducedNow()) {
+      gsap.fromTo(
+        staticL,
+        { opacity: 0.85 },
+        {
+          opacity: 0,
+          duration: 0.3,
+          delay: 0.12,
+          ease: 'power1.in',
+          onComplete: () => {
+            gsap.set(staticL, { clearProps: 'opacity' })
+          }
+        }
+      )
+    }
+    setChannelMode((mode) => (mode === 'attract' ? 'slop' : 'attract'))
+  }, [])
+
   const handleScreenClick = () => {
-    if (!activeRow) return
-    play('pressStart')
-    onSelect(activeRow)
+    switch (channelMode) {
+      case 'attract': {
+        if (!activeRow) return
+        play('pressStart')
+        onSelect(activeRow)
+        return
+      }
+      case 'slop': {
+        // The tap is the autoplay-policy gesture: first click unmutes.
+        play(slopMuted ? 'toggleOn' : 'toggleOff')
+        setSlopMuted((m) => !m)
+        return
+      }
+      default: {
+        const exhaustive: never = channelMode
+        throw new Error(`Unhandled channel mode: ${String(exhaustive)}`)
+      }
+    }
   }
+
+  const slop = channelMode === 'slop'
+  // In slop mode the noise sheet doubles as dead air: on while tuning or
+  // when the feed drops, off once the room delivers tracks.
+  const staticOn = slop ? slopStatus !== 'live' : awaiting
 
   return (
     <section
       ref={rootRef}
       className="crt-root"
       data-reduced={reduced || undefined}
-      aria-label="Attract mode — top pilots showcase"
+      data-channel={channelMode}
+      aria-label={
+        slop
+          ? 'Slop TV — pirate broadcast'
+          : 'Attract mode — top pilots showcase'
+      }
     >
       <div ref={bezelRef} className="crt-bezel">
         <div className="crt-screenwrap">
@@ -817,24 +905,80 @@ export const CrtAttract = memo(function CrtAttract({
               // tap on pointerdown; the click handler owns the audio here.
               data-sfx="off"
               onClick={handleScreenClick}
-              disabled={awaiting}
+              disabled={!slop && awaiting}
               aria-label={
-                activeRow
-                  ? `Open pilot card — @${activeRow.username}, rank ${activeRow.rank}`
-                  : 'Awaiting signal'
+                slop
+                  ? slopMuted
+                    ? 'Slop TV — press to enable sound'
+                    : 'Slop TV — press to mute'
+                  : activeRow
+                    ? `Open pilot card — @${activeRow.username}, rank ${activeRow.rank}`
+                    : 'Awaiting signal'
               }
             >
+              {/* Bottom of the paint stack: the feed sits under the
+                  static sheet and every tube-physics overlay below. */}
+              {slop ? (
+                <SlopChannel muted={slopMuted} onStatus={setSlopStatus} />
+              ) : null}
               <div
                 ref={staticRef}
                 className="crt-static"
-                data-on={awaiting}
+                data-on={staticOn}
                 aria-hidden
               />
               <div ref={flickerRef} className="crt-flicker">
                 <div className="crt-chrome">
-                  <span>CRIBBLE//BROADCAST</span>
-                  <span>{channel}</span>
+                  <span>{slop ? 'PIRATE//BROADCAST' : 'CRIBBLE//BROADCAST'}</span>
+                  {/* Not a <button>: it lives inside the screen button, and
+                      interactive elements can't nest. The chin's CH button
+                      is the fully accessible twin of this readout. */}
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    className="crt-chrome-ch"
+                    data-sfx="off"
+                    aria-label={
+                      slop
+                        ? 'Change channel — back to attract mode'
+                        : 'Change channel — Slop TV'
+                    }
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      flipChannel()
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        flipChannel()
+                      }
+                    }}
+                  >
+                    {slop ? 'CH 99 SLOP' : channel}
+                  </span>
                 </div>
+                {slop ? (
+                  slopStatus === 'live' ? (
+                    <div className="crt-hint crt-slop-hint">
+                      <span className="crt-cursor">▮</span>
+                      <span>
+                        {slopMuted
+                          ? 'SOUND OFF ─ PRESS SCREEN'
+                          : 'SOUND ON ─ PRESS TO MUTE'}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="crt-await">
+                      <div className="crt-await-title">CH 99 SLOP</div>
+                      <div className="crt-await-sub">
+                        {slopStatus === 'connecting'
+                          ? 'TUNING SIGNAL'
+                          : 'NO CARRIER'}
+                      </div>
+                    </div>
+                  )
+                ) : null}
                 {reduced && featured ? (
                   <Stage
                     row={featured}
@@ -858,14 +1002,16 @@ export const CrtAttract = memo(function CrtAttract({
                     barRef={barRef}
                     pctRef={pctRef}
                   />
-                ) : (
+                ) : !slop ? (
+                  // Suppressed on CH 99: the slop overlay above owns the
+                  // await treatment there.
                   <div className="crt-await">
                     <div className="crt-await-title">AWAITING SIGNAL</div>
                     <div className="crt-await-sub">
                       {loading ? 'SCANNING FOR PILOTS' : 'NO CARRIER'}
                     </div>
                   </div>
-                )}
+                ) : null}
               </div>
               <div className="crt-scanlines" aria-hidden />
               <div ref={rollbarRef} className="crt-rollbar" aria-hidden />
@@ -876,8 +1022,24 @@ export const CrtAttract = memo(function CrtAttract({
         </div>
         <div className="crt-chin">
           <span className="crt-brand">CRIBBLE</span>
-          <span className="crt-model">MODEL CRT·1984 // ATTRACT MODE</span>
+          <span className="crt-model">
+            {slop
+              ? // Etiquette: credit the archive whose nodes serve the reels.
+                'PUBLIC DOMAIN THEATER · archive.org'
+              : 'MODEL CRT·1984 // ATTRACT MODE'}
+          </span>
           <span className="crt-ledwrap">
+            <button
+              type="button"
+              className="crt-chbtn"
+              // flipChannel plays the channel zap itself.
+              data-sfx="off"
+              onClick={flipChannel}
+              aria-pressed={slop}
+              aria-label="Change channel — Slop TV"
+            >
+              CH
+            </button>
             <span ref={ledRef} className="crt-led" data-live={!loading} />
             {loading ? 'SYNC' : 'LIVE'}
           </span>
@@ -1177,6 +1339,27 @@ export const CrtAttract = memo(function CrtAttract({
           }
         }
 
+        /* ---- CH 99 SLOP (pirate channel) ---- */
+        /* The attract stage stays mounted so its paused GSAP timeline
+           keeps its nodes (and resumes exactly where it parked on
+           flip-back) — display:none because GSAP owns inline opacity
+           and visibility on these elements. */
+        .crt-root[data-channel='slop'] .crt-stage {
+          display: none;
+        }
+        .crt-chrome-ch {
+          cursor: pointer;
+        }
+        .crt-chrome-ch:hover,
+        .crt-chrome-ch:focus-visible {
+          color: rgb(var(--crt-hi));
+          outline: none;
+          text-shadow: 0 0 8px rgb(var(--crt-p) / 0.6);
+        }
+        .crt-slop-hint {
+          position: relative;
+        }
+
         /* ---- tube physics overlays ---- */
         .crt-scanlines {
           position: absolute;
@@ -1318,6 +1501,27 @@ export const CrtAttract = memo(function CrtAttract({
         .crt-led[data-live='false'] {
           background: #8a4a3a;
           box-shadow: 0 0 7px rgb(255 110 80 / 0.55);
+        }
+        .crt-chbtn {
+          padding: 2px 7px;
+          border: 1px solid rgb(255 255 255 / 0.22);
+          border-radius: 4px;
+          background: transparent;
+          font-family: var(--font-data), ui-monospace, Menlo, monospace;
+          font-size: 8px;
+          letter-spacing: 0.26em;
+          color: rgb(255 255 255 / 0.42);
+          cursor: pointer;
+        }
+        .crt-chbtn:hover,
+        .crt-chbtn:focus-visible {
+          border-color: rgb(255 255 255 / 0.45);
+          color: rgb(255 255 255 / 0.7);
+        }
+        .crt-chbtn[aria-pressed='true'] {
+          border-color: rgb(var(--crt-p) / 0.6);
+          color: rgb(var(--crt-p));
+          box-shadow: 0 0 8px rgb(var(--crt-p) / 0.35);
         }
 
         /* ---- small screens ---- */

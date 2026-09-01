@@ -30,6 +30,7 @@ describe('middleware security headers', () => {
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
         "font-src 'self' https://fonts.gstatic.com; " +
         "img-src 'self' data: https: blob:; " +
+        "media-src 'self' https://archive.org https://*.us.archive.org https://*.ca.archive.org; " +
         "connect-src 'self' https://*.supabase.co https://vitals.vercel-insights.com https://*.goatcounter.com; " +
         "frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; " +
         "frame-ancestors 'none'"
