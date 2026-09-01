@@ -92,6 +92,13 @@ const ICON_TEAMS = (
   </IconBase>
 )
 
+const ICON_ABUSE = (
+  <IconBase>
+    <path d="M8 1.75 13.25 4v3.5c0 3.2-2.2 5.65-5.25 6.75C4.95 13.15 2.75 10.7 2.75 7.5V4Z" />
+    <path d="M8 5.5v3M8 10.4v.1" />
+  </IconBase>
+)
+
 const ICON_AUDIT = (
   <IconBase>
     <rect x="2.75" y="1.75" width="10.5" height="12.5" rx="1.5" />
@@ -168,7 +175,8 @@ const NAV_GROUPS: readonly AdminNavGroup[] = [
     items: [
       { href: '/admin', label: 'Overview', icon: ICON_OVERVIEW },
       { href: '/admin/feedback', label: 'Feedback', icon: ICON_FEEDBACK },
-      { href: '/admin/teams', label: 'Teams', icon: ICON_TEAMS }
+      { href: '/admin/teams', label: 'Teams', icon: ICON_TEAMS },
+      { href: '/admin/abuse', label: 'Abuse', icon: ICON_ABUSE }
     ]
   },
   {

@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { BOARD_LIMIT } from '@/lib/leaderboardEngine'
+import { sweepFraudSignals } from '@/lib/fraudDetectionServer'
 import {
   alertLeaderboardIntegrity,
   assessLeaderboardIntegrity,
@@ -147,6 +148,12 @@ async function handle(request: NextRequest) {
   // can't leave finished runs unarchived.
   const sponsorSweep = await sweepFinishedLeaderboardSponsorAds(supabase, checkedAt)
 
+  // Piggybacked fraud sweep (same cron-budget reason). Scans the
+  // competitive-board candidate set for leaderboard/token abuse and raises
+  // deduped fraud_flags for staff. Never throws, so a detection outage can
+  // neither block the integrity check nor 500 the cron.
+  const fraudSweep = await sweepFraudSignals(supabase, { now: checkedAt })
+
   try {
     const [apiRows, canonicalRows, snapshotRows] = await Promise.all([
       loadApiRows(request, secret!),
@@ -180,7 +187,8 @@ async function handle(request: NextRequest) {
       checkedAt: checkedAt.toISOString(),
       healthy: true,
       playersChecked: apiRows.length,
-      sponsorSweep
+      sponsorSweep,
+      fraudSweep
     })
   } catch (error) {
     const report = leaderboardMonitorError(error)
