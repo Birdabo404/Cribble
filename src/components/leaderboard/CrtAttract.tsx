@@ -1,10 +1,17 @@
 'use client'
 
-// CRT attract mode — the leaderboard hero. A physical amber-phosphor
+// CRT attract mode — the leaderboard hero. A physical two-phosphor
 // monitor idling like an arcade cabinet: it endlessly replays the top of
-// the standings to pull players in. Everything on it is diegetic — the
-// bezel LED is the live poll, static noise is loading, the channel-switch
-// glitch is the player transition, and PRESS START opens the PlayerCard.
+// the standings as personnel dossiers to pull players in. Everything on it
+// is diegetic — the bezel LED is the live poll, static noise is loading,
+// the channel-switch glitch is the player transition, the hex strip is
+// the rotation position, the footer ruler sweeps the current cycle, and
+// PRESS START opens the PlayerCard.
+//
+// Palette: white phosphor (--crt-w) carries the dossier structure — frame,
+// halftone portrait, labels, data bars — while the amber phosphor
+// (--crt-p / --crt-hi) is reserved for what's live or interactive: rank
+// stamp, score digits, PWR fill, ONLINE, the channel readout, PRESS START.
 //
 // Division of labor: GSAP (useGSAP) owns the sequenced master timeline
 // (glitch-in → type → dither → count-up → hold → glitch-out) plus the
@@ -44,6 +51,15 @@ const SlopChannel = dynamic(
 const SLOP_CHANNEL_LABEL = 'CH 92 SLOPTOONS'
 const BAR_CELLS = 18
 const SPARK_GLYPHS = '▁▂▃▄▅▆▇█'
+// Footer ruler: 9 numbered majors 16px apart. The sweep caret travels the
+// full 128px span over one attract cycle (see the GSAP timeline); the CSS
+// tick track is one pixel wider so the last major tick paints.
+const RULER_MAJORS = 9
+const RULER_SPAN_PX = (RULER_MAJORS - 1) * 16
+// Chrome hex strip cell geometry (pointy-top hexes, SVG user units).
+const HEX_W = 10
+const HEX_H = 12
+const HEX_GAP = 3
 
 /** anime.js timers and animations share this playback surface. */
 type Ambient = {
@@ -124,6 +140,75 @@ function sparkline(seed: number): string {
     out += SPARK_GLYPHS[Math.floor((x / 4294967296) * SPARK_GLYPHS.length)]
   }
   return out
+}
+
+/** Signed compact delta for the dossier bars: `+1.2K`, or `——` at zero. */
+function delta(n: number): string {
+  return n > 0 ? `+${formatCompact(n)}` : '——'
+}
+
+/** Dossier serial: the user id in base-36, the way an ID card prints a
+ *  personnel number (`PLT.0K3F`). Stable per pilot, never collides. */
+function serial(userId: number): string {
+  return `PLT.${userId.toString(36).toUpperCase().padStart(4, '0')}`
+}
+
+function hexPoints(x: number): string {
+  const w = HEX_W
+  const h = HEX_H
+  return [
+    [x + w / 2, 0.5],
+    [x + w - 0.5, h / 4],
+    [x + w - 0.5, (3 * h) / 4],
+    [x + w / 2, h - 0.5],
+    [x + 0.5, (3 * h) / 4],
+    [x + 0.5, h / 4]
+  ]
+    .map(([px, py]) => `${px},${py}`)
+    .join(' ')
+}
+
+/** Rotation position indicator in the screen chrome: one hex per pilot in
+ *  the attract slice — lit amber for the pilot on screen, dim-filled for
+ *  the ones already shown this pass, outlined for the ones still to come.
+ *  `active` -1 = nothing tuned yet. */
+function HexStrip({ count, active }: { count: number; active: number }) {
+  const width = count * (HEX_W + HEX_GAP) - HEX_GAP
+  return (
+    <svg
+      className="crt-hexes"
+      width={width}
+      height={HEX_H}
+      viewBox={`0 0 ${width} ${HEX_H}`}
+      aria-hidden
+    >
+      {Array.from({ length: count }, (_, i) => (
+        <polygon
+          key={i}
+          points={hexPoints(i * (HEX_W + HEX_GAP))}
+          data-state={i === active ? 'on' : i < active ? 'seen' : 'off'}
+        />
+      ))}
+    </svg>
+  )
+}
+
+/** Footer measuring scale with the cycle sweep caret. Pure dossier
+ *  furniture except the caret, which the master timeline drives from 0 to
+ *  RULER_SPAN_PX across one pilot's full cycle — a diegetic countdown to
+ *  the next channel switch. */
+function Ruler() {
+  return (
+    <span className="crt-ruler" aria-hidden>
+      <span className="crt-ruler-ticks" />
+      <span className="crt-sweep" />
+      <span className="crt-ruler-nums">
+        {Array.from({ length: RULER_MAJORS }, (_, i) => (
+          <span key={i}>{i}</span>
+        ))}
+      </span>
+    </span>
+  )
 }
 
 /* ================= title entrance ================= */
@@ -232,75 +317,100 @@ const Stage = memo(function Stage({
 
   return (
     <div ref={stageRef} className="crt-stage" aria-hidden={live || undefined}>
-      <div className="crt-line1">
-        {typed(`> PILOT ${pad(index + 1)}/${pad(total)}`)}
-        {typed(`RANK #${row.rank}`)}
+      {/* Dossier header: the pilot's name is the wordmark, the knee rule
+          runs out to the roster position — the ID-card lockup. */}
+      <div className="crt-head">
+        <span className="crt-mark" data-top={row.rank === 1 || undefined} aria-hidden />
+        <div className="crt-name">{row.display_name || `@${row.username}`}</div>
+        <span className="crt-knee" aria-hidden />
+        <span className="crt-idx">{typed(`PILOT ${pad(index + 1)}/${pad(total)}`)}</span>
       </div>
       <div className="crt-body">
-        <div className="crt-av" aria-hidden>
-          {lines ? (
-            lines.map((line, r) => (
-              <div key={r} className="crt-av-row">
-                {line.map((cell, c) =>
-                  cell.ch === ' ' ? (
-                    <span key={c}> </span>
-                  ) : (
-                    <span
-                      key={c}
-                      className="crt-av-cell"
-                      style={{ color: `rgb(var(--crt-p) / ${cell.a})` }}
-                    >
-                      {cell.ch}
-                    </span>
-                  )
-                )}
+        <div className="crt-card">
+          <div className="crt-av" aria-hidden>
+            {lines ? (
+              lines.map((line, r) => (
+                <div key={r} className="crt-av-row">
+                  {line.map((cell, c) =>
+                    cell.ch === ' ' ? (
+                      <span key={c}> </span>
+                    ) : (
+                      <span
+                        key={c}
+                        className="crt-av-cell"
+                        style={{ color: `rgb(var(--crt-w) / ${cell.a})` }}
+                      >
+                        {cell.ch}
+                      </span>
+                    )
+                  )}
+                </div>
+              ))
+            ) : row.profile_image ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={row.profile_image} alt="" className="crt-av-img" />
+            ) : null}
+          </div>
+          <div className="crt-data">
+            <div className="crt-tags">
+              <span className="crt-tag">RANK #{pad(row.rank, 2)}</span>
+              {typed(`@${row.username}`, 'crt-user')}
+              <span className="crt-status" data-on={row.isActive}>
+                <span className="crt-status-t">{row.isActive ? 'ONLINE' : 'OFFLINE'}</span>
+              </span>
+            </div>
+            <div className="crt-grid">
+              <div className="crt-bars">
+                <div className="crt-bar">
+                  <span className="crt-bar-k">24H:</span>
+                  {typed(delta(row.todayScore))}
+                </div>
+                <div className="crt-bar">
+                  <span className="crt-bar-k">TOOL:</span>
+                  {typed(tool ? `${tool.name.toUpperCase()} ${tool.percent}%` : '——')}
+                </div>
               </div>
-            ))
-          ) : row.profile_image ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={row.profile_image} alt="" className="crt-av-img" />
-          ) : null}
-        </div>
-        <div className="crt-data">
-          <div className="crt-name">{row.display_name || `@${row.username}`}</div>
-          {typed(
-            `@${row.username} · ${row.isActive ? 'ONLINE' : 'OFFLINE'}`,
-            'crt-user'
-          )}
-          <div className="crt-scorewrap">
-            <span className="crt-label">SCORE</span>
-            <span ref={scoreRef} className="crt-score">
-              {live ? '0' : formatNumber(row.score)}
-            </span>
-          </div>
-          <div className="crt-barline">
-            <span className="crt-label">PWR</span>
-            <span className="crt-bracket">[</span>
-            <span ref={barRef} className="crt-barcells">
-              {live ? '·'.repeat(BAR_CELLS) : barString(frac)}
-            </span>
-            <span className="crt-bracket">]</span>
-            <span ref={pctRef} className="crt-pct">
-              {live ? '  0%' : `${String(Math.round(frac * 100)).padStart(3, ' ')}%`}
-            </span>
-          </div>
-          <div className="crt-readouts">
-            {typed(
-              `24H ${row.todayScore > 0 ? `+${formatCompact(row.todayScore)}` : '——'}`
-            )}
-            {typed(
-              tool ? `TOOL ${tool.name.toUpperCase()} ${tool.percent}%` : 'TOOL ——'
-            )}
-          </div>
-          <div className="crt-sparkline">
-            <span className="crt-label">SIG</span>
-            {typed(sparkline(row.userId), undefined, true)}
+              <div className="crt-codes">
+                <div className="crt-code">
+                  <span className="crt-code-k">7D:</span>
+                  {typed(delta(row.weekScore))}
+                </div>
+                <div className="crt-code">
+                  <span className="crt-code-k">ID:</span>
+                  {typed(serial(row.userId))}
+                </div>
+              </div>
+            </div>
+            <div className="crt-scorewrap">
+              <span className="crt-label">SCORE</span>
+              <span ref={scoreRef} className="crt-score">
+                {live ? '0' : formatNumber(row.score)}
+              </span>
+            </div>
+            <div className="crt-barline">
+              <span className="crt-label">PWR</span>
+              <span className="crt-bracket">[</span>
+              <span ref={barRef} className="crt-barcells">
+                {live ? '·'.repeat(BAR_CELLS) : barString(frac)}
+              </span>
+              <span className="crt-bracket">]</span>
+              <span ref={pctRef} className="crt-pct">
+                {live ? '  0%' : `${String(Math.round(frac * 100)).padStart(3, ' ')}%`}
+              </span>
+            </div>
+            <div className="crt-sparkline">
+              <span className="crt-label">&gt;SIG</span>
+              {typed(sparkline(row.userId), undefined, true)}
+            </div>
           </div>
         </div>
       </div>
-      <div className="crt-hint">
-        <span className="crt-cursor">▮</span>
-        <span>PRESS START ─ OPEN PILOT CARD</span>
+      <div className="crt-foot">
+        <div className="crt-hint">
+          <span className="crt-cursor">▮</span>
+          <span>PRESS START ─ OPEN PILOT CARD</span>
+        </div>
+        <Ruler />
       </div>
     </div>
   )
@@ -607,7 +717,7 @@ export const CrtAttract = memo(function CrtAttract({
       // Pre-paint hides so nothing flashes before its beat.
       gsap.set(stage, { autoAlpha: 0 })
       const beats = stage.querySelectorAll(
-        '.crt-name, .crt-hint, .crt-av-cell, .crt-av-img'
+        '.crt-name, .crt-tag, .crt-hint, .crt-av-cell, .crt-av-img'
       )
       if (beats.length > 0) gsap.set(beats, { autoAlpha: 0 })
 
@@ -704,6 +814,19 @@ export const CrtAttract = memo(function CrtAttract({
         at += dur * 0.55
       }
       tl.to('.crt-name', { autoAlpha: 1, duration: 0.4, ease: 'steps(5)' }, 'type+=0.08')
+      // The data bars wipe open from their left rule while their values
+      // type; the rank badge stamps down onto the card a beat later.
+      tl.from(
+        '.crt-bar',
+        { scaleX: 0, duration: 0.28, stagger: 0.1, ease: 'power2.out' },
+        'type+=0.1'
+      )
+      tl.fromTo(
+        '.crt-tag',
+        { autoAlpha: 0, scale: 1.6 },
+        { autoAlpha: 1, scale: 1, duration: 0.2, ease: 'steps(4)' },
+        'type+=0.34'
+      )
 
       // Avatar dithers in cell by cell.
       tl.addLabel('dither', 'type+=0.24')
@@ -800,6 +923,20 @@ export const CrtAttract = memo(function CrtAttract({
       )
       tl.to(stage, { autoAlpha: 0, duration: 0.05 }, '>')
       if (staticL) tl.to(staticL, { opacity: 0.55, duration: 0.08 }, 'out+=0.1')
+
+      // Cycle sweep: the ruler caret crosses its span from the moment the
+      // channel locks to the moment it drops — added last so the timeline's
+      // duration is final. Anything that pauses the timeline parks it too.
+      const sweep = stage.querySelector('.crt-sweep')
+      if (sweep) {
+        const lock = tl.labels.glitchIn ?? 0
+        tl.fromTo(
+          sweep,
+          { x: 0 },
+          { x: RULER_SPAN_PX, duration: Math.max(0.1, tl.duration() - lock), ease: 'none' },
+          lock
+        )
+      }
 
       const h = holdsRef.current
       if (h.frozen || h.offscreen || h.hidden || h.slop) tl.pause()
@@ -931,32 +1068,40 @@ export const CrtAttract = memo(function CrtAttract({
               <div ref={flickerRef} className="crt-flicker">
                 <div className="crt-chrome">
                   <span>{slop ? 'PIRATE//BROADCAST' : 'CRIBBLE//BROADCAST'}</span>
-                  {/* Not a <button>: it lives inside the screen button, and
-                      interactive elements can't nest. The chin's CH button
-                      is the fully accessible twin of this readout. */}
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    className="crt-chrome-ch"
-                    data-sfx="off"
-                    aria-label={
-                      slop
-                        ? 'Change channel — back to attract mode'
-                        : 'Change channel — Sloptoons'
-                    }
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      flipChannel()
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
+                  <span className="crt-chrome-right">
+                    {!slop && rows.length > 0 ? (
+                      <HexStrip
+                        count={rows.length}
+                        active={reduced ? 0 : (cycle?.index ?? -1)}
+                      />
+                    ) : null}
+                    {/* Not a <button>: it lives inside the screen button,
+                        and interactive elements can't nest. The chin's CH
+                        button is the fully accessible twin of this readout. */}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className="crt-chrome-ch"
+                      data-sfx="off"
+                      aria-label={
+                        slop
+                          ? 'Change channel — back to attract mode'
+                          : 'Change channel — Sloptoons'
+                      }
+                      onClick={(e) => {
                         e.stopPropagation()
                         flipChannel()
-                      }
-                    }}
-                  >
-                    {slop ? SLOP_CHANNEL_LABEL : channel}
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          flipChannel()
+                        }
+                      }}
+                    >
+                      {slop ? SLOP_CHANNEL_LABEL : channel}
+                    </span>
                   </span>
                 </div>
                 {slop ? (
@@ -1055,6 +1200,15 @@ export const CrtAttract = memo(function CrtAttract({
              the tube, and the bezel stays dark in both themes. */
           --crt-p: 255 179 25;
           --crt-hi: 255 214 68;
+          /* White phosphor (P4, faintly cool) for the dossier structure —
+             everything that isn't live data reads in black and white. */
+          --crt-w: 236 238 240;
+          /* Chromatic misconvergence on the white phosphor: the tube's red
+             and blue guns land a pixel apart. Text-shadow only, so it rides
+             on the hero name and the halftone portrait without a filter. */
+          --crt-ca:
+            -1px 0 rgb(255 70 60 / 0.32),
+            1px 0 rgb(60 200 255 / 0.32);
           margin: 28px auto 0;
           width: 100%;
           max-width: 780px;
@@ -1099,14 +1253,16 @@ export const CrtAttract = memo(function CrtAttract({
           border-radius: 12px;
           cursor: pointer;
           overflow: hidden;
+          /* Warm black: the tube keeps its amber cast, pulled back just far
+             enough that the white phosphor reads as white, not cream. */
           background: radial-gradient(
             130% 115% at 50% 42%,
-            #1a1106 0%,
-            #0e0904 55%,
-            #070402 100%
+            #171109 0%,
+            #0c0905 55%,
+            #060403 100%
           );
           font-family: var(--font-data), ui-monospace, 'SF Mono', Menlo, monospace;
-          color: rgb(var(--crt-p) / 0.9);
+          color: rgb(var(--crt-w) / 0.85);
         }
         .crt-screen:disabled {
           cursor: default;
@@ -1144,105 +1300,317 @@ export const CrtAttract = memo(function CrtAttract({
 
         .crt-chrome {
           display: flex;
-          align-items: baseline;
+          align-items: center;
           justify-content: space-between;
+          gap: 12px;
           padding-bottom: 8px;
-          border-bottom: 1px dashed rgb(var(--crt-p) / 0.22);
+          border-bottom: 1px solid rgb(var(--crt-w) / 0.26);
           font-size: 9px;
           letter-spacing: 0.3em;
-          color: rgb(var(--crt-p) / 0.55);
-          text-shadow: 0 0 5px rgb(var(--crt-p) / 0.35);
+          color: rgb(var(--crt-w) / 0.5);
+          text-shadow: 0 0 5px rgb(var(--crt-w) / 0.25);
+        }
+        .crt-chrome-right {
+          display: flex;
+          flex: none;
+          align-items: center;
+          gap: 14px;
+        }
+        .crt-hexes {
+          display: block;
+          overflow: visible;
+        }
+        .crt-hexes polygon {
+          fill: transparent;
+          stroke: rgb(var(--crt-w) / 0.42);
+          stroke-width: 1;
+        }
+        .crt-hexes polygon[data-state='seen'] {
+          fill: rgb(var(--crt-w) / 0.22);
+        }
+        .crt-hexes polygon[data-state='on'] {
+          fill: rgb(var(--crt-p));
+          stroke: rgb(var(--crt-hi));
+          filter: drop-shadow(0 0 3px rgb(var(--crt-p) / 0.85));
+        }
+        .crt-chrome-ch {
+          color: rgb(var(--crt-p));
+          text-shadow: 0 0 6px rgb(var(--crt-p) / 0.5);
         }
 
-        /* ---- attract stage ---- */
+        /* ---- attract stage: the personnel dossier ---- */
         .crt-stage {
           display: flex;
           flex: 1;
           flex-direction: column;
-          padding-top: 12px;
-          text-shadow: 0 0 6px rgb(var(--crt-p) / 0.4);
+          padding-top: 10px;
+          text-shadow: 0 0 5px rgb(var(--crt-w) / 0.2);
         }
-        .crt-line1 {
+
+        /* header lockup: mark · NAME ──┘ PILOT 001/387 */
+        .crt-head {
           display: flex;
-          justify-content: space-between;
-          min-height: 14px;
-          font-size: 10px;
-          letter-spacing: 0.18em;
-          color: rgb(var(--crt-p) / 0.8);
+          align-items: center;
+          gap: 10px;
+          min-height: 28px;
         }
+        .crt-mark {
+          flex: none;
+          width: 13px;
+          height: 12px;
+          background: rgb(var(--crt-w) / 0.9);
+          /* Delta with a notch cut up the middle — the dossier issuer's mark. */
+          clip-path: polygon(50% 0, 100% 100%, 63% 100%, 50% 46%, 37% 100%, 0 100%);
+        }
+        .crt-mark[data-top='true'] {
+          background: rgb(var(--crt-p));
+          filter: drop-shadow(0 0 4px rgb(var(--crt-p) / 0.85));
+        }
+        .crt-name {
+          overflow: hidden;
+          max-width: 62%;
+          font-family: var(--font-pixel);
+          font-size: clamp(13px, 2.2vw, 19px);
+          line-height: 1.3;
+          color: rgb(var(--crt-w));
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          text-shadow:
+            var(--crt-ca),
+            0 0 10px rgb(var(--crt-w) / 0.32);
+        }
+        .crt-knee {
+          position: relative;
+          flex: 1;
+          align-self: flex-end;
+          min-width: 26px;
+          height: 10px;
+          margin-bottom: 6px;
+        }
+        .crt-knee::before {
+          content: '';
+          position: absolute;
+          right: 13px;
+          bottom: 0;
+          left: 0;
+          height: 1px;
+          background: rgb(var(--crt-w) / 0.36);
+        }
+        .crt-knee::after {
+          content: '';
+          position: absolute;
+          right: 0;
+          bottom: 0;
+          width: 14px;
+          height: 1px;
+          background: rgb(var(--crt-w) / 0.36);
+          transform-origin: 0 50%;
+          transform: rotate(-45deg);
+        }
+        .crt-idx {
+          flex: none;
+          /* Fixed advance so the knee doesn't chase the typewriter. */
+          min-width: 15ch;
+          font-size: 9px;
+          letter-spacing: 0.22em;
+          color: rgb(var(--crt-w) / 0.62);
+          white-space: nowrap;
+        }
+
+        /* the card */
         .crt-body {
           display: flex;
           flex: 1;
           align-items: center;
-          gap: 26px;
-          padding: 14px 0 10px;
+          padding: 10px 0 8px;
+        }
+        .crt-card {
+          display: flex;
+          width: 100%;
+          align-items: center;
+          gap: 22px;
+          padding: 10px 14px 10px 10px;
+          border: 1px solid rgb(var(--crt-w) / 0.32);
+          border-radius: 6px;
+          box-shadow:
+            inset 0 0 0 1px rgb(0 0 0 / 0.4),
+            0 0 0 1px rgb(var(--crt-w) / 0.04);
         }
         .crt-av {
           flex: none;
+          padding: 5px;
+          border: 1px solid rgb(var(--crt-w) / 0.3);
+          /* Quilted backing plate behind the halftone, like the ID photo's
+             studio backdrop. */
+          background:
+            repeating-linear-gradient(
+              45deg,
+              rgb(var(--crt-w) / 0.045) 0 1px,
+              transparent 1px 8px
+            ),
+            repeating-linear-gradient(
+              -45deg,
+              rgb(var(--crt-w) / 0.045) 0 1px,
+              transparent 1px 8px
+            ),
+            rgb(var(--crt-w) / 0.025);
           font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
           font-size: 8px;
           line-height: 8px;
           letter-spacing: 0;
-          text-shadow: 0 0 4px rgb(var(--crt-p) / 0.45);
+          text-shadow: var(--crt-ca);
         }
         .crt-av-row {
           height: 8px;
           white-space: pre;
         }
         .crt-av-img {
+          display: block;
           width: 144px;
           height: 144px;
-          border: 1px solid rgb(var(--crt-p) / 0.3);
           image-rendering: pixelated;
-          filter: grayscale(1) sepia(1) saturate(2.4) hue-rotate(-14deg)
-            contrast(1.15) brightness(0.85);
+          filter: grayscale(1) contrast(1.35) brightness(0.92);
         }
         .crt-data {
           display: flex;
           min-width: 0;
           flex: 1;
           flex-direction: column;
-          gap: 8px;
+          gap: 7px;
         }
-        .crt-name {
-          overflow: hidden;
-          max-width: 100%;
-          font-family: var(--font-pixel);
-          font-size: clamp(13px, 2.4vw, 20px);
-          line-height: 1.35;
-          color: rgb(var(--crt-hi));
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          text-shadow:
-            0 0 10px rgb(var(--crt-p) / 0.6),
-            0 0 30px rgb(var(--crt-p) / 0.28);
+
+        /* tags row: [RANK #01] @callsign ● ONLINE */
+        .crt-tags {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          min-height: 16px;
+          font-size: 10px;
+          letter-spacing: 0.18em;
+          color: rgb(var(--crt-w) / 0.72);
+        }
+        .crt-tag {
+          flex: none;
+          padding: 3px 7px 2px 8px;
+          background: rgb(var(--crt-p));
+          font-size: 9px;
+          font-weight: 600;
+          letter-spacing: 0.24em;
+          color: #0d0905;
+          text-shadow: none;
+          box-shadow:
+            0 0 10px rgb(var(--crt-p) / 0.45),
+            0 0 26px rgb(var(--crt-p) / 0.2);
         }
         .crt-user {
           overflow: hidden;
-          min-height: 12px;
-          max-width: 100%;
-          font-size: 10px;
-          letter-spacing: 0.2em;
-          color: rgb(var(--crt-p) / 0.6);
+          min-width: 0;
+          text-overflow: ellipsis;
           /* One line always: a wrapping callsign would change the stage
              height between pilots (and against AWAITING SIGNAL). */
           white-space: nowrap;
         }
+        .crt-status {
+          display: flex;
+          flex: none;
+          align-items: center;
+          gap: 5px;
+          margin-left: auto;
+          font-size: 9px;
+          letter-spacing: 0.22em;
+          color: rgb(var(--crt-w) / 0.45);
+        }
+        .crt-status::before {
+          content: '';
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: rgb(var(--crt-w) / 0.22);
+        }
+        .crt-status[data-on='true'] {
+          color: rgb(var(--crt-hi) / 0.9);
+          text-shadow: 0 0 6px rgb(var(--crt-p) / 0.5);
+        }
+        .crt-status[data-on='true']::before {
+          background: rgb(var(--crt-p));
+          box-shadow: 0 0 6px rgb(var(--crt-p) / 0.9);
+        }
+
+        /* data bars + codes: the TOUR START / HA: block */
+        .crt-grid {
+          display: flex;
+          justify-content: space-between;
+          gap: 14px;
+        }
+        .crt-bars {
+          display: flex;
+          min-width: 0;
+          /* Bars take the left ~60% of the column, codes sit flush right —
+             the reference card's TOUR START / HA: split. */
+          flex: 0 1 62%;
+          flex-direction: column;
+          gap: 3px;
+        }
+        .crt-bar {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          height: 15px;
+          padding: 0 8px;
+          overflow: hidden;
+          border-left: 2px solid rgb(var(--crt-w) / 0.55);
+          background: rgb(var(--crt-w) / 0.1);
+          font-size: 9px;
+          line-height: 15px;
+          letter-spacing: 0.2em;
+          color: rgb(var(--crt-w) / 0.9);
+          white-space: nowrap;
+          /* GSAP wipes these open from the rule. */
+          transform-origin: 0 50%;
+        }
+        .crt-bar-k {
+          min-width: 6ch;
+          color: rgb(var(--crt-w) / 0.5);
+        }
+        .crt-codes {
+          display: flex;
+          flex: none;
+          flex-direction: column;
+          gap: 3px;
+          font-size: 9px;
+          letter-spacing: 0.2em;
+          color: rgb(var(--crt-w) / 0.6);
+          white-space: nowrap;
+        }
+        .crt-code {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          height: 15px;
+          line-height: 15px;
+        }
+        .crt-code-k {
+          color: rgb(var(--crt-w) / 0.38);
+        }
+
+        /* the big number */
         .crt-label {
           font-size: 8px;
           letter-spacing: 0.34em;
-          color: rgb(var(--crt-p) / 0.48);
+          color: rgb(var(--crt-w) / 0.45);
         }
         .crt-scorewrap {
           display: flex;
           align-items: baseline;
           gap: 12px;
           margin-top: 2px;
+          padding-bottom: 5px;
+          border-bottom: 1px solid rgb(var(--crt-w) / 0.26);
         }
         .crt-score {
           display: inline-block;
           font-family: var(--font-pixel);
-          font-size: clamp(17px, 3vw, 28px);
+          font-size: clamp(17px, 3vw, 26px);
           color: rgb(var(--crt-p));
           text-shadow:
             0 0 12px rgb(var(--crt-p) / 0.65),
@@ -1253,29 +1621,20 @@ export const CrtAttract = memo(function CrtAttract({
           align-items: baseline;
           gap: 8px;
           font-size: 12px;
-          color: rgb(var(--crt-p) / 0.9);
+          color: rgb(var(--crt-p));
         }
         .crt-bracket {
-          color: rgb(var(--crt-p) / 0.5);
+          color: rgb(var(--crt-w) / 0.4);
         }
         .crt-barcells {
           font-family: ui-monospace, 'SF Mono', Menlo, monospace;
           letter-spacing: 1px;
-          text-shadow: 0 0 6px rgb(var(--crt-p) / 0.5);
+          text-shadow: 0 0 6px rgb(var(--crt-p) / 0.55);
         }
         .crt-pct {
           font-size: 10px;
-          color: rgb(var(--crt-p) / 0.7);
+          color: rgb(var(--crt-w) / 0.7);
           white-space: pre;
-        }
-        .crt-readouts {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 4px 20px;
-          min-height: 12px;
-          font-size: 10px;
-          letter-spacing: 0.16em;
-          color: rgb(var(--crt-p) / 0.72);
         }
         .crt-sparkline {
           display: flex;
@@ -1283,15 +1642,23 @@ export const CrtAttract = memo(function CrtAttract({
           gap: 8px;
           min-height: 13px;
           font-size: 11px;
-          color: rgb(var(--crt-p) / 0.55);
+          color: rgb(var(--crt-w) / 0.5);
+        }
+
+        /* footer: PRESS START + the cycle ruler */
+        .crt-foot {
+          display: flex;
+          align-items: flex-end;
+          justify-content: space-between;
+          gap: 16px;
+          margin-top: auto;
+          padding-top: 10px;
+          border-top: 1px solid rgb(var(--crt-w) / 0.22);
         }
         .crt-hint {
           display: flex;
           align-items: center;
           gap: 8px;
-          margin-top: auto;
-          padding-top: 10px;
-          border-top: 1px dashed rgb(var(--crt-p) / 0.18);
           font-size: 9px;
           letter-spacing: 0.3em;
           color: rgb(var(--crt-hi) / 0.85);
@@ -1306,6 +1673,50 @@ export const CrtAttract = memo(function CrtAttract({
         }
         .crt-cur-off {
           visibility: hidden;
+        }
+        .crt-ruler {
+          position: relative;
+          display: block;
+          flex: none;
+          width: 144px;
+          height: 17px;
+        }
+        .crt-ruler-ticks {
+          position: absolute;
+          bottom: 8px;
+          left: 8px;
+          width: 129px;
+          height: 6px;
+          border-bottom: 1px solid rgb(var(--crt-w) / 0.42);
+          background:
+            linear-gradient(90deg, rgb(var(--crt-w) / 0.4) 0 1px, transparent 1px) 0 100% /
+              4px 3px repeat-x,
+            linear-gradient(90deg, rgb(var(--crt-w) / 0.62) 0 1px, transparent 1px) 0 100% /
+              16px 6px repeat-x;
+        }
+        .crt-ruler-nums {
+          position: absolute;
+          right: 0;
+          bottom: 0;
+          left: 0;
+          display: grid;
+          grid-template-columns: repeat(9, 1fr);
+          font-size: 6px;
+          line-height: 6px;
+          letter-spacing: 0;
+          text-align: center;
+          color: rgb(var(--crt-w) / 0.42);
+        }
+        .crt-sweep {
+          position: absolute;
+          bottom: 8px;
+          left: 7px;
+          width: 2px;
+          height: 9px;
+          background: rgb(var(--crt-p));
+          box-shadow: 0 0 6px rgb(var(--crt-p) / 0.9);
+          /* GSAP retargets x across the whole cycle. */
+          will-change: transform;
         }
 
         /* ---- awaiting signal ---- */
@@ -1357,8 +1768,12 @@ export const CrtAttract = memo(function CrtAttract({
           outline: none;
           text-shadow: 0 0 8px rgb(var(--crt-p) / 0.6);
         }
+        /* Sits where the attract footer would: same rule, same seat. */
         .crt-slop-hint {
           position: relative;
+          margin-top: auto;
+          padding-top: 10px;
+          border-top: 1px solid rgb(var(--crt-w) / 0.22);
         }
 
         /* ---- tube physics overlays ---- */
@@ -1410,16 +1825,19 @@ export const CrtAttract = memo(function CrtAttract({
           inset: -96px 0 0 -160px;
           pointer-events: none;
           opacity: 0;
-          background-color: #0a0703;
+          /* Black-and-white snow — dead air between dossiers is monochrome,
+             the amber only comes back once a channel locks. */
+          background-color: #070706;
           background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
           background-size: 160px 160px;
-          filter: grayscale(1) brightness(0.72) sepia(0.9) saturate(2.6)
-            hue-rotate(-14deg);
+          filter: grayscale(1) brightness(0.7) contrast(1.2);
           will-change: transform;
           animation: crt-static-crawl 0.42s steps(5) infinite;
         }
+        /* Near-opaque: the amber-graded feed ghosting through neutral snow
+           reads as an olive cast rather than a weak signal. */
         .crt-static[data-on='true'] {
-          opacity: 0.9;
+          opacity: 0.96;
         }
         @keyframes crt-static-crawl {
           to {
@@ -1535,21 +1953,55 @@ export const CrtAttract = memo(function CrtAttract({
             border-radius: 12px;
             padding: 6px;
           }
-          /* 272px seats the tallest loaded stage exactly (fixed-height
-             rows: name, callsign, score, PWR, two stacked readouts), so
-             the old 300px band of dead phosphor above PRESS START is gone
-             and AWAITING floors on the same value — no layout shift. */
+          /* Every stage row is fixed-height (head, tags, two bars, score,
+             PWR), so this seats the tallest loaded dossier exactly and
+             AWAITING floors on the same value — no layout shift. */
           .crt-flicker {
             min-height: 272px;
             padding: 12px 14px 10px;
           }
+          .crt-chrome {
+            letter-spacing: 0.22em;
+          }
+          .crt-chrome-right {
+            gap: 10px;
+          }
+          /* Ten hexes at full size crowd the channel readout off a 360px
+             tube; the viewBox scales them down together. */
+          .crt-hexes {
+            width: 72px;
+            height: auto;
+          }
+          .crt-head {
+            gap: 8px;
+            min-height: 24px;
+          }
+          .crt-mark {
+            width: 11px;
+            height: 10px;
+          }
+          .crt-name {
+            max-width: 58%;
+          }
+          .crt-idx {
+            min-width: 0;
+            font-size: 8px;
+            letter-spacing: 0.14em;
+          }
           .crt-body {
-            gap: 14px;
-            padding: 12px 0 8px;
+            padding: 8px 0 6px;
+          }
+          .crt-card {
+            gap: 10px;
+            padding: 6px 8px 6px 6px;
           }
           .crt-av {
+            padding: 3px;
             font-size: 5px;
             line-height: 5px;
+            /* A 1px gun offset on 3px-wide cells smears the halftone into
+               mush; the phone tube converges perfectly. */
+            text-shadow: none;
           }
           .crt-av-row {
             height: 5px;
@@ -1557,6 +2009,45 @@ export const CrtAttract = memo(function CrtAttract({
           .crt-av-img {
             width: 90px;
             height: 90px;
+          }
+          .crt-data {
+            gap: 6px;
+          }
+          .crt-tags {
+            gap: 8px;
+            min-height: 14px;
+          }
+          .crt-tag {
+            padding: 2px 5px 1px 6px;
+            font-size: 8px;
+            letter-spacing: 0.18em;
+          }
+          /* Tighter tracking so "@name" clears the phone data column
+             before the nowrap ellipsis regime kicks in. */
+          .crt-user {
+            font-size: 9px;
+            letter-spacing: 0.12em;
+          }
+          /* The status collapses to its LED on phones: the lit dot already
+             says ONLINE, and the word was truncating the callsign. */
+          .crt-status-t {
+            display: none;
+          }
+          /* The 7D / ID codes are the first thing the phone column drops:
+             the two bars alone need the full width for long tool names. */
+          .crt-codes {
+            display: none;
+          }
+          .crt-bars {
+            flex: 1 1 auto;
+          }
+          .crt-bar {
+            gap: 6px;
+            height: 14px;
+            padding: 0 6px;
+            font-size: 8px;
+            line-height: 14px;
+            letter-spacing: 0.16em;
           }
           /* 9px keeps the full "[ cells ] 100%" run inside the 390px tube —
              at 10px the percentage clipped off the right edge. */
@@ -1569,18 +2060,6 @@ export const CrtAttract = memo(function CrtAttract({
           .crt-pct {
             font-size: 9px;
           }
-          /* Tighter tracking so "@name · ONLINE" clears a 183px column
-             before the nowrap ellipsis regime kicks in. */
-          .crt-user {
-            font-size: 9px;
-            letter-spacing: 0.12em;
-          }
-          /* Always two stacked rows: inline readouts wrapped for some
-             pilots and not others, bouncing the stage height mid-loop. */
-          .crt-readouts {
-            flex-direction: column;
-            gap: 3px;
-          }
           /* Pure-texture telemetry: 22 glyphs never fit the phone data
              column — dropped whole rather than shrunk into mush. */
           .crt-sparkline {
@@ -1589,17 +2068,25 @@ export const CrtAttract = memo(function CrtAttract({
           .crt-hint {
             letter-spacing: 0.2em;
           }
+          /* PRESS START owns the phone footer; the ruler is desktop
+             furniture (the hex strip still shows rotation position). */
+          .crt-ruler {
+            display: none;
+          }
           .crt-model {
             display: none;
           }
         }
 
-        /* A season-scale 9-glyph score ("9,999,999") plus the SCORE label
-           needs ~202px; the data column is 183px at 360w and 192px at
-           390w. The label is the decoration here — drop it and let the
-           digits keep their size (PWR/24H/TOOL still carry labels). */
+        /* Inside the framed card the data column is ~174px at 360w and
+           ~204px at 390w. A season-scale 9-glyph score ("9,999,999") plus
+           the SCORE label needs ~185px, and the full "PWR [ cells ] 100%"
+           run needs ~180px — the labels are the decoration here, so they
+           drop and the digits and cells keep their size (24H/TOOL bars
+           still carry labels). */
         @media (max-width: 420px) {
-          .crt-scorewrap .crt-label {
+          .crt-scorewrap .crt-label,
+          .crt-barline .crt-label {
             display: none;
           }
         }
@@ -1619,7 +2106,7 @@ export const CrtAttract = memo(function CrtAttract({
             width: 72px;
             height: 72px;
           }
-          .crt-body {
+          .crt-card {
             gap: 10px;
           }
           .crt-barline {
