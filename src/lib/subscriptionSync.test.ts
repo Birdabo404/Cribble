@@ -25,6 +25,7 @@ const {
   checkoutsGetMock,
   grantProEntitlementMock,
   grantTeamEntitlementMock,
+  grantHouseTeamEntitlementMock,
   grantPlatePurchaseMock,
   getOwnedPlateIdsMock,
   insertMissingNotificationsMock
@@ -35,6 +36,7 @@ const {
   checkoutsGetMock: vi.fn(),
   grantProEntitlementMock: vi.fn(),
   grantTeamEntitlementMock: vi.fn(),
+  grantHouseTeamEntitlementMock: vi.fn(),
   grantPlatePurchaseMock: vi.fn(),
   getOwnedPlateIdsMock: vi.fn(),
   insertMissingNotificationsMock: vi.fn()
@@ -52,6 +54,11 @@ vi.mock('@/lib/entitlementGrant', () => ({
   grantProEntitlement: grantProEntitlementMock,
   grantTeamEntitlement: grantTeamEntitlementMock,
   grantPlatePurchase: grantPlatePurchaseMock
+}))
+
+vi.mock('@/lib/houseEntitlements', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./houseEntitlements')>()),
+  grantHouseTeamEntitlement: grantHouseTeamEntitlementMock
 }))
 
 // Only the DB read is faked — isProTier stays real so tier strings are
@@ -100,6 +107,8 @@ describe('syncSubscriptionFromPolar', () => {
     grantProEntitlementMock.mockResolvedValue(undefined)
     grantTeamEntitlementMock.mockReset()
     grantTeamEntitlementMock.mockResolvedValue(undefined)
+    grantHouseTeamEntitlementMock.mockReset()
+    grantHouseTeamEntitlementMock.mockResolvedValue(undefined)
     getPolarClientMock.mockReset()
     getPolarClientMock.mockReturnValue({
       customers: { getStateExternal: getStateExternalMock }
@@ -155,6 +164,62 @@ describe('syncSubscriptionFromPolar', () => {
     })
     expect(grantProEntitlementMock).not.toHaveBeenCalled()
     expect(result).toEqual({ tier: 'TEAM', isPro: false, changed: true })
+  })
+
+  it('grants house complimentary Pro without asking Polar', async () => {
+    const result = await syncSubscriptionFromPolar(
+      tierSupabase({ data: { subscription_tier: 'FREE', twitter_username: 'birdabo' }, error: null }),
+      8
+    )
+
+    expect(result).toEqual({ tier: 'PRO', isPro: true, changed: true })
+    expect(grantProEntitlementMock).toHaveBeenCalledWith(expect.anything(), 8)
+    expect(getStateExternalMock).not.toHaveBeenCalled()
+    expect(grantTeamEntitlementMock).not.toHaveBeenCalled()
+  })
+
+  it('leaves an already-Pro house account alone without asking Polar', async () => {
+    const result = await syncSubscriptionFromPolar(
+      tierSupabase({ data: { subscription_tier: 'PRO', twitter_username: 'birdabo' }, error: null }),
+      8
+    )
+
+    expect(result).toEqual({ tier: 'PRO', isPro: true, changed: false })
+    expect(grantProEntitlementMock).not.toHaveBeenCalled()
+    expect(getStateExternalMock).not.toHaveBeenCalled()
+  })
+
+  it('grants house complimentary Team without asking Polar', async () => {
+    const result = await syncSubscriptionFromPolar(
+      tierSupabase({
+        data: { subscription_tier: 'FREE', twitter_username: 'cribble_ai', team_review_status: null },
+        error: null
+      }),
+      19
+    )
+
+    expect(result).toEqual({ tier: 'TEAM', isPro: false, changed: true })
+    expect(grantHouseTeamEntitlementMock).toHaveBeenCalledWith(expect.anything(), 19)
+    expect(getStateExternalMock).not.toHaveBeenCalled()
+    expect(grantTeamEntitlementMock).not.toHaveBeenCalled()
+  })
+
+  it('leaves an approved house Team account alone without asking Polar', async () => {
+    const result = await syncSubscriptionFromPolar(
+      tierSupabase({
+        data: {
+          subscription_tier: 'TEAM',
+          twitter_username: 'cribble_ai',
+          team_review_status: 'approved'
+        },
+        error: null
+      }),
+      19
+    )
+
+    expect(result).toEqual({ tier: 'TEAM', isPro: false, changed: false })
+    expect(grantHouseTeamEntitlementMock).not.toHaveBeenCalled()
+    expect(getStateExternalMock).not.toHaveBeenCalled()
   })
 
   it('leaves an existing TEAM account alone without calling Polar or any grant', async () => {

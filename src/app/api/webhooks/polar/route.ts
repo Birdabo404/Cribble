@@ -16,6 +16,7 @@ import {
   activateSponsorBidFromOrder,
   revokeSponsorBidFromOrder
 } from '@/lib/leaderboardSponsorServer'
+import { houseGrantFor } from '@/lib/houseEntitlements'
 import { getPolarWebhookSecret, isTeamSubscription } from '@/lib/polar'
 import { createServiceClient } from '@/lib/supabaseServer'
 
@@ -32,7 +33,8 @@ import { createServiceClient } from '@/lib/supabaseServer'
 //   subscription.revoked  -> tier back to 'FREE', guarded to the tier
 //                            this integration granted ('TEAM' for team
 //                            products, 'PRO' otherwise); manually set
-//                            tiers are left alone
+//                            tiers and house complimentary accounts
+//                            (see houseEntitlements) are left alone
 //   subscription.canceled -> no-op (the tier stays until the period ends)
 //   order.paid            -> grant plate in user_cosmetics (if plate
 //                            order), activate a leaderboard sponsor
@@ -166,6 +168,13 @@ async function revokeSubscription(subscription: Subscription) {
   const userId = resolveRecipientUserId(subscription)
   if (!userId) {
     console.warn('[PolarWebhook] Subscription event without usable recipient — skipping')
+    return
+  }
+
+  // House complimentary Pro / Team is not Polar-backed. A leftover or
+  // cancelled Polar subscription must never FREE those rows.
+  if (houseGrantFor({ id: userId })) {
+    console.warn(`[PolarWebhook] Refusing to revoke house entitlement for user ${userId}`)
     return
   }
 

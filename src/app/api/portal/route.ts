@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PolarError } from '@polar-sh/sdk/models/errors/polarerror'
 import { resolveAppUrl } from '@/lib/appUrl'
+import { houseGrantFor } from '@/lib/houseEntitlements'
 import { getPolarClient, isPolarConfigured } from '@/lib/polar'
 import { getSessionUserId } from '@/lib/sessionAuth'
 
@@ -17,6 +18,10 @@ export async function GET(request: NextRequest) {
     const session = await getSessionUserId(request)
     if (!session.ok) {
       return NextResponse.redirect(new URL('/login', appUrl))
+    }
+
+    if (houseGrantFor({ id: session.userId })) {
+      return NextResponse.redirect(new URL('/shop?portal=complimentary', appUrl))
     }
 
     if (!isPolarConfigured()) {

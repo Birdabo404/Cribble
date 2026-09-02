@@ -149,7 +149,15 @@ function ProKit() {
   )
 }
 
-export function ProCards({ loading, isPro }: { loading: boolean; isPro: boolean }) {
+export function ProCards({
+  loading,
+  isPro,
+  complimentary = false
+}: {
+  loading: boolean
+  isPro: boolean
+  complimentary?: boolean
+}) {
   return (
     <div className="shpp-root relative overflow-hidden rounded-2xl">
       {/* gold keyline — the PRO signature, with a slow idle sheen */}
@@ -190,14 +198,18 @@ export function ProCards({ loading, isPro }: { loading: boolean; isPro: boolean 
                 PRO ACTIVE
               </span>
               <p className="mt-3 text-[12px] leading-relaxed text-zinc-400">
-                25% off plates at checkout. The three plates stay equipped while the sub is live.
+                {complimentary
+                  ? 'House complimentary — never billed. The three plates stay equipped.'
+                  : '25% off plates at checkout. The three plates stay equipped while the sub is live.'}
               </p>
-              <a
-                href="/api/portal"
-                className="mt-4 inline-flex text-[12px] text-zinc-400 transition-colors hover:text-amber-200"
-              >
-                Manage
-              </a>
+              {complimentary ? null : (
+                <a
+                  href="/api/portal"
+                  className="mt-4 inline-flex text-[12px] text-zinc-400 transition-colors hover:text-amber-200"
+                >
+                  Manage
+                </a>
+              )}
             </div>
           ) : (
             <>

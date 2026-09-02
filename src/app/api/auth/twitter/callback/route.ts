@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import { resolveAppUrl, resolveTwitterRedirectUri } from '@/lib/appUrl'
+import { ensureHouseEntitlements } from '@/lib/houseEntitlements'
 import { publicProfileCacheTag } from '@/lib/publicProfile'
 import { checkRateLimit, rateLimitConfigs } from '@/lib/rateLimit'
 import { runTeamIdentityTripwire } from '@/lib/teamTripwire'
@@ -210,6 +211,11 @@ export async function GET(request: NextRequest) {
         await logSignupInviteRedemption(supabase, inviteCodeId, created.id)
       }
     }
+
+    // House complimentary Pro / Team — never billed. Re-applies on every
+    // login if Polar, an admin action, or the tripwire knocked the row
+    // off. Never throws.
+    await ensureHouseEntitlements(supabase, user)
 
     // Create session
     const sessionToken = crypto.randomUUID()

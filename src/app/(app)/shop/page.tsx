@@ -8,8 +8,9 @@
 // Checkout and the customer portal are plain browser navigations to
 // /api/checkout and /api/portal — those routes resolve Polar products
 // server-side and redirect to the hosted pages. Both bounce back here
-// with query flags (?checkout=success|error, ?portal=none|error) which
-// render as a dismissable notice strip. Fulfillment normally arrives via
+// with query flags (?checkout=success|error|owned|complimentary,
+// ?portal=none|error|complimentary) which render as a dismissable notice
+// strip. Fulfillment normally arrives via
 // webhook, but webhooks can't reach localhost — so both the success
 // bounce and the Re-check button also POST /api/user/subscription/sync,
 // which reconciles the tier straight from Polar. When that call is the
@@ -48,6 +49,7 @@ const ASCII_SHOP = String.raw`███████╗██╗  ██╗ █�
 interface CosmeticsData {
   tier: string
   isPro: boolean
+  complimentary: boolean
   owned: ReadonlySet<string>
   premiumSince: string | null
 }
@@ -56,6 +58,7 @@ interface CosmeticsData {
 const NEUTRAL_COSMETICS: CosmeticsData = {
   tier: 'FREE',
   isPro: false,
+  complimentary: false,
   owned: new Set(),
   premiumSince: null
 }
@@ -93,8 +96,10 @@ async function syncSubscription(
 type ShopNotice =
   | 'checkout-success'
   | 'checkout-owned'
+  | 'checkout-complimentary'
   | 'checkout-error'
   | 'portal-none'
+  | 'portal-complimentary'
   | 'portal-error'
 
 type NoticeTone = 'up' | 'down' | 'info'
@@ -131,6 +136,12 @@ function noticeMeta(notice: ShopNotice): { tone: NoticeTone; title: string; body
         title: 'Already owned',
         body: 'You already own that plate. Nothing was charged.'
       }
+    case 'checkout-complimentary':
+      return {
+        tone: 'info',
+        title: 'Already complimentary',
+        body: 'This account is house complimentary — nothing was charged.'
+      }
     case 'checkout-error':
       return {
         tone: 'down',
@@ -142,6 +153,12 @@ function noticeMeta(notice: ShopNotice): { tone: NoticeTone; title: string; body
         tone: 'info',
         title: 'No purchases yet',
         body: 'The customer portal opens after your first checkout.'
+      }
+    case 'portal-complimentary':
+      return {
+        tone: 'info',
+        title: 'Complimentary plan',
+        body: 'House complimentary accounts are never billed, so there is no customer portal.'
       }
     case 'portal-error':
       return {
@@ -242,11 +259,11 @@ function SectionHead({
 
 /** Utility rail — Team / Sponsorship / Manage as small right-aligned chips.
  * Deliberately quiet: these are doors out of the store, not products. */
-function ShopDoors({ isTeam }: { isTeam: boolean }) {
+function ShopDoors({ isTeam, complimentary }: { isTeam: boolean; complimentary: boolean }) {
   const doors: { href: string; label: string; gold?: boolean; native?: boolean }[] = [
     { href: '/teams', label: isTeam ? 'COMMAND DECK' : 'TEAM', gold: true },
     { href: '/sponsorship#pitch', label: 'SPONSORSHIP' },
-    { href: '/api/portal', label: 'MANAGE', native: true }
+    ...(complimentary ? [] : [{ href: '/api/portal', label: 'MANAGE', native: true }])
   ]
 
   return (
@@ -334,6 +351,7 @@ function ShopDepot() {
       return apply({
         tier: typeof data.tier === 'string' ? data.tier : 'FREE',
         isPro: Boolean(data.isPro),
+        complimentary: data.complimentary === true,
         owned: new Set(
           Array.isArray(data.ownedPlateIds) ? data.ownedPlateIds.map(String) : []
         ),
@@ -411,13 +429,17 @@ function ShopDepot() {
         ? 'checkout-success'
         : checkout === 'owned'
           ? 'checkout-owned'
-          : checkout === 'error'
-            ? 'checkout-error'
-            : portal === 'none'
-              ? 'portal-none'
-              : portal === 'error'
-                ? 'portal-error'
-                : null
+          : checkout === 'complimentary'
+            ? 'checkout-complimentary'
+            : checkout === 'error'
+              ? 'checkout-error'
+              : portal === 'none'
+                ? 'portal-none'
+                : portal === 'complimentary'
+                  ? 'portal-complimentary'
+                  : portal === 'error'
+                    ? 'portal-error'
+                    : null
     if (!next) return
     setNotice(next)
     // Fresh from Polar checkout: reconcile immediately instead of waiting
@@ -430,6 +452,7 @@ function ShopDepot() {
 
   const loading = cosmetics === null
   const isPro = cosmetics?.isPro ?? false
+  const complimentary = cosmetics?.complimentary ?? false
   const isTeam = (cosmetics?.tier ?? 'FREE').toUpperCase() === 'TEAM'
   const owned = cosmetics?.owned ?? NEUTRAL_COSMETICS.owned
 
@@ -476,7 +499,7 @@ function ShopDepot() {
       </header>
 
       <div className="shp-reveal mt-4" style={{ ['--rv' as string]: '40ms' }}>
-        <ShopDoors isTeam={isTeam} />
+        <ShopDoors isTeam={isTeam} complimentary={complimentary} />
       </div>
 
       <main className="mt-4 space-y-14 md:space-y-16">
@@ -494,7 +517,7 @@ function ShopDepot() {
         </section>
 
         <section className="shp-reveal" style={{ ['--rv' as string]: '120ms' }}>
-          <ProCards loading={loading} isPro={isPro} />
+          <ProCards loading={loading} isPro={isPro} complimentary={complimentary} />
         </section>
 
         {RESERVE_PLATES.length > 0 && (

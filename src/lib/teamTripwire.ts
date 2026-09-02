@@ -2,6 +2,7 @@ import { createHash } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logAdminAction } from '@/lib/adminAudit'
 import { isApprovedTeam } from '@/lib/entitlements'
+import { houseGrantFor } from '@/lib/houseEntitlements'
 import { insertMissingNotifications } from '@/lib/notifications'
 
 // Identity-change tripwire for approved TEAM accounts — the defence
@@ -120,6 +121,12 @@ export async function runTeamIdentityTripwire(
   after: TeamIdentityFields
 ): Promise<void> {
   try {
+    // House Team is complimentary and permanent — a display-name or
+    // avatar refresh must not drop @cribble_ai back into the queue.
+    if (houseGrantFor({ id: before.id, twitter_username: before.twitter_username }) === 'TEAM') {
+      return
+    }
+
     if (!isApprovedTeam(before)) return
 
     const changes = diffTeamIdentity(

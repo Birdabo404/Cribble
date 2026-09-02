@@ -8,7 +8,8 @@ import {
   grantProEntitlement,
   grantTeamEntitlement
 } from '@/lib/entitlementGrant'
-import { getOwnedPlateIds, isProTier } from '@/lib/entitlements'
+import { getOwnedPlateIds, isApprovedTeam, isProTier } from '@/lib/entitlements'
+import { grantHouseTeamEntitlement, houseGrantFor } from '@/lib/houseEntitlements'
 import { insertMissingNotifications } from '@/lib/notifications'
 import {
   getPolarClient,
@@ -71,7 +72,7 @@ export async function syncSubscriptionFromPolar(
 ): Promise<SubscriptionSyncResult> {
   const { data: user, error: readError } = await supabase
     .from('users')
-    .select('subscription_tier')
+    .select('subscription_tier, twitter_username, team_review_status')
     .eq('id', userId)
     .single()
 
@@ -91,6 +92,33 @@ export async function syncSubscriptionFromPolar(
     tier: currentTier,
     isPro: isProTier(currentTier),
     changed: false
+  }
+
+  // House complimentary accounts are not Polar-backed. Apply the grant
+  // here so a missed login still heals the row, and never ask Polar —
+  // a leftover cancelled sub must not participate in fulfillment.
+  const house = houseGrantFor({
+    id: userId,
+    twitter_username: typeof user.twitter_username === 'string' ? user.twitter_username : null
+  })
+  if (house === 'TEAM') {
+    const alreadyApproved = isApprovedTeam({
+      subscription_tier: currentTier,
+      team_review_status:
+        typeof user.team_review_status === 'string' ? user.team_review_status : null
+    })
+    if (!alreadyApproved) {
+      await grantHouseTeamEntitlement(supabase, userId)
+    }
+    return { tier: 'TEAM', isPro: false, changed: !alreadyApproved }
+  }
+  if (house === 'PRO') {
+    if (currentTier === 'TEAM') return unchanged
+    if (!unchanged.isPro) {
+      await grantProEntitlement(supabase, userId)
+      return { tier: 'PRO', isPro: true, changed: true }
+    }
+    return unchanged
   }
 
   // Only TEAM short-circuits before asking Polar: it is the top tier this

@@ -17,6 +17,7 @@ import { SettingsButton, SettingsRow, SettingsSection, SkeletonRow } from '@/com
 interface CosmeticsState {
   tier: string
   isPro: boolean
+  complimentary: boolean
   ownedPlateIds: string[]
   equippedPlate: string | null
   premiumSince: string | null
@@ -75,6 +76,7 @@ export function BillingSection() {
           setState({
             tier: typeof data.tier === 'string' ? data.tier : 'FREE',
             isPro: data.isPro === true,
+            complimentary: data.complimentary === true,
             ownedPlateIds: Array.isArray(data.ownedPlateIds)
               ? data.ownedPlateIds.map(String)
               : [],
@@ -135,7 +137,9 @@ export function BillingSection() {
           stack
           label={planName(state)}
           description={
-            paid ? (
+            state.complimentary ? (
+              'House complimentary — never billed.'
+            ) : paid ? (
               <>
                 Member since{' '}
                 <span className="text-[12px] [font-family:var(--font-data)]">
@@ -147,7 +151,7 @@ export function BillingSection() {
             )
           }
         >
-          {paid ? (
+          {state.complimentary ? null : paid ? (
             // Plain <a>: /api/portal answers with a redirect to Polar's
             // hosted customer portal, same navigation the modal used.
             <a href="/api/portal" className={solidLinkCls}>
