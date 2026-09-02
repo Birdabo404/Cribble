@@ -141,4 +141,17 @@ describe('POST /api/admin/users/[id]/entitlements — TEAM targets are off-limit
     await expect(response.json()).resolves.toEqual({ success: true })
     expect(state.tierWrites).toEqual([{ subscription_tier: 'FREE' }])
   })
+
+  it('400s revoke_pro on the house complimentary Pro handle', async () => {
+    state.target = { ...TEAM_TARGET, twitter_username: 'birdabo', subscription_tier: 'PRO' }
+
+    const response = await POST(entitlementRequest('revoke_pro'), params)
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'House complimentary Pro cannot be revoked'
+    })
+    expect(state.tierWrites).toHaveLength(0)
+    expect(auditMock).not.toHaveBeenCalled()
+  })
 })

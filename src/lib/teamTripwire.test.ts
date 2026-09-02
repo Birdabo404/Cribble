@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { describe, expect, it, vi } from 'vitest'
 import {
   describeTripwireChanges,
   diffTeamIdentity,
+  runTeamIdentityTripwire,
   tripwireDedupeKey,
   type TeamIdentityFields
 } from './teamTripwire'
@@ -79,5 +81,33 @@ describe('describeTripwireChanges', () => {
     expect(describeTripwireChanges(changes)).toBe(
       'username: acme → not-acme · name: Acme Corp → (empty)'
     )
+  })
+})
+
+describe('runTeamIdentityTripwire — house team', () => {
+  it('does not re-flag @cribble_ai when its display identity changes', async () => {
+    const update = vi.fn()
+    const supabase = {
+      from: () => ({ update })
+    } as unknown as SupabaseClient
+
+    await runTeamIdentityTripwire(
+      supabase,
+      {
+        id: 19,
+        subscription_tier: 'TEAM',
+        team_review_status: 'approved',
+        twitter_username: 'cribble_ai',
+        twitter_name: 'CRIBBLE',
+        twitter_profile_image: 'https://old/avatar.jpg'
+      },
+      {
+        username: 'cribble_ai',
+        name: 'CRIBBLE 🫆',
+        avatar: 'https://new/avatar.jpg'
+      }
+    )
+
+    expect(update).not.toHaveBeenCalled()
   })
 })

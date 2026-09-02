@@ -125,6 +125,38 @@ describe('GET /api/checkout — plate ownership gate', () => {
     expect(response.status).toBe(307)
   })
 
+  it('refuses Pro checkout for a house complimentary account — Polar never sees it', async () => {
+    getSessionUserIdMock.mockResolvedValue({ ok: true, userId: 8 })
+
+    const response = await GET(
+      new NextRequest('https://cribble.dev/api/checkout?type=pro_monthly', {
+        headers: { host: 'cribble.dev' }
+      })
+    )
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toBe(
+      'http://cribble.dev/shop?checkout=complimentary'
+    )
+    expect(checkoutsCreateMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses Team checkout for a house complimentary account', async () => {
+    getSessionUserIdMock.mockResolvedValue({ ok: true, userId: 19 })
+
+    const response = await GET(
+      new NextRequest('https://cribble.dev/api/checkout?type=team_monthly', {
+        headers: { host: 'cribble.dev' }
+      })
+    )
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toBe(
+      'http://cribble.dev/shop?checkout=complimentary'
+    )
+    expect(checkoutsCreateMock).not.toHaveBeenCalled()
+  })
+
   it('keeps sending Pro checkouts back to the shop', async () => {
     await GET(
       new NextRequest('https://cribble.dev/api/checkout?type=pro_monthly', {

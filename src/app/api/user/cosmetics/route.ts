@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getOwnedPlateIds, isProTier } from '@/lib/entitlements'
+import { isHouseAccount } from '@/lib/houseEntitlements'
 import { getSessionUserId } from '@/lib/sessionAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
 // The signed-in user's cosmetics state — the contract the shop page and
 // profile editor consume:
-//   { success: true, tier, isPro, ownedPlateIds, equippedPlate, premiumSince }
+//   { success: true, tier, isPro, complimentary, ownedPlateIds, equippedPlate, premiumSince }
 // equippedPlate is the raw users.metadata.equipped_plate value (string or
 // null); ownership/catalog validation happens at equip/render time.
 // premiumSince is users.metadata.premium_since (ISO string, stamped on the
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
 
     const { data: user, error } = await supabase
       .from('users')
-      .select('subscription_tier, metadata')
+      .select('subscription_tier, twitter_username, metadata')
       .eq('id', session.userId)
       .single()
 
@@ -52,6 +53,10 @@ export async function GET(request: NextRequest) {
       success: true,
       tier,
       isPro: isProTier(tier),
+      complimentary: isHouseAccount({
+        id: session.userId,
+        twitter_username: typeof user.twitter_username === 'string' ? user.twitter_username : null
+      }),
       ownedPlateIds,
       equippedPlate,
       premiumSince

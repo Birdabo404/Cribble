@@ -8,6 +8,7 @@ import {
   getStaffUser,
   resolveStaffRole
 } from '@/lib/staffAuth'
+import { houseGrantFor } from '@/lib/houseEntitlements'
 import { createServiceClient } from '@/lib/supabaseServer'
 
 // The anti-impersonation review decision — any staff (team.review sits
@@ -117,6 +118,12 @@ export async function POST(
     }
     if (action === 'reject' && currentStatus === 'rejected') {
       return NextResponse.json({ error: 'Team is already rejected' }, { status: 400 })
+    }
+    if (action === 'reject' && houseGrantFor(target) === 'TEAM') {
+      return NextResponse.json(
+        { error: 'House complimentary Team cannot be rejected' },
+        { status: 400 }
+      )
     }
 
     const currentTier = (target.subscription_tier || 'FREE').toUpperCase()

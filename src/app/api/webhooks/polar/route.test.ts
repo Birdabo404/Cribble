@@ -248,6 +248,29 @@ describe('POST /api/webhooks/polar — subscription tier take-backs', () => {
     warnSpy.mockRestore()
   })
 
+  it('revoked leaves a house complimentary Pro account (user 8) on its tier', async () => {
+    const event = subscriptionEvent('subscription.revoked', '8')
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    expect(usersUpdateMock).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalled()
+  })
+
+  it('revoked leaves a house complimentary Team account (user 19) on its tier', async () => {
+    teamProductIds.add('prod_team_monthly')
+    const event = subscriptionEvent('subscription.revoked', '19', 'prod_team_monthly')
+    validateEventMock.mockReturnValue(event)
+
+    const response = await POST(webhookRequest(event))
+
+    expect(response.status).toBe(200)
+    expect(usersUpdateMock).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalled()
+  })
+
   it("revoked downgrades to FREE only where the tier is the Polar-managed 'PRO' (manual PREMIUM/PREMIUM+ survive)", async () => {
     const event = subscriptionEvent('subscription.revoked', '9')
     validateEventMock.mockReturnValue(event)

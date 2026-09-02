@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { resolveAppUrl } from '@/lib/appUrl'
 import { getPlate } from '@/lib/cosmetics/plates'
 import { getOwnedPlateIds, isProTier } from '@/lib/entitlements'
+import { houseGrantFor } from '@/lib/houseEntitlements'
 import {
   getPolarClient,
   isPolarConfigured,
@@ -112,6 +113,12 @@ export async function GET(request: NextRequest) {
         )
       }
     } else {
+      // House complimentary accounts already have Pro / Team. Sending
+      // them to Polar would put a card on file.
+      if (houseGrantFor({ id: session.userId })) {
+        return NextResponse.redirect(new URL('/shop?checkout=complimentary', appUrl))
+      }
+
       productId =
         type === 'team_monthly' || type === 'team_yearly'
           ? resolveTeamProductId(type)

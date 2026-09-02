@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withAudit } from '@/lib/adminAudit'
 import { getPlate } from '@/lib/cosmetics/plates'
 import { grantProEntitlement } from '@/lib/entitlementGrant'
+import { houseGrantFor } from '@/lib/houseEntitlements'
 import { checkRateLimit, createRateLimitResponse, rateLimitConfigs } from '@/lib/rateLimit'
 import {
   assertCanTarget,
@@ -137,6 +138,13 @@ export async function POST(
     if (currentTier === 'TEAM' && (action === 'grant_pro' || action === 'revoke_pro')) {
       return NextResponse.json(
         { error: 'This account is on the Team plan — manage it from the team review queue' },
+        { status: 400 }
+      )
+    }
+
+    if (action === 'revoke_pro' && houseGrantFor(target) === 'PRO') {
+      return NextResponse.json(
+        { error: 'House complimentary Pro cannot be revoked' },
         { status: 400 }
       )
     }
