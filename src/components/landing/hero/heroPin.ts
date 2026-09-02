@@ -3,17 +3,20 @@
 // calls this after creating the ScrollSmoother).
 //
 // One ScrollTrigger pins the OUTER .lx-hero for +260% of a viewport and
-// scrubs a single timeline through the entry: the globe pushes in toward
-// the horizon (via the GlobeHandle scroll pose — the renderer's own
-// dither dropout erodes the planet late in the pose) and its stage
-// drifts from the right column to the horizontal viewport center (a
-// transform written by the same pose follower, so position and zoom stay
-// phase-locked) while the GlobeStage hardware carriers (orbit ring,
-// dotted ring, both satellites) fade out on opacity-only tweens, the
-// star tiles stretch into streaks (transform-based scaleY on the
-// dedicated .lx-hero-stars layer — no background-size repaints), the
-// hero copy exits as SplitText masked lines / staggered blocks, and the
-// horizon hairline flares into the tear that hands off to DescentGate.
+// scrubs a single timeline through the entry. The globe instrument (a
+// 220–260px compartment, bottom-right of the manifest) drifts to the viewport
+// center on both axes (a transform written by the pose follower below, so
+// position and zoom stay phase-locked) while the renderer's ortho zoom
+// grows the planet to well over half the viewport (via the GlobeHandle
+// scroll pose — sharp, no raster scaling) and its own dither dropout
+// erodes the raster from p = 0.6. Meanwhile the star tiles stretch into
+// streaks (transform-based scaleY on the dedicated .lx-hero-stars layer —
+// no background-size repaints), the manifest exits — numeral and serif as
+// SplitText masked lines, tower rows staggered top→bottom, rail/footer/
+// header cells and the dynamic blocks fading, every standalone hairline
+// collapsing along its own axis — so by p ≈ 0.4 only the planet, the stars
+// and the horizon remain, and the horizon hairline flares into the tear
+// that hands off to the Contents rail below.
 //
 // Pinning rule (from the plan): pin .lx-hero itself, NEVER anything inside
 // .page-zoom-out — that utility is `zoom: 0.9`, and GSAP computes
@@ -47,10 +50,6 @@ export function createHeroPin(
   let tickPose: ((time: number, deltaTime: number) => void) | null = null
   // Hoisted so cleanup can strip the drift transform the follower wrote.
   let stageEl: HTMLElement | null = null
-  // Hoisted so cleanup can strip the exit tweens' inline opacity and the
-  // polar carrier's mid-flight z-index guard (see the fade block below).
-  let carrierEls: HTMLElement[] = []
-  let satPolarEl: HTMLElement | null = null
   let splits: SplitTextInstance[] = []
   let willChangeTargets: HTMLElement[] = []
 
@@ -76,7 +75,9 @@ export function createHeroPin(
 
   function build() {
     // Safety valve: if an entrance is somehow still in flight, jump it to
-    // its end and kill it, so every exit below is built over settled values.
+    // its end and kill it, so every exit below is built over settled
+    // values — including the numeral's count-up text, which SplitText
+    // slices below.
     settleHeroEntrance()
 
     const { gsap, ScrollTrigger, SplitText } = motion
@@ -86,60 +87,75 @@ export function createHeroPin(
     const copyBlocks = Array.from(
       hero.querySelectorAll<HTMLElement>('.lx-hero-exit')
     )
+    // Tower rows and rail/header/footer cells, in document order — the
+    // stagger reads top→bottom for the rows, left→right along the rail.
+    const rows = Array.from(
+      hero.querySelectorAll<HTMLElement>('[data-hero-row]')
+    )
+    const cells = Array.from(
+      hero.querySelectorAll<HTMLElement>('[data-hero-cell]')
+    )
+    // Standalone hairlines (rail bottom, tower header, tower/globe split,
+    // the column divider) — the frame the entrance grew in.
+    const lines = Array.from(
+      hero.querySelectorAll<HTMLElement>('[data-hero-line]')
+    )
+    const vlines = Array.from(
+      hero.querySelectorAll<HTMLElement>('[data-hero-vline]')
+    )
 
-    // Globe drift: as the pin progresses the whole stage (canvas, chip
-    // overlay, DOM ring/satellite carriers — one container carries them
-    // all) translates from its right-column resting spot to the
-    // horizontal viewport center, while the renderer's ortho zoom does
-    // the actual growing (sharp — no raster scaling) and a whisper of
-    // container scale tops off the composition.
-    const stage = hero.querySelector<HTMLElement>('.globe-stage')
+    // Globe drift: as the pin progresses the whole instrument (canvas, chip
+    // overlay, annotation — one container carries them all) translates
+    // from its compartment to the viewport center, while the renderer's
+    // ortho zoom does the actual growing (sharp — no raster scaling) and a
+    // whisper of container scale tops off the composition.
+    const stage = hero.querySelector<HTMLElement>('.globe-instrument')
     stageEl = stage
+    // The square footprint is the instrument's first child (see
+    // GlobeInstrument.tsx); the planet is centered in it.
+    const footprint = stage?.firstElementChild
+    const DRIFT_START = 0.1 // the copy owns the frame until ~0.4 — leave gently
+    const DRIFT_END = 0.62 // centered as the dropout begins, before the flare
+    const DRIFT_SCALE_MAX = 1.1 // container scale on top of the WebGL zoom
 
-    // The stage hardware around the planet — orbit ring, dotted ring and
-    // both satellites — exits on the data-burst carriers (GlobeStage.tsx
-    // wraps each piece in one). The globe itself never fades: its exit is
-    // the renderer's dither dropout, driven by the scroll pose.
-    const ring = hero.querySelector<HTMLElement>('[data-burst="ring"]')
-    const glow = hero.querySelector<HTMLElement>('[data-burst="glow"]')
-    const satEquatorial = hero.querySelector<HTMLElement>(
-      '[data-burst="sat-equatorial"]'
-    )
-    const satPolar = hero.querySelector<HTMLElement>('[data-burst="sat-polar"]')
-    satPolarEl = satPolar
-    carrierEls = [ring, glow, satEquatorial, satPolar].filter(
-      (el): el is HTMLElement => el !== null
-    )
-    const DRIFT_START = 0.1 // the copy owns the left until ~24% — leave gently
-    const DRIFT_END = 0.62 // centered well after the copy exit, before the flare
-    const DRIFT_SCALE_MAX = 1.08 // container scale on top of the WebGL zoom
-    // Where the hardware carrier fades start on the scrub timeline; the
-    // polar z-index guard below lifts just ahead of this.
-    const HW_FADE_START = 0.2
-    const HW_FADE_DURATION = 0.17
-    const HW_FADE_STAGGER = 0.025
-
-    let driftX = 0 // layout px at full drift — measured live, never a vw guess
+    // Layout px at full drift — measured live, never a vw guess.
+    let driftX = 0
+    let driftY = 0
+    // Footprint center's layout offset from the compartment center: the
+    // annotation under the square shifts it, and the compartment may be
+    // taller than the instrument. Only re-sampled while the stage carries
+    // no drift transform (its rect is untrustworthy mid-pin).
+    let footprintDX = 0
+    let footprintDY = 0
     const measureDrift = () => {
-      // The stage's parent (the hero grid's globe column) never carries a
-      // transform, so its rect is the stage's true resting spot even when
-      // a refresh lands mid-pin with the drift applied. Rects come back
-      // in VISUAL px while translations inside .page-zoom-out (zoom 0.9)
-      // apply in LAYOUT px — the offsetWidth ratio recovers the
+      // The stage's parent (the manifest's instrument compartment) never
+      // carries a transform, so its rect is the stage's true resting spot
+      // even when a refresh lands mid-pin with the drift applied. Rects
+      // come back in VISUAL px while translations inside .page-zoom-out
+      // (zoom 0.9) apply in LAYOUT px — the offsetWidth ratio recovers the
       // cumulative zoom to divide back out.
       const column = stage?.parentElement
-      if (!column) return
+      if (!stage || !column) return
       const rect = column.getBoundingClientRect()
       if (!rect.width || !column.offsetWidth) return
       const zoom = rect.width / column.offsetWidth
-      driftX = (window.innerWidth / 2 - (rect.left + rect.width / 2)) / zoom
+      const columnX = rect.left + rect.width / 2
+      const columnY = rect.top + rect.height / 2
+      if (footprint && !stage.style.transform) {
+        const fp = footprint.getBoundingClientRect()
+        footprintDX = (fp.left + fp.width / 2 - columnX) / zoom
+        footprintDY = (fp.top + fp.height / 2 - columnY) / zoom
+      }
+      driftX = (window.innerWidth / 2 - columnX) / zoom - footprintDX
+      driftY = (window.innerHeight / 2 - columnY) / zoom - footprintDY
     }
     measureDrift()
 
-    // Masked line exits for the static text only. The wordmark span and the
-    // "ranking AI users," line have no dynamic children; WorldwideText,
-    // RotatingTool and LiquidMark re-render/re-draw their own DOM, so they
-    // exit as whole blocks (.lx-hero-exit) instead of being split.
+    // Masked line exits for the static text only: the numeral wrapper
+    // (.lx-hero-title — its text is written once by the entrance count-up,
+    // settled above) and the static serif line (.lx-hero-tagline).
+    // WorldwideText re-renders its own DOM, so it exits as a whole block
+    // (.lx-hero-exit) instead of being split.
     const splitLines = (selector: string): Element[] => {
       const el = hero.querySelector<HTMLElement>(selector)
       if (!el) return []
@@ -161,7 +177,11 @@ export function createHeroPin(
     willChangeTargets = [
       ...(stars ? [stars] : []),
       ...(horizon ? [horizon] : []),
-      ...copyBlocks
+      ...copyBlocks,
+      ...rows,
+      ...cells,
+      ...lines,
+      ...vlines
     ]
 
     timeline = gsap.timeline({
@@ -196,32 +216,6 @@ export function createHeroPin(
     // otherwise have no duration-1 member.
     timeline.to({}, { duration: 1 }, 0)
 
-    // Stage hardware exits — OPACITY ONLY, and every start value is a hard
-    // 1, never sampled. THE STACKING-CONTEXT GOTCHA (see GlobeStage.tsx):
-    // the polar sat's CSS keyframes animate z-index 0↔2 to interleave with
-    // the globe canvas (z-[1]) for limb clipping, and that interleave only
-    // works while its carrier has NO stacking context. Inline opacity: 1
-    // (what this fromTo re-asserts at scrub 0) creates none; any inline
-    // transform would — so the carriers must never be tweened on
-    // transforms. While the fade is mid-flight (opacity < 1 IS a stacking
-    // context) the pose follower below lifts the carrier to z-index 2 so
-    // the departing craft rides above the planet instead of vanishing
-    // behind it, and strips the lift again at rest.
-    if (carrierEls.length) {
-      timeline.fromTo(
-        carrierEls,
-        { opacity: 1 },
-        {
-          opacity: 0,
-          duration: HW_FADE_DURATION,
-          stagger: HW_FADE_STAGGER,
-          ease: 'power1.in',
-          immediateRender: false
-        },
-        HW_FADE_START
-      )
-    }
-
     // Globe push-in: ortho zoom + pitch/yaw toward the horizon, composed
     // with drag-to-spin inside the renderer. The pose gets its own
     // smoothing instead of riding the scrub: scrub's expo.out closes ~63%
@@ -240,34 +234,12 @@ export function createHeroPin(
     let poseValue = 0
     let poseVelocity = 0
     let poseSettled = true
-    // Mirrors whether the polar carrier's inline z-index guard is applied,
-    // so the follower never reads the style object back per tick.
-    let polarLifted = false
 
     tickPose = (_time, deltaMs) => {
       const target = st?.progress ?? 0
 
-      // Polar carrier z-index guard: the scrubbed opacity fade above gives
-      // the carrier a stacking context (opacity < 1), and inside it the
-      // inner z keyframes can no longer beat the canvas — so lift the
-      // whole carrier above the planet while the fade window is live.
-      // Keyed on the scrub timeline's OWN playhead (the source of that
-      // opacity) and checked BEFORE the settled short-circuit below: the
-      // scrub keeps easing after the pose follower settles, and the strip
-      // back to bare — the polar sat's limb-clip interleave depends on a
-      // stacking-context-free carrier — must always land at rest. Below
-      // the fade window the inline opacity is exactly 1, so small scrubs
-      // keep the interleave intact with no lift at all.
-      if (satPolar && timeline) {
-        const fadeLive = timeline.progress() > HW_FADE_START - 0.01
-        if (fadeLive !== polarLifted) {
-          satPolar.style.zIndex = fadeLive ? '2' : ''
-          polarLifted = fadeLive
-        }
-      }
-
       // Settled short-circuit — the same idle guard startVelocityFeedback
-      // uses, so a page at rest does no pose/burst work per tick.
+      // uses, so a page at rest does no pose work per tick.
       if (poseSettled && Math.abs(target - poseValue) < POSE_REST) return
 
       // dt clamp: a backgrounded tab hands back one huge delta, and an
@@ -302,12 +274,11 @@ export function createHeroPin(
 
       globeHandle()?.setScrollPose(poseValue)
 
-      // Stage drift rides the same follower (never the scrub timeline),
-      // eased by a smoothstep so departure and arrival are both soft. At
-      // rest the inline transform is stripped entirely — the retired
-      // burst choreography's carrier discipline — so the untouched-stage
-      // guarantee for tiers that never build the pin also holds for a
-      // pin scrubbed back to 0.
+      // Instrument drift rides the same follower (never the scrub
+      // timeline), eased by a smoothstep so departure and arrival are both
+      // soft. At rest the inline transform is stripped entirely, so the
+      // untouched-instrument guarantee for tiers that never build the pin
+      // also holds for a pin scrubbed back to 0.
       if (stage) {
         const t = Math.min(
           1,
@@ -318,9 +289,9 @@ export function createHeroPin(
         } else {
           const eased = t * t * (3 - 2 * t)
           const scale = 1 + (DRIFT_SCALE_MAX - 1) * eased
-          stage.style.transform = `translateX(${(driftX * eased).toFixed(
+          stage.style.transform = `translate(${(driftX * eased).toFixed(
             2
-          )}px) scale(${scale.toFixed(4)})`
+          )}px, ${(driftY * eased).toFixed(2)}px) scale(${scale.toFixed(4)})`
         }
       }
     }
@@ -338,16 +309,17 @@ export function createHeroPin(
       )
     }
 
-    // Hero copy exit: masked lines rise up out of their clip edges,
-    // dynamic blocks lift and fade. All transform/opacity — and every exit
-    // is an explicit fromTo with hard start values, so GSAP never derives a
-    // start by sampling a transient computed style (a `.to(autoAlpha)` here
-    // once latched opacity 0 off the old CSS entrance mid-delay and pinned
-    // the badge and body invisible forever). immediateRender stays off:
-    // the entrance settled these nodes at their resting pose, and the scrub
-    // re-asserts the same hard values the moment it renders. Positions,
-    // durations and staggers are half their +=130% values, so the doubled
-    // pin didn't double the scroll the copy spends creeping out of frame.
+    // Manifest exit: masked lines rise up out of their clip edges, tower
+    // rows lift out top→bottom, cells and dynamic blocks fade. All
+    // transform/opacity — and every exit is an explicit fromTo with hard
+    // start values, so GSAP never derives a start by sampling a transient
+    // computed style (a `.to(autoAlpha)` here once latched opacity 0 off
+    // the old CSS entrance mid-delay and pinned the badge and body
+    // invisible forever). immediateRender stays off: the entrance settled
+    // these nodes at their resting pose, and the scrub re-asserts the same
+    // hard values the moment it renders. Positions, durations and staggers
+    // are sized for the +=260% pin, so the copy spends ~40% of the scrub
+    // clearing the frame — the planet owns the rest.
     if (titleLines.length) {
       timeline.fromTo(
         titleLines,
@@ -376,6 +348,21 @@ export function createHeroPin(
         0.06
       )
     }
+    if (rows.length) {
+      timeline.fromTo(
+        rows,
+        { autoAlpha: 1, y: 0 },
+        {
+          autoAlpha: 0,
+          y: -24,
+          duration: 0.19,
+          stagger: 0.025,
+          ease: 'power2.in',
+          immediateRender: false
+        },
+        0.05
+      )
+    }
     if (copyBlocks.length) {
       timeline.fromTo(
         copyBlocks,
@@ -391,9 +378,52 @@ export function createHeroPin(
         0.04
       )
     }
+    if (cells.length) {
+      timeline.fromTo(
+        cells,
+        { autoAlpha: 1 },
+        {
+          autoAlpha: 0,
+          duration: 0.15,
+          stagger: 0.012,
+          ease: 'power2.in',
+          immediateRender: false
+        },
+        0.03
+      )
+    }
+    // The frame's hairlines collapse the way they grew — from the left
+    // edge, and from the top for the verticals — so the empty grid never
+    // outlives the copy it framed.
+    if (lines.length) {
+      timeline.fromTo(
+        lines,
+        { scaleX: 1, transformOrigin: 'left center' },
+        {
+          scaleX: 0,
+          duration: 0.15,
+          ease: 'power2.in',
+          immediateRender: false
+        },
+        0.04
+      )
+    }
+    if (vlines.length) {
+      timeline.fromTo(
+        vlines,
+        { scaleY: 1, transformOrigin: 'center top' },
+        {
+          scaleY: 0,
+          duration: 0.15,
+          ease: 'power2.in',
+          immediateRender: false
+        },
+        0.04
+      )
+    }
 
     // The horizon hairline flares and widens into the tear, late — the
-    // last thing seen before DescentGate's INITIATING DESCENT decode.
+    // last thing seen before the Contents rail's hairline draws in below.
     if (horizon) {
       timeline.to(
         horizon,
@@ -423,17 +453,8 @@ export function createHeroPin(
     timeline?.kill()
     timeline = null
     // After the follower and timeline are dead (no more renders), strip
-    // the carriers back to bare — no inline opacity, no z-index guard —
-    // restoring the untouched-stage guarantee (and the polar sat's
-    // stacking-context-free limb clipping) for whatever mounts next.
-    carrierEls.forEach((el) => {
-      el.style.opacity = ''
-    })
-    carrierEls = []
-    if (satPolarEl) {
-      satPolarEl.style.zIndex = ''
-      satPolarEl = null
-    }
+    // every inline style this module wrote, restoring the untouched
+    // manifest for whatever mounts next.
     if (stageEl) {
       stageEl.style.transform = ''
       stageEl = null

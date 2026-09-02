@@ -1,11 +1,12 @@
 /**
- * Sample worldwide-pilot roster for the landing globe.
+ * Fallback roster for the landing globe.
  *
- * These are curated placeholder users pinned to real cities so the globe
- * reads as "Cribble users worldwide" before launch. The shape mirrors what
- * the leaderboard API will eventually return (callsign + home city +
- * coordinates), so swapping in live data is a drop-in replacement: fetch,
- * map into `Pilot[]`, hand to the globe.
+ * The hero pins REAL players — src/lib/landingLive.ts reads them server-
+ * side and HomeV2 maps them into the renderer's GlobePinInput shape. This
+ * curated list of placeholder users on real cities is what HomeV2 hands
+ * the globe instead when that read comes back empty (database unreachable,
+ * build without secrets), so the planet is never bare. Same shape as
+ * GlobePinInput on purpose: the two are interchangeable at the call site.
  */
 export interface Pilot {
   callsign: string

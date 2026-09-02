@@ -10,13 +10,14 @@ import {
 import { useTheme } from 'next-themes'
 import {
   CANVAS_BLEED,
+  SCROLL_ZOOM_MAX,
   createDitherEarthRenderer,
   type EarthRenderer,
+  type GlobePinInput,
   type PinScreenPosition,
   type RGB,
 } from '@/components/ditherEarthRenderer'
-import { PILOTS } from '@/components/landing/pilots'
-import { ACCENT, accentA } from '@/lib/theme'
+import { ACCENT } from '@/lib/theme'
 
 /**
  * Imperative handle for the pinned hero entry's scroll-pose scrub. Calls
@@ -32,6 +33,21 @@ export interface GlobeHandle {
 interface GlobeProps {
   className?: string
   size?: number
+  /**
+   * Who is on the planet: spot plates on the sphere and the cycling chip's
+   * labels. Non-empty (see EarthRendererOptions.pins). The count is a
+   * shader compile-time constant, so a new array rebuilds the renderer —
+   * pass a stable reference.
+   */
+  pins: GlobePinInput[]
+  /**
+   * Canvas-to-footprint ratio (see the bleed note above the component).
+   * Defaults to the renderer's CANVAS_BLEED; the landing hero's instrument
+   * passes a large one so the push-in zoom has room to fill the viewport.
+   */
+  bleed?: number
+  /** Ortho zoom at scroll pose 1. Defaults to the renderer's SCROLL_ZOOM_MAX. */
+  zoomMax?: number
   /**
    * Delivers the GlobeHandle on mount. next/dynamic does not forward
    * refs, so parents that load Globe through dynamic() (page.tsx does)
@@ -53,7 +69,10 @@ const DARK_MARKER: RGB = [0.8, 1, 0] // lime #ccff00 — the hero accent
 const LIGHT_MARKER: RGB = [1, 0.37, 0]
 // How long each pilot chip stays up before cycling to the next front pin.
 const CHIP_CYCLE_MS = 4000
-// The canvas bleeds CANVAS_BLEED× past the square globe footprint (the
+// Gap between a pin's anchor and the chip's bottom edge (the chip hangs
+// above its pin); the clamp below and the .globe-chip transform share it.
+const CHIP_GAP_PX = 12
+// The canvas bleeds `bleed`× past the square globe footprint (the
 // component's layout box) as room for the scroll push-in zoom and the
 // halftone corona — the renderer scales its frustum by the same factor,
 // so the resting globe renders pixel-identical to a footprint-sized canvas.
@@ -62,8 +81,8 @@ const CHIP_CYCLE_MS = 4000
 // its intrinsic (attribute) size, and since resize() writes the attributes
 // from clientWidth × DPR, the ResizeObserver would feed that back into the
 // element size — a ×DPR runaway that flings the globe off-screen.
-const BLEED_INSET = `${((1 - CANVAS_BLEED) / 2) * 100}%`
-const BLEED_SIZE = `${CANVAS_BLEED * 100}%`
+const bleedInset = (bleed: number) => `${((1 - bleed) / 2) * 100}%`
+const bleedSize = (bleed: number) => `${bleed * 100}%`
 
 // In-place mix: the draw loop needs an accent tuple every frame, and
 // returning a fresh array each time was steady GC litter (the renderer
@@ -77,10 +96,19 @@ const mixRGBInto = (out: RGB, from: RGB, to: RGB, amount: number): RGB => {
 }
 
 const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
-  { className = '', size = 400, onReady }: GlobeProps,
+  {
+    className = '',
+    size = 400,
+    pins,
+    bleed = CANVAS_BLEED,
+    zoomMax = SCROLL_ZOOM_MAX,
+    onReady,
+  }: GlobeProps,
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const canvasInset = bleedInset(bleed)
+  const canvasSize = bleedSize(bleed)
   // Drag-to-spin STARTS on a dedicated circular hit element over the
   // planet disk: the bled canvas overlaps the hero copy column, so the
   // canvas itself is pointer-events: none and must never own pointerdown.
@@ -180,7 +208,7 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
 
     setRenderStatus('loading')
 
-    void createDitherEarthRenderer(canvas)
+    void createDitherEarthRenderer(canvas, { bleed, zoomMax, pins })
       .then((createdRenderer) => {
         if (disposed) {
           createdRenderer.destroy()
@@ -191,7 +219,17 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
         rendererRef.current = createdRenderer
         // replay whatever pose the timeline set while we loaded
         createdRenderer.setScrollPose(scrollPoseRef.current)
-        resizeObserver = new ResizeObserver(() => renderer?.resize())
+        // Canvas CSS size, cached off the observer for the chip clamp — the
+        // draw loop must never read clientWidth (forced layout per frame).
+        let canvasW = canvas.clientWidth
+        let canvasH = canvas.clientHeight
+        resizeObserver = new ResizeObserver(([entry]) => {
+          if (entry) {
+            canvasW = entry.contentRect.width
+            canvasH = entry.contentRect.height
+          }
+          renderer?.resize()
+        })
         resizeObserver.observe(canvas)
         setRenderStatus('ready')
 
@@ -201,6 +239,11 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
         let chipQX = Number.NaN
         let chipQY = Number.NaN
         let chipShown: boolean | null = null
+        // Chip box, measured once per mounted chip (each pilot remounts it)
+        // so the clamp never forces layout on the hot path.
+        let measuredChip: HTMLDivElement | null = null
+        let chipW = 0
+        let chipH = 0
 
         const draw = (time: number) => {
           if (!renderer || disposed) return
@@ -252,8 +295,30 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
           if (chip) {
             const pin = positions[activePinRef.current]
             if (pin?.front) {
-              const qx = Math.round(pin.x * 10)
-              const qy = Math.round(pin.y * 10)
+              if (chip !== measuredChip) {
+                measuredChip = chip
+                chipW = chip.offsetWidth
+                chipH = chip.offsetHeight
+              }
+              // Keep the whole chip inside the planet's square — the
+              // footprint at rest, footprint × zoom mid-pin (so it still
+              // rides its pin while the planet grows) — instead of poking
+              // into the compartments around the instrument. A chip wider
+              // than the square sits centered on it.
+              const zoom = 1 + (zoomMax - 1) * scrollPoseRef.current
+              const half = (canvasW / bleed) * zoom * 0.5
+              const cx = canvasW * 0.5
+              const cy = canvasH * 0.5
+              const minX = cx - half + chipW * 0.5
+              const maxX = cx + half - chipW * 0.5
+              const x =
+                minX > maxX ? cx : Math.min(maxX, Math.max(minX, pin.x))
+              const y = Math.min(
+                cy + half + CHIP_GAP_PX,
+                Math.max(cy - half + chipH + CHIP_GAP_PX, pin.y),
+              )
+              const qx = Math.round(x * 10)
+              const qy = Math.round(y * 10)
               if (qx !== chipQX || qy !== chipQY) {
                 chipQX = qx
                 chipQY = qy
@@ -323,7 +388,10 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
       renderer?.destroy()
       rendererRef.current = null // handle calls after disposal become no-ops
     }
-  }, [size])
+    // bleed/zoomMax are baked into the renderer's frustum and the pin count
+    // into its shader — a change rebuilds it (callers pass constants and a
+    // per-page-render pin list, so this never fires in practice).
+  }, [size, bleed, zoomMax, pins])
 
   // Cycle the featured pilot through whichever pins currently face the
   // camera. Reduced motion picks one pilot and keeps it (no cycling).
@@ -353,7 +421,9 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
     }
   }, [renderStatus])
 
-  const activePilot = activePin >= 0 ? PILOTS[activePin] : null
+  // `?? null` also covers a stale index from a previous pin list while the
+  // rebuilt renderer is still loading.
+  const activePilot = activePin >= 0 ? pins[activePin] ?? null : null
   const chipInitial = pinPositionsRef.current[activePin]
 
   return (
@@ -381,7 +451,7 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
           }}
         />
       )}
-      {/* Bled canvas (see BLEED_INSET): its overhang covers the hero copy
+      {/* Bled canvas (see bleedInset): its overhang covers the hero copy
           column, so it must be pointer-events: none — clicks, selection
           and the CTA under it stay live, and the hit circle below owns
           the drag start instead. */}
@@ -391,10 +461,10 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
         role="img"
         style={{
           position: 'absolute',
-          left: BLEED_INSET,
-          top: BLEED_INSET,
-          width: BLEED_SIZE,
-          height: BLEED_SIZE,
+          left: canvasInset,
+          top: canvasInset,
+          width: canvasSize,
+          height: canvasSize,
           pointerEvents: 'none',
         }}
         width={size * 2}
@@ -426,12 +496,14 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
           outer node is steered per-frame by the render loop; the keyed
           remount replays the enter animation on every pilot change. The
           overlay shares the canvas's bleed insets so the canvas-relative
-          pin coordinates map 1:1 with no offset math. */}
+          pin coordinates map 1:1 with no offset math. z-[1]: an explicit
+          layer above the canvas and the hit circle — as z-index: auto
+          siblings the chip once composited under the raster at rest. */}
       {renderStatus === 'ready' && activePilot && (
         <div
           aria-hidden
-          className="pointer-events-none absolute overflow-hidden"
-          style={{ inset: BLEED_INSET }}
+          className="pointer-events-none absolute z-[1] overflow-hidden"
+          style={{ inset: canvasInset }}
         >
           <div
             key={activePin}
@@ -444,23 +516,28 @@ const Globe = forwardRef<GlobeHandle, GlobeProps>(function Globe(
               visibility: chipInitial?.front ? 'visible' : 'hidden',
             }}
           >
-            <span className="globe-chip inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-zinc-800 bg-zinc-950/85 px-2.5 py-1 font-mono text-[10px] tracking-[0.18em] text-zinc-300">
-              <span
-                className="h-1.5 w-1.5 rounded-full"
-                style={{
-                  background: ACCENT,
-                  boxShadow: `0 0 8px ${accentA(0.69)}`,
-                }}
-              />
+            <span className="globe-chip inline-flex items-center gap-1.5 whitespace-nowrap border px-2 py-1 font-mono text-[10px] tracking-[0.18em]">
+              <span className="h-1.5 w-1.5" style={{ background: ACCENT }} />
               @{activePilot.callsign} · {activePilot.city.toUpperCase()}
             </span>
           </div>
 
           <style jsx>{`
+            /* An opaque plate in the manifest's language — the hero's
+               deep-space fill (the white sheet in light), a strong hairline,
+               square corners, no glow — so the label never competes with
+               the raster it sits on. The --lx tokens are scoped to the
+               manifest; the fallbacks are the values they resolve to there. */
             .globe-chip {
-              transform: translate(-50%, calc(-100% - 12px));
+              transform: translate(-50%, calc(-100% - ${CHIP_GAP_PX}px));
+              background: var(--space-deep);
+              border-color: var(--lx-line-strong, rgb(var(--z700)));
+              color: var(--lx-ink, rgb(var(--z100)));
               animation: globe-chip-in 340ms cubic-bezier(0.22, 1, 0.36, 1)
                 backwards;
+            }
+            :global(html.light) .globe-chip {
+              background: #fff;
             }
             @keyframes globe-chip-in {
               from {

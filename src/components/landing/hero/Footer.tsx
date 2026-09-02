@@ -1,37 +1,54 @@
 'use client'
 
-// Landing hero footer — legal links plus the "built by" credit line.
-// Extracted verbatim from src/app/page.tsx.
+// Hero footer — the manifest's bottom strip: legal links left, the
+// privacy stance and the credit line right. Cells draw their own left
+// hairline (top hairline when stacked below sm); the strip's top rule is
+// its own border so nothing doubles against the compartments above.
 
 import Link from 'next/link'
 
+const CELL = 'flex items-center py-3.5 border-[color:var(--lx-line)]'
+const LINK =
+  'text-[color:var(--lx-ink-dim)] transition-colors hover:text-[color:var(--lx-ink)]'
+
 export function Footer() {
   return (
-    <footer className="pb-6 pt-10 flex flex-col items-start gap-3 text-[10px] tracking-[0.22em] text-zinc-600 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4 sm:gap-y-2 sm:tracking-[0.3em]">
-      <span className="inline-flex items-center gap-4">
+    <footer
+      data-hero-enter
+      className="lx-hero-exit flex flex-col border-t border-[color:var(--lx-line)] font-data text-[length:var(--fs-label)] tracking-[0.2em] text-[color:var(--lx-ink-dim)] sm:flex-row sm:items-stretch"
+    >
+      <div data-hero-cell className={`${CELL} gap-x-3 pr-5`}>
         <span>CRIBBLE · 2026</span>
-        <Link
-          href="/privacy"
-          className="text-zinc-600 hover:text-zinc-300 transition-colors"
-        >
+        <span aria-hidden>·</span>
+        <Link href="/privacy" className={LINK}>
           PRIVACY
         </Link>
-        <Link
-          href="/status"
-          className="text-zinc-600 hover:text-zinc-300 transition-colors"
-        >
+        <span aria-hidden>·</span>
+        <Link href="/status" className={LINK}>
           STATUS
         </Link>
-      </span>
+      </div>
 
-      <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 tracking-[0.22em] sm:tracking-[0.25em]">
+      <div
+        data-hero-cell
+        className={`${CELL} hidden whitespace-nowrap border-l px-5 lg:ml-auto lg:flex`}
+      >
+        <Link href="/privacy" className={LINK}>
+          WE COUNT SHOWING UP, NOT WHAT YOU SAY.
+        </Link>
+      </div>
+
+      <div
+        data-hero-cell
+        className={`${CELL} flex-wrap gap-x-2 gap-y-1 border-t sm:ml-auto sm:border-l sm:border-t-0 sm:pl-5 lg:ml-0`}
+      >
         <span>BUILT BY</span>
         <a
           href="https://x.com/birdabo"
           target="_blank"
           rel="noreferrer"
           aria-label="@birdabo on X"
-          className="inline-flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 transition-colors"
+          className={`inline-flex items-center gap-1.5 ${LINK}`}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -39,7 +56,7 @@ export function Footer() {
             alt=""
             width={14}
             height={14}
-            className="size-3.5 rounded-full object-cover"
+            className="size-3.5 object-cover"
           />
           <span>@BIRDABO</span>
         </a>
@@ -49,12 +66,12 @@ export function Footer() {
           target="_blank"
           rel="noreferrer"
           aria-label="Cursor"
-          className="inline-flex items-center gap-1.5 text-zinc-600 hover:text-zinc-300 transition-colors"
+          className={`inline-flex items-center gap-1.5 ${LINK}`}
         >
           <CursorMark />
           <span>CURSOR</span>
         </a>
-      </span>
+      </div>
     </footer>
   )
 }

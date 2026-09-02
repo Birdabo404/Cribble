@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { ImageResponse } from 'next/og'
-import { createServiceClient } from '@/lib/supabaseServer'
+import { getLandingLive } from '@/lib/landingLive'
 
 // The root unfurl — the one frame Cribble gets in someone else's feed.
 // A transmission, not a screenshot: the hero's editorial serif headline
@@ -119,28 +119,16 @@ async function loadOptional(filePath: string): Promise<Buffer | null> {
 }
 
 /**
- * Live ranked-pilot count — the one instrument reading on the card.
- * Same head-count on user_scores that loadPublicProfile uses to compute
- * rank (rank = users above you + 1, so ranked = total_score > 0).
- * Every failure path returns null and the stat line is silently
- * omitted — a broken unfurl is never acceptable.
+ * Live player count — the one instrument reading on the card. The same
+ * shared reading the landing hero shows (getLandingLive: every account on
+ * the public board, see RANKED_DEFINITION), so the unfurl and the page it
+ * opens never quote two different numbers. getLandingLive never throws;
+ * a missing or zero count simply omits the stat line — a broken unfurl is
+ * never acceptable.
  */
 async function loadRankedCount(): Promise<number | null> {
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    return null
-  }
-  try {
-    const supabase = createServiceClient()
-    const { count, error } = await supabase
-      .from('user_scores')
-      .select('user_id', { count: 'exact', head: true })
-      .gt('total_score', 0)
-    if (error || count === null || count <= 0) return null
-    return count
-  } catch (error) {
-    console.error('[RootOG] ranked count failed:', error)
-    return null
-  }
+  const { playerCount } = await getLandingLive()
+  return playerCount !== null && playerCount > 0 ? playerCount : null
 }
 
 type FontFamily = Record<string, string | number>
@@ -372,7 +360,7 @@ export default async function OpengraphImage() {
           <div style={{ display: 'flex' }}>CRIBBLE.DEV</div>
           {rankedCount !== null ? (
             <div style={{ display: 'flex', color: '#c4c7cf' }}>
-              {`${rankedCount.toLocaleString('en-US')} PILOTS RANKED`}
+              {`${rankedCount.toLocaleString('en-US')} PLAYERS RANKED`}
             </div>
           ) : null}
           <div style={{ display: 'flex' }}>ALT 408 KM</div>

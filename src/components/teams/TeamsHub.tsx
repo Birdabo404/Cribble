@@ -64,24 +64,35 @@ export function TeamsHub() {
   switch (gate.id) {
     case 'loading':
       return (
-        <div className="page-zoom-out mx-auto max-w-4xl px-6 pb-16 pt-10">
-          <div className="mx-auto h-8 w-64 animate-pulse rounded bg-[rgb(var(--lb-panel-edge)/0.06)]" />
-          <div className="mt-8 h-28 animate-pulse rounded-2xl bg-[rgb(var(--lb-panel-edge)/0.04)]" />
-          <div className="mt-4 h-64 animate-pulse rounded-2xl bg-[rgb(var(--lb-panel-edge)/0.04)]" />
+        <div className="command-deck page-zoom-out mx-auto max-w-6xl px-4 pb-12 pt-5 sm:px-6">
+          <div className="deck-mast">
+            <div className="deck-skel h-10 w-56" />
+            <div className="deck-skel h-3 w-64" />
+          </div>
+          <div className="deck-shell mt-3">
+            <div className="deck-cell h-16" />
+            <div className="deck-kpi-row">
+              <div className="deck-kpi h-20" />
+              <div className="deck-kpi h-20" />
+              <div className="deck-kpi h-20" />
+              <div className="deck-kpi h-20" />
+            </div>
+            <div className="deck-cell h-64" />
+          </div>
         </div>
       )
     case 'dashboard':
       return <TeamDashboard initial={gate.data} />
     case 'error':
       return (
-        <div className="page-zoom-out mx-auto flex max-w-4xl flex-col items-center gap-4 px-6 pb-16 pt-24 text-center">
-          <span className="text-xs tracking-[0.15em] text-zinc-500">
-            The teams sector failed to answer.
+        <div className="command-deck page-zoom-out mx-auto flex max-w-4xl flex-col items-center gap-4 px-4 pb-16 pt-24 text-center sm:px-6">
+          <span className="deck-mute font-data text-[11px] font-semibold tracking-[0.24em]">
+            [ THE TEAMS SECTOR FAILED TO ANSWER ]
           </span>
           <button
             type="button"
             onClick={() => void probe()}
-            className="lb-inset rounded-lg px-3 py-1.5 text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100"
+            className="deck-btn deck-btn-quiet deck-btn-hard"
           >
             RETRY
           </button>

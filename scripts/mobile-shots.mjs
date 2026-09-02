@@ -1,5 +1,7 @@
 // Mobile pass for the landing page. Same CDP harness as landing-shots.mjs;
-// emulates a 390×844 phone and walks hero → every descent stage → finale.
+// emulates a 390×844 phone and walks hero → contents → every sheet →
+// touchdown, printing the phone progress hairline's state (and confirming
+// the rope is not mounted) along the way.
 //
 //   node scripts/mobile-shots.mjs [cdp-port] [url] [out-dir]
 
@@ -77,17 +79,30 @@ async function main() {
     return r.result.value
   }
   const shot = async (name) => {
+    // the Next dev overlay badge is environment noise (headless has no
+    // WebGL, so the globe logs context errors) — keep it out of the frame
+    await evalJs(`document.querySelector('nextjs-portal')?.remove(); 'ok'`)
     const { data } = await cdp.send('Page.captureScreenshot', { format: 'png' })
     fs.writeFileSync(`${OUT}/${name}.png`, Buffer.from(data, 'base64'))
     console.log('saved', name)
   }
   const goTo = async (id, extra = 0) => {
     await evalJs(
-      `document.getElementById(${JSON.stringify(id)}).scrollIntoView({ block: 'start' }); 'ok'`
+      `(() => { const el = document.getElementById(${JSON.stringify(id)}); const y = el.getBoundingClientRect().top + window.scrollY; window.scrollTo(0, Math.max(0, y + ${extra})); return 'ok' })()`
     )
-    if (extra) await evalJs(`window.scrollBy(0, ${extra}); 'ok'`)
     await sleep(2400)
   }
+  // The 1px progress hairline (DescentProgress) — mounted, visible, fill.
+  const progress = () =>
+    evalJs(
+      `(() => {
+        const bar = document.querySelector('.lx-progress');
+        const spine = document.querySelector('.lx-spine');
+        if (!bar) return 'no .lx-progress mounted; spine=' + (spine ? 'MOUNTED' : 'none');
+        const fill = bar.querySelector('.lx-progress-fill');
+        return 'opacity=' + getComputedStyle(bar).opacity + ' fill=' + (fill && fill.style.transform) + ' spine=' + (spine ? 'MOUNTED' : 'none');
+      })()`
+    )
 
   await cdp.send('Emulation.setDeviceMetricsOverride', {
     width: 390,
@@ -113,22 +128,32 @@ async function main() {
   )
   console.log('h-overflow:', overflow)
 
-  await goTo('descent-arena', 100)
+  // the Contents rail, just past the hero
+  await evalJs(
+    `(() => { const el = document.querySelector('.lx-descent'); const y = el.getBoundingClientRect().top + window.scrollY; window.scrollTo(0, y - 120); return 'ok' })()`
+  )
+  await sleep(2000)
+  console.log('contents progress:', await progress())
+  await shot('02b-contents')
+
+  await goTo('descent-arena', -20)
+  console.log('arena progress:', await progress())
   await shot('03-arena')
-  await goTo('descent-cockpit', 120)
+  await goTo('descent-cockpit', -20)
   await shot('04-cockpit')
-  await goTo('descent-identity', 300)
+  await goTo('descent-identity', -20)
   await shot('05-identity')
-  await goTo('descent-honors', 300)
+  await goTo('descent-honors', -20)
   await shot('06-honors')
-  await goTo('descent-roadmap', 400)
+  await goTo('descent-roadmap', -20)
   await sleep(2600)
   await shot('07-roadmap')
   await evalJs(
-    `window.scrollTo(0, document.body.scrollHeight - window.innerHeight); 'ok'`
+    `window.scrollTo(0, document.documentElement.scrollHeight); 'ok'`
   )
   await sleep(2400)
-  await shot('08-finale')
+  console.log('touchdown progress:', await progress())
+  await shot('08-touchdown')
 
   console.log('done')
   process.exit(0)

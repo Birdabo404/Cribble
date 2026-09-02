@@ -246,10 +246,12 @@ async function main() {
       `(() => { const el = document.getElementById('descent-arena'); const y = el.getBoundingClientRect().top + window.scrollY; window.scrollTo(0, y - 60); return 'ok' })()`
     )
 
-  // Callsign spans only — row textContent runs handle and name together.
+  // The CALLSIGN cell is the third column of the Tower-style table
+  // (P · PLATE · CALLSIGN · …) — row textContent would run every column
+  // together.
   const roster = () =>
     evalJs(
-      `[...document.querySelectorAll('#descent-arena .ar-row')].map((r) => r.querySelector('.font-semibold')?.textContent || '?').join(',')`
+      `[...document.querySelectorAll('#descent-arena .ar-row')].map((r) => r.querySelector('td:nth-child(3)')?.textContent.trim() || '?').join(',')`
     )
 
   const setTheme = (theme) =>
@@ -307,15 +309,17 @@ async function main() {
   await sleep(500)
   await shot('07-final-cast-dark', await rectOf(PANEL))
 
-  const avatars = await evalJs(
-    `[...document.querySelectorAll('#descent-arena .ar-row img')].map((i) => (i.getAttribute('src') || '') + ':' + (i.naturalWidth > 0 ? 'ok' : 'MISSING')).join(' | ')`
+  // Every ranked row carries a plate swatch cell (the second column); a
+  // pilot without a plate shows an empty hairline box, never nothing.
+  const swatches = await evalJs(
+    `[...document.querySelectorAll('#descent-arena .ar-row')].map((r) => r.querySelector('td:nth-child(2) > span') ? 'ok' : 'MISSING').join(' | ')`
   )
-  assert('all avatars resolve', !avatars.includes('MISSING'), avatars)
+  assert('all rows carry a plate swatch', !swatches.includes('MISSING'), swatches)
 
   await sleep(3400) // act two — duel ticks running again
   await shot('08-duel-resumed', await rectOf(PANEL))
 
-  /* ---- pass 2 · light theme — end state on the dossier ------------------ */
+  /* ---- pass 2 · light theme — end state on the white sheet -------------- */
 
   await setTheme('light')
   await goto()
@@ -341,9 +345,9 @@ async function main() {
   await setTheme('dark')
   await setViewport(390, 1180, true)
   await goto()
-  // Headless mobile emulation only fires the stage's IntersectionObserver
-  // reliably off a real compositor gesture: park just above the arena,
-  // then swipe the last stretch.
+  // Park just above the arena, then swipe the last stretch as a real
+  // compositor gesture so the stage's ScrollTrigger sees a scroll like a
+  // phone would deliver it.
   await evalJs(
     `(() => { const el = document.getElementById('descent-arena'); const y = el.getBoundingClientRect().top + window.scrollY; window.scrollTo(0, y - 300); return 'ok' })()`
   )
@@ -362,13 +366,7 @@ async function main() {
     closingMobile === FINAL_CAST,
     closingMobile
   )
-  // The same emulation freezes the CSS animation clock (rows would sit at
-  // st-rise frame 0, opacity 0, forever) — jump every animation to its end
-  // state so the shot shows what a real phone settles on.
-  await evalJs(
-    `document.getAnimations().forEach((a) => { try { a.finish() } catch {} }); 'ok'`
-  )
-  await sleep(300)
+  await sleep(1500) // entrance choreography settled
   await shot('11-final-cast-mobile', await rectOf(PANEL, 8))
 
   /* ---- pass 4 · reduced motion — static final cast, no theater ---------- */

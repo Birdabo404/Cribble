@@ -78,7 +78,6 @@ async function importLandingMotion() {
     drawSvgModule,
     customEaseModule,
     flipModule,
-    scrambleTextModule,
     animeModule
   ] = await Promise.all([
     import('gsap'),
@@ -88,7 +87,6 @@ async function importLandingMotion() {
     import('gsap/DrawSVGPlugin'),
     import('gsap/CustomEase'),
     import('gsap/Flip'),
-    import('gsap/ScrambleTextPlugin'),
     import('animejs')
   ])
 
@@ -99,7 +97,6 @@ async function importLandingMotion() {
   const { DrawSVGPlugin } = drawSvgModule
   const { CustomEase } = customEaseModule
   const { Flip } = flipModule
-  const { ScrambleTextPlugin } = scrambleTextModule
   // spring() is v4.5's name for the deprecated createSpring().
   // cubicBezier rides along because v4.5 removed the 'cubicBezier(...)'
   // ease STRING (the parser warns and falls back to linear) — consumers
@@ -123,8 +120,7 @@ async function importLandingMotion() {
     SplitText,
     DrawSVGPlugin,
     CustomEase,
-    Flip,
-    ScrambleTextPlugin
+    Flip
   )
   CustomEase.create(CRIBBLE_EASE_NAME, CRIBBLE_EASE)
 
@@ -135,7 +131,6 @@ async function importLandingMotion() {
     SplitText,
     DrawSVGPlugin,
     Flip,
-    ScrambleTextPlugin,
     createTimer,
     createTimeline,
     animate,

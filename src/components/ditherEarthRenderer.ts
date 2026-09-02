@@ -32,9 +32,22 @@
 // CanvasTexture. Zero binary assets.
 
 import * as THREE from 'three'
-import { PILOTS } from '@/components/landing/pilots'
 
 export type RGB = [number, number, number]
+
+/** One globe pin: what the chip prints plus where the spot plate sits.
+ *  The landing hands in real players (handle + country) and falls back to
+ *  the static roster in src/components/landing/pilots.ts. */
+export interface GlobePinInput {
+  /** Handle without a leading @ — the chip adds it. */
+  callsign: string
+  /** Chip location text; rendered in caps. */
+  city: string
+  /** Latitude in degrees, north positive. */
+  lat: number
+  /** Longitude in degrees, east positive. */
+  lng: number
+}
 
 export interface EarthFrame {
   phi: number
@@ -45,7 +58,7 @@ export interface EarthFrame {
 }
 
 export interface PinScreenPosition {
-  /** Index into the PILOTS roster. */
+  /** Index into the `pins` array the renderer was created with. */
   index: number
   /** Canvas-relative CSS pixels. */
   x: number
@@ -69,6 +82,27 @@ export interface EarthRenderer {
   setScrollPose: (progress: number) => void
 }
 
+export interface EarthRendererOptions {
+  /**
+   * Canvas-to-footprint size ratio. Globe.tsx sizes the canvas element to
+   * `bleed`× the square globe footprint and the frustum scales by the same
+   * factor, so the resting look is identical at any bleed — it only buys
+   * room around the planet for the push-in zoom and the corona. Defaults
+   * to CANVAS_BLEED.
+   */
+  bleed?: number
+  /** Ortho zoom at scroll pose 1. Defaults to SCROLL_ZOOM_MAX. */
+  zoomMax?: number
+  /**
+   * Pins to plate onto the sphere and project for the chip. The count is
+   * baked into the shader as a compile-time array length, so a different
+   * list means a new renderer. Must hold at least one entry — GLSL has no
+   * zero-length arrays — so callers with nothing live pass a fallback
+   * roster instead of an empty list.
+   */
+  pins: GlobePinInput[]
+}
+
 /* ────────────────────────────────────────────────────────────────────────
    TUNING CONSTANTS — camera, pose, mask bake and the tonal mapping, all
    grouped here so the look can be dialed in without touching the shader
@@ -79,17 +113,27 @@ export interface EarthRenderer {
 // The composition is authored against this half-extent (planet disk ≈
 // 70% of the square globe footprint — same framing as the old renderer).
 const FOOTPRINT_HALF_EXTENT = 1.42
-// The canvas element is CANVAS_BLEED× the globe footprint on every side
-// (Globe.tsx positions it with negative insets) and the frustum scales
-// by the same factor, so pixels-per-world-unit — and the whole resting
-// look — match a footprint-sized canvas exactly. The bleed buys room
-// for the scroll push-in zoom and the halftone corona.
+// Default canvas bleed: the canvas element is bleed× the globe footprint
+// on every side (Globe.tsx positions it with negative insets) and the
+// frustum scales by the same factor (FOOTPRINT_HALF_EXTENT × bleed), so
+// pixels-per-world-unit — and the whole resting look — match a
+// footprint-sized canvas exactly. The bleed buys room for the scroll
+// push-in zoom and the halftone corona; the landing hero's instrument
+// passes a much larger one (see hero/GlobeInstrument.tsx).
 export const CANVAS_BLEED = 1.6
-const FRUSTUM_HALF_HEIGHT = FOOTPRINT_HALF_EXTENT * CANVAS_BLEED // 2.272
 
 const CAMERA_ELEVATION = 0.35 // radians of overhead tilt (isometric feel)
 const AXIAL_TILT = (23.5 * Math.PI) / 180 // leans the pole to the right
 const MAX_PIXEL_RATIO = 2
+// Drawing-buffer pixel budget. A footprint-sized canvas never gets near
+// it (400px × 1.6 bleed = 640 CSS px → 1.64M at DPR 2), but a heavily
+// bled canvas can (220px × 3.7 = 814 CSS px → 2.65M at DPR 2, and past
+// that at higher ratios): every one of those pixels runs the ray-cast +
+// pin loop each frame during the push-in. resize() lowers the effective
+// pixel ratio only when the buffer would otherwise exceed this, trading a
+// slightly resampled dot lattice on the largest canvases for a bounded
+// fragment count. Default-bleed callers never hit the cap.
+const FRAGMENT_BUDGET = 3e6
 
 // Scroll pose — the hero pinned-entry push-in, driven externally through
 // setScrollPose(p). "Zoom" tightens the ray-cast frustum (the ortho
@@ -98,7 +142,9 @@ const MAX_PIXEL_RATIO = 2
 // DISSOLVE_START the pose ramps a dither-threshold bias that erodes the
 // whole raster to nothing — the globe dissolves before heroPin's horizon
 // flare at 0.78. p = 0 is byte-identical to a renderer without a pose.
-const SCROLL_ZOOM_MAX = 1.7
+// The zoom at p = 1 is the SCROLL_ZOOM_MAX default unless the caller
+// passes its own `zoomMax`; pitch, yaw and the dissolve ramp are fixed.
+export const SCROLL_ZOOM_MAX = 1.7
 const SCROLL_PITCH_MAX = 0.52 // rad about screen X at p = 1
 const SCROLL_YAW_MAX = 0.75 // rad added to frame.phi at p = 1
 const DISSOLVE_START = 0.6
@@ -125,9 +171,9 @@ const SUN_DRIFT_MAX = 0.22 // rad of sun yaw at the oscillation peak
 const TERMINATOR_LO = -0.12 // N·L where night fully wins
 const TERMINATOR_HI = 0.28 // N·L where daylight fully wins
 
-// Pins — the 28 pilot positions as sphere-space unit vectors, drawn
-// in-shader as solid spot plates with a knockout moat so they separate
-// from the surrounding dot field.
+// Pins — the caller's player positions as sphere-space unit vectors,
+// drawn in-shader as solid spot plates with a knockout moat so they
+// separate from the surrounding dot field.
 const PIN_ANCHOR_RADIUS = 1.04 // chip anchor sits just above the plate
 const PIN_CORE_RADIUS = 0.042 // angular radius of the solid plate
 const PIN_GAP_RADIUS = 0.075 // outer angular radius of the knockout moat
@@ -177,8 +223,6 @@ const VIEW_Y = -Math.sin(CAMERA_ELEVATION)
 const VIEW_Z = -Math.cos(CAMERA_ELEVATION)
 const COS_TILT = Math.cos(AXIAL_TILT)
 const SIN_TILT = Math.sin(AXIAL_TILT)
-
-const PIN_COUNT = PILOTS.length
 
 // Classic 8×8 Bayer matrix; thresholds are (v + 0.5)/64 so coverage 0
 // renders nothing and coverage 1 renders solid.
@@ -461,7 +505,19 @@ void main() {
 
 export async function createDitherEarthRenderer(
   canvas: HTMLCanvasElement,
+  { bleed = CANVAS_BLEED, zoomMax = SCROLL_ZOOM_MAX, pins }: EarthRendererOptions,
 ): Promise<EarthRenderer> {
+  // `uniform vec3 uPins[0]` is a shader compile error, and a silent
+  // pin-less globe would hide the caller's missing fallback.
+  if (pins.length < 1) {
+    throw new Error('createDitherEarthRenderer: pins must hold at least one entry')
+  }
+
+  // Frustum half-extent for this instance — the bleed enlarges the canvas
+  // and the frustum together, so the planet keeps its footprint-relative
+  // size (disk ≈ 70% of the footprint) at any bleed.
+  const frustumHalfHeight = FOOTPRINT_HALF_EXTENT * bleed
+
   // Hard pixels are the aesthetic: no MSAA, and every fragment is written
   // fully opaque or fully transparent (NoBlending below), so the alpha
   // canvas composites without fringe.
@@ -501,7 +557,7 @@ export async function createDitherEarthRenderer(
 
     // Pin directions in the sphere-fixed frame — shared by the shader
     // (spot plates) and the JS projection (chip anchoring) below.
-    const pinDirs = PILOTS.map((pilot) => latLngToUnit(pilot.lat, pilot.lng))
+    const pinDirs = pins.map((pin) => latLngToUnit(pin.lat, pin.lng))
     const pinVectors = pinDirs.map(([x, y, z]) => new THREE.Vector3(x, y, z))
 
     const uniforms = {
@@ -509,8 +565,8 @@ export async function createDitherEarthRenderer(
       uBayer: { value: bayerTexture },
       uResolution: { value: new THREE.Vector2(1, 1) },
       uCell: { value: 1 },
-      uHalfW: { value: FRUSTUM_HALF_HEIGHT },
-      uHalfH: { value: FRUSTUM_HALF_HEIGHT },
+      uHalfW: { value: frustumHalfHeight },
+      uHalfH: { value: frustumHalfHeight },
       uZoom: { value: 1 },
       uPhi: { value: 0 },
       uPitch: { value: 0 },
@@ -523,7 +579,7 @@ export async function createDitherEarthRenderer(
     }
 
     const defines: Record<string, string> = {
-      PIN_COUNT: String(PIN_COUNT),
+      PIN_COUNT: String(pins.length),
       TWO_PI: formatFloat(Math.PI * 2),
       PI_C: formatFloat(Math.PI),
       CAM_UP_Y: formatFloat(UP_Y),
@@ -602,7 +658,7 @@ export async function createDitherEarthRenderer(
     // these fresh instead).
     let viewWidth = 1
     let viewHeight = 1
-    let halfW = FRUSTUM_HALF_HEIGHT
+    let halfW = frustumHalfHeight
     let deviceHeight = 1
     let pixelRatio = 1
     // Pose state the shader and the pin projection share per frame.
@@ -618,11 +674,19 @@ export async function createDitherEarthRenderer(
     const drawingBufferSize = new THREE.Vector2()
 
     const resize = () => {
-      pixelRatio = Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO)
       const width = Math.max(1, canvas.clientWidth)
       const height = Math.max(1, canvas.clientHeight)
       viewWidth = width
       viewHeight = height
+      // Fragment-budget guard (see FRAGMENT_BUDGET): the ratio at which the
+      // square-ish buffer lands exactly on the budget, which only undercuts
+      // the device ratio on canvases too big to draw at native density.
+      const budgetRatio = Math.sqrt(FRAGMENT_BUDGET) / Math.max(width, height)
+      pixelRatio = Math.min(
+        window.devicePixelRatio || 1,
+        MAX_PIXEL_RATIO,
+        budgetRatio,
+      )
       renderer.setPixelRatio(pixelRatio)
       renderer.setSize(width, height, false)
       renderer.getDrawingBufferSize(drawingBufferSize)
@@ -632,14 +696,14 @@ export async function createDitherEarthRenderer(
       // Bayer cells lock to device pixels: round(devicePixelRatio) buffer
       // pixels per cell, never below 1.
       uniforms.uCell.value = Math.max(1, Math.round(pixelRatio))
-      halfW = FRUSTUM_HALF_HEIGHT * (width / height)
+      halfW = frustumHalfHeight * (width / height)
       uniforms.uHalfW.value = halfW
-      uniforms.uHalfH.value = FRUSTUM_HALF_HEIGHT
+      uniforms.uHalfH.value = frustumHalfHeight
 
       // Resting scissor rect: the centered footprint square plus a small
       // apron. setScissor is inert until render() flips setScissorTest on;
       // three multiplies the rect by the pixel ratio itself.
-      const footprint = Math.ceil(height / CANVAS_BLEED) + 8
+      const footprint = Math.ceil(height / bleed) + 8
       renderer.setScissor(
         Math.floor((width - footprint) / 2),
         Math.floor((height - footprint) / 2),
@@ -656,7 +720,7 @@ export async function createDitherEarthRenderer(
     const render = ({ phi, time, lightMode, accent }: EarthFrame) => {
       lastPhi = phi + scrollPose * SCROLL_YAW_MAX
       lastPitch = scrollPose * SCROLL_PITCH_MAX
-      lastZoom = 1 + (SCROLL_ZOOM_MAX - 1) * scrollPose
+      lastZoom = 1 + (zoomMax - 1) * scrollPose
 
       uniforms.uPhi.value = lastPhi
       uniforms.uPitch.value = lastPitch
@@ -687,7 +751,7 @@ export async function createDitherEarthRenderer(
 
       // Ink limb ring width in world units, tracking zoom so it holds a
       // constant on-screen thickness.
-      const pxPerUnit = (deviceHeight * lastZoom) / (2 * FRUSTUM_HALF_HEIGHT)
+      const pxPerUnit = (deviceHeight * lastZoom) / (2 * frustumHalfHeight)
       uniforms.uRingWorld.value = (LIMB_RING_CSS_PX * pixelRatio) / pxPerUnit
 
       const atRest = scrollPose === 0
@@ -726,7 +790,7 @@ export async function createDitherEarthRenderer(
         const screenX = x2 * PIN_ANCHOR_RADIUS
         const screenY = (y3 * UP_Y + z3 * UP_Z) * PIN_ANCHOR_RADIUS
         const ndcX = (screenX * lastZoom) / halfW
-        const ndcY = (screenY * lastZoom) / FRUSTUM_HALF_HEIGHT
+        const ndcY = (screenY * lastZoom) / frustumHalfHeight
         entry.x = (ndcX * 0.5 + 0.5) * viewWidth
         entry.y = (0.5 - ndcY * 0.5) * viewHeight
       }

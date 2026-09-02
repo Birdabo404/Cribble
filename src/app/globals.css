@@ -98,9 +98,6 @@
   --banner-gold-a: 255 214 68;
   --banner-gold-b: 255 152 0;
 
-  /* landing globe halo: whitish blue in dark mode */
-  --globe-glow-rgb: 150 190 255;
-
   /* landing deep-space backdrop (hero + descent). Pure #000 reads
      "monitor off", not "night sky" — the zenith carries a faint
      blue-charcoal lift and settles to --space-deep at the fold, which
@@ -276,9 +273,6 @@ html.light {
 
   --banner-a: 255 94 0;
   --banner-b: 255 94 0;
-
-  /* The Earth keeps its blue atmospheric halo in both color schemes. */
-  --globe-glow-rgb: 70 145 255;
 
   /* flipped monochrome anchors: "black" surfaces become the white
      canvas, "white" elements stamp in near-black ink */
@@ -870,10 +864,6 @@ html.light .ambient-glow-field {
   display: block;
 }
 
-/* Landing hero backdrop. Dark: deep-space gradient under a micro
-   starfield — three speck tiles with coprime sizes so the repeat never
-   registers; the asteroid fly-bys stay the only moving light. Light
-   mode keeps the clean white sheet the dossier below hands off from. */
 /* Landing accent — chartreuse signal (#CCFF00), scoped so the rest of
    the app keeps the site-wide hacker green. Light mode re-pins orange
    below (hero cool sheet + descent paper annotations). */
@@ -883,6 +873,166 @@ html.light .ambient-glow-field {
   --accent-rgb: 204 255 0;
 }
 
+/* Manifest role tokens — shared by the hero (sheet 00) and the descent's
+   sheets below it, so both draw from one palette. Built from the --z*
+   scale so the html.light re-pin below flips them for free (z100 becomes
+   near-black ink on the white sheet). --lx-ink-dim is the floor for
+   readable 10px labels: z400 measures 7.9:1 on --space-deep (z500 only
+   4.2:1 — under AA); the light re-pin steps it back to z500, which is
+   4.8:1 on the white sheet. --lx-ink-faint is decoration only. */
+.lx-hero,
+.lx-descent {
+  --lx-line: rgb(var(--z800) / 0.7);
+  --lx-line-strong: rgb(var(--z700));
+  --lx-ink: rgb(var(--z100));
+  --lx-ink-dim: rgb(var(--z400));
+  --lx-ink-faint: rgb(var(--z600));
+  --lx-signal: var(--accent);
+  /* The sheet under the ink — what the Möbius ribbon shades/dithers toward. */
+  --lx-sheet: var(--space-deep);
+}
+
+/* Instrument grid: nothing inside the manifest — hero or descent — is
+   rounded, shared chrome like the theme toggle chip included. */
+.lx-hero *,
+.lx-hero *::before,
+.lx-hero *::after,
+.lx-descent *,
+.lx-descent *::before,
+.lx-descent *::after {
+  border-radius: 0;
+}
+
+/* The score numeral: Plex Mono 600, tabular, tight. --fs-numeral is the
+   ceiling; the column is the fit — 7 tabular glyphs at -0.05em run 3.85em,
+   so 25.5cqi of the left column (container-type: inline-size) never
+   overflows it at any viewport. Browsers without container units keep the
+   ceiling. */
+.lx-numeral {
+  font-family: var(--font-data), ui-monospace, 'SF Mono', Menlo, monospace;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-numeral);
+  font-size: min(var(--fs-numeral), 25.5cqi);
+  letter-spacing: -0.05em;
+  line-height: 0.85;
+  white-space: nowrap;
+  color: var(--lx-ink);
+}
+
+/* The Touchdown ∞ — a Möbius ribbon on a canvas (landing/MobiusGap.tsx)
+   over a fallback text glyph. em-based so it inherits .lx-numeral's
+   container-fit font-size; 2.1:1 is the lemniscate's aspect. The glyph is
+   what SSR, no-JS and the still tier show; [data-live] (set by the
+   component once it draws) hands the box to the canvas — a static opacity
+   toggle, no transition, because the ribbon's own draw-in is the entrance. */
+.lx-ribbon {
+  display: block;
+  position: relative;
+  width: 2.1em;
+  height: 1em;
+}
+/* `color` is how the renderer reads the hairline ink for its edges and
+   crosshair — one getComputedStyle(canvas).color, so the token flips with
+   the theme like everything else. */
+.lx-ribbon > canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  opacity: 0;
+  color: var(--lx-ink-dim);
+}
+.lx-ribbon > span {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.lx-ribbon[data-live] > canvas {
+  opacity: 1;
+}
+.lx-ribbon[data-live] > span {
+  opacity: 0;
+}
+
+/* Square bracket-framed CTA. Press feedback is a scale, not a slide. */
+.lx-cta {
+  transition:
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 160ms ease,
+    color 160ms ease,
+    border-color 160ms ease;
+}
+/* inline-block: the entrance slides the brackets in on x, and transforms
+   don't apply to non-replaced inline boxes */
+.lx-cta-bracket {
+  display: inline-block;
+  color: var(--lx-signal);
+  transition: color 160ms ease;
+}
+/* #000 literally — text-black flips to white under html.light, and both
+   the chartreuse and the light-mode orange want black on hover */
+.lx-cta:hover {
+  background-color: var(--lx-signal);
+  border-color: var(--lx-signal);
+  color: #000;
+}
+.lx-cta:hover .lx-cta-bracket {
+  color: #000;
+}
+.lx-cta:active {
+  transform: scale(0.97);
+}
+.lx-cta:focus-visible {
+  outline: 1px solid var(--lx-signal);
+  outline-offset: 2px;
+}
+
+/* Anchor the rotating WorldwideText to the left edge so each language
+   swap reads as a clean width change rather than a jiggling reflow. */
+.worldwide-anchor {
+  position: relative;
+  display: inline-block;
+  padding-bottom: 12px;
+  line-height: 1.12;
+}
+/* Signal hairline under the word — it tracks the width the rotator writes
+   on the wrap above it. A solid 1px rule, like every other line in the
+   manifest; no gradient, no glow. */
+.worldwide-anchor::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  bottom: 2px;
+  height: 1px;
+  background: var(--lx-signal, rgb(var(--accent-rgb)));
+  pointer-events: none;
+}
+
+/* Score tick (hero/useTowerLiveness.ts for the tower's [data-hero-score];
+   the descent's arena board hangs the same beat on a generic [data-tick]
+   hook): a ticked cell snaps to the signal color while .lx-tick is on,
+   then eases back to ink over the site curve once the class drops a frame
+   later. */
+.lx-hero [data-hero-score],
+.lx-descent [data-tick] {
+  transition: color 600ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.lx-hero [data-hero-score].lx-tick,
+.lx-descent [data-tick].lx-tick {
+  color: var(--lx-signal);
+  transition: none;
+}
+
+/* Landing hero backdrop. Dark: deep-space gradient under a micro
+   starfield — three speck tiles with coprime sizes so the repeat never
+   registers; the asteroid fly-bys stay the only moving light. Light
+   mode keeps the clean white sheet the dossier below hands off from. */
 .lx-hero {
   background-color: var(--space-deep);
   background-image:
@@ -896,12 +1046,14 @@ html.light .lx-hero {
   background: #ffffff;
 }
 
-/* The hero is the one surface exempt from the dossier-paper light theme:
-   it keeps the clean white sheet and the original cool-neutral palette it
-   was authored against, so re-pin every flipped token the hero consumes
-   back to the pre-dossier values. (The descent below owns its own paper
-   remaps; this scope covers the hero viewport only.) */
-html.light .lx-hero {
+/* The manifest — hero and the descent's sheets alike — is exempt from the
+   dossier-paper light theme: it keeps the clean white sheet and the
+   original cool-neutral palette it was authored against, so re-pin every
+   flipped token it consumes back to the pre-dossier values. One scope for
+   both so hero → descent reads as a single document in light mode too;
+   the descent's light background itself is set in Descent.tsx. */
+html.light .lx-hero,
+html.light .lx-descent {
   --accent: #ff5e00;
   --accent-rgb: 255 94 0;
   --star-rgb: 39 39 42;
@@ -919,6 +1071,10 @@ html.light .lx-hero {
   --z800: 228 228 231;
   --z900: 244 244 245;
   --z950: 250 250 250;
+  /* Swiss-print gray for the 10px labels: 4.8:1 on white (see the dark
+     token block above for why dark needs the brighter step). */
+  --lx-ink-dim: rgb(var(--z500));
+  --lx-sheet: #ffffff;
 }
 
 /* Dossier canvas — the site-wide light-mode page fill. Inert in dark
@@ -1035,8 +1191,8 @@ html.lx-motion-full:not(.light) .lx-atmo {
   );
   opacity: clamp(0, calc((var(--alt, 0) - 0.42) / 0.24), 1);
 }
-/* dusk ember rising from the ground for the final approach — hands off
-   to the Finale's landing-pad glow */
+/* dusk ember rising from the ground for the final approach — the warm
+   tint under the Touchdown sheet */
 .lx-atmo-dusk {
   background: radial-gradient(
     120% 85% at 50% 100%,
@@ -1493,6 +1649,1214 @@ html.light .deck-seat-off {
 }
 html.light .deck-share-fill {
   background: rgb(var(--lb-gold));
+}
+
+/* ============================================================
+   Command deck — the /teams TeamDashboard. One archetype per theme:
+   dark is the CRT terminal (phosphor on near-black, scanlines), light
+   is Swiss industrial print (ink on warm dossier paper, grain only).
+   Scoped to .command-deck so the /teams landing keeps its rounded
+   gold recipe. Square corners, a 1px compartment grid, invert
+   selection plates, gold as the single accent. Every rule below
+   reads the deck's own semantic tokens; light mode re-pins the
+   primitives they resolve from (the same scoped re-pin the landing
+   descent makes for its dossier paper in Descent.tsx).
+   ============================================================ */
+
+.command-deck {
+  /* surfaces */
+  --deck-paper: rgb(var(--lb-panel-bg));
+  --deck-well: rgb(255 255 255 / 0.028);
+  /* text — mute ≥ 7:1 and faint ≥ 3.8:1 on the dark paper; light
+     re-pins the primitives so the same roles hold on the warm sheet */
+  --deck-ink: rgb(var(--z50));
+  --deck-mute: rgb(var(--z400));
+  --deck-faint: color-mix(in srgb, rgb(var(--z400)) 50%, rgb(var(--z500)));
+  /* lines */
+  --deck-line: rgb(var(--lb-panel-edge) / 0.2);
+  --deck-line-soft: rgb(var(--lb-panel-edge) / 0.09);
+  /* invert plate (selected row, lit lamp, pressed pick) */
+  --deck-plate: rgb(var(--z50));
+  --deck-plate-fg: rgb(var(--z950));
+  /* type on the gold fill — dark in BOTH themes (gold is light) */
+  --deck-on-accent: rgb(9 10 13);
+  /* hard 2px offset under the primary action buttons */
+  --deck-shadow: rgb(var(--lb-panel-edge) / 0.32);
+  --deck-focus: rgb(var(--lb-gold));
+  position: relative;
+  color: var(--deck-ink);
+}
+
+/* Light: the descent's dossier paper. Warm off-white sheet, archival
+   inks, ink structure — re-pinned here so every zinc utility and every
+   deck-* recipe inside the deck lands on paper instead of #fff. */
+html.light .command-deck {
+  --z50: 28 24 17;
+  --z100: 43 38 29;
+  --z200: 60 54 42;
+  --z300: 84 76 60;
+  --z400: 106 97 79;
+  --z500: 129 120 101;
+  --z600: 110 105 90;
+  --z700: 140 134 116;
+  --z800: 222 216 200;
+  --z900: 238 234 223;
+  --z950: 245 242 233;
+  --lb-panel-bg: 252 251 247;
+  --lb-panel-edge: 47 41 28;
+  --deck-well: rgb(47 41 28 / 0.05);
+  --deck-line: rgb(47 41 28 / 0.28);
+  --deck-line-soft: rgb(47 41 28 / 0.12);
+  --deck-on-accent: rgb(28 24 17);
+  --deck-shadow: rgb(47 41 28);
+  --deck-focus: rgb(28 24 17);
+}
+
+/* One keyboard focus ring for the whole deck. Rows draw it inside their
+   own box so it doesn't fight the compartment hairlines. */
+.command-deck :focus-visible {
+  outline: 2px solid var(--deck-focus);
+  outline-offset: 2px;
+}
+
+.command-deck .deck-pilot:focus-visible {
+  outline-offset: -2px;
+}
+
+.command-deck .deck-shell {
+  position: relative;
+  display: grid;
+  gap: 1px;
+  background: var(--deck-line);
+  border: 1px solid var(--deck-line);
+  box-shadow: none;
+}
+
+.command-deck .deck-cell,
+.command-deck .deck-kpi,
+.command-deck .deck-empty {
+  background: var(--deck-paper);
+}
+
+.command-deck .deck-cell-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* ---- masthead ---- */
+
+.command-deck .deck-mast {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 1rem 2rem;
+  padding: 0 0 0.9rem;
+}
+
+@media (max-width: 767px) {
+  .command-deck .deck-mast {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+}
+
+.command-deck .deck-title {
+  margin: 0;
+  color: var(--deck-ink);
+  font-family: var(--font-display), 'Inter', system-ui, sans-serif;
+  font-size: clamp(2.1rem, 5vw, 3.5rem);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 0.9;
+  text-transform: uppercase;
+  text-shadow: none;
+}
+
+.command-deck .deck-kicker {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.55rem;
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--deck-mute);
+}
+
+.command-deck .deck-kicker::before {
+  content: '';
+  width: 1.5rem;
+  height: 1px;
+  background: var(--deck-ink);
+}
+
+/* Sector strip: an inverted authority plate + jump links to the
+   compartments below (real anchors — on phones the rail is off-screen). */
+.command-deck .deck-tabs {
+  display: inline-flex;
+  align-self: end;
+  border: 1px solid var(--deck-line);
+  background: var(--deck-paper);
+}
+
+.command-deck .deck-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2.25rem;
+  padding: 0 0.95rem;
+  border-left: 1px solid var(--deck-line);
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--deck-mute);
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.command-deck .deck-tab:first-child {
+  border-left: 0;
+}
+
+.command-deck a.deck-tab:hover {
+  color: var(--deck-ink);
+  background: var(--deck-well);
+}
+
+.command-deck .deck-tab-plate {
+  background: var(--deck-plate);
+  color: var(--deck-plate-fg);
+  font-weight: 600;
+}
+
+.command-deck .deck-tab-plate::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: rgb(var(--lb-gold));
+}
+
+@media (max-width: 767px) {
+  .command-deck .deck-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    align-self: stretch;
+  }
+  .command-deck .deck-tab {
+    flex: 1 1 0;
+    justify-content: center;
+    height: 2.125rem;
+    padding: 0 0.6rem;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+  }
+  /* plate takes its own row; the jump links share the one below */
+  .command-deck .deck-tab-plate {
+    flex-basis: 100%;
+    border-bottom: 1px solid var(--deck-line);
+  }
+  .command-deck .deck-tab-plate + .deck-tab {
+    border-left: 0;
+  }
+}
+
+.command-deck .deck-rule {
+  display: block;
+  height: 1px;
+  transform-origin: left center;
+  background: var(--deck-line);
+}
+
+.command-deck .deck-rule-gold {
+  height: 3px;
+  background: rgb(var(--lb-gold));
+}
+
+/* ---- text roles (used from JSX in place of raw zinc utilities) ---- */
+
+.command-deck .deck-mute {
+  color: var(--deck-mute);
+}
+
+.command-deck .deck-faint {
+  color: var(--deck-faint);
+}
+
+/* ---- identity row ---- */
+
+.command-deck .deck-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+  padding: 1rem 1.25rem;
+}
+
+.command-deck .deck-mark {
+  display: flex;
+  height: 2.75rem;
+  width: 2.75rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--deck-line);
+  background: var(--deck-well);
+}
+
+.command-deck .deck-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  flex-shrink: 0;
+}
+
+@media (max-width: 639px) {
+  .command-deck .deck-identity {
+    padding: 0.85rem 0.9rem;
+    gap: 0.65rem 0.85rem;
+  }
+  .command-deck .deck-actions {
+    flex-basis: 100%;
+  }
+  .command-deck .deck-actions > * {
+    flex: 1 1 0;
+  }
+}
+
+/* ---- KPI strip ---- */
+
+.command-deck .deck-kpi-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--deck-line);
+}
+
+@media (min-width: 768px) {
+  .command-deck .deck-kpi-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.command-deck .deck-kpi {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: hidden;
+  padding: 1rem 1.25rem 1.1rem;
+}
+
+.command-deck .deck-kpi-label {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--deck-mute);
+}
+
+/* Index square before each label; gold on the headline instrument. */
+.command-deck .deck-kpi-label::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  background: var(--deck-line);
+}
+
+.command-deck .deck-kpi-accent .deck-kpi-label::before {
+  background: rgb(var(--lb-gold));
+}
+
+.command-deck .deck-kpi-value {
+  margin-top: 0.7rem;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-pixel), ui-monospace, monospace;
+  font-size: clamp(18px, 2.4vw, 30px);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--deck-ink);
+}
+
+.command-deck .deck-kpi-hint {
+  margin-top: 0.55rem;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--deck-mute);
+}
+
+@media (max-width: 639px) {
+  .command-deck .deck-kpi {
+    padding: 0.85rem 0.9rem 0.95rem;
+  }
+}
+
+/* ---- body grid ---- */
+
+.command-deck .deck-body {
+  display: grid;
+  gap: 1px;
+  background: var(--deck-line);
+}
+
+@media (min-width: 1024px) {
+  .command-deck .deck-body-split {
+    grid-template-columns: minmax(0, 1fr) minmax(330px, 40%);
+    align-items: stretch;
+  }
+}
+
+.command-deck .deck-rail {
+  display: grid;
+  gap: 1px;
+  background: var(--deck-line);
+  min-width: 0;
+}
+
+/* Compartment header: sunken well, ink label, one hard rule under it. */
+.command-deck .deck-band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  min-height: 2.5rem;
+  padding: 0.5rem 1.25rem;
+  background: var(--deck-well);
+  border-bottom: 1px solid var(--deck-line);
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--deck-ink);
+}
+
+.command-deck .deck-band-note {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  color: var(--deck-mute);
+}
+
+/* ---- roster rows ---- */
+
+.command-deck .deck-pilot {
+  display: flex;
+  min-height: 3rem;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.5rem 1.25rem;
+  border-bottom: 1px solid var(--deck-line-soft);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.command-deck .deck-pilot:hover {
+  background: var(--deck-well);
+}
+
+.command-deck .deck-pilot-on,
+.command-deck .deck-pilot-on:hover {
+  background: var(--deck-plate);
+  color: var(--deck-plate-fg);
+}
+
+.command-deck .deck-pilot-on a {
+  color: inherit;
+}
+
+/* Doubled class out-ranks the light-mode chip re-tints further down. */
+.command-deck .deck-pilot.deck-pilot-on .deck-chip {
+  border-color: rgb(var(--z950) / 0.5);
+  background: transparent;
+  color: inherit;
+  font-weight: 600;
+}
+
+.command-deck .deck-pilot-on .deck-btn.deck-btn-quiet {
+  border-color: rgb(var(--z950) / 0.5);
+  color: inherit;
+  background: transparent;
+}
+
+.command-deck .deck-pilot-on .deck-share-track {
+  background: rgb(var(--z950) / 0.22);
+}
+
+.command-deck .deck-pilot-on .deck-share-fill {
+  background: var(--deck-plate-fg);
+}
+
+.command-deck .deck-pilot-on .deck-mute,
+.command-deck .deck-pilot-on .deck-faint {
+  color: inherit;
+  opacity: 0.62;
+}
+
+.command-deck .deck-rank {
+  width: 1.5rem;
+  flex-shrink: 0;
+  text-align: center;
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--deck-mute);
+}
+
+.command-deck .deck-pilot-on .deck-rank {
+  color: inherit;
+  font-weight: 700;
+}
+
+.command-deck .deck-avatar {
+  height: 1.75rem;
+  width: 1.75rem;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid var(--deck-line-soft);
+}
+
+.command-deck .deck-avatar > * {
+  height: 100%;
+  width: 100%;
+}
+
+.command-deck .deck-avatar-lg {
+  height: 2.25rem;
+  width: 2.25rem;
+}
+
+.command-deck .deck-avatar-fallback {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  background: var(--deck-well);
+  font-family: var(--font-display), 'Inter', system-ui, sans-serif;
+  font-size: 11px;
+  color: var(--deck-mute);
+}
+
+.command-deck .deck-callsign {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+  text-underline-offset: 2px;
+}
+
+.command-deck .deck-callsign:hover {
+  text-decoration: underline;
+}
+
+.command-deck .deck-pilot-share {
+  display: flex;
+  width: 2.75rem;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+@media (min-width: 640px) {
+  .command-deck .deck-pilot-share {
+    width: 7rem;
+  }
+}
+
+.command-deck .deck-share-track {
+  display: none;
+  height: 3px;
+  flex: 1;
+  overflow: hidden;
+  background: rgb(var(--lb-panel-edge) / 0.14);
+}
+
+@media (min-width: 640px) {
+  .command-deck .deck-share-track {
+    display: block;
+  }
+}
+
+.command-deck .deck-share-fill {
+  display: block;
+  height: 100%;
+  transform-origin: left center;
+}
+
+.command-deck .deck-pilot-score {
+  width: 4rem;
+  flex-shrink: 0;
+  text-align: right;
+  font-family: var(--font-pixel), ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 639px) {
+  .command-deck .deck-pilot {
+    gap: 0.6rem;
+    padding: 0.5rem 0.9rem;
+  }
+}
+
+/* ---- unfilled seats: ghost slots that soak up the compartment's slack ----
+   Rendered for every seat the roster doesn't hold, but the strip is a
+   flex:1 overflow-clipped well, so exactly as many show as fit between
+   the last pilot and the dossier — none at all when the column is
+   content-height (member view, phones). Decorative; aria-hidden. */
+
+.command-deck .deck-slots {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 3rem), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 3rem), transparent);
+}
+
+.command-deck .deck-slot {
+  display: flex;
+  height: 3rem;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0 1.25rem;
+  border-bottom: 1px solid var(--deck-line-soft);
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--deck-faint);
+}
+
+.command-deck .deck-slot .deck-rank {
+  color: var(--deck-faint);
+}
+
+.command-deck .deck-slot-box {
+  height: 1.75rem;
+  width: 1.75rem;
+  flex-shrink: 0;
+  border: 1px dashed var(--deck-line);
+}
+
+.command-deck .deck-slot-line {
+  flex: 1;
+  height: 1px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--deck-line-soft) 0 4px,
+    transparent 4px 9px
+  );
+}
+
+@media (max-width: 639px) {
+  .command-deck .deck-slot {
+    padding: 0 0.9rem;
+  }
+}
+
+/* ---- selected-pilot readout (fills the roster compartment's foot) ---- */
+
+.command-deck .deck-dossier {
+  margin-top: auto;
+  border-top: 1px solid var(--deck-line);
+  background: var(--deck-well);
+}
+
+.command-deck .deck-dossier-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.75rem 1.5rem;
+  padding: 0.9rem 1.25rem 1rem;
+}
+
+@media (max-width: 639px) {
+  .command-deck .deck-dossier-body {
+    grid-template-columns: 1fr;
+    padding: 0.85rem 0.9rem 0.95rem;
+  }
+}
+
+.command-deck .deck-dossier-name {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-display), 'Inter', system-ui, sans-serif;
+  font-size: clamp(1.15rem, 2.2vw, 1.55rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1;
+  color: var(--deck-ink);
+}
+
+.command-deck .deck-dossier-sub {
+  margin-top: 0.35rem;
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--deck-mute);
+}
+
+.command-deck .deck-dossier-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(6rem, 1fr));
+  gap: 0.6rem 1.5rem;
+  margin: 0.85rem 0 0;
+}
+
+.command-deck .deck-dossier-grid dt {
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--deck-mute);
+}
+
+.command-deck .deck-dossier-grid dd {
+  margin: 0.3rem 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-pixel), ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--deck-ink);
+}
+
+/* ---- transfer-queue rows ---- */
+
+.command-deck .deck-app {
+  padding: 0.9rem 1.25rem 1rem;
+  border-bottom: 1px solid var(--deck-line-soft);
+}
+
+.command-deck .deck-app:last-child {
+  border-bottom: 0;
+}
+
+.command-deck .deck-app-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 0.75rem;
+}
+
+.command-deck .deck-app-id {
+  min-width: 0;
+  flex: 1 1 8rem;
+}
+
+.command-deck .deck-app-line {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.6rem;
+}
+
+.command-deck .deck-app-score {
+  flex-shrink: 0;
+  font-family: var(--font-pixel), ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: rgb(var(--lb-score));
+}
+
+.command-deck .deck-app-meta {
+  margin-top: 0.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--deck-mute);
+}
+
+.command-deck .deck-app-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.command-deck .deck-app-stamps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.7rem;
+  padding-left: 3rem;
+}
+
+.command-deck .deck-app-note {
+  margin: 0.6rem 0 0;
+  padding-left: 3rem;
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--deck-mute);
+}
+
+.command-deck .deck-app-note-empty {
+  color: var(--deck-faint);
+}
+
+@media (max-width: 639px) {
+  .command-deck .deck-app {
+    padding: 0.85rem 0.9rem 0.95rem;
+  }
+  .command-deck .deck-app-actions {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+  .command-deck .deck-app-actions > * {
+    flex: 1 1 0;
+  }
+  .command-deck .deck-app-stamps,
+  .command-deck .deck-app-note {
+    padding-left: 0;
+  }
+}
+
+/* ---- hiring bar: metric lamp + one flush segmented strip ---- */
+
+.command-deck .deck-metric {
+  padding: 0.9rem 1.25rem 1rem;
+  border-bottom: 1px solid var(--deck-line-soft);
+}
+
+.command-deck .deck-metric-lamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  height: 1.5rem;
+  padding: 0;
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--deck-mute);
+  transition: color 120ms ease;
+}
+
+.command-deck .deck-metric-lamp[aria-pressed='true'] {
+  color: var(--deck-ink);
+  font-weight: 600;
+}
+
+.command-deck .deck-metric-lamp:not(:disabled):hover {
+  color: var(--deck-ink);
+}
+
+.command-deck .deck-seg {
+  display: flex;
+  margin-top: 0.65rem;
+  border: 1px solid var(--deck-line);
+  background: var(--deck-paper);
+}
+
+.command-deck .deck-seg > * {
+  border-left: 1px solid var(--deck-line);
+}
+
+.command-deck .deck-seg > :first-child {
+  border-left: 0;
+}
+
+.command-deck .deck-seg-pick,
+.command-deck .deck-seg-set,
+.command-deck input.deck-seg-input {
+  height: 2.125rem;
+  border-radius: 0;
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.command-deck .deck-seg-pick {
+  flex: 1 1 0;
+  min-width: 3.25rem;
+  padding: 0 0.4rem;
+  color: var(--deck-mute);
+  background: transparent;
+}
+
+.command-deck .deck-seg-pick:not(:disabled):hover {
+  color: var(--deck-ink);
+  background: var(--deck-well);
+}
+
+.command-deck .deck-seg-pick[aria-pressed='true'] {
+  color: var(--deck-plate-fg);
+  background: var(--deck-plate);
+  font-weight: 600;
+}
+
+.command-deck input.deck-seg-input {
+  flex: 1.4 1 0;
+  min-width: 4.25rem;
+  padding: 0 0.65rem;
+  background: var(--deck-well);
+  color: var(--deck-ink);
+  border: 0;
+  text-transform: none;
+}
+
+.command-deck input.deck-seg-input::placeholder {
+  color: var(--deck-faint);
+  text-transform: uppercase;
+}
+
+.command-deck input.deck-seg-input:focus-visible {
+  outline-offset: -2px;
+}
+
+.command-deck .deck-seg-set {
+  flex: 0 0 auto;
+  padding: 0 0.85rem;
+  letter-spacing: 0.2em;
+  color: var(--deck-ink);
+  background: transparent;
+}
+
+.command-deck .deck-seg-set:not(:disabled):hover {
+  color: var(--deck-plate-fg);
+  background: var(--deck-plate);
+}
+
+.command-deck .deck-seg-set:disabled {
+  color: var(--deck-faint);
+  cursor: not-allowed;
+}
+
+.command-deck .deck-seg > :focus-visible {
+  outline-offset: -2px;
+}
+
+.command-deck .deck-metric-note {
+  padding: 0.75rem 1.25rem 0.85rem;
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  line-height: 1.6;
+  text-transform: uppercase;
+  color: var(--deck-mute);
+}
+
+@media (max-width: 639px) {
+  .command-deck .deck-metric {
+    padding: 0.85rem 0.9rem 0.95rem;
+  }
+  .command-deck .deck-metric-note {
+    padding: 0.7rem 0.9rem 0.8rem;
+  }
+}
+
+/* ---- empty states ---- */
+
+.command-deck .deck-empty {
+  padding: 2rem 1.25rem 2.1rem;
+  text-align: center;
+}
+
+.command-deck .deck-empty-title {
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--deck-ink);
+}
+
+.command-deck .deck-empty-copy {
+  margin: 0.55rem auto 0;
+  max-width: 22rem;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--deck-mute);
+}
+
+/* ---- footer readout ---- */
+
+.command-deck .deck-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem 1.25rem;
+  min-height: 2.25rem;
+  padding: 0.5rem 1.25rem;
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--deck-mute);
+}
+
+.command-deck .deck-foot-readouts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.command-deck .deck-foot-note {
+  color: var(--deck-faint);
+}
+
+/* ---- frame marks + analog degradation ---- */
+
+.command-deck .deck-cross {
+  position: absolute;
+  z-index: 3;
+  width: 9px;
+  height: 9px;
+  pointer-events: none;
+  color: rgb(var(--lb-panel-edge) / 0.6);
+}
+
+.command-deck .deck-cross::before,
+.command-deck .deck-cross::after {
+  content: '';
+  position: absolute;
+  background: currentColor;
+}
+
+.command-deck .deck-cross::before {
+  top: 4px;
+  right: 0;
+  left: 0;
+  height: 1px;
+}
+
+.command-deck .deck-cross::after {
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+}
+
+.command-deck .deck-cross-tl { top: -5px; left: -5px; }
+.command-deck .deck-cross-tr { top: -5px; right: -5px; }
+.command-deck .deck-cross-bl { bottom: -5px; left: -5px; }
+.command-deck .deck-cross-br { bottom: -5px; right: -5px; }
+
+/* Paper grain rides both themes; scanlines are CRT-only. Print has no
+   raster, and the 4px stripe was what turned the light sheet muddy. */
+.command-deck .deck-grain {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 140px 140px;
+}
+
+html:not(.light) .command-deck .deck-grain {
+  opacity: 0.07;
+  mix-blend-mode: overlay;
+}
+
+.command-deck .deck-scan {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgb(0 0 0 / 0.14) 2px,
+    rgb(0 0 0 / 0.14) 4px
+  );
+}
+
+html:not(.light) .command-deck .deck-scan {
+  display: block;
+}
+
+/* ---- chips: square stamps ---- */
+
+.command-deck .deck-chip {
+  border-radius: 0;
+  padding: 2px 7px;
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  line-height: 1.5;
+}
+
+/* On paper a coloured stamp keeps its coloured frame and wash, but the
+   type goes to ink — amber/green at 10px never clears contrast on white. */
+html.light .command-deck .deck-chip-gold {
+  color: var(--deck-ink);
+  background: rgb(var(--lb-gold) / 0.18);
+  border-color: rgb(var(--lb-gold));
+  font-weight: 600;
+}
+
+html.light .command-deck .deck-chip-up {
+  color: var(--deck-ink);
+  background: rgb(var(--lb-up) / 0.16);
+  border-color: rgb(var(--lb-up));
+  font-weight: 600;
+}
+
+html.light .command-deck .deck-chip-down {
+  color: var(--deck-ink);
+  background: rgb(var(--lb-down) / 0.12);
+  border-color: rgb(var(--lb-down));
+  font-weight: 600;
+}
+
+html.light .command-deck .deck-chip-mute {
+  color: var(--deck-mute);
+  background: transparent;
+  border-color: var(--deck-line);
+}
+
+/* ---- buttons: 36px primary, 30px inline; hard offset on the actions ---- */
+
+.command-deck .deck-btn {
+  border-radius: 0;
+  height: 2.25rem;
+  padding: 0 1rem;
+  gap: 0.55rem;
+  font-family: var(--font-data), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+}
+
+.command-deck .deck-btn-sm {
+  height: 1.875rem;
+  padding: 0 0.7rem;
+  border-radius: 0;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+}
+
+.command-deck .deck-btn.deck-btn-quiet {
+  border-color: var(--deck-line);
+  color: var(--deck-ink);
+  background: transparent;
+}
+
+.command-deck .deck-btn.deck-btn-quiet:not(:disabled):hover {
+  border-color: var(--deck-ink);
+  background: var(--deck-well);
+  color: var(--deck-ink);
+}
+
+.command-deck .deck-btn.deck-btn-rose:not(:disabled):hover {
+  border-color: rgb(var(--lb-down));
+  color: rgb(var(--lb-down));
+}
+
+/* PROMOTE arms as a gold plate — gold type on paper is under 3:1. */
+.command-deck .deck-btn.deck-btn-gold:not(:disabled):hover {
+  border-color: rgb(var(--lb-gold));
+  background: rgb(var(--lb-gold));
+  color: var(--deck-on-accent);
+}
+
+.command-deck .deck-btn.deck-btn-primary {
+  border-color: rgb(var(--lb-gold));
+  background: rgb(var(--lb-gold));
+  color: var(--deck-on-accent);
+  font-weight: 700;
+}
+
+.command-deck .deck-btn.deck-btn-primary:not(:disabled):hover {
+  background: rgb(var(--lb-gold-hi));
+  border-color: rgb(var(--lb-gold-hi));
+}
+
+.command-deck .deck-btn-hard:not(:disabled) {
+  box-shadow: 2px 2px 0 var(--deck-shadow);
+}
+
+.command-deck .deck-btn-hard:not(:disabled):active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+
+.command-deck .deck-btn.deck-lamp-on {
+  background: var(--deck-plate);
+  color: var(--deck-plate-fg);
+  border-color: var(--deck-plate);
+}
+
+.command-deck .deck-lamp-on .deck-dot-on {
+  background: var(--deck-plate-fg);
+  box-shadow: none;
+}
+
+.command-deck .deck-dot-on,
+.command-deck .deck-dot-off {
+  border-radius: 0;
+}
+
+.command-deck .deck-seat-on,
+.command-deck .deck-seat-off {
+  border-radius: 0;
+}
+
+.command-deck .deck-seat-off {
+  background: rgb(var(--lb-panel-edge) / 0.16);
+}
+
+.command-deck .deck-skel {
+  background: rgb(var(--lb-panel-edge) / 0.07);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .command-deck .deck-grain,
+  .command-deck .deck-scan {
+    display: none;
+  }
+}
+
+html[data-motion='reduced'] .command-deck .deck-grain,
+html[data-motion='reduced'] .command-deck .deck-scan {
+  display: none;
 }
 
 /* Competitive display face (Space Grotesk, loaded in the root layout). */
@@ -3053,8 +4417,8 @@ html[data-motion='reduced'] *::after {
    Contract between workstreams: the descent consumes these via
    var(--fs-*, fallback) / var(--rhythm-*, fallback), so definition and
    adoption can land in either order. --fs-display and --fs-serif sit on
-   the current section-header scale (2.25→3.4rem / 1.5→1.9rem) so
-   SectionHeader and the Finale can adopt them without a visual jump.
+   the current section-header scale (2.25→3.4rem / 1.5→1.9rem) so the
+   Sheet hooks and the Touchdown can adopt them without a visual jump.
    Rhythm steps: 1 = intra-block, 2 = between related blocks, 3 = between
    block groups. */
 :root {
@@ -3063,7 +4427,10 @@ html[data-motion='reduced'] *::after {
   --fs-serif: clamp(1.5rem, 1.05rem + 1.2vw, 1.9rem);
   --fs-display: clamp(2.25rem, 1.4rem + 2.6vw, 3.4rem);
   --fs-hero: clamp(2.5rem, 1rem + 6vw, 4.75rem);
-  --fs-tagline: clamp(1.875rem, 0.75rem + 4.5vw, 3.55rem);
+  --fs-tagline: clamp(1.5rem, 0.6rem + 3vw, 2.6rem);
+  /* ceiling for the hero's score numeral; .lx-numeral also fits it to its
+     column with container units, since 7 mono glyphs run 3.85em wide */
+  --fs-numeral: clamp(5.5rem, 2rem + 14vw, 17rem);
   --rhythm-1: 0.75rem;
   --rhythm-2: 1.25rem;
   --rhythm-3: clamp(1.75rem, 1.25rem + 1.6vw, 2.5rem);
@@ -3078,6 +4445,16 @@ html[data-motion='reduced'] *::after {
    these same nodes is exactly the invisible-copy bug this replaced. */
 .lx-hero[data-hero-arm] [data-hero-enter] {
   opacity: 0;
+}
+/* The standalone frame hairlines (HomeV2 / Rail / Tower) belong to no
+   block; same static hide at the scale the entrance grows them from, so
+   they don't sit at full length through the arm window and snap to 0 when
+   GSAP's fromTo stamps the same value inline. */
+.lx-hero[data-hero-arm] [data-hero-line] {
+  transform: scaleX(0);
+}
+.lx-hero[data-hero-arm] [data-hero-vline] {
+  transform: scaleY(0);
 }
 
 /* ---------------------------------------------------------------------------

@@ -11,14 +11,18 @@
 //    the right pose before (or without) the chunk.
 //  · Entrance choreography is progressive enhancement with ONE engine:
 //    SSR/no-JS renders the final state; a pre-paint layout effect "arms" a
-//    stage (a static CSS rule hides its `.st` children — no CSS animation
+//    stage (a static CSS rule hides its `.st*` children — no CSS animation
 //    exists anymore), and a GSAP ScrollTrigger reveal animates everything
 //    in with transform + opacity only. The 'still' tier never arms; a
-//    watchdog un-hides a stage if the chunk never arrives. SectionHeader
-//    headings upgrade to SplitText masked line reveals (see useMaskedLines)
-//    and are excluded from the stage reveal via data-split — never both.
-//  · Components that animate values (CountUp, DecodeText, live tickers)
-//    read the surrounding Stage via context and start when it goes live.
+//    watchdog un-hides a stage if the chunk never arrives. The vocabulary
+//    (`.st` row lift, `.st-cell` fade, `.st-line`/`.st-grow` hairline
+//    draw, `.st-sweep` wipe) is tuned to the hero entrance's values
+//    (hero/heroEntrance.ts) so a sheet below the fold draws in exactly
+//    like the manifest above it. Serif hooks upgrade to SplitText masked
+//    line reveals (see useMaskedLines) and are excluded from the stage
+//    reveal via data-split — never both.
+//  · Components that animate values (CountUp, TickerCounter) read the
+//    surrounding Stage via context and start when it goes live.
 //    They ride gsap's single ticker via the runtime — no private rAF or
 //    setInterval loops — and simply render their final value without it.
 //  · LandingScrollRuntime (bottom of file) is the page-level orchestrator:
@@ -89,14 +93,25 @@ export const useStageLive = () => useContext(StageCtx)
 /**
  * The staged GSAP entrance, transform + opacity only (no blur, no
  * clip-path — those repainted every frame on Firefox). Per-element `--d`
- * (ms, set inline by every section) drives the stagger, so each section's
- * choreography vocabulary — the Honors radial wave, the cockpit heatmap
- * ripple — survives unchanged. clearProps hands the elements back to CSS
- * at the end: hover transitions (.id-rack, .rm-item) transition inline-
- * free transforms, and a leftover translate would pin them.
+ * (ms, set inline by every sheet) drives the stagger, so each sheet's
+ * choreography — the Honors center-out wave, the cockpit heatmap ripple —
+ * is authored in markup. Values mirror hero/heroEntrance.ts so the sheets
+ * and the manifest above them share one hand, ease-out only on the site
+ * curve (no back/inOut — AUDIT §2/§3):
+ *  · `.st`       row lift   autoAlpha 0→1, y 8→0 (0.5s) — the tower rows
+ *  · `.st-cell`  cell fade  autoAlpha 0→1, scale 0.96→1 (0.4s) — rail cells
+ *  · `.st-line`  hairline   scaleX 0→1 (0.5s) — [data-hero-line]; the
+ *                sheet/rail rule-draw hook
+ *  · `.st-grow`  same as .st-line (a signal rule, a bar fill)
+ *  · `.st-sweep` wipe       autoAlpha 0→1, scaleX 0→1 (0.6s)
+ * clearProps hands the elements back to CSS at the end: static transforms
+ * (the arena's .ar-you containing-block translate) and the FLIP passes
+ * expect inline-free elements, and a leftover translate would pin them;
+ * autoAlpha's visibility write goes with it.
  */
 function runStageEntrance(motion: LandingMotion, root: HTMLElement) {
   const { gsap } = motion
+  const ease = CRIBBLE_EASE_NAME
   const delayOf = (_i: number, target: unknown) =>
     (parseFloat((target as HTMLElement).style.getPropertyValue('--d')) || 0) /
     1000
@@ -105,14 +120,14 @@ function runStageEntrance(motion: LandingMotion, root: HTMLElement) {
   if (rises.length) {
     gsap.fromTo(
       rises,
-      { opacity: 0, y: 16 },
+      { autoAlpha: 0, y: 8 },
       {
-        opacity: 1,
+        autoAlpha: 1,
         y: 0,
-        duration: 0.7,
-        ease: CRIBBLE_EASE_NAME,
+        duration: 0.5,
+        ease,
         stagger: delayOf,
-        clearProps: 'opacity,transform'
+        clearProps: 'opacity,visibility,transform'
       }
     )
   }
@@ -120,26 +135,28 @@ function runStageEntrance(motion: LandingMotion, root: HTMLElement) {
   if (cells.length) {
     gsap.fromTo(
       cells,
-      { opacity: 0, scale: 0.3 },
+      { autoAlpha: 0, scale: 0.96 },
       {
-        opacity: 1,
+        autoAlpha: 1,
         scale: 1,
-        duration: 0.52,
-        ease: 'back.out(1.7)',
+        duration: 0.4,
+        ease,
         stagger: delayOf,
-        clearProps: 'opacity,transform'
+        clearProps: 'opacity,visibility,transform'
       }
     )
   }
-  const grows = root.querySelectorAll<HTMLElement>('.st-grow')
-  if (grows.length) {
+  // Hairlines draw from their left edge (transform-origin set in Stage's
+  // CSS below, inline overrides still win) — the hero's [data-hero-line].
+  const lines = root.querySelectorAll<HTMLElement>('.st-line, .st-grow')
+  if (lines.length) {
     gsap.fromTo(
-      grows,
+      lines,
       { scaleX: 0 },
       {
         scaleX: 1,
-        duration: 0.9,
-        ease: CRIBBLE_EASE_NAME,
+        duration: 0.5,
+        ease,
         stagger: delayOf,
         clearProps: 'transform'
       }
@@ -151,14 +168,14 @@ function runStageEntrance(motion: LandingMotion, root: HTMLElement) {
   if (sweeps.length) {
     gsap.fromTo(
       sweeps,
-      { opacity: 0, scaleX: 0 },
+      { autoAlpha: 0, scaleX: 0 },
       {
-        opacity: 1,
+        autoAlpha: 1,
         scaleX: 1,
-        duration: 1.1,
-        ease: 'power2.inOut',
+        duration: 0.6,
+        ease,
         stagger: delayOf,
-        clearProps: 'opacity,transform'
+        clearProps: 'opacity,visibility,transform'
       }
     )
   }
@@ -287,6 +304,7 @@ export function Stage({
            contested frame; this rule only covers arm → reveal. */
         .stage-armed .st:not([data-split]),
         .stage-armed .st-cell,
+        .stage-armed .st-line,
         .stage-armed .st-grow,
         .stage-armed .st-sweep {
           opacity: 0;
@@ -300,76 +318,15 @@ export function Stage({
         [data-split] {
           font-kerning: none;
         }
-        /* Static origins for the GSAP scaleX entrances; inline overrides
-           (e.g. DescentGate's vertical rule) still win. */
+        /* Static origins for the GSAP scaleX entrances — hairlines draw
+           left → right like the hero's; inline overrides still win. */
+        .st-line,
         .st-grow,
         .st-sweep {
           transform-origin: left center;
         }
       `}</style>
     </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/* DecodeText — terminal scramble that resolves left to right          */
-/* ------------------------------------------------------------------ */
-
-// Same glyph set as lib/useDecode (the billboard keeps that hook; the
-// landing runs the identical look through ScrambleTextPlugin so the
-// scramble rides gsap's ticker instead of a private setInterval).
-const DECODE_GLYPHS = '█▓▒░<>/[]{}=+*#'
-
-export function DecodeText({
-  text,
-  delay = 0,
-  className = ''
-}: {
-  text: string
-  delay?: number
-  className?: string
-}) {
-  const live = useStageLive()
-  const ref = useRef<HTMLSpanElement | null>(null)
-  const [decoding, setDecoding] = useState(false)
-
-  useEffect(() => {
-    if (!live || prefersReducedMotion()) return
-    const el = ref.current
-    if (!el) return
-    let tween: TweenInstance | null = null
-    const off = onLandingRuntime(({ motion }) => {
-      if (tween) return
-      // ~66ms per character mirrors useDecode's cadence (2.2 frames of
-      // 30ms per char) — a lock-in, not a slot machine.
-      tween = motion.gsap.to(el, {
-        duration: Math.max(0.3, text.length * 0.066),
-        delay: delay / 1000,
-        ease: 'none',
-        scrambleText: { text, chars: DECODE_GLYPHS, speed: 0.4 },
-        onStart: () => setDecoding(true),
-        onComplete: () => setDecoding(false)
-      })
-    })
-    return () => {
-      off()
-      tween?.kill()
-      setDecoding(false)
-      el.textContent = text
-    }
-  }, [live, text, delay])
-
-  // SSR, reduced motion and a missing runtime all render the resolved
-  // text — the scramble is strictly additive.
-  return (
-    <span
-      ref={ref}
-      className={className}
-      data-decoding={decoding ? '' : undefined}
-      style={decoding ? { color: 'rgb(var(--accent-rgb) / 0.9)' } : undefined}
-    >
-      {text}
-    </span>
   )
 }
 
@@ -621,133 +578,6 @@ export function useMaskedLines<T extends HTMLElement>(
   }, [delayMs])
 
   return ref
-}
-
-/* ------------------------------------------------------------------ */
-/* Section grammar — header, seams, corner ticks                       */
-/* ------------------------------------------------------------------ */
-
-export function SectionHeader({
-  index,
-  code,
-  title,
-  serif,
-  body,
-  annotation,
-  align = 'left'
-}: {
-  index: string
-  code: string
-  title: ReactNode
-  serif: ReactNode
-  body?: ReactNode
-  annotation?: string
-  align?: 'left' | 'center'
-}) {
-  const center = align === 'center'
-  // Masked line reveals for the display pair only; the label row, rule and
-  // body keep the plain .st rise (they're one-liners — a mask buys nothing).
-  // Delays mirror the --d stagger of the stage reveal.
-  // Type + spacing ride the shared tokens (--fs-*, --rhythm-*) the hero
-  // defines, with fallbacks pinning today's rendered sizes so load order
-  // between the two chunks never matters.
-  const titleRef = useMaskedLines<HTMLHeadingElement>(90)
-  const serifRef = useMaskedLines<HTMLDivElement>(180)
-  return (
-    <div className={center ? 'flex flex-col items-center text-center' : ''}>
-      <div
-        className={`st flex items-baseline gap-4 text-[length:var(--fs-label,10px)] tracking-[0.32em] text-zinc-500 ${
-          center ? 'justify-center' : 'justify-between'
-        }`}
-        style={{ '--d': '0ms' } as CSSProperties}
-      >
-        <span className="whitespace-nowrap">
-          <span style={{ color: 'var(--accent)' }}>{index}</span>
-          <span className="text-zinc-700">{' // '}</span>
-          <DecodeText text={code} delay={120} />
-        </span>
-        {annotation && !center && (
-          <span className="hidden text-[9px] tracking-[0.3em] text-zinc-700 md:block">
-            {annotation}
-          </span>
-        )}
-      </div>
-
-      <h2
-        ref={titleRef}
-        className="st mt-[var(--rhythm-2,1.5rem)] font-display text-[length:var(--fs-display,clamp(2.25rem,4.6vw,3.4rem))] font-semibold leading-[0.98] tracking-tight text-zinc-50"
-        style={{ '--d': '90ms' } as CSSProperties}
-      >
-        {title}
-      </h2>
-
-      <div
-        ref={serifRef}
-        className="st mt-[var(--rhythm-1,0.75rem)] font-serif italic text-[length:var(--fs-serif,clamp(1.5rem,2.3vw,1.9rem))] leading-snug text-zinc-400"
-        style={{ '--d': '180ms' } as CSSProperties}
-      >
-        {serif}
-      </div>
-
-      <span
-        className={`st-grow mt-[var(--rhythm-2,1.5rem)] block h-px w-24 ${center ? 'mx-auto' : ''}`}
-        style={
-          {
-            '--d': '240ms',
-            background:
-              'linear-gradient(90deg, rgb(var(--accent-rgb) / 0.9), rgb(var(--accent-rgb) / 0.05))'
-          } as CSSProperties
-        }
-      />
-
-      {body && (
-        <p
-          className={`st mt-[var(--rhythm-2,1.5rem)] max-w-xl font-sans text-base leading-[1.75] sm:text-[length:var(--fs-body,15px)] sm:leading-[1.8] ${
-            center ? 'mx-auto' : ''
-          }`}
-          style={{ '--d': '280ms' } as CSSProperties}
-        >
-          {body}
-        </p>
-      )}
-    </div>
-  )
-}
-
-/** Telemetry seam — the thin HUD chatter line that opens each section and
- * keeps score of the descent (altitude falls section by section). The
- * readout may wrap on narrow phones (nowrap used to push it past the
- * viewport edge and give the whole page a horizontal wobble). */
-export function Seam({ alt, note }: { alt: string; note: string }) {
-  return (
-    <div
-      className="st flex items-center gap-3 sm:gap-4 text-[9px] tracking-[0.3em] text-zinc-600"
-      style={{ '--d': '0ms' } as CSSProperties}
-    >
-      <span className="lx-seamline h-px flex-1 bg-zinc-800/70" />
-      <span className="flex min-w-0 items-center gap-3">
-        <span style={{ color: 'rgb(var(--accent-rgb) / 0.65)' }}>+</span>
-        <span className="text-center leading-relaxed sm:whitespace-nowrap">
-          ALT {alt} · {note}
-        </span>
-        <span style={{ color: 'rgb(var(--accent-rgb) / 0.65)' }}>+</span>
-      </span>
-      <span className="lx-seamline h-px flex-1 bg-zinc-800/70" />
-    </div>
-  )
-}
-
-/** Blueprint corner ticks — mount inside any `relative` panel. */
-export function CornerTicks({ className = '' }: { className?: string }) {
-  const tick = 'absolute text-[11px] leading-none text-zinc-700 select-none'
-  return (
-    <span aria-hidden className={className}>
-      <span className={`${tick} -left-1.5 -top-2`}>+</span>
-      <span className={`${tick} -right-1.5 -top-2`}>+</span>
-      <span className={`${tick} -left-1.5 -bottom-2`}>+</span>
-      <span className={`${tick} -right-1.5 -bottom-2`}>+</span>
-    </span>
-  )
 }
 
 /* ------------------------------------------------------------------ */

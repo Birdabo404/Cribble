@@ -1,61 +1,196 @@
 'use client'
 
-// Descent stage 05 — THE FLIGHT PLAN. Touchdown: a trajectory line that
-// draws itself with scroll, three mission phases, and the R&D centerpiece —
-// a live terminal typing out the agent tracker that will meter Cursor,
-// Claude Code, Codex and the rest of the CLI fleet.
+// Sheet 05 — FLIGHT PLAN. The manifest's last sheet: where the browser-
+// scored game goes next. Sheet owns the frame (top rule, rail row, serif
+// hook, spec list); this file owns the two instruments inside it:
+//
+//  · Artifact column — a phase index (three hairline rows `01 · IN ORBIT ·
+//    LIVE`, each with its 5px square) over the agent fleet the terminal
+//    tracker will meter, drawn as hairline-bordered mono tags. The index
+//    is the timeline in miniature, so the tall trajectory below never
+//    arrives unannounced.
+//  · Full-width slot — the trajectory itself. A 1px vertical hairline that
+//    draws top→down with scroll: a scrubbed GSAP tween built inside
+//    useSectionMotion, because Sheet's Stage does not scrub and the
+//    section has to own its own ScrollTrigger (killed on revert — no
+//    runtime, or reduced motion, leaves the CSS default: a full-length
+//    line). Three phase blocks hang off it: a rail row (`01 · IN ORBIT ·
+//    LIVE · headline`) with a 5px square node on the track (signal fill
+//    LIVE, dim fill CHARTED, hollow R&D), hairline STATUS · ITEM · NOTE
+//    rows, and under Phase 03 the R&D centrepiece — a hairline-framed
+//    terminal typing out the agent tracker on anime timers (typewriter,
+//    then line reveals).
+//
+// Ink on the sheet throughout: the terminal is a compartment of the
+// manifest, not a dark pane — no traffic lights, no glow, no literal
+// palette. Every entrance is `.st`/`.st-cell` + inline `--d`, so the Stage
+// reveal (scrollFx runStageEntrance) owns the choreography and SSR/no-JS/
+// still render the final state. The old sticky copy column — and the GSAP
+// fake-sticky that stood in for position:sticky under ScrollSmoother — is
+// gone: Sheet's copy column carries the words now, and the timeline reads
+// full-width like the Tower.
 
-import { CSSProperties, useEffect, useRef, useState } from 'react'
-import { ToolIcon } from '@/components/leaderboard/icons'
-import { onLandingRuntime, type LandingMotion } from '@/lib/landingMotion'
-import { prefersReducedMotion } from '@/lib/motion'
+import { CSSProperties, useRef, useState } from 'react'
+import { CRIBBLE_EASE_NAME } from '@/lib/landingMotion'
 import {
   AGENT_CHIPS,
   AGENT_TERMINAL_LINES,
   ROADMAP_PHASES,
   type RoadmapPhase
 } from './data'
-import { Seam, SectionHeader, Stage } from './scrollFx'
+import {
+  Sheet,
+  SHEET_CELL,
+  SHEET_DIM,
+  SHEET_INK,
+  SHEET_LABEL,
+  SHEET_LINE,
+  type SheetSpec
+} from './Sheet'
 import { useSectionMotion } from './useSectionMotion'
 
-type StickyTween = ReturnType<LandingMotion['gsap']['fromTo']>
+type PhaseStatus = RoadmapPhase['status']
+type AgentLine = (typeof AGENT_TERMINAL_LINES)[number]
 
-/** The CSS sticky offset (`lg:top-24`) in layout px. */
-const STICKY_TOP = 96
+/** Stagger offset for the Stage reveal, in ms (read by runStageEntrance). */
+const at = (ms: number): CSSProperties => ({ '--d': `${ms}ms` } as CSSProperties)
 
-function StatusChip({ status }: { status: RoadmapPhase['status'] }) {
-  if (status === 'LIVE') {
-    return (
-      <span
-        className="flex items-center gap-1.5 rounded border px-2 py-1 text-[8px] tracking-[0.3em]"
-        style={{
-          color: 'var(--accent)',
-          borderColor: 'rgb(var(--accent-rgb) / 0.45)',
-          background: 'rgb(var(--accent-rgb) / 0.07)'
-        }}
-      >
-        <span
-          className="rm-live-dot h-1 w-1 rounded-full"
-          style={{ background: 'var(--accent)' }}
-        />
-        LIVE
-      </span>
-    )
+const SIGNAL_INK = 'text-[color:var(--lx-signal)]'
+const FAINT_INK = 'text-[color:var(--lx-ink-faint)]'
+/** The Tower's 12px Plex Mono cell register — item titles, notes, the
+ *  terminal body. */
+const DATA_TEXT = 'font-data text-[12px]'
+/** A fleet tag: hairline border, label register, signal on hover. */
+const CHIP =
+  'flex items-center whitespace-nowrap border px-2.5 py-1.5 uppercase transition-colors duration-[160ms] ease-[ease] hover:border-[color:var(--lx-signal)] hover:text-[color:var(--lx-signal)]'
+
+// Stagger plan (ms). Sheet's own rail lands 60–180, the hook at 120, the
+// specs 300–400; the artifact's index rows run beside the specs, the
+// fleet tags follow them. The trajectory starts once the artifact is in:
+// each phase's rail cells 40ms apart, its item rows 50ms apart, the next
+// phase a beat later.
+const INDEX_START_MS = 300
+const INDEX_STEP_MS = 50
+const FLEET_LABEL_MS = 460
+const CHIP_START_MS = 500
+const CHIP_STEP_MS = 40
+const PHASE_START_MS = 420
+const PHASE_STEP_MS = 240
+const CELL_STEP_MS = 40
+const ITEM_OFFSET_MS = 120
+const ITEM_STEP_MS = 50
+
+const SPECS: SheetSpec[] = [
+  { label: 'NOW', value: 'THE BROWSER' },
+  { label: 'NEXT', value: 'THE TERMINAL · CURSOR · CLAUDE CODE · CODEX' },
+  { label: 'COUNTS', value: 'PROMPTS · TOOL CALLS · THE OVERNIGHT RUN' }
+]
+
+/** The one accent, per status: the node square's fill (or hollow border)
+ *  and the ink of the status label beside it. */
+function statusStyle(status: PhaseStatus): {
+  node: CSSProperties
+  ink: string
+} {
+  switch (status) {
+    case 'LIVE':
+      return { node: { background: 'var(--lx-signal)' }, ink: SIGNAL_INK }
+    case 'CHARTED':
+      return { node: { background: 'var(--lx-ink-dim)' }, ink: SHEET_DIM }
+    case 'R&D':
+      return {
+        node: { border: '1px solid var(--lx-line-strong)' },
+        ink: SHEET_DIM
+      }
+    default: {
+      const exhaustive: never = status
+      return exhaustive
+    }
   }
-  if (status === 'CHARTED') {
-    return (
-      <span className="rounded border border-zinc-700 px-2 py-1 text-[8px] tracking-[0.3em] text-zinc-400">
-        CHARTED
-      </span>
-    )
-  }
+}
+
+/** 'PHASE 01' → '01' — the rail's index cell. */
+const phaseIndex = (phase: RoadmapPhase) => phase.phase.slice(-2)
+
+/** The 5px square — the hero's signal square, now a status glyph. `snap`
+ *  marks the LIVE node on the track that Trajectory flashes once when the
+ *  stage goes live. */
+function Node({
+  status,
+  snap = false,
+  className = ''
+}: {
+  status: PhaseStatus
+  snap?: boolean
+  className?: string
+}) {
   return (
     <span
-      className="rounded border border-dashed px-2 py-1 text-[8px] tracking-[0.3em]"
-      style={{ color: 'rgb(var(--r-legendary))', borderColor: 'rgb(var(--r-legendary) / 0.5)' }}
-    >
-      R&D
-    </span>
+      aria-hidden
+      data-node-live={snap && status === 'LIVE' ? '' : undefined}
+      className={`block h-[5px] w-[5px] shrink-0 ${className}`}
+      style={statusStyle(status).node}
+    />
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Artifact — phase index + agent fleet                                 */
+/* ------------------------------------------------------------------ */
+
+function FlightIndex() {
+  return (
+    <div>
+      <ol className={SHEET_LABEL}>
+        {ROADMAP_PHASES.map((phase, i) => {
+          const { ink } = statusStyle(phase.status)
+          const last = i === ROADMAP_PHASES.length - 1
+          return (
+            <li
+              key={phase.phase}
+              className={`st flex items-center gap-4 border-t ${SHEET_LINE} py-3 ${
+                last ? 'border-b' : ''
+              }`}
+              style={at(INDEX_START_MS + INDEX_STEP_MS * i)}
+            >
+              <span className={`w-6 shrink-0 ${SHEET_INK}`}>
+                {phaseIndex(phase)}
+              </span>
+              <span className={`min-w-0 flex-1 ${SHEET_INK}`}>{phase.code}</span>
+              <span className={`flex items-center gap-2.5 ${ink}`}>
+                <Node status={phase.status} />
+                {phase.status}
+              </span>
+            </li>
+          )
+        })}
+      </ol>
+
+      <p
+        className={`st mt-[var(--rhythm-3)] ${SHEET_LABEL} ${SHEET_DIM}`}
+        style={at(FLEET_LABEL_MS)}
+      >
+        AGENT FLEET · PHASE 03 TARGETS
+      </p>
+      <ul className="mt-3 flex flex-wrap gap-2">
+        {AGENT_CHIPS.map((chip, i) => (
+          <li
+            key={chip.name}
+            className={`st-cell ${CHIP} border-[color:var(--lx-line-strong)] ${SHEET_LABEL} ${SHEET_INK}`}
+            style={at(CHIP_START_MS + CHIP_STEP_MS * i)}
+          >
+            {chip.name}
+          </li>
+        ))}
+        {/* Dashed = open, yours to fill — the Tower's empty-row language. */}
+        <li
+          className={`st-cell ${CHIP} border-dashed border-[color:var(--lx-line-strong)] ${SHEET_LABEL} ${SHEET_DIM}`}
+          style={at(CHIP_START_MS + CHIP_STEP_MS * AGENT_CHIPS.length)}
+        >
+          + YOURS
+        </li>
+      </ul>
+    </div>
   )
 }
 
@@ -63,32 +198,90 @@ function StatusChip({ status }: { status: RoadmapPhase['status'] }) {
 /* Agent-tracker terminal                                              */
 /* ------------------------------------------------------------------ */
 
-function AgentTerminal() {
+const Prompt = () => <span className={SHEET_DIM}>$ </span>
+
+const Caret = () => (
+  <span
+    aria-hidden
+    className="rm-caret ml-0.5 inline-block h-3 w-[6px] align-middle"
+  />
+)
+
+/** One output line, by tone. The command line is typed separately. */
+function TerminalLine({ line }: { line: AgentLine }) {
+  switch (line.tone) {
+    case 'cmd':
+      return null
+    case 'sys':
+      return (
+        <span className={`whitespace-pre-wrap ${SHEET_DIM}`}>{line.text}</span>
+      )
+    case 'dim':
+      return (
+        <span className={`block truncate whitespace-pre ${FAINT_INK}`}>
+          {line.text}
+        </span>
+      )
+    case 'row':
+      return (
+        <span className="flex items-baseline justify-between gap-3">
+          <span className="truncate whitespace-pre">
+            <span className={SIGNAL_INK}>● </span>
+            <span>{line.text.slice(2)}</span>
+          </span>
+          <span className="shrink-0 tabular-nums">+{line.pts}</span>
+        </span>
+      )
+    case 'total': {
+      // 'SESSION TOTAL    1,369 pts → …' — label and value are split by
+      // the column gap in the script itself.
+      const [label, value] = line.text.split(/\s{2,}/)
+      return (
+        <span
+          className={`mt-1 flex items-baseline justify-between gap-3 border-t ${SHEET_LINE} pt-2`}
+        >
+          <span className={`tracking-[0.14em] ${SHEET_DIM}`}>{label}</span>
+          <span className={`tabular-nums ${SIGNAL_INK}`}>{value}</span>
+        </span>
+      )
+    }
+    default: {
+      const exhaustive: never = line
+      return exhaustive
+    }
+  }
+}
+
+function AgentTerminal({ delayMs }: { delayMs: number }) {
   const [count, setCount] = useState(AGENT_TERMINAL_LINES.length)
   const [typed, setTyped] = useState('')
   // Flips once the typing build actually starts — until then (SSR, chunk
   // still loading, reduced motion) the render below shows the full command.
   const [armed, setArmed] = useState(false)
 
+  const command = AGENT_TERMINAL_LINES[0].text.replace(/^\$ /, '')
+
   useSectionMotion('roadmap', ({ timer }) => {
     setArmed(true)
     setCount(0)
     setTyped('')
-    const cmd = AGENT_TERMINAL_LINES[0].text
 
-    // type the command character by character, then reveal output lines.
+    // Type the command character by character, then reveal output lines.
     // Each keystroke is its own one-shot timer (chained via onComplete) so
-    // the irregular 34–74ms rhythm survives the engine swap.
+    // the irregular 34–74ms rhythm rides the engine tick.
     let ci = 0
     const typeNext = () => {
       ci++
-      setTyped(cmd.slice(0, ci))
-      if (ci < cmd.length) {
+      setTyped(command.slice(0, ci))
+      if (ci < command.length) {
         timer({ duration: 34 + Math.random() * 40, onComplete: typeNext })
       } else {
         timer({ duration: 320, onComplete: () => setCount(1) })
         for (let i = 2; i <= AGENT_TERMINAL_LINES.length; i++) {
-          timer({ duration: 320 + (i - 1) * 430, onComplete: () => setCount(i) })
+          timer({
+            duration: 320 + (i - 1) * 430,
+            onComplete: () => setCount(i)
+          })
         }
       }
     }
@@ -97,433 +290,71 @@ function AgentTerminal() {
     // Reduced motion flipped on mid-type: resolve the whole session, the
     // state SSR renders.
     return () => {
-      setTyped(cmd)
+      setTyped(command)
       setCount(AGENT_TERMINAL_LINES.length)
     }
   })
 
   const done = count >= AGENT_TERMINAL_LINES.length
-  const reduced = typeof window !== 'undefined' && prefersReducedMotion()
-
-  // The terminal is a fixed dark artifact (like the plates): its surface
-  // never flips with the theme, so every hue inside is a literal — themed
-  // zinc classes would invert to near-black text on the dark pane.
-  // Chrome stays neutral like a real terminal; green is reserved for the
-  // prompt, the live agents and the total — the parts that are alive.
-  const INK = {
-    bright: '#f4f4f5',
-    row: '#e4e4e7',
-    label: '#a1a1aa',
-    sys: '#8a8a93',
-    dim: '#5b5b64',
-    green: '#ccff00',
-    up: 'rgb(74 222 128)',
-    edge: 'rgb(255 255 255 / 0.09)'
-  }
 
   return (
     <div
-      className="overflow-hidden rounded-xl"
-      style={{
-        background: '#050505',
-        border: '1px solid rgb(255 255 255 / 0.12)',
-        boxShadow: '0 24px 60px -28px rgb(0 0 0 / 0.9)'
-      }}
+      className="st overflow-hidden border border-[color:var(--lx-line-strong)]"
+      style={at(delayMs)}
     >
-      {/* title bar */}
+      {/* Compartment header — a rail row, not a title bar. */}
       <div
-        className="flex items-center justify-between px-4 py-2.5"
-        style={{ borderBottom: `1px solid ${INK.edge}` }}
+        className={`flex h-12 items-stretch border-b ${SHEET_LINE} ${SHEET_LABEL}`}
       >
-        <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full" style={{ background: '#ff5f57' }} />
-          <span className="h-2 w-2 rounded-full" style={{ background: '#febc2e' }} />
-          <span className="h-2 w-2 rounded-full" style={{ background: '#28c840' }} />
-        </span>
-        <span className="text-[9px] tracking-[0.3em]" style={{ color: INK.sys }}>
-          CRIBBLE AGENT · PREVIEW BUILD
-        </span>
-        <span className="text-[9px]" style={{ color: INK.dim }}>⌥⌘T</span>
+        <div className={`flex items-center px-3 sm:px-5 ${SHEET_INK}`}>
+          CRIBBLE AGENT
+        </div>
+        <div className={`${SHEET_CELL} ${SHEET_DIM}`}>PREVIEW BUILD</div>
+        <div className={`${SHEET_CELL} ml-auto ${SHEET_DIM}`}>R&amp;D</div>
       </div>
 
-      <div className="min-h-[236px] px-4 py-4 font-mono text-[11px] leading-[1.9] sm:text-[11.5px]">
+      <div className={`px-3 py-4 sm:px-5 ${DATA_TEXT} leading-relaxed ${SHEET_INK}`}>
         {/* typed command */}
         <div>
-          <span style={{ color: INK.green }}>$ </span>
-          <span style={{ color: INK.bright }}>
-            {armed && !reduced ? typed.replace(/^\$ /, '') : AGENT_TERMINAL_LINES[0].text.replace(/^\$ /, '')}
-          </span>
-          {!done && <span className="rm-caret ml-0.5 inline-block h-3 w-[6px] align-middle" />}
+          <Prompt />
+          <span>{armed ? typed : command}</span>
+          {!done && <Caret />}
         </div>
 
         {AGENT_TERMINAL_LINES.slice(1).map((line, i) => {
-          const visible = count >= i + 2 || count >= AGENT_TERMINAL_LINES.length
+          const visible = count >= i + 2 || done
           return (
             <div
-              key={i}
+              key={line.text}
               className="rm-term-line"
-              style={{ opacity: visible ? 1 : 0, transform: visible ? 'none' : 'translateY(3px)' }}
+              style={{
+                opacity: visible ? 1 : 0,
+                transform: visible ? 'none' : 'translateY(3px)'
+              }}
             >
-              {line.tone === 'sys' && (
-                <span className="whitespace-pre-wrap" style={{ color: INK.sys }}>
-                  {line.text}
-                </span>
-              )}
-              {line.tone === 'dim' && (
-                <span className="whitespace-pre" style={{ color: INK.dim }}>
-                  {line.text}
-                </span>
-              )}
-              {line.tone === 'row' && (
-                <span className="flex items-baseline justify-between gap-3">
-                  <span className="truncate whitespace-pre">
-                    <span style={{ color: INK.green }}>● </span>
-                    <span style={{ color: INK.row }}>{line.text.slice(2)}</span>
-                  </span>
-                  <span className="shrink-0 tabular-nums" style={{ color: INK.up }}>
-                    +{line.pts}
-                  </span>
-                </span>
-              )}
-              {line.tone === 'total' && (
-                <span
-                  className="mt-1 flex items-baseline justify-between gap-3 pt-2"
-                  style={{ borderTop: `1px solid ${INK.edge}` }}
-                >
-                  <span className="tracking-[0.14em]" style={{ color: INK.label }}>
-                    SESSION TOTAL
-                  </span>
-                  <span
-                    className="tabular-nums"
-                    style={{ color: INK.green, textShadow: '0 0 12px rgb(204 255 0 / 0.5)' }}
-                  >
-                    1,369 pts → global board
-                  </span>
-                </span>
-              )}
+              <TerminalLine line={line} />
             </div>
           )
         })}
+
         {/* visibility (not conditional render) keeps the line in layout
             while the typing replays: unmounting it shrank the pane ~9px,
             and inside ScrollSmoother any document-height change forces a
             full ScrollTrigger refresh mid-scroll. */}
-        <div
-          className="mt-1"
-          style={{ visibility: done ? 'visible' : 'hidden' }}
-        >
-          <span style={{ color: INK.green }}>$ </span>
-          <span className="rm-caret ml-0.5 inline-block h-3 w-[6px] align-middle" />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/* Phase node                                                          */
-/* ------------------------------------------------------------------ */
-
-function PhaseNode({
-  phase,
-  index,
-  children
-}: {
-  phase: RoadmapPhase
-  index: number
-  children?: React.ReactNode
-}) {
-  const rnd = phase.status === 'R&D'
-  return (
-    <div
-      className="st relative pl-12 sm:pl-16"
-      style={{ '--d': `${300 + index * 160}ms` } as CSSProperties}
-    >
-      {/* node marker on the trajectory */}
-      <span
-        aria-hidden
-        className="absolute left-[11px] top-1 flex h-[22px] w-[22px] items-center justify-center sm:left-[27px]"
-        style={{ transform: 'translateX(-50%)' }}
-      >
-        <span
-          className={`h-[10px] w-[10px] rotate-45 ${phase.status === 'LIVE' ? 'rm-node-live' : ''}`}
-          style={{
-            background:
-              phase.status === 'LIVE'
-                ? 'var(--accent)'
-                : rnd
-                  ? 'rgb(var(--r-legendary) / 0.85)'
-                  : 'rgb(var(--z600))',
-            boxShadow:
-              phase.status === 'LIVE'
-                ? '0 0 14px rgb(var(--accent-rgb) / 0.8)'
-                : rnd
-                  ? '0 0 12px rgb(var(--r-legendary) / 0.5)'
-                  : 'none'
-          }}
-        />
-      </span>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="text-[10px] tracking-[0.35em] text-zinc-500">
-          {phase.phase}
-        </span>
-        <span className="text-[10px] tracking-[0.3em] text-zinc-700">
-          {phase.code}
-        </span>
-        <StatusChip status={phase.status} />
-      </div>
-
-      <h3 className="mt-3 font-display text-xl font-semibold tracking-tight text-zinc-100 sm:text-2xl">
-        {phase.headline}
-      </h3>
-
-      {phase.items.length > 0 && (
-        <ul className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {phase.items.map((item) => (
-            <li
-              key={item.title}
-              className="rm-item rounded-xl border border-zinc-800/70 bg-[color:var(--panel)] px-4 py-3.5"
-            >
-              <span className="flex items-center gap-2">
-                <span
-                  className="h-1 w-1 rounded-full"
-                  style={{
-                    background: phase.status === 'LIVE' ? 'var(--accent)' : 'rgb(var(--z500))'
-                  }}
-                />
-                <span className="font-display text-[13px] font-semibold text-zinc-100">
-                  {item.title}
-                </span>
-              </span>
-              <p className="mt-1.5 font-sans text-[13px] leading-relaxed text-zinc-500 sm:text-[12px]">
-                {item.detail}
-              </p>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {children}
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-
-function RoadmapBody() {
-  const gridRef = useRef<HTMLDivElement | null>(null)
-  const stickyColRef = useRef<HTMLDivElement | null>(null)
-
-  // position:sticky silently dies inside ScrollSmoother's transformed
-  // content (sticky displacement comes from a scrolling ancestor, and the
-  // smoother moves the page by transform instead), so on the full tier the
-  // left column is kept in view with a scrubbed y tween that replicates the
-  // sticky contract: hold at top-24 once the column top reaches it, release
-  // when the column bottom meets the grid bottom. Deliberately NOT a
-  // ScrollTrigger pin — pinning wraps the column in a pin-spacer sized from
-  // visual pixels, which inside .page-zoom-out (zoom: 0.9) is off by 1/0.9
-  // and would also swap the grid item out from under the column. lite/still
-  // never create a smoother, so the CSS sticky keeps working there as-is.
-  useEffect(() => {
-    let tween: StickyTween | null = null
-    let tweenTarget: HTMLDivElement | null = null
-    const off = onLandingRuntime(({ motion, smoother }) => {
-      const grid = gridRef.current
-      const col = stickyColRef.current
-      if (!smoother || !grid || !col || tween) return
-      tweenTarget = col
-      const { gsap } = motion
-
-      // zoom scales rendered pixels: one layout px of translateY moves the
-      // column `zoom` visual px. Measured live (it's 1 below md, 0.9 above)
-      // so the scroll distance and the travel stay 1:1 in screen pixels.
-      const zoom = () => {
-        const w = col.offsetWidth
-        return w > 0 ? col.getBoundingClientRect().width / w : 1
-      }
-      // Travel in layout px until the column bottom reaches the grid
-      // bottom — the same constraint native sticky enforces. Below lg the
-      // grid stacks (and the CSS sticky is off), so the emulation stands
-      // down by scrubbing over a zero-length travel.
-      const travel = () =>
-        window.matchMedia('(min-width: 1024px)').matches
-          ? Math.max(0, grid.offsetHeight - col.offsetHeight)
-          : 0
-
-      tween = gsap.fromTo(
-        col,
-        { y: 0 },
-        {
-          y: travel,
-          ease: 'none',
-          scrollTrigger: {
-            trigger: col,
-            start: () => `top ${STICKY_TOP * zoom()}px`,
-            end: () => `+=${travel() * zoom()}`,
-            scrub: true,
-            invalidateOnRefresh: true
-          }
-        }
-      )
-    })
-    return () => {
-      off()
-      tween?.scrollTrigger?.kill()
-      tween?.kill()
-      tween = null
-      tweenTarget?.style.removeProperty('transform')
-      tweenTarget = null
-    }
-  }, [])
-
-  return (
-    <>
-      <Seam alt="00 KM" note="TOUCHDOWN · FLIGHT PLAN LOADED" />
-
-      <div
-        ref={gridRef}
-        className="mt-10 sm:mt-14 grid grid-cols-1 gap-12 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16"
-      >
-        <div ref={stickyColRef} className="lg:sticky lg:top-24 lg:self-start">
-          <SectionHeader
-            index="05"
-            code="FLIGHT_PLAN"
-            title={
-              <>
-                Where this
-                <br />
-                is heading.
-              </>
-            }
-            serif={<>the browser was the warm-up lap.</>}
-            body={
-              <>
-                Today Cribble scores the browser. Next it scores the
-                terminal: a native tracker that meters Cursor, Claude
-                Code, Codex and every other CLI agent in your stack, then
-                folds them into the same global rank. Prompts, tool
-                calls, the six-hour run you left cooking overnight. All
-                of it counts.
-              </>
-            }
-            annotation="TRAJECTORY · PLOTTED"
-          />
-
-          {/* the future fleet */}
-          <div className="mt-9">
-            <span
-              className="st block text-[9px] tracking-[0.35em] text-zinc-600"
-              style={{ '--d': '380ms' } as CSSProperties}
-            >
-              AGENT FLEET · PHASE 03 TARGETS
-            </span>
-            <div className="mt-3.5 flex flex-wrap gap-2">
-              {AGENT_CHIPS.map((chip, i) => (
-                <span
-                  key={chip.name}
-                  className="st rm-chip flex items-center gap-2 rounded-lg px-3 py-2 text-[11px] text-zinc-300"
-                  style={{ '--d': `${440 + i * 80}ms` } as CSSProperties}
-                >
-                  <ToolIcon name={chip.icon} size={13} className="text-zinc-400" />
-                  <span className="font-display font-medium">{chip.name}</span>
-                </span>
-              ))}
-              <span
-                className="st flex items-center rounded-lg border border-dashed border-zinc-800 px-3 py-2 text-[10px] tracking-[0.2em] text-zinc-600"
-                style={{ '--d': '840ms' } as CSSProperties}
-              >
-                + YOURS
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* trajectory + phases */}
-        <div className="relative">
-          {/* the line draws downward as you scroll through the section */}
-          <span
-            aria-hidden
-            className="rm-track absolute bottom-2 left-[11px] top-1 w-px sm:left-[27px]"
-          />
-          <div className="flex flex-col gap-14">
-            {ROADMAP_PHASES.map((phase, i) => (
-              <PhaseNode key={phase.phase} phase={phase} index={i}>
-                {phase.status === 'R&D' && (
-                  <div className="mt-6">
-                    <AgentTerminal />
-                    <p className="mt-3 text-[9px] tracking-[0.3em] text-zinc-700">
-                      {'// CONCEPT CAPTURE · THE CLI IS IN R&D, THE AMBITION IS NOT'}
-                    </p>
-                  </div>
-                )}
-              </PhaseNode>
-            ))}
-          </div>
+        <div className="mt-1" style={{ visibility: done ? 'visible' : 'hidden' }}>
+          <Prompt />
+          <Caret />
         </div>
       </div>
 
       <style jsx global>{`
-        .rm-track {
-          background: linear-gradient(
-            180deg,
-            rgb(var(--accent-rgb) / 0.85),
-            rgb(var(--accent-rgb) / 0.35) 38%,
-            rgb(var(--z700) / 0.7) 70%,
-            rgb(var(--r-legendary) / 0.55)
-          );
-          transform: scaleY(clamp(0, calc(var(--p, 1) * 2.1), 1));
-          transform-origin: top center;
-          will-change: transform;
-        }
-        .rm-live-dot {
-          box-shadow: 0 0 8px rgb(var(--accent-rgb) / 0.8);
-          animation: rm-live-pulse 1.6s ease-in-out infinite;
-        }
-        .rm-node-live {
-          animation: rm-node-throb 2.4s ease-in-out infinite;
-        }
-        @keyframes rm-node-throb {
-          0%,
-          100% {
-            box-shadow: 0 0 10px rgb(var(--accent-rgb) / 0.7);
-          }
-          50% {
-            box-shadow: 0 0 22px rgb(var(--accent-rgb) / 1);
-          }
-        }
-        @keyframes rm-live-pulse {
-          0%,
-          100% {
-            opacity: 1;
-          }
-          50% {
-            opacity: 0.35;
-          }
-        }
-        .rm-item {
-          transition: border-color 240ms ease, transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
-        }
-        @media (hover: hover) and (pointer: fine) {
-          .rm-item:hover {
-            border-color: rgb(var(--accent-rgb) / 0.35);
-            transform: translateY(-2px);
-          }
-        }
-        .rm-chip {
-          background: rgb(var(--lb-panel-edge) / 0.04);
-          border: 1px solid rgb(var(--lb-panel-edge) / 0.1);
-          transition: border-color 240ms ease;
-        }
-        .rm-chip:hover {
-          border-color: rgb(var(--accent-rgb) / 0.4);
-        }
         .rm-term-line {
-          transition: opacity 380ms ease, transform 380ms cubic-bezier(0.22, 1, 0.36, 1);
+          transition:
+            opacity 380ms ease,
+            transform 380ms cubic-bezier(0.22, 1, 0.36, 1);
         }
         .rm-caret {
-          /* lives inside the theme-fixed terminal pane — hue is literal */
-          background: rgb(204 255 0 / 0.85);
+          background: var(--lx-signal);
           animation: rm-caret-blink 1.05s steps(1) infinite;
         }
         @keyframes rm-caret-blink {
@@ -532,29 +363,226 @@ function RoadmapBody() {
           }
         }
         @media (prefers-reduced-motion: reduce) {
-          .rm-track {
-            transform: none;
-          }
-          .rm-live-dot,
-          .rm-node-live,
           .rm-caret {
             animation: none;
           }
         }
+        html[data-motion='reduced'] .rm-caret {
+          animation: none;
+        }
       `}</style>
-    </>
+    </div>
   )
 }
 
+/* ------------------------------------------------------------------ */
+/* Trajectory — the track, the phases, the terminal                    */
+/* ------------------------------------------------------------------ */
+
+function PhaseBlock({ phase, index }: { phase: RoadmapPhase; index: number }) {
+  const base = PHASE_START_MS + PHASE_STEP_MS * index
+  const { ink } = statusStyle(phase.status)
+  const lastItem = phase.items.length - 1
+
+  return (
+    <li className="relative">
+      {/* Node on the track: the root's left padding is the offset back to
+          it; 21.5px centres the 5px square on the 48px rail row. */}
+      <Node
+        status={phase.status}
+        snap
+        className="absolute -left-6 top-[21.5px] sm:-left-10"
+      />
+
+      {/* Rail row — the Sheet's header grammar, one per phase. */}
+      <header
+        className={`flex h-12 items-stretch border-y ${SHEET_LINE} ${SHEET_LABEL}`}
+      >
+        <div
+          className={`st flex items-center pr-3 sm:pr-5 ${SHEET_INK}`}
+          style={at(base)}
+        >
+          {phaseIndex(phase)}
+        </div>
+        <div
+          className={`st ${SHEET_CELL} whitespace-nowrap ${SHEET_INK}`}
+          style={at(base + CELL_STEP_MS)}
+        >
+          {phase.code}
+        </div>
+        <div className={`st ${SHEET_CELL} ${ink}`} style={at(base + CELL_STEP_MS * 2)}>
+          {phase.status}
+        </div>
+        <div
+          className={`st ${SHEET_CELL} ml-auto hidden whitespace-nowrap uppercase md:flex ${SHEET_DIM}`}
+          style={at(base + CELL_STEP_MS * 3)}
+        >
+          {phase.headline}
+        </div>
+      </header>
+
+      {/* Items — STATUS · ITEM · NOTE. Per-row top hairlines (the first
+          skips its own so it never doubles the rail rule), the last closes
+          the block. Below md the note wraps under the title. */}
+      {phase.items.length > 0 && (
+        <ul>
+          {phase.items.map((item, j) => (
+            <li
+              key={item.title}
+              className={`st grid grid-cols-[4.5rem_minmax(0,1fr)] items-baseline gap-x-3 gap-y-1 py-3 transition-colors hover:bg-[color:rgb(var(--z900)/0.55)] sm:gap-x-5 md:grid-cols-[5.5rem_15rem_minmax(0,1fr)] lg:grid-cols-[6rem_18rem_minmax(0,1fr)] ${SHEET_LINE} ${
+                j === 0 ? '' : 'border-t'
+              } ${j === lastItem ? 'border-b' : ''}`}
+              style={at(base + ITEM_OFFSET_MS + ITEM_STEP_MS * j)}
+            >
+              <span className={`${SHEET_LABEL} ${ink}`}>{phase.status}</span>
+              <span className={`${DATA_TEXT} leading-relaxed ${SHEET_INK}`}>
+                {item.title}
+              </span>
+              <span
+                className={`col-start-2 ${DATA_TEXT} leading-relaxed md:col-start-3 ${SHEET_DIM}`}
+              >
+                {item.detail}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {phase.status === 'R&D' && (
+        <div className="mt-[var(--rhythm-2)] lg:grid lg:grid-cols-12 lg:gap-8">
+          <div className="lg:col-span-8">
+            <AgentTerminal delayMs={base + ITEM_OFFSET_MS} />
+          </div>
+          <p
+            className={`st mt-3 lg:col-span-4 lg:mt-0 lg:self-end ${SHEET_LABEL} ${FAINT_INK}`}
+            style={at(base + ITEM_OFFSET_MS + 80)}
+          >
+            CONCEPT CAPTURE · THE CLI IS IN R&amp;D, THE AMBITION IS NOT
+          </p>
+        </div>
+      )}
+    </li>
+  )
+}
+
+function Trajectory() {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const trackRef = useRef<HTMLSpanElement>(null)
+
+  // The track's scroll scrub. Sheet's Stage never writes `--p`, so the
+  // section builds its own scrubbed tween once the stage goes live; the
+  // anime Scope in useSectionMotion reverts it on a reduced-motion flip
+  // and the cleanup hands the hairline back to CSS (scaleY 1, full length
+  // — the same pose SSR, no-JS and the still tier show). Scroll-linked and
+  // linear by contract: `ease: 'none'`, progress is the scroll.
+  useSectionMotion('roadmap', ({ motion }) => {
+    const root = rootRef.current
+    const track = trackRef.current
+    if (!root || !track) return
+    const { gsap } = motion
+
+    const draw = gsap.fromTo(
+      track,
+      { scaleY: 0, transformOrigin: 'top center' },
+      {
+        scaleY: 1,
+        ease: 'none',
+        scrollTrigger: {
+          trigger: root,
+          start: 'top 75%',
+          end: 'bottom 60%',
+          scrub: true
+        }
+      }
+    )
+
+    // The LIVE node snaps once as the sheet goes live — the hero's
+    // signal-square beat, not a pulse.
+    const liveNode = root.querySelector<HTMLElement>('[data-node-live]')
+    const snap = liveNode
+      ? gsap.fromTo(
+          liveNode,
+          { opacity: 0.35 },
+          {
+            opacity: 1,
+            duration: 0.4,
+            ease: CRIBBLE_EASE_NAME,
+            clearProps: 'opacity'
+          }
+        )
+      : null
+
+    return () => {
+      snap?.kill()
+      draw.scrollTrigger?.kill()
+      draw.kill()
+      gsap.set(track, { clearProps: 'transform' })
+      if (liveNode) gsap.set(liveNode, { clearProps: 'opacity' })
+    }
+  })
+
+  return (
+    <div ref={rootRef} className="relative pl-6 sm:pl-10">
+      {/* The track — a 1px hairline the scrub above draws from the top. */}
+      <span
+        ref={trackRef}
+        aria-hidden
+        className="rm-track absolute inset-y-0 left-[2px] w-px origin-top will-change-transform"
+        style={{ background: 'var(--lx-line-strong)' }}
+      />
+      <ol className="flex flex-col gap-[var(--rhythm-3)]">
+        {ROADMAP_PHASES.map((phase, i) => (
+          <PhaseBlock key={phase.phase} phase={phase} index={i} />
+        ))}
+      </ol>
+
+      <style jsx global>{`
+        /* Not a .st element (the reveal's clearProps would fight the
+           scrub's transform), so the track hides with the armed stage by
+           hand and fades in as it goes live — by then the scrub owns its
+           length, so it never flashes full before drawing. still/no-JS
+           never arm: the line simply stands. */
+        .rm-track {
+          transition: opacity 0.4s ease;
+        }
+        .stage-armed .rm-track {
+          opacity: 0;
+          transition: none; /* arming is a cut, like the .st hide */
+        }
+      `}</style>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
 export function RoadmapSection() {
   return (
-    <section id="descent-roadmap" data-sec="roadmap" className="relative">
-      <Stage
-        scrub
-        className="page-zoom-out mx-auto w-full max-w-6xl px-6 py-16 sm:py-24 md:py-32"
-      >
-        <RoadmapBody />
-      </Stage>
-    </section>
+    <Sheet
+      id="roadmap"
+      index="05"
+      label="FLIGHT PLAN"
+      datum={
+        <>
+          <span
+            aria-hidden
+            className="h-1.5 w-1.5 shrink-0"
+            style={{ background: 'var(--lx-signal)' }}
+          />
+          <span>
+            <span className={SHEET_INK}>PHASE 01</span> LIVE
+          </span>
+        </>
+      }
+      hook={
+        <>
+          the browser was the <em>warm-up lap</em>.
+        </>
+      }
+      specs={SPECS}
+      artifact={<FlightIndex />}
+    >
+      <Trajectory />
+    </Sheet>
   )
 }

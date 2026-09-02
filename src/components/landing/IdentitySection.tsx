@@ -1,30 +1,55 @@
 'use client'
 
-// Descent stage 03 — THE IDENTITY. A holographic pilot card (the same
-// trading-card language as the in-app PlayerCard) with live-swappable
-// nameplates straight from the real cosmetics catalog. Pointer tilt +
-// glare on the card; plates auto-cycle until the visitor takes the wheel.
+// Sheet 03 — IDENTITY. The pilot trading card (the same anatomy as the
+// in-app PlayerCard: plate banner, callsign, flight record, medal rack)
+// with live-swappable nameplates from the real cosmetics catalog, drawn as
+// one more compartment of the manifest: a 1px --lx-line-strong frame,
+// hairline rows, 10px tracked Plex Mono labels, the plate art the only
+// paint. Two instruments keep it alive:
+//
+//  · Pointer tilt — the one pointer-driven transform on the page. --rx/--ry
+//    are written through gsap.quickSetter (GSAP's cheapest write path),
+//    clamped to ±TILT_MAX_DEG, and released to 0 through an anime spring
+//    on pointer leave; perspective lives on the card's own wrapper only.
+//    No glare, no idle bob, no depth layers, no shadow.
+//  · Plate swap — the incoming plate mounts over the outgoing one and
+//    fades in (opacity only, SWAP_MS on the site curve); the outgoing layer
+//    unmounts when the fade completes. The rack auto-cycles on an anime
+//    timer (useSectionMotion) until the visitor taps a plate.
+//
+// Everything animated on entrance is `.st` + inline `--d`, so the Sheet's
+// Stage reveal owns the choreography and SSR/no-JS/still render the final
+// state. Colours are the --lx-* role tokens only; light mode is the hero's
+// white sheet re-pin, nothing here overrides it.
 
 import {
   CSSProperties,
   MutableRefObject,
   PointerEvent as ReactPointerEvent,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState
 } from 'react'
 import type { JSAnimation } from 'animejs'
-import { PlateLayer } from '@/components/cosmetics/PlateLayer'
 import { PixelIcon } from '@/components/achievements/PixelIcon'
-import { SocialIcon, ToolIcon } from '@/components/leaderboard/icons'
+import { PlateLayer } from '@/components/cosmetics/PlateLayer'
 import { getPlate, PLATE_RARITY_META } from '@/lib/cosmetics/plates'
+import { CRIBBLE_EASE } from '@/lib/landingMotion'
 import { prefersReducedMotion } from '@/lib/motion'
 import { SHOWCASE_PLATES } from './data'
-import { Seam, SectionHeader, Stage } from './scrollFx'
+import {
+  Sheet,
+  SHEET_DIM,
+  SHEET_INK,
+  SHEET_LABEL,
+  SHEET_LINE,
+  type SheetSpec
+} from './Sheet'
 import { useSectionMotion, type SectionMotionHandle } from './useSectionMotion'
 
 /* The demo card is the founder's real profile — same numbers the arena sim
-   above puts him at, so the two sections corroborate each other. */
+   above puts him at, so the two sheets corroborate each other. */
 const CARD_STATS = [
   { label: 'RANK', value: '#1' },
   { label: 'SCORE', value: '929,369' },
@@ -39,18 +64,47 @@ const CARD_BADGES = [
   { icon: 'crown', rarity: 'legendary', name: 'APEX' }
 ] as const
 
-const CARD_TOOLS = [
-  { name: 'Cursor', pct: 41 },
-  { name: 'Claude', pct: 24 },
-  { name: 'ChatGPT', pct: 19 }
-] as const
+const SPECS: SheetSpec[] = [
+  { label: 'CARD', value: 'BANNER · CALLSIGN · FLIGHT RECORD · MEDALS' },
+  { label: 'PLATES', value: 'FROM THE SHOP, OR EARNED' },
+  { label: 'SHOWN', value: '@BIRDABO · P1 · SOMEBODY DO SOMETHING' }
+]
+
+/** Tilt ceiling on both axes — enough to read as a held card, not a flip. */
+const TILT_MAX_DEG = 5
+/** Plate crossfade length. */
+const SWAP_MS = 240
+/** Auto-cycle beat between plates while nobody has taken the wheel. */
+const CYCLE_MS = 3600
+
+// Entrance stagger (ms, read by runStageEntrance via --d): the card lands
+// after the Sheet's rail cells, the rack rows follow 50ms apart, the
+// caption last.
+const CARD_MS = 120
+const RACK_START_MS = 200
+const RACK_STEP_MS = 50
+const CAPTION_MS = RACK_START_MS + RACK_STEP_MS * SHOWCASE_PLATES.length
+
+const at = (ms: number): CSSProperties => ({ '--d': `${ms}ms` } as CSSProperties)
+
+/** Widest the card + rack column gets inside the artifact compartment. */
+const COLUMN = 'w-full max-w-[440px]'
+/** A card row: hairline on top, label register, LABEL left / VALUE right. */
+const CARD_ROW = `flex items-center justify-between gap-4 border-t ${SHEET_LINE} px-4 py-2.5 ${SHEET_LABEL}`
+
+const [EASE_X1, EASE_Y1, EASE_X2, EASE_Y2] = CRIBBLE_EASE.split(',').map(Number)
+
+const clampTilt = (deg: number) =>
+  Math.max(-TILT_MAX_DEG, Math.min(TILT_MAX_DEG, deg))
 
 type TiltSetters = {
   rx: (v: number) => void
   ry: (v: number) => void
-  gx: (v: number) => void
-  gy: (v: number) => void
 }
+
+/* ------------------------------------------------------------------ */
+/* PilotCard                                                           */
+/* ------------------------------------------------------------------ */
 
 function PilotCard({
   plateId,
@@ -59,14 +113,18 @@ function PilotCard({
   plateId: string
   motionRef: MutableRefObject<SectionMotionHandle | null>
 }) {
-  const ref = useRef<HTMLDivElement | null>(null)
+  const cardRef = useRef<HTMLDivElement | null>(null)
   const settersRef = useRef<TiltSetters | null>(null)
   const releaseAnim = useRef<JSAnimation | null>(null)
-  const swapRef = useRef<HTMLDivElement | null>(null)
+  const swapAnim = useRef<JSAnimation | null>(null)
+  const overRef = useRef<HTMLDivElement | null>(null)
   const prevPlate = useRef(plateId)
+  // The outgoing plate, kept painted beneath the incoming one for the
+  // length of the crossfade; null once the fade lands (or without motion).
+  const [under, setUnder] = useState<string | null>(null)
 
   const onMove = (e: ReactPointerEvent) => {
-    const el = ref.current
+    const el = cardRef.current
     if (!el || prefersReducedMotion()) return
     // The pointer takes the wheel back from a mid-flight release spring.
     releaseAnim.current?.cancel()
@@ -74,6 +132,8 @@ function PilotCard({
     const r = el.getBoundingClientRect()
     const px = (e.clientX - r.left) / r.width
     const py = (e.clientY - r.top) / r.height
+    const rx = clampTilt((0.5 - py) * 2 * TILT_MAX_DEG)
+    const ry = clampTilt((px - 0.5) * 2 * TILT_MAX_DEG)
     // gsap.quickSetter on the custom properties — GSAP's cheapest write
     // path, riding its own render batching instead of a hand-rolled rAF.
     // Built lazily once the runtime handle exists; before that (chunk
@@ -84,34 +144,26 @@ function PilotCard({
       const { gsap } = m.motion
       settersRef.current = {
         rx: gsap.quickSetter(el, '--rx', 'deg') as TiltSetters['rx'],
-        ry: gsap.quickSetter(el, '--ry', 'deg') as TiltSetters['ry'],
-        gx: gsap.quickSetter(el, '--gx', '%') as TiltSetters['gx'],
-        gy: gsap.quickSetter(el, '--gy', '%') as TiltSetters['gy']
+        ry: gsap.quickSetter(el, '--ry', 'deg') as TiltSetters['ry']
       }
     }
     const setters = settersRef.current
     if (setters) {
-      setters.rx((0.5 - py) * 10)
-      setters.ry((px - 0.5) * 12)
-      setters.gx(px * 100)
-      setters.gy(py * 100)
+      setters.rx(rx)
+      setters.ry(ry)
     } else {
-      el.style.setProperty('--rx', `${(0.5 - py) * 10}deg`)
-      el.style.setProperty('--ry', `${(px - 0.5) * 12}deg`)
-      el.style.setProperty('--gx', `${px * 100}%`)
-      el.style.setProperty('--gy', `${py * 100}%`)
+      el.style.setProperty('--rx', `${rx}deg`)
+      el.style.setProperty('--ry', `${ry}deg`)
     }
-    el.style.setProperty('--glare', '1')
   }
 
   const onLeave = () => {
-    const el = ref.current
+    const el = cardRef.current
     if (!el) return
-    el.style.setProperty('--glare', '0')
     const m = motionRef.current
     // Spring the tilt back to rest instead of snapping. The inline-var
     // check skips pointers that never tilted (e.g. a touch tap); no handle
-    // (chunk pending, reduced motion) keeps today's instant reset.
+    // (chunk pending, reduced motion) keeps the instant reset.
     if (m && el.style.getPropertyValue('--rx') !== '') {
       releaseAnim.current = m.motion.animate(el, {
         '--rx': '0deg',
@@ -124,215 +176,173 @@ function PilotCard({
     }
   }
 
-  // Plate swap: once the motion layer is live, the entering banner springs
-  // in instead of playing the CSS crossfade. Pre-paint (layout effect +
-  // anime rendering from-values synchronously), so suppressing the CSS
-  // animation inline never lets it start — no double play, and the CSS
-  // path stays intact as the fallback while the handle is null.
+  // Plate swap: the keyed incoming layer is a fresh element by the time
+  // this layout effect runs, so anime renders its opacity 0 before paint
+  // while the outgoing plate is still painted beneath it — then the fade.
+  // No handle (chunk pending) or reduced motion: a hard cut, no under layer.
   useLayoutEffect(() => {
     if (prevPlate.current === plateId) return
+    const outgoing = prevPlate.current
     prevPlate.current = plateId
+    swapAnim.current?.cancel()
+    swapAnim.current = null
     const m = motionRef.current
-    const el = swapRef.current
-    if (!m || !el) return
-    el.style.animation = 'none'
-    m.motion.animate(el, {
+    const el = overRef.current
+    if (!m || !el || prefersReducedMotion()) {
+      setUnder(null)
+      return
+    }
+    setUnder(outgoing)
+    swapAnim.current = m.motion.animate(el, {
       opacity: [0, 1],
-      filter: ['saturate(1.6) brightness(1.35)', 'saturate(1) brightness(1)'],
-      ease: m.motion.spring({ stiffness: 120, damping: 14 }),
-      onComplete: () => el.style.removeProperty('filter')
+      duration: SWAP_MS,
+      ease: m.motion.cubicBezier(EASE_X1, EASE_Y1, EASE_X2, EASE_Y2),
+      onComplete: () => {
+        swapAnim.current = null
+        setUnder(null)
+      }
     })
   }, [plateId, motionRef])
 
+  useEffect(
+    () => () => {
+      releaseAnim.current?.cancel()
+      swapAnim.current?.cancel()
+    },
+    []
+  )
+
   const plate = getPlate(plateId)
-  const accent = plate?.render.kind === 'css' ? plate.render.accent : '204 255 0'
 
   return (
-    <div style={{ perspective: '1200px' }}>
+    // Perspective on the card's own wrapper only — the tilt's one 3D root.
+    <div className={`st ${COLUMN}`} style={{ perspective: '1200px', ...at(CARD_MS) }}>
       <div
-        ref={ref}
+        ref={cardRef}
         onPointerMove={onMove}
         onPointerLeave={onLeave}
-        className="id-card lx-hw relative overflow-hidden rounded-2xl"
-        style={
-          {
-            transform: 'rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg))',
-            background:
-              'linear-gradient(180deg, rgb(255 255 255 / 0.045), transparent 40%), rgb(var(--lb-panel-bg))',
-            border: `1px solid rgb(${accent} / 0.35)`,
-            boxShadow: `0 30px 80px -30px rgb(0 0 0 / 0.9), 0 0 60px -18px rgb(${accent} / 0.3)`,
-            transition: 'border-color 600ms ease, box-shadow 600ms ease'
-          } as CSSProperties
-        }
+        className="relative will-change-transform"
+        style={{
+          transform: 'rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg))',
+          border: '1px solid var(--lx-line-strong)'
+        }}
       >
-        {/* banner — the equipped plate, full bleed */}
+        {/* banner — the equipped plate, full bleed inside its box */}
         <div className="relative h-[118px] overflow-hidden">
-          {/* crossfade: key swap re-mounts, entering layer fades in over the old paint */}
-          <div key={plateId} ref={swapRef} className="id-plate-swap absolute inset-0">
+          {under ? (
+            <div key={under} aria-hidden className="absolute inset-0">
+              <PlateLayer plateId={under} fade="none" />
+            </div>
+          ) : null}
+          <div key={plateId} ref={overRef} className="absolute inset-0">
             <PlateLayer plateId={plateId} fade="none" />
           </div>
-          <span
-            aria-hidden
-            className="absolute inset-0"
-            style={{
-              background:
-                'linear-gradient(180deg, transparent 58%, rgb(var(--lb-panel-bg) / 0.94))'
-            }}
-          />
-          <span
-            className="absolute left-4 top-4 rounded-md px-2 py-1 text-[9px] leading-none tracking-[0.3em]"
-            style={{
-              color: `rgb(${accent})`,
-              background: 'rgb(0 0 0 / 0.55)',
-              border: `1px solid rgb(${accent} / 0.45)`,
-              textShadow: `0 0 10px rgb(${accent} / 0.6)`
-            }}
-          >
-            {plate?.name.toUpperCase() ?? 'PLATE'}
-          </span>
-          <span
-            className="absolute right-4 top-4 rounded bg-black/50 px-1.5 py-0.5 text-[8px] tracking-[0.25em]"
-            style={{
-              color: 'rgb(var(--lb-gold))',
-              border: '1px solid rgb(var(--lb-gold) / 0.5)'
-            }}
-          >
-            FOUNDER
+        </div>
+
+        <div className={CARD_ROW}>
+          <span className={SHEET_DIM}>PLATE</span>
+          <span className={`truncate ${SHEET_INK}`}>
+            {plate?.name.toUpperCase() ?? '—'}
           </span>
         </div>
 
-        {/* identity */}
-        <div className="relative px-6 pb-6">
-          <div className="-mt-[34px] flex items-end justify-between">
-            <div className="relative h-[72px] w-[72px]">
+        {/* identity — avatar, callsign, handle; the pip is the online state */}
+        <div className={`flex items-center gap-3 border-t ${SHEET_LINE} px-4 py-3`}>
+          <span
+            className="block h-10 w-10 shrink-0 overflow-hidden border"
+            style={{ borderColor: 'var(--lx-line-strong)' }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/avatars/birdabo.jpg"
+              alt=""
+              width={40}
+              height={40}
+              className="h-full w-full object-cover"
+            />
+          </span>
+          <span className="flex min-w-0 flex-col gap-1.5">
+            <span
+              className={`flex items-center gap-2 font-data text-[12px] font-semibold tracking-[0.2em] ${SHEET_INK}`}
+            >
+              BIRDABO
               <span
                 aria-hidden
-                className="absolute -inset-[3px] rounded-full"
-                style={{
-                  background: `conic-gradient(from 210deg, rgb(${accent} / 0.9), rgb(${accent} / 0.15), rgb(${accent} / 0.9))`,
-                  transition: 'background 600ms ease'
-                }}
+                className="h-1.5 w-1.5 shrink-0"
+                style={{ background: 'var(--lx-signal)' }}
               />
-              <span
-                aria-hidden
-                className="absolute inset-0 rounded-full"
-                style={{ boxShadow: 'inset 0 0 0 3px rgb(var(--lb-panel-bg))' }}
-              />
-              <span className="absolute inset-[3px] block overflow-hidden rounded-full bg-zinc-900">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/avatars/birdabo.jpg"
-                  alt="@birdabo"
-                  className="h-full w-full object-cover"
-                />
+              <span className="sr-only">online</span>
+            </span>
+            <span className={`${SHEET_LABEL} ${SHEET_DIM}`}>@BIRDABO</span>
+          </span>
+        </div>
+
+        {/* flight record — four cells, each owning its left hairline */}
+        <div className={`grid grid-cols-4 border-t ${SHEET_LINE}`}>
+          {CARD_STATS.map((s, i) => (
+            <div
+              key={s.label}
+              className={`flex flex-col gap-1.5 px-3 py-3 sm:px-4 ${
+                i === 0 ? '' : `border-l ${SHEET_LINE}`
+              }`}
+            >
+              <span className={`${SHEET_LABEL} ${SHEET_DIM}`}>{s.label}</span>
+              <span className={`font-data text-[12px] leading-none tabular-nums ${SHEET_INK}`}>
+                {s.value}
               </span>
-              <span
-                className="absolute bottom-1 right-1 h-3 w-3 rounded-full"
-                style={{
-                  background: 'rgb(var(--lb-up))',
-                  boxShadow:
-                    '0 0 8px rgb(var(--lb-up) / 0.8), inset 0 0 0 2px rgb(var(--lb-panel-bg))'
-                }}
-              />
             </div>
-            <span className="pb-1 text-[9px] tracking-[0.3em] text-zinc-600">
-              EST. 2026 · SEASON 01
-            </span>
-          </div>
+          ))}
+        </div>
 
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="font-display text-xl font-semibold tracking-tight text-zinc-50">
-              Birdabo
-            </span>
-            <span className="inline-flex items-center gap-1 text-[11px] text-zinc-500">
-              @birdabo
-              <span className="text-zinc-600">
-                <SocialIcon kind="x" size={9} />
-              </span>
-            </span>
-          </div>
-          <p className="mt-1.5 font-sans text-[12.5px] leading-relaxed text-zinc-500">
-            Built Cribble to settle an argument. Currently winning it.
-          </p>
+        {/* service record */}
+        <div className={CARD_ROW}>
+          <span className={SHEET_DIM}>ROLE</span>
+          <span className={SHEET_INK}>FOUNDER</span>
+        </div>
+        <div className={CARD_ROW}>
+          <span className={SHEET_DIM}>EST.</span>
+          <span className={SHEET_INK}>2026 · SEASON 01</span>
+        </div>
 
-          {/* flight record */}
-          <div className="mt-5 grid grid-cols-4 gap-px overflow-hidden rounded-lg border border-zinc-800/80 bg-zinc-800/60">
-            {CARD_STATS.map((s) => (
-              <div
-                key={s.label}
-                className="flex flex-col gap-1.5 bg-[color:var(--panel)] px-2.5 py-3"
+        {/* medal rack */}
+        <div className={CARD_ROW}>
+          <span className={SHEET_DIM}>MEDALS</span>
+          <span className="flex items-center gap-1.5">
+            {CARD_BADGES.map((b) => (
+              <span
+                key={b.name}
+                title={b.name}
+                className={`flex h-7 w-7 items-center justify-center border ${SHEET_LINE}`}
               >
-                <span className="text-[7px] tracking-[0.3em] text-zinc-600">{s.label}</span>
-                <span className="leading-none tabular-nums [font-family:var(--font-pixel)] text-[11px] text-zinc-100">
-                  {s.value}
-                </span>
-              </div>
+                <PixelIcon name={b.icon} size={14} />
+                <span className="sr-only">{b.name}</span>
+              </span>
             ))}
-          </div>
-
-          {/* loadout + service record */}
-          <div className="mt-4 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              {CARD_TOOLS.map((t) => (
-                <span
-                  key={t.name}
-                  className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[10px] text-zinc-300"
-                  style={{
-                    background: 'rgb(var(--lb-panel-edge) / 0.04)',
-                    border: '1px solid rgb(var(--lb-panel-edge) / 0.09)'
-                  }}
-                >
-                  <ToolIcon name={t.name} size={11} />
-                  <span className="tabular-nums text-zinc-500">{t.pct}%</span>
-                </span>
-              ))}
-            </div>
-            <div className="flex items-center gap-1.5">
-              {CARD_BADGES.map((b) => (
-                <span
-                  key={b.name}
-                  title={b.name}
-                  className="flex h-7 w-7 items-center justify-center rounded-md"
-                  style={{
-                    background: 'rgb(var(--lb-panel-edge) / 0.04)',
-                    border: `1px solid rgb(var(--r-${b.rarity}) / 0.3)`
-                  }}
-                >
-                  <PixelIcon name={b.icon} size={14} />
-                </span>
-              ))}
-            </div>
-          </div>
+          </span>
         </div>
-
-        {/* holo glare — follows the pointer */}
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-0"
-          style={{
-            opacity: 'var(--glare, 0)',
-            background:
-              'radial-gradient(300px circle at var(--gx, 50%) var(--gy, 50%), rgb(255 255 255 / 0.08), transparent 65%)',
-            transition: 'opacity 400ms ease'
-          }}
-        />
       </div>
     </div>
   )
 }
 
-function IdentityBody() {
+/* ------------------------------------------------------------------ */
+/* Artifact — card + plate rack, inside the Sheet's Stage               */
+/* ------------------------------------------------------------------ */
+
+/** Rendered as the Sheet's artifact so useSectionMotion hears the Stage
+ *  go live (it reads Stage context — outside the Sheet it never would). */
+function IdentityArtifact() {
   const [plateId, setPlateId] = useState<string>(SHOWCASE_PLATES[0])
   const [autoCycle, setAutoCycle] = useState(true)
 
   // Plate auto-cycle on the shared engine tick; the handle also powers the
-  // card's tilt-release and plate-swap springs.
+  // card's tilt release spring and plate crossfade.
   const motionRef = useSectionMotion(
     'identity',
     ({ timer }) => {
       if (!autoCycle) return
       timer({
-        duration: 3600,
+        duration: CYCLE_MS,
         loop: true,
         onLoop: () => {
           setPlateId((prev) => {
@@ -346,212 +356,99 @@ function IdentityBody() {
   )
 
   return (
-    <>
-      <Seam alt="11 KM" note="TROPOSPHERE · IDENTITY CONFIRMED" />
+    <div className="flex flex-col gap-[var(--rhythm-3)]">
+      <PilotCard plateId={plateId} motionRef={motionRef} />
 
-      <div className="mt-10 sm:mt-14 grid grid-cols-1 items-start gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16">
-        <div className="lg:pt-4">
-          <SectionHeader
-            index="03"
-            code="PILOT_IDENTITY"
-            title={
-              <>
-                Proof of work,
-                <br />
-                laminated.
-              </>
-            }
-            serif={<>your grind, pressed into a trading card.</>}
-            body={
-              <>
-                Every pilot gets a card: banner, callsign, flight record,
-                medal rack. Skin it with plates from the shop, or with the
-                ones money can&apos;t touch. The card on the right belongs
-                to <span className="text-zinc-200">@birdabo</span>, the
-                founder, currently sitting on #1. Somebody should really do
-                something about that.
-              </>
-            }
-            annotation="COSMETICS · CATALOG LIVE"
-          />
-
-          {/* plate rack */}
-          <div className="mt-9 flex flex-col gap-2.5">
-            {SHOWCASE_PLATES.map((id, i) => {
-              const plate = getPlate(id)
-              if (!plate) return null
-              const selected = id === plateId
-              const rarity = PLATE_RARITY_META[plate.rarity]
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => {
-                    setAutoCycle(false)
-                    setPlateId(id)
-                  }}
-                  className="st id-rack lx-hw lx-mod group relative overflow-hidden rounded-xl text-left"
-                  style={
-                    {
-                      '--d': `${380 + i * 90}ms`,
-                      border: selected
-                        ? `1px solid ${rarity.color}`
-                        : '1px solid rgb(var(--lb-panel-edge) / 0.1)',
-                      boxShadow: selected
-                        ? `0 0 26px -10px ${rarity.color}`
-                        : undefined
-                    } as CSSProperties
-                  }
-                  aria-pressed={selected}
+      {/* plate rack — hairline rows: index · swatch · NAME · RARITY */}
+      <div className={COLUMN}>
+        <div role="group" aria-label="Plates">
+          {SHOWCASE_PLATES.map((id, i) => {
+            const plate = getPlate(id)
+            if (!plate) return null
+            const selected = id === plateId
+            const rarity = PLATE_RARITY_META[plate.rarity]
+            const last = i === SHOWCASE_PLATES.length - 1
+            return (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => {
+                  setAutoCycle(false)
+                  setPlateId(id)
+                }}
+                className={`st flex w-full items-center gap-3 border-t ${SHEET_LINE} px-3 py-2.5 text-left transition-colors hover:bg-[color:rgb(var(--z900)/0.55)] sm:gap-4 ${
+                  last ? 'border-b' : ''
+                } ${SHEET_LABEL}`}
+                style={at(RACK_START_MS + RACK_STEP_MS * i)}
+              >
+                {/* the selection square — a transparent slot when idle so
+                    the indices never shift */}
+                <span
+                  aria-hidden
+                  className="h-1.5 w-1.5 shrink-0"
+                  style={{ background: selected ? 'var(--lx-signal)' : 'transparent' }}
+                />
+                <span className={`w-5 shrink-0 ${SHEET_DIM}`}>
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+                <span aria-hidden className="relative h-4 w-7 shrink-0 overflow-hidden">
+                  <PlateLayer plateId={id} fade="none" />
+                </span>
+                <span
+                  className={`min-w-0 flex-1 truncate ${
+                    selected ? 'text-[color:var(--lx-signal)]' : SHEET_INK
+                  }`}
                 >
-                  <span className="absolute inset-0" aria-hidden>
-                    <PlateLayer plateId={id} />
-                  </span>
-                  <span
-                    className="absolute inset-0"
-                    aria-hidden
-                    style={{
-                      background:
-                        'linear-gradient(90deg, rgb(var(--lb-panel-bg) / 0.92) 22%, rgb(var(--lb-panel-bg) / 0.25) 60%, transparent)'
-                    }}
-                  />
-                  <span className="relative z-10 flex items-center justify-between px-4 py-3">
-                    <span>
-                      <span className="block font-display text-[13px] font-semibold text-zinc-100">
-                        {plate.name}
-                      </span>
-                      <span className="mt-0.5 block text-[9px] tracking-[0.2em] text-zinc-500">
-                        {plate.tagline.toUpperCase()}
-                      </span>
-                    </span>
-                    <span
-                      className="rounded px-1.5 py-0.5 text-[8px] tracking-[0.25em]"
-                      style={{
-                        color: rarity.color,
-                        border: `1px solid ${rarity.color}`,
-                        background: 'rgb(0 0 0 / 0.4)'
-                      }}
-                    >
-                      {plate.priceUsd ? rarity.label : 'EARNED'}
-                    </span>
-                  </span>
-                  {selected && (
-                    <span
-                      aria-hidden
-                      className="absolute left-0 top-0 h-full w-[3px]"
-                      style={{ background: rarity.color, boxShadow: `0 0 12px ${rarity.color}` }}
-                    />
-                  )}
-                </button>
-              )
-            })}
-            <p
-              className="st mt-1 text-[9px] tracking-[0.3em] text-zinc-700"
-              style={{ '--d': '760ms' } as CSSProperties}
-            >
-              {'// TAP A PLATE · THE CARD RE-SKINS LIVE'}
-            </p>
-          </div>
+                  {plate.name.toUpperCase()}
+                </span>
+                <span className={`shrink-0 text-right ${SHEET_DIM}`}>
+                  {plate.priceUsd ? rarity.label : 'EARNED'}
+                </span>
+              </button>
+            )
+          })}
         </div>
 
-        {/* the card — scroll-scrubbed float-in + idle hover bob */}
-        <div className="id-stage relative">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -inset-x-4 -top-16 bottom-0 opacity-60 sm:-inset-x-10"
-            style={{
-              background:
-                'radial-gradient(55% 45% at 50% 30%, rgb(var(--accent-rgb) / 0.07), transparent 70%)'
-            }}
-          />
-          <div className="id-float relative mx-auto w-full max-w-[440px]">
-            <PilotCard plateId={plateId} motionRef={motionRef} />
-          </div>
-          <p className="mt-4 text-center text-[9px] tracking-[0.3em] text-zinc-700">
-            <span className="sm:hidden">
-              {'// PLATES FROM THE LIVE CATALOG'}
-            </span>
-            <span className="hidden sm:inline">
-              {'// HOVER TO TILT · PLATES FROM THE LIVE CATALOG'}
-            </span>
-          </p>
-        </div>
+        <p
+          className={`st mt-[var(--rhythm-2)] ${SHEET_LABEL} text-[color:var(--lx-ink-faint)]`}
+          style={at(CAPTION_MS)}
+        >
+          TAP A PLATE · THE CARD RE-SKINS LIVE
+        </p>
       </div>
-
-      <style jsx global>{`
-        .id-stage {
-          opacity: clamp(0, calc((var(--p, 1) - 0.05) * 4), 1);
-          transform: translateY(calc(max(0.45 - var(--p, 1), 0) * 110px))
-            rotate(calc(max(0.45 - var(--p, 1), 0) * 4deg));
-          will-change: transform;
-        }
-        .id-card {
-          will-change: transform;
-          transform-style: preserve-3d;
-        }
-        .id-float {
-          animation: id-idle-bob 7s ease-in-out infinite;
-        }
-        @keyframes id-idle-bob {
-          0%,
-          100% {
-            transform: translateY(0);
-          }
-          50% {
-            transform: translateY(-8px);
-          }
-        }
-        .id-plate-swap {
-          animation: id-plate-in 700ms ease backwards;
-        }
-        @keyframes id-plate-in {
-          from {
-            opacity: 0;
-            filter: saturate(1.6) brightness(1.35);
-          }
-        }
-        .id-rack {
-          min-height: 58px;
-          /* opaque instrument base: the plate art's left-fade mask must melt
-             into dark panel, never into the page behind the row */
-          background: rgb(var(--lb-panel-bg));
-          transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
-            border-color 260ms ease, box-shadow 260ms ease;
-        }
-        @media (hover: hover) and (pointer: fine) {
-          .id-rack:hover {
-            transform: translateX(4px);
-          }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .id-stage {
-            opacity: 1;
-            transform: none;
-          }
-          .id-float,
-          .id-plate-swap {
-            animation: none;
-          }
-          .id-rack,
-          .id-rack:hover {
-            transform: none;
-            transition: none;
-          }
-        }
-      `}</style>
-    </>
+    </div>
   )
 }
 
+/* ------------------------------------------------------------------ */
+/* Sheet 03                                                            */
+/* ------------------------------------------------------------------ */
+
 export function IdentitySection() {
   return (
-    <section id="descent-identity" data-sec="identity" className="relative">
-      <Stage
-        scrub
-        className="page-zoom-out mx-auto w-full max-w-6xl px-6 py-16 sm:py-24 md:py-32"
-      >
-        <IdentityBody />
-      </Stage>
-    </section>
+    <Sheet
+      id="identity"
+      index="03"
+      label="IDENTITY"
+      datum={
+        <>
+          <span
+            aria-hidden
+            className="h-1.5 w-1.5 shrink-0"
+            style={{ background: 'var(--lx-signal)' }}
+          />
+          <span>CATALOG LIVE</span>
+        </>
+      }
+      hook={
+        <>
+          your grind, pressed into a <em>trading card</em>.
+        </>
+      }
+      specs={SPECS}
+      artifact={<IdentityArtifact />}
+      artifactSide="right"
+    />
   )
 }

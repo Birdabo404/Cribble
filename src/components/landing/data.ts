@@ -128,6 +128,10 @@ export const SIM_ROSTER: SimPilot[] = [
   ROBJ3D3
 ]
 
+/** Where P1's live drift stops: the hero numeral climbs from BIRDABO's
+ * staged score to this round million and holds (hero/scoreDrift.ts). */
+export const SCORE_CEILING = 1_000_000
+
 /** Opening lineup when the takeover plays: the old guard, still holding
  * ranks they're about to lose. */
 export const TAKEOVER_START: SimPilot[] = [
@@ -197,11 +201,28 @@ export const TAKEOVER_EVENTS: { enter: SimPilot; drop: string }[] = [
   { enter: LEVELSIO, drop: 'p2' } //   927,929 over sama     · 926,337
 ]
 
-export const ARENA_STATS = [
-  { label: 'PILOTS', value: 2_929, format: 'number' as const },
-  { label: 'PLAYING NOW', value: 369, format: 'number' as const, live: true },
-  { label: 'TOP SCORE', value: 929_369, format: 'score' as const },
-  { label: 'SEASON ENDS', value: 29, format: 'days' as const }
+/** What the hero rail and the arena print for the season when the live
+ *  read (src/lib/landingLive.ts) has nothing — matches the staged board. */
+export const STAGED_SEASON = { label: 'SEASON 01 · IGNITION', daysLeft: 29 }
+
+export type ArenaStatKey = 'players' | 'syncedToday' | 'topScore' | 'seasonEnds'
+
+export interface ArenaStat {
+  key: ArenaStatKey
+  label: string
+  format: 'number' | 'score' | 'days'
+  /** Printed when there is no live value. Absent = show a dash instead:
+   *  a head-count is never faked. */
+  staged?: number
+}
+
+/** The arena's stat grid. Head-counts come from the live read; TOP SCORE
+ *  is staged because it belongs to the staged cast on the board beside it. */
+export const ARENA_STATS: ArenaStat[] = [
+  { key: 'players', label: 'PLAYERS', format: 'number' },
+  { key: 'syncedToday', label: 'SYNCED · 24H', format: 'number' },
+  { key: 'topScore', label: 'TOP SCORE', format: 'score', staged: BIRDABO.score },
+  { key: 'seasonEnds', label: 'SEASON ENDS', format: 'days', staged: STAGED_SEASON.daysLeft }
 ]
 
 /* ------------------------------------------------------------------ */
@@ -309,7 +330,7 @@ export const ROADMAP_PHASES: RoadmapPhase[] = [
     items: [
       {
         title: 'Global + AI leaderboards',
-        detail: 'Live standings for every ranked pilot, plus a second board where the tools themselves fight it out.'
+        detail: 'Live standings for every ranked player, plus a second board where the tools themselves fight it out.'
       },
       {
         title: 'Silent extension · 47 AI domains',

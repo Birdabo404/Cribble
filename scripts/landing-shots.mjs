@@ -1,15 +1,23 @@
-// Throwaway CDP harness: scrolls the landing page section by section and
-// captures screenshots to /tmp/landing/. Drives a headless Chromium-family
-// browser started with --remote-debugging-port (no Playwright dependency).
+// Throwaway CDP harness: walks the landing page — hero, the pinned fall,
+// the Contents rail, every sheet (start + centre frame), the touchdown —
+// and captures screenshots to /tmp/landing/ (or [out-dir]). Drives a
+// headless Chromium-family browser started with --remote-debugging-port
+// (no Playwright dependency).
 //
-//   node scripts/landing-shots.mjs [cdp-port] [url]
+//   node scripts/landing-shots.mjs [cdp-port] [url] [out-dir]
+//
+// Scrolling is always window.scrollTo against gBCR + scrollY: at this
+// viewport the page runs the full tier (ScrollSmoother), whose content is
+// a transformed child of a fixed wrapper — scrollIntoView would scroll the
+// wrapper's own overflow and desync the smoother. Wait for it to settle
+// (~1.2s) before measuring anything.
 
 import fs from 'node:fs'
 import http from 'node:http'
 
 const PORT = process.argv[2] || '9226'
 const URL_TO_OPEN = process.argv[3] || 'http://localhost:3000/'
-const OUT = '/tmp/landing'
+const OUT = process.argv[4] || '/tmp/landing'
 fs.mkdirSync(OUT, { recursive: true })
 
 const getJson = (path) =>
@@ -115,6 +123,9 @@ async function main() {
   }
 
   const shot = async (name) => {
+    // the Next dev overlay badge is environment noise (headless has no
+    // WebGL, so the globe logs context errors) — keep it out of the frame
+    await evalJs(`document.querySelector('nextjs-portal')?.remove(); 'ok'`)
     const { data } = await cdp.send('Page.captureScreenshot', {
       format: 'png'
     })
@@ -122,55 +133,133 @@ async function main() {
     console.log('saved', name)
   }
 
-  // 0 — hero untouched check
-  await shot('00-hero')
-
-  const sections = [
-    'descent-arena',
-    'descent-cockpit',
-    'descent-identity',
-    'descent-honors',
-    'descent-roadmap'
-  ]
-
-  for (let i = 0; i < sections.length; i++) {
-    const id = sections[i]
-    await evalJs(
-      `document.getElementById(${JSON.stringify(id)}).scrollIntoView({ block: 'start' }); 'ok'`
-    )
-    // small extra nudge so the seam sits near the top and entrances trigger
-    await evalJs(`window.scrollBy(0, -40); 'ok'`)
-    await sleep(2600) // let entrance choreography + sims settle
-    await shot(`0${i + 1}-${id.replace('descent-', '')}`)
+  // The smoother is settled once #smooth-content's translateY equals
+  // -scrollY (no smoother: immediately). Polls up to `timeout` ms.
+  const settle = async (timeout = 4000) => {
+    const t0 = Date.now()
+    while (Date.now() - t0 < timeout) {
+      const gap = await evalJs(
+        `(() => {
+          const c = document.getElementById('smooth-content');
+          if (!c) return 0;
+          const m = new DOMMatrixReadOnly(getComputedStyle(c).transform);
+          return Math.abs(m.f + window.scrollY);
+        })()`
+      )
+      if (gap < 0.5) return
+      await sleep(100)
+    }
   }
 
-  // APEX centerpiece sits below the honors wall
-  await evalJs(
-    `document.getElementById('descent-honors').scrollIntoView({ block: 'start' }); 'ok'`
-  )
-  await evalJs(`window.scrollBy(0, window.innerHeight * 0.85); 'ok'`)
+  // Where an element sits in the viewport right now — logged with every
+  // frame so the run documents where it was actually taken.
+  const landed = async (selector) =>
+    evalJs(
+      `(() => {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        const r = el && el.getBoundingClientRect();
+        return 'scrollY=' + Math.round(window.scrollY) + ' ' + ${JSON.stringify(selector)} + '.top=' + (r ? Math.round(r.top) : 'n/a');
+      })()`
+    )
+
+  // Document-space scroll to an element: its top lands `offset` px below
+  // the viewport top ('start'), or its centre on the viewport centre.
+  // Measured after the smoother has settled (a moving content transform
+  // would fold the lag into the target).
+  const scrollToEl = async (selector, mode = 'start', offset = 40) => {
+    await settle()
+    await evalJs(
+      `(() => {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        if (!el) throw new Error('missing ' + ${JSON.stringify(selector)});
+        const r = el.getBoundingClientRect();
+        const top = r.top + window.scrollY;
+        const y = ${JSON.stringify(mode)} === 'centre'
+          ? top + r.height / 2 - window.innerHeight / 2
+          : top - ${offset};
+        window.scrollTo(0, Math.max(0, y));
+        return 'ok';
+      })()`
+    )
+    await settle()
+  }
+
+  // Rope diagnostics: is the spine live, where is the marker, what does
+  // the KM readout say, which ticks are lit / yielding to the readout.
+  const ropeState = () =>
+    evalJs(
+      `(() => {
+        const host = document.querySelector('.lx-spine');
+        if (!host) return 'no .lx-spine mounted';
+        const alt = host.querySelector('.lx-spine-alt')?.textContent;
+        const ticks = [...host.querySelectorAll('.lx-spine-tick')].map((t) =>
+          t.className.baseVal.replace('lx-spine-tick', '').trim() || '-'
+        );
+        return 'live=' + host.classList.contains('is-live') + ' alt=' + alt + ' ticks=[' + ticks.join(',') + ']';
+      })()`
+    )
+
+  // 0 — hero untouched check. The hero pin builds late (fonts + entrance
+  // settle) and refreshes every trigger when it lands; wait it out so no
+  // later frame is measured across that reflow.
+  await shot('00-hero')
+  const t0 = Date.now()
+  while (Date.now() - t0 < 6000) {
+    if (await evalJs(`!!document.querySelector('.lx-hero')?.parentElement?.classList.contains('pin-spacer')`)) break
+    await sleep(200)
+  }
+  console.log('hero pinned:', await evalJs(`document.querySelector('.lx-hero')?.parentElement?.className`))
+
+  // the pinned fall, mid-way: the rope should be fading in on the left
+  await evalJs(`window.scrollTo(0, window.innerHeight * 1.5); 'ok'`)
+  await settle()
+  await sleep(600)
+  console.log('mid-pin:', await landed('.lx-hero'), '|', await ropeState())
+  await shot('00b-midpin')
+
+  // the Contents rail — first thing below the fold after the pin releases;
+  // parked a third of the way down so the hero's tail shows above it
+  await scrollToEl('.lx-descent', 'start', 300)
+  await sleep(2400)
+  console.log('contents:', await landed('.lx-descent'))
+  await shot('00c-contents')
+
+  const sections = ['arena', 'cockpit', 'identity', 'honors', 'roadmap']
+
+  for (let i = 0; i < sections.length; i++) {
+    const id = `descent-${sections[i]}`
+    // start frame: the sheet's top rule near the viewport top, entrances
+    // and sims settled
+    await scrollToEl(`#${id}`, 'start', 40)
+    await sleep(2600)
+    console.log(`${sections[i]}:`, await landed(`#${id}`))
+    await shot(`0${i + 1}-${sections[i]}`)
+    // centre frame: the sheet centre on the viewport centre — the rope's
+    // marker should sit on this sheet's tick
+    await scrollToEl(`#${id}`, 'centre')
+    await sleep(1600)
+    console.log(`${sections[i]} centre:`, await landed(`#${id}`), '|', await ropeState())
+    await shot(`0${i + 1}-${sections[i]}-centre`)
+  }
+
+  // the medal case sits under the honors grid
+  await scrollToEl('#descent-honors', 'start', -Math.round(900 * 0.85))
   await sleep(2400)
   await shot('05b-apex')
 
   // roadmap terminal needs longer (typing animation) — second capture
-  await evalJs(
-    `document.getElementById('descent-roadmap').scrollIntoView({ block: 'start' }); 'ok'`
-  )
-  await evalJs(`window.scrollBy(0, window.innerHeight * 0.8); 'ok'`)
+  await scrollToEl('#descent-roadmap', 'start', -Math.round(900 * 0.8))
   await sleep(6500)
   await shot('06-roadmap-terminal')
 
-  // finale
-  await evalJs(`window.scrollTo(0, document.body.scrollHeight); 'ok'`)
-  await sleep(2200)
-  await shot('07-finale')
-
-  // mid-scroll scrub poses (board pitching in)
+  // touchdown
   await evalJs(
-    `const el = document.getElementById('descent-arena'); const r = el.getBoundingClientRect(); window.scrollTo(0, window.scrollY + r.top - window.innerHeight * 0.72); 'ok'`
+    `window.scrollTo(0, document.documentElement.scrollHeight); 'ok'`
   )
-  await sleep(700)
-  await shot('08-arena-scrub-pose')
+  await settle()
+  await sleep(2600)
+  console.log('touchdown:', await landed('.lx-descent'), '|', await ropeState())
+  await shot('07-touchdown')
 
   console.log('done')
   process.exit(0)
