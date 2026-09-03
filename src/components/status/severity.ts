@@ -7,7 +7,7 @@
 // and a status page must never let "quiet" and "down" share a hue.
 // Alpha accepts a calc() string so glows can ride --status-glow.
 
-import type { DayCell, Severity } from '@/lib/status/types'
+import type { DayCell, NoticePhase, Severity } from '@/lib/status/types'
 
 export function severityColor(
   severity: Severity,
@@ -62,6 +62,44 @@ export function lampWord(severity: Severity): string {
       return exhaustive
     }
   }
+}
+
+/** Phase word for a status-log line, in the console's stamp case. */
+export function phaseLabel(phase: NoticePhase): string {
+  switch (phase) {
+    case 'investigating':
+      return 'INVESTIGATING'
+    case 'identified':
+      return 'IDENTIFIED'
+    case 'monitoring':
+      return 'MONITORING'
+    case 'maintenance':
+      return 'MAINTENANCE'
+    case 'resolved':
+      return 'RESOLVED'
+    default: {
+      const exhaustive: never = phase
+      return exhaustive
+    }
+  }
+}
+
+/** Elapsed time between two ISO stamps as a terse telemetry readout:
+ *  '41 MIN', '2 H 10 MIN', '3 D 4 H'. Sub-minute rounds up to 1 MIN. */
+export function formatSpan(fromIso: string, toIso: string): string {
+  const from = Date.parse(fromIso)
+  const to = Date.parse(toIso)
+  if (Number.isNaN(from) || Number.isNaN(to)) return '—'
+  const minutes = Math.max(1, Math.round((to - from) / 60_000))
+  if (minutes < 60) return `${minutes} MIN`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) {
+    const rest = minutes % 60
+    return rest === 0 ? `${hours} H` : `${hours} H ${rest} MIN`
+  }
+  const days = Math.floor(hours / 24)
+  const restHours = hours % 24
+  return restHours === 0 ? `${days} D` : `${days} D ${restHours} H`
 }
 
 const MONTHS = [

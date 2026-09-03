@@ -45,14 +45,69 @@ export type ServiceStatus = {
   quietRatio?: number
 }
 
+/* ---------- operator notices — the status log ---------- */
+
+/** Declared impact of an operator notice; 'unknown' is a probe word,
+ *  never something a human posts. */
+export type NoticeSeverity = Exclude<Severity, 'unknown'>
+
+/** Where an incident stands. 'resolved' is the only terminal phase;
+ *  everything else keeps the thread open on the page. */
+export type NoticePhase =
+  | 'investigating'
+  | 'identified'
+  | 'monitoring'
+  | 'maintenance'
+  | 'resolved'
+
+/** One immutable line in the operator's status log (migration 070).
+ *  Lines are never edited — a correction is another line. */
+export type NoticeEntry = {
+  id: number
+  /** Groups lines into one incident; minted on the opening line. */
+  incidentId: string
+  /** ISO timestamp the line was posted. */
+  at: string
+  severity: NoticeSeverity
+  phase: NoticePhase
+  /** The incident's title, carried onto every line of the thread. */
+  title: string
+  body: string
+}
+
+/** One incident as the page shows it: the lines sharing an incidentId,
+ *  with state read off the newest line. */
+export type IncidentThread = {
+  incidentId: string
+  title: string
+  severity: NoticeSeverity
+  phase: NoticePhase
+  open: boolean
+  openedAt: string
+  updatedAt: string
+  resolvedAt: string | null
+  /** Newest first. */
+  entries: NoticeEntry[]
+}
+
+export type StatusNotices = {
+  /** Unresolved threads, most recently updated first. */
+  open: IncidentThread[]
+  /** Threads resolved inside the recent window, newest first. */
+  recent: IncidentThread[]
+}
+
 /** Response body of GET /api/status — served as-is, no success wrapper. */
 export type StatusPayload = {
   services: ServiceStatus[]
-  /** Worst severity across services, ignoring 'unknown' feeds; defaults
-   *  to 'operational' when every feed is unknown (incomplete covers it). */
+  /** Worst severity across services (ignoring 'unknown' feeds), lifted
+   *  to the worst open operator notice; defaults to 'operational' when
+   *  every feed is unknown (incomplete covers it). */
   overall: Exclude<Severity, 'unknown'>
   /** True when at least one feed could not be read this pass. */
   incomplete: boolean
   /** ISO timestamp of aggregation. */
   checkedAt: string
+  /** Operator status log. Omitted when the log could not be read. */
+  notices?: StatusNotices
 }

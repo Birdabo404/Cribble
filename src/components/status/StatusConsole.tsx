@@ -11,11 +11,12 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { LiquidMark } from '@/components/brand/LiquidMark'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { Bulletin, RecentNotices } from '@/components/status/Bulletin'
 import { ServiceRow } from '@/components/status/ServiceRow'
 import { StatusGlyph } from '@/components/status/StatusGlyph'
-import { formatUtcTime } from '@/components/status/severity'
+import { formatUtcTime, phaseLabel } from '@/components/status/severity'
 import { ACCENT } from '@/lib/theme'
-import type { ServiceStatus, StatusPayload } from '@/lib/status/types'
+import type { IncidentThread, ServiceStatus, StatusPayload } from '@/lib/status/types'
 
 const POLL_MS = 60_000
 
@@ -76,6 +77,30 @@ function incompleteSub(services: ServiceStatus[]): string {
   return `no signal from ${listNames(unknown)} this pass — the rest reports clear.`
 }
 
+/** When the operator has spoken, the verdict is theirs: the hero leads
+ *  with the open thread instead of the probe arithmetic. Vendor trouble
+ *  still shows on the watchlist below. */
+function noticeHero(thread: IncidentThread, footnote: string | null): HeroCopy {
+  const since = `since ${formatUtcTime(thread.openedAt).slice(0, 5)} utc`
+  const phase = phaseLabel(thread.phase).toLowerCase()
+  if (thread.phase === 'maintenance') {
+    return {
+      pre: 'scheduled ',
+      em: 'maintenance',
+      post: '.',
+      sub: `${thread.title} — in progress ${since}.`,
+      footnote
+    }
+  }
+  return {
+    pre: 'we’re ',
+    em: 'on it',
+    post: '.',
+    sub: `${thread.title} — ${phase} ${since}.`,
+    footnote
+  }
+}
+
 function heroFor(payload: StatusPayload | null, failed: boolean): HeroCopy {
   if (payload === null) {
     if (failed) {
@@ -114,6 +139,9 @@ function heroFor(payload: StatusPayload | null, failed: boolean): HeroCopy {
       ? `no signal: ${unknownNames.join(' · ')}`
       : 'one or more feeds unreachable this pass'
     : null
+
+  const openThread = payload.notices?.open[0]
+  if (openThread !== undefined) return noticeHero(openThread, footnote)
 
   switch (payload.overall) {
     case 'outage':
@@ -271,6 +299,8 @@ export function StatusConsole() {
   const hero = heroFor(payload, failed)
   const sources = sourcesFor(payload)
   const lastChecked = payload !== null ? formatUtcTime(payload.checkedAt) : null
+  const openThreads = payload?.notices?.open ?? []
+  const recentThreads = payload?.notices?.recent ?? []
   const retry = () => void load()
 
   return (
@@ -334,6 +364,19 @@ export function StatusConsole() {
         {failed && <RetryChip busy={busy} onRetry={retry} className="mt-5" />}
       </section>
 
+      {/* bulletin — the operator's open incidents, loudest thing on the page */}
+      {openThreads.length > 0 && (
+        <section
+          aria-label="Open incidents"
+          className="status-reveal mt-10 space-y-4"
+          style={{ ['--sr' as string]: '135ms' }}
+        >
+          {openThreads.map((thread) => (
+            <Bulletin key={thread.incidentId} thread={thread} />
+          ))}
+        </section>
+      )}
+
       {/* system card — the watchlist */}
       <section
         className="status-reveal mt-10"
@@ -371,6 +414,17 @@ export function StatusConsole() {
           </div>
         </div>
       </section>
+
+      {/* recent — the resolved tail of the operator's log */}
+      {recentThreads.length > 0 && (
+        <section
+          aria-label="Recently resolved"
+          className="status-reveal mt-6"
+          style={{ ['--sr' as string]: '225ms' }}
+        >
+          <RecentNotices threads={recentThreads} />
+        </section>
+      )}
 
       {/* sources footer — provenance + the last-checked stamp */}
       <footer
@@ -420,6 +474,17 @@ export function StatusConsole() {
         html.light .status-scope {
           --sev-down: 185 28 28;
           --status-glow: 0.4;
+        }
+        /* bulletin log rows: a hair darker than the slip on the CRT
+           field so the 1px severity-tinted gaps read as rules; on paper
+           the rows go back to near-white and the gap carries the rule */
+        .status-bulletin,
+        .status-recent {
+          --bulletin-row: rgb(0 0 0 / 0.18);
+        }
+        html.light .status-bulletin,
+        html.light .status-recent {
+          --bulletin-row: rgb(255 255 255 / 0.88);
         }
 
         /* entrance cascade — header → hero → card → sources */

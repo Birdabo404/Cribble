@@ -128,6 +128,13 @@ const ICON_ANNOUNCEMENTS = (
   </IconBase>
 )
 
+const ICON_STATUS = (
+  <IconBase>
+    <path d="M1.75 8h2.5l1.5-3.5 2.5 7 1.5-3.5h4.5" />
+    <circle cx="13" cy="3.25" r="1.25" />
+  </IconBase>
+)
+
 const ICON_SEASONS = (
   <IconBase>
     <rect x="1.75" y="3.25" width="12.5" height="11" rx="1.5" />
@@ -189,6 +196,7 @@ const NAV_GROUPS: readonly AdminNavGroup[] = [
         icon: ICON_ANNOUNCEMENTS,
         ownerOnly: true
       },
+      { href: '/admin/status', label: 'Status', icon: ICON_STATUS, ownerOnly: true },
       { href: '/admin/seasons', label: 'Seasons', icon: ICON_SEASONS, ownerOnly: true },
       { href: '/admin/trends', label: 'Trends', icon: ICON_TRENDS }
     ]

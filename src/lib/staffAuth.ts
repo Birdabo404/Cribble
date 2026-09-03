@@ -39,6 +39,7 @@ export type StaffAction =
   | 'billboard.review'
   | 'billboard.activate'
   | 'announcement.manage'
+  | 'status.manage'
   | 'debug.manage'
 
 export function minRoleFor(action: StaffAction): StaffRole {
@@ -81,6 +82,9 @@ export function minRoleFor(action: StaffAction): StaffRole {
     // Announcements push site-wide broadcast copy into the
     // every-visitor ticker — an owner call, same as billboard.activate.
     case 'announcement.manage':
+    // The status log speaks for the company on cribble.dev/status —
+    // declaring an outage (or an all-clear) is the operator's word.
+    case 'status.manage':
     case 'debug.manage':
       return 'owner'
     default: {

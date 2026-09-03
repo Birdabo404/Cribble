@@ -85,6 +85,7 @@ describe('minRoleFor', () => {
       // though the acceptance decision is moderator work.
       'billboard.activate',
       'announcement.manage',
+      'status.manage',
       'debug.manage'
     ]
     for (const action of ownerActions) {
