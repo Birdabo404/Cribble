@@ -5,6 +5,7 @@ import {
   isAnalyticsDbConfigured,
   readVisitorPulse
 } from '@/lib/siteVisits'
+import { visitorPulseResponse } from '@/lib/visitorPulse'
 
 // Public visitor pulse for the leaderboard ticker. Same cache stance as
 // /api/status: force-dynamic handler (never prerendered at build) with
@@ -30,22 +31,18 @@ const loadVisitorPulse = unstable_cache(
 
 export async function GET() {
   if (!isAnalyticsDbConfigured()) {
-    return NextResponse.json(
-      { success: false, configured: false },
-      { headers: { 'Cache-Control': 'no-store' } }
-    )
+    return NextResponse.json(visitorPulseResponse({ configured: false, pulse: null }), {
+      headers: { 'Cache-Control': 'no-store' }
+    })
   }
 
   try {
     const pulse = await loadVisitorPulse()
-    return NextResponse.json(
-      { success: true, ...pulse },
-      {
-        headers: {
-          'Cache-Control': `public, s-maxage=${REVALIDATE_SECONDS}, stale-while-revalidate=${REVALIDATE_SECONDS * 2}`
-        }
+    return NextResponse.json(visitorPulseResponse({ configured: true, pulse }), {
+      headers: {
+        'Cache-Control': `public, s-maxage=${REVALIDATE_SECONDS}, stale-while-revalidate=${REVALIDATE_SECONDS * 2}`
       }
-    )
+    })
   } catch (err) {
     console.error('[SiteVisits] Visitor pulse failed:', err)
     return NextResponse.json(
