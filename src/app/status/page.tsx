@@ -16,30 +16,22 @@ export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
   robots: { index: true, follow: true },
-  // Unfurl image: the generated root card (src/app/opengraph-image.tsx),
-  // referenced explicitly — defining openGraph here replaces the parent's
-  // whole openGraph object, so the root file-based image does NOT cascade
-  // into this page (Next merges metadata shallowly, by design).
+  // Unfurl image: the colocated live card (./opengraph-image.tsx) — the
+  // page's own verdict and seven-lamp strip at crawl time. File-based
+  // metadata outranks anything set here, so no `images` are listed:
+  // og:image is injected from the file, and twitter:image is left off so
+  // X falls back to og:image instead of a stale explicit URL.
   openGraph: {
     title: TITLE,
     description: DESCRIPTION,
     type: 'website',
     url: '/status',
-    siteName: 'Cribble',
-    images: [
-      {
-        url: '/opengraph-image',
-        width: 1200,
-        height: 630,
-        alt: 'Cribble — a worldwide leaderboard for AI users.'
-      }
-    ]
+    siteName: 'Cribble'
   },
   twitter: {
     card: 'summary_large_image',
     title: TITLE,
-    description: DESCRIPTION,
-    images: ['/opengraph-image']
+    description: DESCRIPTION
   }
 }
 

@@ -18,11 +18,18 @@ const nextConfig = {
   // key matching — '/u/**' matches /(app)/u/[username]/opengraph-image.
   //
   // The root OG card (src/app/opengraph-image.tsx) colocates its serif
-  // faces at src/app/*.ttf and borrows the join route's mono + mark.
+  // faces at src/app/*.ttf and borrows the join route's mono + mark; the
+  // live /status card (src/app/status/opengraph-image.tsx) reads the
+  // same three assets.
   outputFileTracingIncludes: {
     '/join/**': ['./src/app/join/**/*.ttf', './src/app/join/**/*.png'],
     '/u/**': ['./src/app/join/**/*.ttf', './src/app/join/**/*.png'],
     '/opengraph-image': [
+      './src/app/*.ttf',
+      './src/app/join/**/*.ttf',
+      './src/app/join/**/*.png',
+    ],
+    '/status/**': [
       './src/app/*.ttf',
       './src/app/join/**/*.ttf',
       './src/app/join/**/*.png',
