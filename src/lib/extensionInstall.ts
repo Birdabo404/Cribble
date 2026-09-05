@@ -41,22 +41,78 @@ export function isExtensionUnlinked(
   return !activeDevice && !user.last_extension_sync
 }
 
-export type ExtensionBrowserFamily = 'chromium' | 'firefox'
+export type ExtensionBrowserFamily = 'chrome' | 'firefox'
 
-// Which desktop browser family a UA belongs to, or null for anything the
-// extension can't install on. Mobile is out wholesale: mobile Chromium and
-// mobile Firefox carry "Mobile"/"Android", and the iOS shells (CriOS,
-// FxiOS) are WebKit underneath and carry "Mobile" too. Desktop Safari
-// matches neither engine token — its "like Gecko" boilerplate (also in
-// every Chrome UA) is not the "Firefox/" token. Pure so tests can pin the
-// classification without stubbing navigator or the build env.
+// Chromium forks that name themselves in the UA on top of the "Chrome/"
+// token they all inherit: Edge, Opera, Yandex, and pre-2020 Brave. None of
+// them is Google Chrome, and the extension is only published and tested
+// for Chrome, so they read as no family. Current Brave ships a UA
+// identical to Chrome's and is told apart by Client Hints brands instead.
+const CHROMIUM_FORK_TOKENS = /Edg\/|OPR\/|YaBrowser\/|Brave\//
+
+// The Client Hints brand Google Chrome reports. Every other Chromium
+// browser that exposes brands names itself instead ("Microsoft Edge",
+// "Brave", "Opera") or reports bare "Chromium".
+const CHROME_BRAND = 'Google Chrome'
+
+// Which desktop browser the extension ships for, or null for anything
+// else. Only Google Chrome and Firefox proper count — the store listings
+// are for those two, so Edge, Opera, Brave, Safari, and every other
+// desktop browser pass through exactly like mobile does. Mobile is out
+// wholesale: mobile Chromium and mobile Firefox carry "Mobile"/"Android",
+// and the iOS shells (CriOS, FxiOS) are WebKit underneath and carry
+// "Mobile" too. Desktop Safari matches neither engine token — its "like
+// Gecko" boilerplate (also in every Chrome UA) is not the "Firefox/"
+// token. `brands` is navigator.userAgentData.brands when the browser
+// exposes it (Chromium only) and empty otherwise; a populated list that
+// lacks Chrome's own brand is a fork hiding behind Chrome's UA. Pure so
+// tests can pin the classification without stubbing navigator or the
+// build env.
 export function extensionBrowserFamily(
-  ua: string
+  ua: string,
+  brands: readonly string[] = []
 ): ExtensionBrowserFamily | null {
   if (/Mobi|Android/i.test(ua)) return null
-  if (/Chrome\//.test(ua)) return 'chromium'
+  if (/Chrome\//.test(ua)) {
+    if (CHROMIUM_FORK_TOKENS.test(ua)) return null
+    if (brands.length > 0 && !brands.includes(CHROME_BRAND)) return null
+    return 'chrome'
+  }
   if (/Firefox\//.test(ua)) return 'firefox'
   return null
+}
+
+// navigator.userAgentData.brands, flattened to brand names. Client Hints
+// are Chromium-only and absent on insecure origins, so everywhere else
+// this is empty and the UA string decides alone. Not in lib.dom yet,
+// hence the local cast — same shape agentCli's platform sniff uses.
+function currentBrands(): string[] {
+  const data = (
+    navigator as Navigator & {
+      userAgentData?: { brands?: unknown }
+    }
+  ).userAgentData
+  if (!data || !Array.isArray(data.brands)) return []
+  return data.brands
+    .map((entry: unknown) =>
+      typeof entry === 'object' && entry !== null
+        ? (entry as { brand?: unknown }).brand
+        : undefined
+    )
+    .filter((brand): brand is string => typeof brand === 'string')
+}
+
+// The running browser's family: null on SSR (no navigator) and on every
+// browser the extension doesn't ship for. Reads navigator, so callers
+// must resolve it in an effect, never during render.
+export function currentExtensionBrowserFamily(): ExtensionBrowserFamily | null {
+  if (
+    typeof navigator === 'undefined' ||
+    typeof navigator.userAgent !== 'string'
+  ) {
+    return null
+  }
+  return extensionBrowserFamily(navigator.userAgent, currentBrands())
 }
 
 // The store listing for a browser family — null while that listing isn't
@@ -65,7 +121,7 @@ function extensionInstallUrlFor(
   family: ExtensionBrowserFamily
 ): string | null {
   switch (family) {
-    case 'chromium':
+    case 'chrome':
       return EXTENSION_INSTALL_URL
     case 'firefox':
       return FIREFOX_EXTENSION_INSTALL_URL
@@ -81,13 +137,7 @@ function extensionInstallUrlFor(
 // listing isn't live yet — exactly the cases where an install CTA would
 // be a dead link.
 export function currentExtensionInstallUrl(): string | null {
-  if (
-    typeof navigator === 'undefined' ||
-    typeof navigator.userAgent !== 'string'
-  ) {
-    return null
-  }
-  const family = extensionBrowserFamily(navigator.userAgent)
+  const family = currentExtensionBrowserFamily()
   return family === null ? null : extensionInstallUrlFor(family)
 }
 
@@ -135,12 +185,13 @@ export interface ExtensionGateInput {
 // need it. Capable browsers must pass the live handshake
 // (this is what catches "I removed the extension"; past linkage doesn't
 // count). Browsers that can't install the extension are never gated:
-// capable means a desktop browser whose store listing is live (Chrome
-// today, Firefox once its AMO URL ships), so an install wall would hand
-// everyone else — Safari, mobile, a desktop Firefox before its listing
-// exists — a task they cannot complete: a signed-in user who never
-// linked would be locked on /welcome forever behind a dead CTA. They
-// pass through instead; phone users get the one-time desktop-only notice
+// capable means a desktop browser whose store listing is live (Google
+// Chrome today, Firefox once its AMO URL ships), so an install wall would
+// hand everyone else — Safari, Edge and the other Chromium forks, mobile,
+// a desktop Firefox before its listing exists — a task the extension
+// isn't published for: a signed-in user who never linked would be locked
+// on /welcome forever behind a dead CTA. They pass through instead; phone
+// users get the one-time desktop-only notice
 // (shouldShowMobileExtensionNotice below) so they know why nothing is
 // tracking.
 export function evaluateExtensionGate(

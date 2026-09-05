@@ -14,8 +14,8 @@ import { ROLE_OPTIONS } from '@/lib/roles'
 import {
   EXTENSION_INSTALL_URL,
   FIREFOX_EXTENSION_INSTALL_URL,
+  currentExtensionBrowserFamily,
   evaluateExtensionGate,
-  extensionBrowserFamily,
   installableBrowserNames,
   isExtensionCapableBrowser,
   isExtensionInstallEnabled,
@@ -171,7 +171,7 @@ const EXTENSION_STORES: ExtensionStore[] = [
   ...(EXTENSION_INSTALL_URL !== null
     ? [
         {
-          family: 'chromium' as const,
+          family: 'chrome' as const,
           storeName: 'Chrome Web Store',
           cta: 'Add to Chrome',
           icon: BrandChrome,
@@ -433,7 +433,7 @@ export default function WelcomePage() {
     devRequestedRef.current = params.has('dev')
     nextPathRef.current = sanitizeNextPath(params.get('next'))
     setCapableBrowser(isExtensionCapableBrowser())
-    setBrowserFamily(extensionBrowserFamily(navigator.userAgent))
+    setBrowserFamily(currentExtensionBrowserFamily())
   }, [])
 
   useEffect(() => {
@@ -1736,8 +1736,9 @@ function ExtensionStage({
   step: number
   detected: boolean
   capableBrowser: boolean
-  /** Store card to highlight — null (Safari, mobile, SSR) highlights
-   *  none. Cosmetic only: every card stays a plain link either way. */
+  /** Store card to highlight — null (Safari, Edge, mobile, SSR)
+   *  highlights none. Cosmetic only: every card stays a plain link
+   *  either way. */
   browserFamily: ExtensionBrowserFamily | null
   /** Gate verdict for the current inputs — the CTA stays locked until it
    *  passes. Detection landing mid-stage unlocks it by itself, since the
@@ -1818,8 +1819,8 @@ function ExtensionStage({
           </div>
         ) : (
           <p className="text-xs leading-relaxed text-zinc-500">
-            This browser can&apos;t run the extension. Open Cribble on
-            desktop {installableBrowserNames()} to install.
+            The extension isn&apos;t available for this browser yet. Open
+            Cribble on desktop {installableBrowserNames()} to install.
           </p>
         )}
       </div>

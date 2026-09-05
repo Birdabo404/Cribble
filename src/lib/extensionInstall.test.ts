@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  currentExtensionBrowserFamily,
   evaluateExtensionGate,
   extensionBrowserFamily,
   isExtensionCapableBrowser,
@@ -133,21 +134,67 @@ describe('evaluateExtensionGate', () => {
 // while its store URL is set (a build-time constant), so "desktop Firefox
 // becomes capable only when the Firefox listing ships" reduces to the UA
 // mapping to 'firefox' here — the URL flips the rest at deploy time.
+// Only Google Chrome and Firefox proper map to a family: the extension is
+// published for those two alone, so every other desktop browser must read
+// as no family and pass through the wall exactly like mobile does.
 describe('extensionBrowserFamily', () => {
+  const CHROME_UA =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+
   const cases: {
     name: string
     ua: string
+    brands?: string[]
     family: ExtensionBrowserFamily | null
   }[] = [
     {
       name: 'desktop Chrome',
-      ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-      family: 'chromium'
+      ua: CHROME_UA,
+      family: 'chrome'
     },
     {
-      name: 'desktop Edge (Chromium)',
+      name: 'desktop Chrome with Client Hints brands',
+      ua: CHROME_UA,
+      brands: ['Chromium', 'Google Chrome', 'Not-A.Brand'],
+      family: 'chrome'
+    },
+    // Chromium forks inherit the "Chrome/" token; the ones that also name
+    // themselves in the UA are caught there.
+    {
+      name: 'desktop Edge (Chromium fork, not published for)',
       ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0',
-      family: 'chromium'
+      family: null
+    },
+    {
+      name: 'desktop Opera (Chromium fork)',
+      ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 OPR/112.0.0.0',
+      family: null
+    },
+    {
+      name: 'desktop Yandex Browser (Chromium fork)',
+      ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 YaBrowser/24.7.0.0 Safari/537.36',
+      family: null
+    },
+    // Brave's UA is byte-identical to Chrome's; only its Client Hints
+    // brand gives it away. Same for the open-source Chromium build, which
+    // reports bare "Chromium" without Google's brand.
+    {
+      name: 'desktop Brave (Chrome UA, own brand)',
+      ua: CHROME_UA,
+      brands: ['Brave', 'Chromium', 'Not_A Brand'],
+      family: null
+    },
+    {
+      name: 'desktop Edge announcing itself via brands only',
+      ua: CHROME_UA,
+      brands: ['Microsoft Edge', 'Chromium', 'Not?A_Brand'],
+      family: null
+    },
+    {
+      name: 'open-source Chromium build (no Google Chrome brand)',
+      ua: CHROME_UA,
+      brands: ['Chromium', 'Not-A.Brand'],
+      family: null
     },
     {
       // "like Gecko" boilerplate (present in Chrome and Safari UAs alike)
@@ -185,9 +232,68 @@ describe('extensionBrowserFamily', () => {
 
   for (const c of cases) {
     it(`classifies ${c.name} as ${c.family ?? 'no family'}`, () => {
-      expect(extensionBrowserFamily(c.ua)).toBe(c.family)
+      expect(extensionBrowserFamily(c.ua, c.brands ?? [])).toBe(c.family)
     })
   }
+})
+
+// The navigator wrapper feeds the classifier both signals — the UA string
+// and userAgentData.brands when the browser exposes them. Pinned against
+// a stubbed navigator so the brands plumbing (a nested, untyped shape)
+// can't silently stop reaching the classifier.
+describe('currentExtensionBrowserFamily', () => {
+  const CHROME_UA =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('answers null without a navigator (SSR)', () => {
+    vi.stubGlobal('navigator', undefined)
+    expect(currentExtensionBrowserFamily()).toBeNull()
+  })
+
+  it('reads Chrome from the UA alone when brands are absent', () => {
+    vi.stubGlobal('navigator', { userAgent: CHROME_UA })
+    expect(currentExtensionBrowserFamily()).toBe('chrome')
+  })
+
+  it('reads Chrome when brands include Google Chrome', () => {
+    vi.stubGlobal('navigator', {
+      userAgent: CHROME_UA,
+      userAgentData: {
+        brands: [
+          { brand: 'Chromium', version: '126' },
+          { brand: 'Google Chrome', version: '126' },
+          { brand: 'Not-A.Brand', version: '8' }
+        ]
+      }
+    })
+    expect(currentExtensionBrowserFamily()).toBe('chrome')
+  })
+
+  it('reads a Chrome-UA fork as no family from its own brand', () => {
+    vi.stubGlobal('navigator', {
+      userAgent: CHROME_UA,
+      userAgentData: {
+        brands: [
+          { brand: 'Brave', version: '126' },
+          { brand: 'Chromium', version: '126' },
+          { brand: 'Not_A Brand', version: '24' }
+        ]
+      }
+    })
+    expect(currentExtensionBrowserFamily()).toBeNull()
+  })
+
+  it('ignores malformed brands and falls back to the UA', () => {
+    vi.stubGlobal('navigator', {
+      userAgent: CHROME_UA,
+      userAgentData: { brands: 'not-an-array' }
+    })
+    expect(currentExtensionBrowserFamily()).toBe('chrome')
+  })
 })
 
 // The wrapper only adds environment reads on top of the pure classifier
