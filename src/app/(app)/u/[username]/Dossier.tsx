@@ -118,7 +118,11 @@ export function Dossier({
         )}
       </dl>
 
-      {/* counts + marks — 44px targets on phones */}
+      {/* counts + marks — 44px targets on phones. Below sm the four
+          44px marks do not fit beside two counts at 390px, so they take
+          a row of their own, left-aligned like everything else on the
+          sheet (basis-full) rather than wrapping to a stray right-aligned
+          tail; from sm they sit at the row's end. */}
       <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
         <CountButton n={profile.following} label="FOLLOWING" onClick={() => onRoster('following')} />
         <CountButton
@@ -127,7 +131,7 @@ export function Dossier({
           onClick={() => onRoster('followers')}
         />
         {socials.length > 0 && (
-          <span className="ml-auto flex items-center gap-2 sm:gap-1.5">
+          <span className="flex basis-full items-center gap-2 sm:ml-auto sm:basis-auto sm:gap-1.5">
             {socials.map(({ kind, value }) => (
               <a
                 key={kind}

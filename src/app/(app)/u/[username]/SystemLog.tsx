@@ -5,7 +5,9 @@
 // IN FLIGHT, ENLISTED, LAST SEEN); the marker fills for something the
 // pilot did and stays hollow for the passive stamps. Every row is a
 // .pf-row so the boot / pane-swap stagger applies with no motion code
-// here.
+// here. Below sm the detail wraps — a log line may take two lines on
+// paper rather than truncate to "THIRTY SOR…" at 390px; from sm the row
+// is one line and truncates.
 
 import { Marker } from './parts'
 import type { LogEntry, LogKind } from './systemLogEntries'
@@ -42,16 +44,18 @@ export function SystemLog({ entries, className = '' }: { entries: LogEntry[]; cl
           {entries.map((entry) => (
             <li
               key={`${entry.at}:${entry.kind}:${entry.text}`}
-              className="pf-row flex items-center gap-3 border-b border-[color:var(--pf-line-soft)] py-2 font-data text-[11px] uppercase tracking-[0.12em]"
+              className="pf-row flex items-start gap-3 border-b border-[color:var(--pf-line-soft)] py-2 font-data text-[11px] uppercase tracking-[0.12em] sm:items-center"
             >
-              <Marker hollow={!activeKind(entry.kind)} style={{ color: 'var(--pf-ink-2)' }} />
+              {/* the marker and the date hold the first line's height
+                  below sm so a wrapped detail hangs under them */}
+              <Marker hollow={!activeKind(entry.kind)} className="mt-[5px] sm:mt-0" style={{ color: 'var(--pf-ink-2)' }} />
               <time dateTime={entry.at} className="shrink-0 tabular-nums" style={{ color: 'var(--pf-ink-3)' }}>
                 {entry.at.slice(0, 10)}
               </time>
               <span aria-hidden className="shrink-0" style={{ color: 'var(--pf-ink-3)' }}>
                 ·
               </span>
-              <span className="min-w-0 truncate" style={{ color: 'var(--pf-ink-2)' }}>
+              <span className="min-w-0 sm:truncate" style={{ color: 'var(--pf-ink-2)' }}>
                 {entry.text}
               </span>
             </li>

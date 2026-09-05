@@ -512,8 +512,51 @@ function PilotPanel({
   )
 }
 
+/** One cell of the generic card's tray: a micro label over an ink-3
+ *  dash in the pixel face — a field nobody has filled in. */
+function BlankCell({
+  label,
+  pixelFamily,
+  monoFamily
+}: {
+  label: string
+  pixelFamily: FontFamily
+  monoFamily: FontFamily
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        flexGrow: 1,
+        flexBasis: 0,
+        paddingTop: 20,
+        paddingBottom: 20,
+        paddingLeft: 26,
+        paddingRight: 26
+      }}
+    >
+      <Micro monoFamily={monoFamily}>{label}</Micro>
+      <div
+        style={{
+          marginTop: 14,
+          fontSize: 44,
+          color: INK_3,
+          display: 'flex',
+          ...pixelFamily
+        }}
+      >
+        —
+      </div>
+    </div>
+  )
+}
+
 /** Branded fallback for private accounts, unknown handles and every
- *  failure path — Cribble pitch only, zero personal stats. */
+ *  failure path — Cribble pitch only, zero personal stats. Under the
+ *  pitch it carries the pilot card's tray as a blank form (RANK / SCORE
+ *  / LOADOUT over dashes), so the card is visibly an unfilled record
+ *  rather than a headline over 40% empty paper. */
 function GenericPanel({
   pixelFamily,
   monoFamily
@@ -523,7 +566,7 @@ function GenericPanel({
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, width: '100%' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', marginTop: 60 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', marginTop: 44 }}>
         <Micro monoFamily={monoFamily} letterSpacing={6}>
           THE AI CODING LEADERBOARD
         </Micro>
@@ -563,6 +606,25 @@ function GenericPanel({
           rank, score and loadout — see who flies what
         </div>
       </div>
+
+      {/* the blank tray — PilotPanel's score tray, unfilled */}
+      <div
+        style={{
+          marginTop: 36,
+          width: '100%',
+          display: 'flex',
+          alignItems: 'stretch',
+          border: `1px solid ${LINE}`,
+          backgroundColor: PAPER_2
+        }}
+      >
+        <BlankCell label="RANK" pixelFamily={pixelFamily} monoFamily={monoFamily} />
+        <div style={{ width: 1, backgroundColor: LINE_SOFT, display: 'flex' }} />
+        <BlankCell label="SCORE" pixelFamily={pixelFamily} monoFamily={monoFamily} />
+        <div style={{ width: 1, backgroundColor: LINE_SOFT, display: 'flex' }} />
+        <BlankCell label="LOADOUT" pixelFamily={pixelFamily} monoFamily={monoFamily} />
+      </div>
+
       <div style={{ display: 'flex', flexGrow: 1, width: '100%' }} />
     </div>
   )

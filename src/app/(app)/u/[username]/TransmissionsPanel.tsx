@@ -14,15 +14,17 @@
 // sold/open mix.
 // useRailFeed has no terminal failure — it retries on a ~30s cadence for
 // as long as it is enabled — so once an attempt fails the skeleton gives
-// way to one quiet FEED OFFLINE row (no pulse) and stays there until a
-// retry succeeds; the frame itself never collapses. Sold rows go
-// through the counting redirect (/api/billboard/[id]/click), never to
+// way to the same eight rows as hatched vacant slots (no pulse), the
+// first carrying one quiet FEED OFFLINE line, and stays there until a
+// retry succeeds: the slots are physical and a dead feed does not
+// remove them, so the frame is the same height in every phase. Sold
+// rows go through the counting redirect (/api/billboard/[id]/click), never to
 // link_url, and buyer text renders as plain text. Open rows are not ads
 // — no redirect, no SPONSOR tag — just the slot's price pitch
 // deep-linked into the /sponsorship composer (?slot=L2#pitch). Paper
 // tokens and the .pf-* recipes live in dossier.css; .pf-row is the
 // motion hook's stagger hook and only the live rows carry it — the
-// skeleton and offline rows must not be staggered. `enabled` gates the
+// skeleton and the offline slots must not be staggered. `enabled` gates the
 // fetch itself: the spine hands in a matchMedia (min-width: 1024px) flag
 // so phones, where the panel is display:none, never request the feed.
 
@@ -68,7 +70,7 @@ export function panelPhase(feed: { loaded: boolean; failed: boolean }): Transmis
 }
 
 /** Row box: 40px minimum, logo / lines / slot code across, padded by the
- *  framed-panel inset. The skeleton and offline rows sit on this alone. */
+ *  framed-panel inset. The skeleton and offline slots sit on this alone. */
 const ROW_BOX = 'flex min-h-10 items-center gap-3 px-[var(--pf-inset)] py-2'
 /** The text column of every slot row: a fixed 32px (two 16px lines), so
  *  sold, open and skeleton rows are all exactly 48px (32 + py-2) and the
@@ -167,15 +169,41 @@ function Body({ phase, rows }: { phase: TransmissionsPhase; rows: TransmissionRo
       )
     case 'offline':
       return (
-        <p className={ROW_BOX} role="status">
-          <span className="pf-micro">FEED OFFLINE</span>
-        </p>
+        <ul className={LIST}>
+          {RAIL_SLOTS.map((slot, i) => (
+            <li key={slot}>
+              <OfflineSlot slot={slot} status={i === 0 ? 'FEED OFFLINE' : null} />
+            </li>
+          ))}
+        </ul>
       )
     default: {
       const exhaustive: never = phase
       return exhaustive
     }
   }
+}
+
+/** A slot while the feed is down: the live rows' 48px box on the open
+ *  rows' hatch, no logo well, its code on the right — the slot is still
+ *  there, only the feed is not. The first slot's LINES column prints the
+ *  one status line; the rest stay blank. Without .pf-row (the motion
+ *  hook must not stagger placeholders). */
+function OfflineSlot({ slot, status }: { slot: RailSlot; status: string | null }) {
+  return (
+    <div className={`${ROW_BOX} pf-hatch`}>
+      <span className={LINES}>
+        {status !== null && (
+          <span className={MICRO_LINE}>
+            <span className="pf-micro" role="status">
+              {status}
+            </span>
+          </span>
+        )}
+      </span>
+      <span className="pf-micro shrink-0">{slot}</span>
+    </div>
+  )
 }
 
 /** One placeholder row on the live rows' box, without .pf-row (the

@@ -13,8 +13,10 @@
 // marker; the action rows (FOLLOW or EDIT PROFILE as the inverted
 // plate, SHARE and INVITE TO TEAM framed); the menu slot; the
 // TRANSMISSIONS panel (lg only); and, for the owner, the RECRUIT frame
-// around ReferralPlate (which draws its own paper plate inside). Below
-// lg the identity is unframed: the caller hands the banner in as
+// (RecruitFrame, exported: lg only here — below lg ProfileClient mounts
+// the same frame after the pane, where the phone reads the spine's
+// order, record before recruit, and the menu strip stays in the first
+// fold). Below lg the identity is unframed: the caller hands the banner in as
 // `banner` so it leads the hero and the 96px avatar overlaps it by half
 // (218px, no overlap, from lg); from lg the
 // banner belongs to the content column and `banner` is null. The menu
@@ -86,8 +88,10 @@ export interface SpineProps {
   /** The menu (ProfileMenu), from lg only (the vertical list under the
    *  actions). Null below lg, where it is the sheet's own child. */
   menu: ReactNode
-  /** lg+ viewport: gates the TRANSMISSIONS fetch and picks the avatar's
-   *  source size (the 218px portrait wants more pixels than the 96px hero). */
+  /** lg+ viewport: gates the TRANSMISSIONS fetch, keeps the owner's
+   *  RECRUIT frame here (ProfileClient mounts it below lg) and picks the
+   *  avatar's source size (the 218px portrait wants more pixels than the
+   *  96px hero). */
   desktop: boolean
 }
 
@@ -271,16 +275,30 @@ export function Spine({
       {/* ---------- transmissions (lg only; the feed is only fetched there) ---------- */}
       <TransmissionsPanel enabled={desktop} className="lg:mx-[var(--pf-gutter)] lg:mb-[var(--pf-gutter)]" />
 
-      {/* ---------- recruit (owner only) ---------- */}
-      {isYou && (
-        <Frame className="pf-panel mx-[var(--pf-gutter)] mb-[var(--pf-gutter)]">
-          <PanelHeader title="RECRUIT" className="px-[var(--pf-inset)] pt-[var(--pf-inset)]" />
-          <div className="p-[var(--pf-inset)]">
-            <ReferralPlate />
-          </div>
-        </Frame>
-      )}
+      {/* ---------- recruit (owner, lg only; see the header) ---------- */}
+      {isYou && desktop && <RecruitFrame className="mx-[var(--pf-gutter)] mb-[var(--pf-gutter)]" />}
     </div>
+  )
+}
+
+/* ===================================================================== */
+
+/** The owner's RECRUIT frame around ReferralPlate (which draws its own
+ *  paper plate inside). One component, two mounts, so the two cannot
+ *  drift: the spine's last frame from lg; below lg ProfileClient's,
+ *  after the pane frame and before the footer — the record is the
+ *  document, recruitment its appendix, and inside the hero the frame
+ *  pushed the menu strip out of a 390px first fold. pf-panel so the boot
+ *  unfolds it wherever it is mounted; the plate's data-pf-count numeral
+ *  counts up with it. */
+export function RecruitFrame({ className = '' }: { className?: string }) {
+  return (
+    <Frame className={`pf-panel ${className}`}>
+      <PanelHeader title="RECRUIT" className="px-[var(--pf-inset)] pt-[var(--pf-inset)]" />
+      <div className="p-[var(--pf-inset)]">
+        <ReferralPlate />
+      </div>
+    </Frame>
   )
 }
 
