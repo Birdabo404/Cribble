@@ -7,7 +7,7 @@
 // .pf-dossier root). From lg the sheet is a two-column dossier —
 // a 296px sticky SPINE (Spine: avatar, identity, action rows, the menu,
 // TRANSMISSIONS, RECRUIT), a hairline track, and the content column
-// (StatusRibbon → HalftoneBanner → Dossier → the pane frame → footer).
+// (StatusRibbon → BannerPlate → Dossier → the pane frame → footer).
 // Below lg it is one column: the phone compact bar, then the spine as
 // the hero block (banner first, avatar overlapping it), then the menu
 // strip, then the content.
@@ -44,9 +44,9 @@ import { useSettingsModal } from '@/components/settings/SettingsModalContext'
 import { useSfx } from '@/components/sfx/SfxProvider'
 import { fetchMe } from '@/lib/client/fetchMe'
 import type { PublicProfileData } from '@/types/profile'
+import { BannerPlate } from './BannerPlate'
 import { useChase } from './ChaseLine'
 import { Dossier } from './Dossier'
-import { HalftoneBanner } from './HalftoneBanner'
 import { paneAside } from './paneAside'
 import { AffiliatesPane } from './panes/AffiliatesPane'
 import { HangarPane } from './panes/HangarPane'
@@ -304,7 +304,7 @@ export default function ProfileClient({ username }: { username: string }) {
   // One banner element, two homes: it leads the phone hero (handed to
   // the spine) and tops the content column from lg.
   const banner = (
-    <HalftoneBanner
+    <BannerPlate
       profile={profile}
       isYou={isYou}
       onEdit={() => setBannerStudio(true)}
@@ -364,13 +364,22 @@ export default function ProfileClient({ username }: { username: string }) {
       {/* ---------- the sheet ----------
           lg: [spine 296px | hairline | content]. Below lg the grid is
           off and the children stack: compact bar → spine (hero) → menu
-          strip → content. .pf-screen is the boot curtain (dossier.css
-          keeps the root itself interactive). */}
+          strip → content. */}
       <section
         ref={columnRef}
-        className={`${SHEET} pf-screen lg:grid lg:grid-cols-[296px_1px_1fr]`}
+        className={`${SHEET} lg:grid lg:grid-cols-[296px_1px_1fr]`}
         aria-label={`Unit record — @${profile.username}`}
       >
+        {/* ---------- dot screen ----------
+            The paper's grain (.pf-screen, dossier.css): an out-of-flow
+            layer under every child rather than the sheet's own
+            background, so its desktop drift is one composited transform
+            instead of a whole-sheet repaint. Out of the grid's flow, so
+            the column count above is unchanged. */}
+        <span aria-hidden className="pf-screen">
+          <span />
+        </span>
+
         {/* ---------- phone compact bar ----------
             Sticky over the top of the sheet, on paper. Visible by
             default; the motion phase hides it until the hero actions

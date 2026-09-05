@@ -1,11 +1,12 @@
 'use client'
 
-// The banner plate. The upload (SafeBannerImg, with the owner's saved
-// crop) renders untouched — its own colours in both materials, no
-// filter, no screen; only the frame around it belongs to the page. The
-// host is .pf-photo, the motion hook's target for the boot fade-in. No
-// banner: hatched --pf-paper-2 under the 24px drafting grid drawn in ink
-// at 6% (the grid sits under the image when there is one). The rank
+// The banner plate: the record's photo plate — the owner's upload on a
+// 24px drafting grid, the rank as a watermark. The upload (SafeBannerImg,
+// with the owner's saved crop) renders untouched — its own colours in
+// both materials, no filter, no screen; only the frame around it belongs
+// to the page. The host is .pf-photo, the motion hook's target for the
+// boot fade-in. No banner: hatched --pf-paper-2 under the grid, drawn in
+// ink at 6% (the grid sits under the image when there is one). The rank
 // watermark is the pixel face at 10% ink, over the plate. The owner's
 // EDIT BANNER is a framed chip on paper, lifted above the image (z-10)
 // and given a 44px phone hit area by the after: box. 140px below lg,
@@ -20,7 +21,7 @@ const GRID_LINES = [
   'repeating-linear-gradient(0deg, rgb(var(--pf-ink-rgb) / 0.06) 0 1px, transparent 1px 24px)'
 ].join(', ')
 
-export function HalftoneBanner({
+export function BannerPlate({
   profile,
   isYou,
   onEdit,
