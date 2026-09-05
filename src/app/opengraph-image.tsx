@@ -24,7 +24,7 @@ export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
 // Landing accent — the chartreuse the click-through reveals (.lx-hero
-// re-pin in globals.css), NOT the app-wide ref-lime the join card uses.
+// re-pin in globals.css), NOT the gate-pass lime (#FCFF00) the join card uses.
 // Spent exactly three times: the underline, the final period, the
 // horizon line. The city lights below the limb read as part of the
 // horizon element, and everything else stays ink/chalk/mute.

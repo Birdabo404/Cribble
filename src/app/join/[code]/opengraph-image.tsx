@@ -17,8 +17,9 @@ import { createServiceClient } from '@/lib/supabaseServer'
 // owners, missing env, db hiccups) falls back to the generic pass, which
 // must therefore never depend on the personalization path.
 //
-// ImageResponse cannot read CSS variables, so lime is the literal
-// --ref-lime (252 255 0) from globals.css, and the podium hues are the
+// ImageResponse cannot read CSS variables, so lime is the gate-pass
+// literal (#FCFF00, rgb 252 255 0) the /join page and the leaderboard
+// ShareCard also hard-code, and the podium hues are the
 // medal `plate` literals from src/components/leaderboard/types.ts —
 // the bright variants designed for dark scrims, which this card is.
 

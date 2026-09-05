@@ -19,8 +19,9 @@ const DESCRIPTION =
   'A personal invite to Cribble — join through this link so the invite still counts, then see where you rank on the AI coding leaderboard.'
 
 // The interstitial is always deep-space dark regardless of theme, so the
-// electric lime (--ref-lime in globals.css) is hard-coded here rather than
-// pulled from .referral-scope, which swaps to olive ink in light mode.
+// gate-pass lime (#FCFF00, rgb 252 255 0 — shared with the /join OG image
+// and the leaderboard ShareCard) is hard-coded here rather than read from
+// a theme token that would swap to olive ink in light mode.
 
 function loginHref(normalized: string): string {
   return normalized ? `/login?invite=${encodeURIComponent(normalized)}` : '/login'

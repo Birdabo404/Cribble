@@ -333,8 +333,8 @@ html.light {
   --lb-gold-hi: 234 179 8;
   --lb-silver: 100 116 139;
   --lb-bronze: 180 83 9;
-  /* lime goes to olive ink on white (same move as --ref-lime) for AA
-     contrast against the white panels */
+  /* lime goes to olive ink on white (the gate-pass lime #FCFF00 makes the
+     same swap in light mode) for AA contrast against the white panels */
   --lb-score: 96 108 0;
   --lb-up: 22 163 74;
   --lb-down: 225 29 72;
@@ -1083,6 +1083,63 @@ html.light .lx-descent {
    it, leaving the SpaceBackdrop star/asteroid layer to read on top. */
 html.light .dossier-canvas {
   background: #ffffff;
+}
+
+/* Profile page substrate — /u/* and the /profile redirect (AppShell puts
+   it on the wrapper around page content, inside .app-nav-inset's
+   padding). A drafting board under the sheet (u/[username]/dossier.css)
+   in both materials, the same board twice: the sheet's own hue a step
+   below it (1.30:1 either way), ruled with the banner's 24px drafting
+   grid in the sheet's ink, a 9px `+` at every fifth intersection (the
+   120px tile, shifted -60px so the cross lands on a grid line), and a
+   120px fractal-noise tile for the board's grain. Layers listed
+   top-down. The sheet answers with registration marks off its corners
+   (.pf-sheet in dossier.css). Dark: #060e15 — oklch 0.16 0.02 245
+   under the Prussian-blue sheet (--pf-paper #0b293f), not the canvas's
+   void black — grid in chalk (214 209 184, the dark --pf-ink) at 3.5%,
+   crosses at 18%, grain at 12%. Light: #bdb8a1 — oklch 0.78 0.032 97, a
+   khaki board under the sand sheet (--pf-paper #d6d1b8) — grid in
+   carbon (69 65 56, the light --pf-ink) at 5%, crosses at 22%, grain at
+   10%; ink on a lighter ground needs a touch more alpha to read the
+   same. Dark is the base and html.light repaints, same as
+   .dossier-canvas above.
+   Deliberately not on .app-nav-inset or the canvas: the fixed top bar /
+   rail are translucent glass whose zinc-100 chrome needs the black /
+   white canvas under them. Fills to the bottom of the viewport on short
+   pages (mirrors .settings-scope). */
+.pf-page {
+  background-color: #060e15;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.12'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cpath d='M56 60.5h9M60.5 56v9' stroke='rgb(214,209,184)' stroke-opacity='.18' stroke-width='1' shape-rendering='crispEdges'/%3E%3C/svg%3E"),
+    repeating-linear-gradient(90deg, rgb(214 209 184 / 0.035) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(0deg, rgb(214 209 184 / 0.035) 0 1px, transparent 1px 24px);
+  background-size:
+    120px 120px,
+    120px 120px,
+    auto,
+    auto;
+  background-position:
+    0 0,
+    -60px -60px,
+    0 0,
+    0 0;
+  min-height: calc(100vh - var(--nav-topbar-h));
+}
+
+html.light .pf-page {
+  background-color: #bdb8a1;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.1'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cpath d='M56 60.5h9M60.5 56v9' stroke='rgb(69,65,56)' stroke-opacity='.22' stroke-width='1' shape-rendering='crispEdges'/%3E%3C/svg%3E"),
+    repeating-linear-gradient(90deg, rgb(69 65 56 / 0.05) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(0deg, rgb(69 65 56 / 0.05) 0 1px, transparent 1px 24px);
+}
+
+@media (min-width: 768px) {
+  html[data-nav-pos='left'] .pf-page {
+    min-height: 100vh;
+  }
 }
 
 /* ————— Controlled Fall motion layer ————————————————————————————————
@@ -3042,207 +3099,6 @@ html[data-motion='reduced'] .command-deck .deck-scan {
 }
 
 /* ---------------------------------------------------------------------------
-   Referral plate + modal (ReferralPlate.tsx) — the profile's recruit CTA.
-   Slot-machine marquee in an electric-lime duotone (#FCFF00 over near-black
-   glass) that is deliberately NOT the site accent: --ref-lime is scoped to
-   .referral-scope so the global green/orange stays untouched. The marquee
-   pulse lives in the letters themselves (headline and +1,500 breathe on
-   offset phases); the shell keeps only a faint static glow. All loops run
-   under prefers-reduced-motion: no-preference; without it the plate
-   settles into static type + a static lime hairline.
---------------------------------------------------------------------------- */
-
-.referral-scope {
-  /* #FCFF00 */
-  --ref-lime: 252 255 0;
-  /* text-glow alphas for the marquee pulse (rest / peak / peak halo) */
-  --ref-glow-lo: 0.2;
-  --ref-glow-hi: 0.65;
-  --ref-glow-halo: 0.25;
-}
-
-html.light .referral-scope {
-  /* #FCFF00 vanishes on cream — darkened chartreuse ink holds the duotone
-     and keeps AA contrast on the headline (~5.3:1 on the paper canvas) */
-  --ref-lime: 96 108 0;
-  --ref-glow-lo: 0.08;
-  --ref-glow-hi: 0.22;
-  --ref-glow-halo: 0.08;
-}
-
-/* Plate shell — static presence only; the pulse moved into the type */
-.referral-plate {
-  --rr-base: 0.2;
-  --rr-tail: 0.5;
-  --rr-head: 0.95;
-  box-shadow: 0 0 26px -12px rgb(var(--ref-lime) / 0.3);
-}
-
-html.light .referral-plate {
-  --rr-base: 0.32;
-  --rr-tail: 0.5;
-  --rr-head: 0.9;
-  box-shadow: 0 0 22px -14px rgb(var(--ref-lime) / 0.25);
-}
-
-/* Marquee stars — lime type with a breathing glow. The resting shadow
-   doubles as the reduced-motion state. */
-.ref-star {
-  color: rgb(var(--ref-lime));
-  text-shadow: 0 0 8px rgb(var(--ref-lime) / var(--ref-glow-lo));
-}
-
-.ref-dot {
-  background: rgb(var(--ref-lime));
-  box-shadow: 0 0 8px rgb(var(--ref-lime) / 0.7);
-}
-
-@keyframes ref-star-pulse {
-  0%,
-  100% {
-    text-shadow: 0 0 4px rgb(var(--ref-lime) / var(--ref-glow-lo));
-    filter: brightness(0.9);
-  }
-  50% {
-    text-shadow:
-      0 0 12px rgb(var(--ref-lime) / var(--ref-glow-hi)),
-      0 0 32px rgb(var(--ref-lime) / var(--ref-glow-halo));
-    filter: brightness(1.1);
-  }
-}
-
-/* Conic comet behind the 1px border gap. The element is a centered square
-   at 200% of the plate's width (>= its diagonal) so the rotation covers
-   every corner at every angle — an -inset-based rectangle stops covering
-   the full width near 90°/270°. The base alpha keeps a resting accent
-   hairline; the head is a crisp full-strength point with a long tail. */
-.referral-ring {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 200%;
-  aspect-ratio: 1;
-  transform: translate(-50%, -50%);
-  background: conic-gradient(
-    from 0deg,
-    rgb(var(--ref-lime) / var(--rr-base)) 0deg,
-    rgb(var(--ref-lime) / var(--rr-base)) 240deg,
-    rgb(var(--ref-lime) / var(--rr-tail)) 320deg,
-    rgb(var(--ref-lime) / var(--rr-head)) 352deg,
-    rgb(var(--ref-lime) / var(--rr-base)) 353deg
-  );
-}
-
-/* Plate surface — near-black glass with a whisper of lime at the top edge
-   plus the shared glass highlight so it reads as material, not a flat
-   fill. Light theme: paper with a chartreuse-ink wash. */
-.referral-surface {
-  background:
-    linear-gradient(
-      180deg,
-      rgb(var(--ref-lime) / 0.07),
-      rgb(var(--ref-lime) / 0.02) 55%,
-      transparent
-    ),
-    var(--background);
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
-}
-
-html.light .referral-surface {
-  background:
-    linear-gradient(
-      180deg,
-      rgb(var(--ref-lime) / 0.07),
-      rgb(var(--ref-lime) / 0.02) 55%,
-      transparent
-    ),
-    var(--background);
-}
-
-/* Sheen strip — parked off-canvas by its base transform, so with the
-   loop disabled it simply never shows */
-.referral-sheen {
-  position: absolute;
-  top: -40%;
-  bottom: -40%;
-  left: 0;
-  width: 45%;
-  transform: translateX(-180%) skewX(-18deg);
-  background: linear-gradient(
-    105deg,
-    transparent,
-    rgb(255 255 255 / 0.1) 40%,
-    rgb(var(--ref-lime) / 0.14) 60%,
-    transparent
-  );
-  pointer-events: none;
-}
-
-html.light .referral-sheen {
-  background: linear-gradient(
-    105deg,
-    transparent,
-    rgb(255 255 255 / 0.55) 45%,
-    rgb(var(--ref-lime) / 0.08) 60%,
-    transparent
-  );
-}
-
-@keyframes referral-ring {
-  to {
-    transform: translate(-50%, -50%) rotate(1turn);
-  }
-}
-
-/* Casino-badge glint: hold off-canvas ~86% of the loop, then a fast
-   (~1s) linear strip across the plate — not a slow ambient shimmer */
-@keyframes referral-sheen {
-  0%,
-  86% {
-    transform: translateX(-180%) skewX(-18deg);
-  }
-  100% {
-    transform: translateX(340%) skewX(-18deg);
-  }
-}
-
-/* Modal cap bar draws its fill in after the modal lands */
-@keyframes referral-cap-in {
-  from {
-    width: 0;
-  }
-}
-
-/* Copy button acknowledges with a quick pop */
-@keyframes referral-copy-pop {
-  50% {
-    transform: scale(1.06);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  /* the two stars breathe alternately: same 3s rhythm, half-cycle apart */
-  .ref-star-a {
-    animation: ref-star-pulse 3s ease-in-out infinite;
-  }
-  .ref-star-b {
-    animation: ref-star-pulse 3s ease-in-out infinite 1.5s;
-  }
-  .referral-ring {
-    animation: referral-ring 7s linear infinite;
-  }
-  .referral-sheen {
-    animation: referral-sheen 7s linear infinite 1.6s;
-  }
-  .referral-cap-fill {
-    animation: referral-cap-in 700ms cubic-bezier(0.22, 1, 0.36, 1) 200ms backwards;
-  }
-  .referral-copied {
-    animation: referral-copy-pop 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
-  }
-}
-
-/* ---------------------------------------------------------------------------
    App navigation shell — command rail (left) / sticky top bar (top).
 
    Position + rail expansion live on <html> as data-nav-pos / data-nav-exp,
@@ -3794,92 +3650,12 @@ html.light .billboard-progress-fill-hype {
   }
 }
 
-/* ---------------------------------------------------------------------------
-   Billboard profile rails — the always-on sponsor columns flanking the
-   profile pages (BillboardRails.tsx). The component gates itself to
-   profile routes on ≥1440px viewports, so these rules never meet a
-   narrow screen; geometry plus the cards' entrance and idle motion live
-   here. The top offset clears the fixed top bar; in left-rail nav mode
-   (md+) the bar is gone, so the columns ride up and the LEFT column's
-   inset reads --nav-rail-w to track the rail's expand/collapse in
-   lockstep, like .app-nav-inset.
---------------------------------------------------------------------------- */
-
-.billboard-rail-col {
-  top: calc(var(--nav-topbar-h) + 20px);
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  transition: top 560ms var(--nav-ease);
-}
-
-.billboard-rail-col-left {
-  left: 16px;
-  transition: left 560ms var(--nav-ease), top 560ms var(--nav-ease);
-}
-
-.billboard-rail-col-right {
-  right: 16px;
-}
-
-@media (min-width: 768px) {
-  html[data-nav-pos='left'] .billboard-rail-col {
-    top: 24px;
-  }
-  html[data-nav-pos='left'] .billboard-rail-col-left {
-    left: calc(var(--nav-rail-w) + 20px);
-  }
-}
-
-/* Every slot cell — sold card or open-slot CTA — is one fixed,
-   monitor-derived size, so a column reads as a solid instrument panel
-   with no text-length variance. Width: 208px is the proven fit beside
-   the expanded 232px nav rail at the component's 1440px gate; the
-   11.5vw + 42px ramp only overtakes it past ~1443px, topping out at
-   264px on ~1930px monitors. Height: the top offset (--nav-topbar-h
-   + 20px — the top-bar mode's tighter budget; left-nav mode just
-   gains slack), three 18px gaps and ~24px of bottom breathing room
-   must fit in 100vh, so each cell takes a quarter of the remainder —
-   floored at 124px so stubby windows keep a legible card (the card's
-   overflow-hidden clips gracefully) and capped at 176px so tall
-   monitors don't stretch the cards into posters. */
-.billboard-rail-cell {
-  width: clamp(208px, 11.5vw + 42px, 264px);
-  height: clamp(124px, calc((100vh - var(--nav-topbar-h) - 20px - 54px - 24px) / 4), 176px);
-}
-
-/* The paid card fills its cell — same 0,1,0 specificity as CARD_RAIL's
-   w-52 but after @tailwind utilities, so 100% wins here while the
-   admin queue, status tracker and submit-form previews (which never
-   get this class) keep intrinsic sizing. `safe center` balances short
-   copy vertically in the fixed cell and falls back to top-aligned
-   when a full card meets the 124px floor (or the keyword is
-   unsupported), so overflow only ever clips the bottom line, never
-   the logo row. */
-.billboard-rail-card-fill {
-  width: 100%;
-  height: 100%;
-  justify-content: safe center;
-}
-
-/* Entrance: each slot cell fades up in turn — BillboardRails sets the
-   per-slot delay inline (100ms × index within its column), so both
-   columns cascade top to bottom. `backwards` keeps the delayed cards
-   invisible until their turn instead of flashing in early. */
-@keyframes billboard-rail-enter {
-  from {
-    transform: translateY(8px);
-    opacity: 0;
-  }
-}
-
-.billboard-rail-enter {
-  animation: billboard-rail-enter 400ms var(--nav-ease) backwards;
-}
-
-/* Idle life: the card's 3px top stripe breathes on a slow cycle so a
-   parked profile page doesn't read as frozen. Near-subliminal on
-   purpose — a slow exhale, not a blinking light. */
+/* Rail-size BillboardCard idle life (size="rail" — the sponsorship
+   preview stage, admin board and queue): the card's 3px top stripe
+   breathes on a slow cycle so a parked card doesn't read as frozen.
+   Near-subliminal on purpose — a slow exhale, not a blinking light.
+   The rest of the old profile-rail geometry moved into the profile's
+   TRANSMISSIONS panel (dossier.css). */
 @keyframes billboard-rail-breathe {
   50% {
     opacity: 0.45;
@@ -3890,89 +3666,8 @@ html.light .billboard-progress-fill-hype {
   animation: billboard-rail-breathe 7s ease-in-out infinite;
 }
 
-/* Vacant slot CTA (BillboardRails' open cells) — an empty hangar bay
-   in the dashboard's dossier language: four corner ticks over an
-   ultra-faint diagonal hatch instead of a bordered card, so open
-   space reads as open space. Hover swaps the tick ink to the
-   leaderboard gold (--lb-gold flips with the theme on its own) and
-   brightens the hatch a touch; html.light needs near-black ink since
-   the white-alpha strokes vanish on cream. */
-.billboard-rail-vacant {
-  --rail-vacant-ink: rgb(255 255 255 / 0.2);
-  --rail-vacant-hatch: rgb(255 255 255 / 0.035);
-  background-image: repeating-linear-gradient(
-    -45deg,
-    var(--rail-vacant-hatch) 0 1px,
-    transparent 1px 8px
-  );
-}
-
-html.light .billboard-rail-vacant {
-  --rail-vacant-ink: rgb(9 9 11 / 0.28);
-  --rail-vacant-hatch: rgb(9 9 11 / 0.05);
-}
-
-.billboard-rail-vacant:hover {
-  --rail-vacant-ink: rgb(var(--lb-gold) / 0.75);
-  --rail-vacant-hatch: rgb(255 255 255 / 0.055);
-}
-
-html.light .billboard-rail-vacant:hover {
-  --rail-vacant-hatch: rgb(9 9 11 / 0.08);
-}
-
-/* Corner brackets — the dash-frame technique (eight stacked
-   gradients, two 10px × 1px strokes per corner) floated just inside
-   the cell radius, idling on the same breathe cycle as the paid
-   cards' top stripes. */
-.billboard-rail-vacant::after {
-  content: '';
-  position: absolute;
-  inset: 6px;
-  pointer-events: none;
-  background-image:
-    linear-gradient(var(--rail-vacant-ink), var(--rail-vacant-ink)),
-    linear-gradient(var(--rail-vacant-ink), var(--rail-vacant-ink)),
-    linear-gradient(var(--rail-vacant-ink), var(--rail-vacant-ink)),
-    linear-gradient(var(--rail-vacant-ink), var(--rail-vacant-ink)),
-    linear-gradient(var(--rail-vacant-ink), var(--rail-vacant-ink)),
-    linear-gradient(var(--rail-vacant-ink), var(--rail-vacant-ink)),
-    linear-gradient(var(--rail-vacant-ink), var(--rail-vacant-ink)),
-    linear-gradient(var(--rail-vacant-ink), var(--rail-vacant-ink));
-  background-size:
-    10px 1px, 1px 10px,
-    10px 1px, 1px 10px,
-    10px 1px, 1px 10px,
-    10px 1px, 1px 10px;
-  background-position:
-    0 0, 0 0,
-    100% 0, 100% 0,
-    0 100%, 0 100%,
-    100% 100%, 100% 100%;
-  background-repeat: no-repeat;
-  animation: billboard-rail-breathe 7s ease-in-out infinite;
-}
-
-/* The TAKE THIS SPACE arrow rides the same gold as the brackets. */
-.billboard-rail-vacant-arrow {
-  transition: color 150ms ease;
-}
-
-.billboard-rail-vacant:hover .billboard-rail-vacant-arrow {
-  color: rgb(var(--lb-gold) / 0.9);
-}
-
-/* Reduced motion: cards land instantly (the entrance's `backwards`
-   fill goes with the animation, so nothing starts hidden) and the
-   stripes and vacant-cell brackets hold steady. */
 @media (prefers-reduced-motion: reduce) {
-  .billboard-rail-col,
-  .billboard-rail-col-left {
-    transition: none;
-  }
-  .billboard-rail-enter,
-  .billboard-rail-breathe,
-  .billboard-rail-vacant::after {
+  .billboard-rail-breathe {
     animation: none;
   }
 }
@@ -4090,8 +3785,9 @@ html.light .dash-duotone {
    /sponsorship; SettingsModal.tsx overrides the full-page min-height
    inline since its panel sizes to the dialog, not the viewport).
 
-   Same isolation pattern as .referral-scope: every settings component
-   styles itself with the --st-* tokens below and NEVER with Tailwind
+   Scoped-token isolation (the same pattern as the profile's .pf-dossier
+   in dossier.css): every settings component styles itself with the
+   --st-* tokens below and NEVER with Tailwind
    zinc/gray/black/white utilities — light mode remaps those scales to
    warm cream values, and this surface must stay pure neutral in both
    themes (Linear/Vercel restraint: the accent IS the foreground, red is

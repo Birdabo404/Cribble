@@ -76,7 +76,8 @@ export interface MineAd {
   logo_url: string | null
   /** #rrggbb extracted from the logo server-side; null = neutral strip. */
   accent_color: string | null
-  /** Which product this card buys — the flipper strip or a profile rail. */
+  /** Which product this card buys — the flipper strip, a slot in the
+   *  profile TRANSMISSIONS panel, or the leaderboard sponsor board. */
   placement: BillboardPlacement
   /** Rail slot code (L1-R4), assigned by the admin at activation; null
    *  until then and always null on flipper ads. */

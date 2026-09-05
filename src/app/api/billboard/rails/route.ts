@@ -3,9 +3,10 @@ import { NextResponse } from 'next/server'
 import { isRailSlot, RAIL_SLOTS, type RailItem } from '@/lib/billboard'
 import { createServiceClient } from '@/lib/supabaseServer'
 
-// THE PROFILE RAILS feed (migration 035): the live rail ads mounted in
-// the fixed sponsor columns flanking the profile pages, one per slot,
-// served in RAIL_SLOTS order. Same payload for every viewer (no
+// THE PROFILE RAILS feed (migration 035): the live rail ads the profile
+// page's TRANSMISSIONS panel lists (eight fixed cells in its left
+// column, 1024px and up — TransmissionsPanel via useRailFeed), one per
+// slot, served in RAIL_SLOTS order. Same payload for every viewer (no
 // session, no cookies), so it caches exactly like /api/billboard (the
 // flipper feed): a force-dynamic handler with the assembled list in
 // the Data Cache for a minute and an s-maxage CDN layer on top for the
@@ -83,7 +84,7 @@ const loadRailItems = unstable_cache(
         .in('id', fallbackOwnerIds)
         .or('status.is.null,status.eq.active')
       if (usersRes.error) {
-        console.warn('[BillboardRails] Users read failed:', usersRes.error.message)
+        console.warn('[billboard/rails] Users read failed:', usersRes.error.message)
       } else {
         for (const row of (usersRes.data || []) as unknown as RailOwnerRow[]) {
           avatarByUserId.set(Number(row.id), row.twitter_profile_image || null)
@@ -130,7 +131,7 @@ export async function GET() {
       }
     )
   } catch (err) {
-    console.error('[BillboardRails] Unexpected error:', err)
+    console.error('[billboard/rails] Unexpected error:', err)
     return NextResponse.json({ error: 'Failed to load the rails' }, { status: 500 })
   }
 }
