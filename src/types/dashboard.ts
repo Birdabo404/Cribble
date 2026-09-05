@@ -14,8 +14,19 @@ export interface MeUser {
   team_review_status?: string | null
   /** resolveTeamAuthority verdict: 'team-account' for a live TEAM login,
    *  'owner' for an active OWNER affiliate of a live team, else null.
+   *  Command surfaces only — never treat a member as an owner from this.
    *  Optional defensively: older server builds don't send it. */
   team_authority?: 'team-account' | 'owner' | null
+  /** Handle of the team team_authority commands — the login's own on
+   *  the franchise arm, the franchise's on the owner arm; null when
+   *  there is no authority. INVITE TO TEAM compares it against the
+   *  profile's `team.username` to read "already on your roster".
+   *  Optional defensively: older server builds don't send it. */
+  team_handle?: string | null
+  /** True when the session holds an ACTIVE seat on a live team (any
+   *  role). Lights the TEAM nav row for signed members; owners also
+   *  get this. Optional defensively: older server builds don't send it. */
+  team_member?: boolean
   last_extension_sync?: string | null
   active_device_uuid?: string | null
   created_at?: string

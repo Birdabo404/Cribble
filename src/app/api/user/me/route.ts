@@ -9,7 +9,7 @@ import { fetchActiveSeasonWindow } from '@/lib/seasonServer'
 import { getSessionUserId } from '@/lib/sessionAuth'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { createServiceClient } from '@/lib/supabaseServer'
-import { resolveTeamAuthority } from '@/lib/teamRoster'
+import { resolveTeamCommand, resolveTeamMembership, teamIdentity } from '@/lib/teamRoster'
 import {
   ensureUserStatsRollup,
   type UserStatsRollupColumns
@@ -129,7 +129,8 @@ export async function GET(request: NextRequest) {
       rankRes,
       rankCountRes,
       todayAgg,
-      teamAuthority
+      teamCommand,
+      memberTeamId
     ] = await Promise.all([
         supabase
           .from('users')
@@ -164,9 +165,15 @@ export async function GET(request: NextRequest) {
           .from('leaderboard_ranks')
           .select('user_id', { count: 'exact', head: true }),
         fetchTodayAggregates(userId, new Date(todayStartMs).toISOString()),
-        // Lights the TEAM nav row for active OWNER affiliates (and team
-        // logins) — degrades to null on any failed read, never throws.
-        resolveTeamAuthority(supabase, userId)
+        // Lights the TEAM nav row for team logins and OWNER affiliates,
+        // and names the team they command (INVITE TO TEAM on profiles
+        // compares it against the pilot's affiliation) — degrades to
+        // null on any failed read, never throws.
+        resolveTeamCommand(supabase, userId),
+        // Read-only arm: an ACTIVE seat (any role) on a live team. Same
+        // dissolve-for-free probe the deck GET already uses so members
+        // can reach the console they are allowed to view.
+        resolveTeamMembership(supabase, userId)
       ])
 
     if (userRes.error || !userRes.data) {
@@ -261,7 +268,15 @@ export async function GET(request: NextRequest) {
     const activeDevice = deviceRes.error ? null : deviceRes.data
 
     return NextResponse.json({
-      user: { ...user, team_authority: teamAuthority?.via ?? null },
+      user: {
+        ...user,
+        team_authority: teamCommand?.authority.via ?? null,
+        // The commanded team's handle (the login's own on the franchise
+        // arm), with the same handle-less fallback every team surface
+        // renders, so it compares equal to a profile's `team.username`.
+        team_handle: teamCommand ? teamIdentity(teamCommand.team).username : null,
+        team_member: memberTeamId !== null
+      },
       scores,
       stats,
       scoring: {

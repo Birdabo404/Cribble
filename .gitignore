@@ -51,10 +51,13 @@ Desktop.ini
 .claude/
 .cursor/
 .cursor-artifacts/
+.agents/
+skills-lock.json
 .eslintcache
 .vercel
 
 # Local visual-check screenshots and smoke captures. Never commit these.
+.tmp-og-preview.png
 .shots/
 .uishots/
 .smoke/

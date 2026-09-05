@@ -112,8 +112,8 @@ export function NavRail({
     prefs?.toggleExpanded()
   }
 
-  // Tier-gated set: TEAM-only rows appear once the session user loads
-  // with the TEAM tier and never for anyone else.
+  // Tier-gated set: TEAM-only rows appear once the session may open
+  // the team console (seesTeamNav) and never for anyone else.
   const navItems = visibleNavItems(navUser.user)
 
   const renderItem = (item: NavItemDef, i: number) => {

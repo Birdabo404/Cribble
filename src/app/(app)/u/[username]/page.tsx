@@ -190,7 +190,13 @@ export default async function PilotProfilePage({ params }: Props) {
           }}
         />
       )}
-      <ProfileClient username={username} />
+      {/* Keyed per pilot: profile-to-profile navigation (a roster row, a
+          "followed by" handle, the nav search) re-renders this same
+          segment, and without the key the client keeps its per-record
+          state — the open roster modal, the requested pane, the COPIED
+          flash, the invite check — across the switch. A remount boots
+          the new record from scratch, hash and all. */}
+      <ProfileClient key={username} username={username} />
     </>
   )
 }
