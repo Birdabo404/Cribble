@@ -7,36 +7,44 @@ import {
   loadPublicProfileCached,
   PROFILE_USERNAME_RE
 } from '@/lib/publicProfile'
+import { ROLE_META } from '@/lib/roles'
+import { designationFor } from './designation'
 
 // Share card for /u/[username] — the unfurl crawlers actually render.
-// A pilot dossier in the join gate-pass visual language: lime spine,
-// ink panel, pixel numerals. Public profiles unfurl as their owner's
-// calling card — avatar, rank plate, lifetime score, top tool — so a
-// pasted profile link flexes the pilot instead of a generic banner.
+// The pilot's UNIT RECORD on the same paper material as the rebuilt
+// profile page: flat ink on paper, 1px hairline frames with corner
+// ticks, a 6px dot screen, pixel numerals. Public profiles unfurl as
+// their owner's record — square avatar, rank, designation line,
+// lifetime score, top tool — so a pasted profile link flexes the pilot
+// instead of a generic banner.
 //
 // Private accounts and unknown handles fall back to a branded generic
 // card with no personal stats, and so does every failure path (missing
 // env, db hiccups, avatar rot): a broken unfurl is never acceptable.
 //
-// ImageResponse cannot read CSS variables, so lime is the literal
-// --ref-lime (252 255 0) from globals.css and the podium hues are the
-// medal `plate` literals from src/components/leaderboard/types.ts —
-// same convention as the /join/[code] card this is modeled on.
+// ImageResponse cannot read CSS variables, so the --pf-* paper tokens
+// from dossier.css are repeated below as literal hex. No radius, shadow
+// or glow anywhere — the material is hairlines and flat ink, and Satori
+// only ever sees rgba() with commas.
 
-export const alt = 'Cribble pilot profile — rank and score on the AI coding leaderboard.'
+export const alt = 'Cribble unit record — rank and score on the AI coding leaderboard.'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
-const LIME = 'rgb(252, 255, 0)'
-const LIME_DIM = 'rgba(252, 255, 0, 0.3)'
-const INK = '#05060a'
-const CHALK = '#f4f5f0'
-const MUTED = '#8b8f9a'
-const SOFT = '#c4c7cf'
-const FAINT = '#5c606a'
+const PAPER = '#D6D1B8'
+const PAPER_2 = '#CCC7AE'
+const INK = '#454138'
+const INK_2 = '#565244'
+const INK_3 = '#777259'
+const LINE = '#9C9781'
+const LINE_SOFT = '#B9B49C'
 
-const SPINE_W = 46
-const MAIN_W = size.width - SPINE_W
+/** Outer frame inset from the canvas edge. */
+const FRAME = 28
+/** Corner tick leg length and how far its elbow sits outside the frame. */
+const TICK = 8
+const TICK_OUT = 4
+const AVATAR = 148
 
 // The brand fonts and mark are the same files the /join card colocates;
 // this route reads them from that directory instead of duplicating
@@ -58,16 +66,11 @@ async function loadOptional(filePath: string): Promise<Buffer | null> {
   }
 }
 
-const LIME_TRIPLET = '252, 255, 0'
-
-/** rgba() from a comma triplet — Satori's color parser wants commas. */
-const tint = (triplet: string, alpha: number) => `rgba(${triplet}, ${alpha})`
-
-/** Podium plate literals from medalFor() in leaderboard/types.ts. */
-const ogMedalFor = (rank: number): { triplet: string; label: string } | null => {
-  if (rank === 1) return { triplet: '255, 214, 68', label: 'CHAMPION' }
-  if (rank === 2) return { triplet: '216, 228, 242', label: 'RUNNER-UP' }
-  if (rank === 3) return { triplet: '255, 145, 77', label: 'THIRD' }
+/** Podium inks — the medal hues re-mixed for paper, not the plate foils. */
+const ogMedalFor = (rank: number): { ink: string; label: string } | null => {
+  if (rank === 1) return { ink: '#866A17', label: 'CHAMPION' }
+  if (rank === 2) return { ink: INK_2, label: 'RUNNER-UP' }
+  if (rank === 3) return { ink: '#8C4E24', label: 'THIRD' }
   return null
 }
 
@@ -80,6 +83,7 @@ const truncate = (value: string, max: number) =>
   value.length > max ? `${value.slice(0, max - 1)}…` : value
 
 interface Pilot {
+  userId: number
   username: string
   displayName: string
   /** Avatar inlined as a data URL, or null → monogram tile. */
@@ -89,6 +93,8 @@ interface Pilot {
   topTool: { name: string; percent: number } | null
   memberSince: string
   isTeam: boolean
+  /** Uppercase role badge (ROLE_META), or null when no role is set. */
+  roleLabel: string | null
 }
 
 /**
@@ -145,6 +151,7 @@ async function resolvePilot(rawUsername: string): Promise<Pilot | null> {
     const avatarSrc = await fetchAvatarDataUrl(profile.profile_image)
     const top = profile.topTools[0]
     return {
+      userId: profile.userId,
       username: profile.username,
       displayName: profile.display_name,
       avatarSrc,
@@ -152,7 +159,8 @@ async function resolvePilot(rawUsername: string): Promise<Pilot | null> {
       score: profile.score,
       topTool: top ? { name: top.name, percent: top.percent } : null,
       memberSince: profile.memberSince,
-      isTeam: profile.isTeam
+      isTeam: profile.isTeam,
+      roleLabel: profile.role ? ROLE_META[profile.role] ?? null : null
     }
   } catch (error) {
     console.error('[ProfileOG] personalization failed:', error)
@@ -162,8 +170,100 @@ async function resolvePilot(rawUsername: string): Promise<Pilot | null> {
 
 type FontFamily = Record<string, string | number>
 
-/** The pilot as a holographic calling card. Podium ranks tint the foil;
- *  everyone else flies brand lime. */
+/**
+ * Four L-shaped corner ticks (8px legs, 1px ink) around a box that sits
+ * `inset` px inside a position: relative parent of the given size — the
+ * .pf-brackets anatomy from dossier.css. Satori has no pseudo-elements,
+ * so each leg is its own absolutely positioned div, returned as a flat
+ * array of children, anchored by left/top from the parent's known size.
+ */
+function cornerTicks(width: number, height: number, inset: number, color: string) {
+  const near = inset - TICK_OUT
+  const farX = width - inset + TICK_OUT
+  const farY = height - inset + TICK_OUT
+  const legs: Array<[string, number, number, number, number]> = [
+    ['tl-h', near, near, TICK, 1],
+    ['tl-v', near, near, 1, TICK],
+    ['tr-h', farX - TICK, near, TICK, 1],
+    ['tr-v', farX - 1, near, 1, TICK],
+    ['bl-h', near, farY - 1, TICK, 1],
+    ['bl-v', near, farY - TICK, 1, TICK],
+    ['br-h', farX - TICK, farY - 1, TICK, 1],
+    ['br-v', farX - 1, farY - TICK, 1, TICK]
+  ]
+  return legs.map(([key, left, top, w, h]) => (
+    <div
+      key={key}
+      style={{
+        position: 'absolute',
+        display: 'flex',
+        left,
+        top,
+        width: w,
+        height: h,
+        backgroundColor: color
+      }}
+    />
+  ))
+}
+
+/** Inline ink stamp (role, medal): 1px rule in its own colour, tracked
+ *  mono caps. Right padding drops the trailing letter-space. */
+function Stamp({
+  color,
+  monoFamily,
+  children
+}: {
+  color: string
+  monoFamily: FontFamily
+  children: string
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        paddingTop: 3,
+        paddingBottom: 3,
+        paddingLeft: 8,
+        paddingRight: 5,
+        border: `1px solid ${color}`,
+        color,
+        fontSize: 11,
+        letterSpacing: 3,
+        ...monoFamily
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+/** Tracked micro label over a tray cell or the generic pitch. */
+function Micro({
+  children,
+  monoFamily,
+  letterSpacing = 5
+}: {
+  children: string
+  monoFamily: FontFamily
+  letterSpacing?: number
+}) {
+  return (
+    <div
+      style={{
+        fontSize: 13,
+        letterSpacing,
+        color: INK_3,
+        display: 'flex',
+        ...monoFamily
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+/** The pilot's unit record: identity row, score tray, one-line brief. */
 function PilotPanel({
   pilot,
   pixelFamily,
@@ -174,48 +274,53 @@ function PilotPanel({
   monoFamily: FontFamily
 }) {
   const medal = pilot.rank !== null ? ogMedalFor(pilot.rank) : null
-  const theme = medal ? medal.triplet : LIME_TRIPLET
-  const avatarRadius = pilot.isTeam ? 20 : 999
-  const avatarImgRadius = pilot.isTeam ? 15 : 999
+  const rankInk = medal ? medal.ink : pilot.rank !== null ? INK : INK_3
+  const designation = designationFor({
+    userId: pilot.userId,
+    rank: pilot.rank,
+    roleLabel: pilot.roleLabel
+  }).line
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, width: '100%' }}>
       {/* identity row */}
-      <div style={{ display: 'flex', alignItems: 'center', width: '100%', marginTop: 44 }}>
-        <div
-          style={{
-            width: 148,
-            height: 148,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRadius: avatarRadius,
-            border: `3px solid ${tint(theme, 0.7)}`,
-            boxShadow: `0 0 36px ${tint(theme, 0.35)}`,
-            backgroundColor: 'rgba(255, 255, 255, 0.03)'
-          }}
-        >
-          {pilot.avatarSrc ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={pilot.avatarSrc}
-              width={134}
-              height={134}
-              alt=""
-              style={{ borderRadius: avatarImgRadius, objectFit: 'cover' }}
-            />
-          ) : (
-            <div
-              style={{
-                fontSize: 52,
-                color: tint(theme, 1),
-                display: 'flex',
-                ...pixelFamily
-              }}
-            >
-              {pilot.username[0]?.toUpperCase() ?? '?'}
-            </div>
-          )}
+      <div style={{ display: 'flex', alignItems: 'center', width: '100%', marginTop: 40 }}>
+        {/* avatar well — square, hairline frame, corner ticks */}
+        <div style={{ position: 'relative', width: AVATAR, height: AVATAR, display: 'flex' }}>
+          <div
+            style={{
+              width: AVATAR,
+              height: AVATAR,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              border: `1px solid ${LINE}`,
+              backgroundColor: PAPER_2
+            }}
+          >
+            {pilot.avatarSrc ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={pilot.avatarSrc}
+                width={AVATAR - 2}
+                height={AVATAR - 2}
+                alt=""
+                style={{ objectFit: 'cover' }}
+              />
+            ) : (
+              <div
+                style={{
+                  fontSize: 52,
+                  color: INK_2,
+                  display: 'flex',
+                  ...pixelFamily
+                }}
+              >
+                {pilot.username[0]?.toUpperCase() ?? '?'}
+              </div>
+            )}
+          </div>
+          {cornerTicks(AVATAR, AVATAR, 0, INK)}
         </div>
 
         <div
@@ -228,20 +333,8 @@ function PilotPanel({
         >
           <div
             style={{
-              fontSize: 13,
-              letterSpacing: 5,
-              color: MUTED,
-              display: 'flex',
-              ...monoFamily
-            }}
-          >
-            PILOT PROFILE
-          </div>
-          <div
-            style={{
-              marginTop: 12,
               fontSize: 40,
-              color: CHALK,
+              color: INK,
               display: 'flex',
               ...monoFamily
             }}
@@ -250,24 +343,51 @@ function PilotPanel({
           </div>
           <div
             style={{
-              marginTop: 10,
+              marginTop: 8,
               fontSize: 20,
               letterSpacing: 2,
-              color: MUTED,
+              color: INK_2,
               display: 'flex',
               ...monoFamily
             }}
           >
-            @{truncate(pilot.username, 24)}
+            {`@${truncate(pilot.username, 24)}`}
           </div>
+          <div
+            style={{
+              marginTop: 10,
+              fontSize: 13,
+              letterSpacing: 4,
+              color: INK_3,
+              display: 'flex',
+              ...monoFamily
+            }}
+          >
+            {designation}
+          </div>
+          {pilot.roleLabel || medal ? (
+            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center' }}>
+              {pilot.roleLabel ? (
+                <Stamp color={INK_2} monoFamily={monoFamily}>
+                  {pilot.roleLabel}
+                </Stamp>
+              ) : null}
+              {medal ? (
+                <div style={{ marginLeft: pilot.roleLabel ? 8 : 0, display: 'flex' }}>
+                  <Stamp color={medal.ink} monoFamily={monoFamily}>
+                    {medal.label}
+                  </Stamp>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
           <div
             style={{
               fontSize: 54,
-              color: pilot.rank !== null ? tint(theme, 1) : FAINT,
-              textShadow: pilot.rank !== null ? `0 0 28px ${tint(theme, 0.55)}` : undefined,
+              color: rankInk,
               display: 'flex',
               ...pixelFamily
             }}
@@ -279,7 +399,7 @@ function PilotPanel({
               marginTop: 12,
               fontSize: 13,
               letterSpacing: 4,
-              color: medal ? tint(theme, 0.8) : MUTED,
+              color: INK_3,
               display: 'flex',
               ...monoFamily
             }}
@@ -289,41 +409,35 @@ function PilotPanel({
         </div>
       </div>
 
-      {/* score tray */}
+      {/* score tray — hairline well, inner rule between the two cells */}
       <div
         style={{
-          marginTop: 40,
+          marginTop: 34,
           width: '100%',
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          paddingTop: 22,
-          paddingBottom: 22,
-          paddingLeft: 28,
-          paddingRight: 28,
-          borderRadius: 14,
-          border: `1px solid ${tint(theme, 0.16)}`,
-          backgroundColor: 'rgba(0, 0, 0, 0.35)'
+          alignItems: 'stretch',
+          border: `1px solid ${LINE}`,
+          backgroundColor: PAPER_2
         }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <div
-            style={{
-              fontSize: 13,
-              letterSpacing: 5,
-              color: MUTED,
-              display: 'flex',
-              ...monoFamily
-            }}
-          >
-            LIFETIME SCORE
-          </div>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            flexGrow: 1,
+            flexBasis: 0,
+            paddingTop: 20,
+            paddingBottom: 20,
+            paddingLeft: 26,
+            paddingRight: 26
+          }}
+        >
+          <Micro monoFamily={monoFamily}>LIFETIME SCORE</Micro>
           <div
             style={{
               marginTop: 14,
               fontSize: 44,
-              color: tint(theme, 1),
-              textShadow: `0 0 24px ${tint(theme, 0.45)}`,
+              color: INK,
               display: 'flex',
               ...pixelFamily
             }}
@@ -332,32 +446,27 @@ function PilotPanel({
           </div>
         </div>
 
+        <div style={{ width: 1, backgroundColor: LINE_SOFT, display: 'flex' }} />
+
         <div
           style={{
-            width: 2,
-            height: 64,
-            backgroundColor: 'rgba(255, 255, 255, 0.08)',
-            display: 'flex'
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+            flexGrow: 1,
+            flexBasis: 0,
+            paddingTop: 20,
+            paddingBottom: 20,
+            paddingLeft: 26,
+            paddingRight: 26
           }}
-        />
-
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-          <div
-            style={{
-              fontSize: 13,
-              letterSpacing: 5,
-              color: MUTED,
-              display: 'flex',
-              ...monoFamily
-            }}
-          >
-            {pilot.topTool ? 'TOP TOOL' : 'FLYING SINCE'}
-          </div>
+        >
+          <Micro monoFamily={monoFamily}>{pilot.topTool ? 'TOP TOOL' : 'FLYING SINCE'}</Micro>
           <div style={{ marginTop: 14, display: 'flex', alignItems: 'baseline' }}>
             <div
               style={{
                 fontSize: 28,
-                color: CHALK,
+                color: INK,
                 display: 'flex',
                 ...monoFamily
               }}
@@ -369,24 +478,24 @@ function PilotPanel({
                 style={{
                   marginLeft: 14,
                   fontSize: 21,
-                  color: tint(theme, 0.85),
+                  color: INK_2,
                   display: 'flex',
                   ...pixelFamily
                 }}
               >
-                {pilot.topTool.percent}%
+                {`${pilot.topTool.percent}%`}
               </div>
             ) : null}
           </div>
         </div>
       </div>
 
-      {/* the challenge */}
+      {/* the brief */}
       <div
         style={{
           marginTop: 26,
           fontSize: 19,
-          color: SOFT,
+          color: INK_2,
           display: 'flex',
           ...monoFamily
         }}
@@ -414,48 +523,39 @@ function GenericPanel({
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, width: '100%' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', marginTop: 64 }}>
-        <div
-          style={{
-            fontSize: 13,
-            letterSpacing: 6,
-            color: MUTED,
-            display: 'flex',
-            ...monoFamily
-          }}
-        >
+      <div style={{ display: 'flex', flexDirection: 'column', marginTop: 60 }}>
+        <Micro monoFamily={monoFamily} letterSpacing={6}>
           THE AI CODING LEADERBOARD
-        </div>
+        </Micro>
         <div
           style={{
             marginTop: 24,
             fontSize: 58,
             lineHeight: 1.08,
-            color: CHALK,
+            color: INK,
             display: 'flex',
             ...pixelFamily
           }}
         >
-          PILOT
+          UNIT
         </div>
         <div
           style={{
             marginTop: 14,
             fontSize: 58,
             lineHeight: 1.08,
-            color: LIME,
-            textShadow: '0 0 30px rgba(252, 255, 0, 0.5)',
+            color: INK,
             display: 'flex',
             ...pixelFamily
           }}
         >
-          PROFILE
+          RECORD
         </div>
         <div
           style={{
             marginTop: 26,
             fontSize: 21,
-            color: SOFT,
+            color: INK_2,
             display: 'flex',
             ...monoFamily
           }}
@@ -480,11 +580,6 @@ export default async function OpengraphImage({
     loadOptional(MARK_PATH),
     resolvePilot(username)
   ])
-  // Podium owners tint the panel bloom; everyone else keeps brand lime.
-  const bloomTriplet =
-    pilot && pilot.rank !== null
-      ? ogMedalFor(pilot.rank)?.triplet ?? LIME_TRIPLET
-      : LIME_TRIPLET
   const markSrc = mark ? `data:image/png;base64,${mark.toString('base64')}` : null
 
   const fonts: Array<{
@@ -505,6 +600,8 @@ export default async function OpengraphImage({
     : { fontWeight: 900, letterSpacing: 4 }
   const monoFamily: Record<string, string | number> = monoFont ? { fontFamily: 'PlexMono' } : {}
 
+  // No overflow: hidden on the sheet — Satori's clip for it eats the 1px
+  // tick legs, and nothing here reaches past the canvas anyway.
   return new ImageResponse(
     (
       <div
@@ -512,86 +609,44 @@ export default async function OpengraphImage({
           width: '100%',
           height: '100%',
           display: 'flex',
-          flexDirection: 'row',
           position: 'relative',
-          backgroundColor: INK,
-          overflow: 'hidden'
+          backgroundColor: PAPER
         }}
       >
-        {/* ── lime spine ── */}
+        {/* 6px dot screen over the whole sheet (under the ink). Satori's
+            radial-gradient ignores px stops, so the page's 0.6px/0.8px are
+            given as a share of the 6px tile's farthest-corner radius. */}
         <div
           style={{
-            position: 'relative',
-            width: SPINE_W,
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: size.width,
             height: size.height,
             display: 'flex',
-            overflow: 'hidden',
-            background: `linear-gradient(180deg, ${LIME}, rgb(214, 217, 0))`
+            backgroundImage:
+              'radial-gradient(circle, rgba(69, 65, 56, 0.16) 14%, transparent 19%)',
+            backgroundSize: '6px 6px'
           }}
-        >
-          {/* Satori rotates around the element's centre without growing its
-              parent, so the label is laid out full-length (height × spine)
-              and offset back by half the difference on each axis. */}
-          <div
-            style={{
-              position: 'absolute',
-              left: (SPINE_W - size.height) / 2,
-              top: (size.height - SPINE_W) / 2,
-              width: size.height,
-              height: SPINE_W,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transform: 'rotate(-90deg)',
-              fontSize: 15,
-              letterSpacing: 9,
-              color: '#0b0c06',
-              ...monoFamily
-            }}
-          >
-            CRIBBLE · SERVICE RECORD
-          </div>
-        </div>
+        />
 
-        {/* ── main panel ── */}
+        {/* ── frame ── */}
         <div
           style={{
-            position: 'relative',
-            width: MAIN_W,
-            height: size.height,
+            position: 'absolute',
+            top: FRAME,
+            left: FRAME,
+            width: size.width - FRAME * 2,
+            height: size.height - FRAME * 2,
             display: 'flex',
             flexDirection: 'column',
-            paddingTop: 30,
-            paddingBottom: 32,
-            paddingLeft: 44,
-            paddingRight: 44
+            border: `1px solid ${LINE}`,
+            paddingTop: 28,
+            paddingBottom: 26,
+            paddingLeft: 36,
+            paddingRight: 36
           }}
         >
-          <div
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: MAIN_W,
-              height: size.height,
-              display: 'flex',
-              backgroundImage:
-                'linear-gradient(rgba(252, 255, 0, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(252, 255, 0, 0.03) 1px, transparent 1px)',
-              backgroundSize: '46px 46px'
-            }}
-          />
-          <div
-            style={{
-              position: 'absolute',
-              top: -150,
-              left: -110,
-              width: 700,
-              height: 620,
-              display: 'flex',
-              background: `radial-gradient(circle, ${tint(bloomTriplet, 0.11)} 0%, ${tint(bloomTriplet, 0)} 66%)`
-            }}
-          />
-
           {/* header */}
           <div
             style={{
@@ -601,53 +656,33 @@ export default async function OpengraphImage({
               width: '100%'
             }}
           >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                paddingTop: 8,
-                paddingBottom: 8,
-                paddingLeft: 14,
-                paddingRight: 16,
-                borderRadius: 8,
-                border: `1px solid ${LIME_DIM}`,
-                backgroundColor: 'rgba(252, 255, 0, 0.05)'
-              }}
-            >
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <div style={{ width: 6, height: 6, backgroundColor: INK, display: 'flex' }} />
               <div
                 style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: 999,
-                  backgroundColor: LIME,
-                  display: 'flex'
-                }}
-              />
-              <div
-                style={{
-                  marginLeft: 11,
+                  marginLeft: 10,
                   fontSize: 14,
-                  letterSpacing: 6,
-                  color: LIME,
+                  letterSpacing: 5,
+                  color: INK_2,
                   display: 'flex',
                   ...monoFamily
                 }}
               >
-                PILOT DOSSIER
+                UNIT RECORD
               </div>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center' }}>
               {markSrc ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={markSrc} width={28} height={28} alt="" />
+                <img src={markSrc} width={24} height={24} alt="" />
               ) : null}
               <div
                 style={{
-                  marginLeft: 11,
-                  fontSize: 16,
-                  letterSpacing: 6,
-                  color: SOFT,
+                  marginLeft: 10,
+                  fontSize: 14,
+                  letterSpacing: 5,
+                  color: INK_2,
                   display: 'flex',
                   ...monoFamily
                 }}
@@ -677,7 +712,7 @@ export default async function OpengraphImage({
               style={{
                 fontSize: 14,
                 letterSpacing: 5,
-                color: FAINT,
+                color: INK_3,
                 display: 'flex',
                 ...monoFamily
               }}
@@ -688,15 +723,18 @@ export default async function OpengraphImage({
               style={{
                 fontSize: 14,
                 letterSpacing: 2,
-                color: FAINT,
+                color: INK_3,
                 display: 'flex',
                 ...monoFamily
               }}
             >
-              {'// pilot profile'}
+              {'// UNIT RECORD'}
             </div>
           </div>
         </div>
+
+        {/* corner ticks just outside the frame */}
+        {cornerTicks(size.width, size.height, FRAME, INK)}
       </div>
     ),
     {

@@ -1,8 +1,8 @@
 'use client'
 
-// One paid ad, reused 1:1 across the flipper, the profile rails, the
-// buyer-side live preview and the admin queue so every surface shows
-// exactly what airs. Three shapes:
+// One paid ad, reused 1:1 across the flipper, the buyer-side live
+// preview and the admin queue so every surface shows exactly what airs.
+// Three shapes:
 //   sm — the original compact pill in the nav chip language (see
 //        NavTopBar), kept for dense admin lists; a title renders inline
 //        as "Title — text".
@@ -16,11 +16,14 @@
 //        extracted from the logo server-side and arrives at runtime as
 //        #rrggbb, so the tints are inline styles (hex + alpha suffix),
 //        not classes; null renders the same strip in neutral zinc.
-//   rail — the vertical profile-rails card (208px wide, canivibecodeit
-//        style): the same wash + ring machinery with the stripe moved to
-//        the top edge, a 36px logo with the AD tag opposite, the title
-//        line under it and the ad text wrapping up to three clamped
-//        lines. animateIn is a no-op here — the rails never rotate.
+//   rail — the vertical 208px card (canivibecodeit style) a rail ad
+//        wears on the sponsorship preview stage and the admin board:
+//        the same wash + ring machinery with the stripe moved to the
+//        top edge, a 36px logo with the AD tag opposite, the title line
+//        under it and the ad text wrapping up to three clamped lines.
+//        The profile itself lists rail ads as compact rows in its
+//        TRANSMISSIONS panel (TransmissionsPanel), not in this shape.
+//        animateIn is a no-op here — rail ads never rotate.
 // Every shape carries a corner "AD" glyph by default; adTag={false}
 // drops it for the one non-ad tenant (operator announcements on the
 // ticker's lg strip) — free copy is never dressed as sponsorship.
@@ -152,7 +155,7 @@ export function BillboardCard({
       <>
         {/* Same accent machinery as lg — wash under the content, the
             stripe relocated to the top edge for the vertical shape and
-            breathing on a slow cycle (the parked rails' only idle
+            breathing on a slow cycle (the parked card's only idle
             motion). */}
         {accentColor && (
           <span

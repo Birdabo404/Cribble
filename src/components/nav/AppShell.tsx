@@ -5,15 +5,18 @@
 // navigation, the nav and backdrop never remount between pages — route
 // changes only swap the content inside .app-nav-inset.
 //
-// Exception: profile routes drop the animated starfield + glow. The
-// profile page mounts its own static banner-derived aurora
-// (ProfileAmbience), so the two backdrops would fight — and the ~70
-// looping twinkle animations made the profile feel heavy.
+// Exception: profile routes (/profile, /u/*) drop the animated starfield
+// + glow — the ~70 looping twinkle animations made the profile feel
+// heavy — and get no backdrop at all: the UNIT RECORD is a sheet on a
+// drafting board, so the page area around it is painted as the board
+// (.pf-page, globals.css) in both themes. That paint goes on a wrapper
+// INSIDE .app-nav-inset's padding, never on the inset itself: the fixed
+// top bar and the rail are translucent glass over the canvas, and their
+// zinc-100 chrome would sit on the board if it ran under them.
 
 import type { ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
 import SpaceBackdrop from '@/components/SpaceBackdrop'
-import { BillboardRails } from '@/components/billboard/BillboardRails'
 import { BillboardTicker } from '@/components/billboard/BillboardTicker'
 import { AmbientGlow } from '@/components/dashboard-v3/AmbientGlow'
 import { AsteroidShower } from '@/components/dashboard-v3/AsteroidShower'
@@ -79,13 +82,14 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <div id="app-flow-content">
                   <div className="app-nav-inset relative z-10">
                     {/* first in-flow child so the banner pushes page content down;
-                        self-gates by pathname (dashboard/leaderboard) + frequency cap */}
+                        self-gates by pathname (dashboard/leaderboard) + frequency cap.
+                        Stays on the canvas, above the profile's paper wrapper: it only
+                        ever crosses a profile route mid-collapse, in its own chrome. */}
                     <BillboardTicker />
-                    {/* fixed sponsor columns flanking the profile pages; self-gates
-                        by pathname (profile routes) + ≥1440px viewports — never
-                        rendered on /leaderboard, so never inside live smoothing */}
-                    <BillboardRails />
-                    {children}
+                    {/* Style-free on every other route. On profile routes .pf-page
+                        paints the paper around the record and fills the viewport
+                        under the nav (min-height in globals.css) on short pages. */}
+                    <div className={profileRoute ? 'pf-page' : undefined}>{children}</div>
                   </div>
                 </div>
               </div>

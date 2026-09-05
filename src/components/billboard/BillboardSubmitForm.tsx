@@ -7,9 +7,9 @@
 // picker chooses which product the card buys — the rotating flipper
 // strip, an always-on profile rail, or the leaderboard sponsor board
 // (migration 055, bid-priced rather than weekly) — and ships as
-// `placement` on both create and edit. Picking the rail reveals a slot
-// grid mirroring the
-// real rail geometry, fed by /api/billboard/slots (fetched here, not by
+// `placement` on both create and edit. Picking the rail reveals the 2x4
+// slot grid (L1-L4, R1-R4 — the same eight rows the profile's
+// TRANSMISSIONS panel lists), fed by /api/billboard/slots (fetched here, not by
 // a parent, because the form mounts in both contexts): the buyer may
 // request a specific slot, shipped as `requested_rail_slot` on create
 // and edit. Taken slots stay selectable — a request is a preference
@@ -234,7 +234,7 @@ const PLACEMENTS: {
     value: 'rail',
     label: 'Profile rail',
     price: `from $${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}/wk`,
-    blurb: 'Always-on card beside every profile page.'
+    blurb: 'Always-on cell in the profile transmissions panel, 1024px and up.'
   },
   {
     value: 'leaderboard',
@@ -707,8 +707,8 @@ export function BillboardSubmitForm({
             </div>
           </div>
 
-          {/* ---- rail slot preference: a 2x4 grid in the real rail
-              geometry (L column, R column, rows top to bottom). Taken
+          {/* ---- rail slot preference: the 2x4 slot grid (L column, R
+              column, rows top to bottom — the ladder's price tiers). Taken
               slots stay selectable — a request is a queue position, not
               a hold; the first confirmed payment takes the slot. ---- */}
           {placement === 'rail' && (

@@ -228,7 +228,7 @@ async function main() {
 
   const heroRect = async (margin = 16) => {
     const r = await evalJs(
-      `(() => { const el = document.querySelector('section.glass-pop'); if (!el) return null; const b = el.getBoundingClientRect(); return { x: b.x + window.scrollX, y: b.y + window.scrollY, width: b.width, height: b.height }; })()`
+      `(() => { const el = document.querySelector('section.pf-dossier'); if (!el) return null; const b = el.getBoundingClientRect(); return { x: b.x + window.scrollX, y: b.y + window.scrollY, width: b.width, height: b.height }; })()`
     )
     if (!r) throw new Error('hero card not found')
     return {
@@ -241,7 +241,7 @@ async function main() {
 
   const goto = async (settle = 2600) => {
     await cdp.send('Page.navigate', { url: `${BASE}/u/sui` })
-    await waitFor('section.glass-pop h1')
+    await waitFor('section.pf-dossier h1')
     await sleep(settle) // pf-reveal + fonts
   }
 
@@ -253,7 +253,7 @@ async function main() {
   const audit = () =>
     evalJs(
       `(() => {
-        const hero = document.querySelector('section.glass-pop')
+        const hero = document.querySelector('section.pf-dossier')
         const text = hero.innerText.replace(/\\s+/g, ' ')
         return {
           hasRunnerUp: text.includes('RUNNER-UP'),

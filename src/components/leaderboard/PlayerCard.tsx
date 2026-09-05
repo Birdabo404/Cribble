@@ -213,6 +213,11 @@ export function PlayerCard({
   const weekScore = profile?.weekScore ?? row.weekScore
   const badges = profile?.badges ?? null
 
+  // HANGAR pointer under the NOW BUILDING pill: the in-flight pin IS the
+  // pill, so it is not counted a second time.
+  const hangar = profile?.hangar ?? []
+  const hangarBeyondPill = hangar.length - (hangar.some((card) => card.inFlight) ? 1 : 0)
+
   const roleKey = (profile?.role ?? row.role) || null
   const RoleIcon = roleKey ? ROLE_ICONS[roleKey] : undefined
   const roleLabel = roleKey ? ROLE_META[roleKey] : null
@@ -790,25 +795,38 @@ export function PlayerCard({
             </div>
           </div>
 
-          {/* ---------- now building ---------- */}
+          {/* ---------- now building + hangar ---------- */}
           {/* Appears on profile hydration — no skeleton; the card simply
-              gains the pill when the payload lands. */}
-          {profile?.project && (
-            <div className="mt-5 flex justify-center px-6">
-              <a
-                href={profile.project.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={profile.project.url}
-                className="group flex max-w-full items-center gap-2 rounded-lg border border-[rgb(var(--lb-panel-edge)/0.12)] bg-[rgb(var(--lb-panel-edge)/0.03)] px-3 py-1.5 transition-colors hover:border-[rgb(var(--lb-panel-edge)/0.3)]"
-              >
-                <span className="shrink-0 text-[8px] tracking-[0.25em] text-zinc-500">
-                  NOW BUILDING
-                </span>
-                <span className="min-w-0 truncate text-[10px] tracking-[0.12em] text-zinc-200 transition-colors group-hover:text-zinc-50">
-                  {profile.project.name}
-                </span>
-              </a>
+              gains the pill when the payload lands. The one-line pointer
+              under it deep-links to the profile's HANGAR tab. */}
+          {(profile?.project || hangarBeyondPill > 0) && (
+            <div className="mt-5 flex flex-col items-center gap-2 px-6">
+              {profile?.project && (
+                <a
+                  href={profile.project.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={profile.project.url}
+                  className="group flex max-w-full items-center gap-2 rounded-lg border border-[rgb(var(--lb-panel-edge)/0.12)] bg-[rgb(var(--lb-panel-edge)/0.03)] px-3 py-1.5 transition-colors hover:border-[rgb(var(--lb-panel-edge)/0.3)]"
+                >
+                  <span className="shrink-0 text-[8px] tracking-[0.25em] text-zinc-500">
+                    NOW BUILDING
+                  </span>
+                  <span className="min-w-0 truncate text-[10px] tracking-[0.12em] text-zinc-200 transition-colors group-hover:text-zinc-50">
+                    {profile.project.name}
+                  </span>
+                </a>
+              )}
+              {hangarBeyondPill > 0 && (
+                <Link
+                  href={`/u/${encodeURIComponent(row.username)}#hangar`}
+                  className="text-[8px] tracking-[0.25em] text-zinc-500 transition-colors hover:text-zinc-200"
+                >
+                  {profile?.project
+                    ? `+${hangarBeyondPill} MORE IN HANGAR →`
+                    : `${hangarBeyondPill} IN HANGAR →`}
+                </Link>
+              )}
             </div>
           )}
 

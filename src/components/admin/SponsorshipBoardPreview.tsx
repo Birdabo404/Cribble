@@ -2,16 +2,18 @@
 
 // Whole-board context preview for the sponsorship review queue: the
 // three placement surfaces (leaderboard sponsor board, dashboard
-// flipper strip, profile rail grid) composed from the same public
-// components those surfaces ship, with the currently-live ads AND the
+// flipper strip, the profile TRANSMISSIONS panel's eight rail slots)
+// composed from the same public components those surfaces ship, with
+// the currently-live ads AND the
 // queued / awaiting-payment ones staged together — so staff judge a
 // queued creative against the board it would actually join, not in
 // isolation. Leaderboard staging follows the product rule that a new
 // bid must take #1: a queued creative previews at rank 1 holding the
 // current minimum target, with the live board pushed down one rank
 // beneath it. Flipper shows the live strip plus queued cards against
-// the 8-slot cap; rails render the fixed L1–R4 slot grid with queued
-// ads beneath, tagged with their requested slot. Buyer-controlled
+// the 8-slot cap; rails render the fixed L1–R4 slot grid (the profile
+// panel lists the same eight top to bottom, 1024px+) with queued ads
+// beneath, tagged with their requested slot. Buyer-controlled
 // fields are untrusted: text renders as plain text and nothing here
 // links to link_url — it only feeds the company-name host fallback.
 // Read-only by design; every action stays on the review rows.
@@ -349,9 +351,10 @@ function FlipperItem({
 }
 
 /** The fixed L1–R4 rail grid: every slot renders its live occupant in
- *  the rail shape or an open-slot placeholder with the slot's price;
- *  queued/awaiting rail ads sit beneath, tagged with the slot they
- *  asked for (a preference, never a hold). */
+ *  the rail card shape or an open-slot placeholder with the slot's
+ *  price (the profile's TRANSMISSIONS panel shows the same eight as
+ *  compact rows); queued/awaiting rail ads sit beneath, tagged with
+ *  the slot they asked for (a preference, never a hold). */
 function RailPanel({
   live,
   staged
