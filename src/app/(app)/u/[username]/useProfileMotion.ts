@@ -311,7 +311,7 @@ export function useProfileMotion(
   // media contexts) should ready ever cycle; with plain dependencies
   // useGSAP defers the returned cleanup to unmount.
   useGSAP(
-    (_, contextSafe = (fn) => fn) => {
+    () => {
       const el = root.current
       if (!opts.ready || !el) return
 
@@ -336,7 +336,14 @@ export function useProfileMotion(
         const heroActions = el.querySelector<HTMLElement>('.pf-hero-actions')
         if (!bar || !heroActions || !isRendered(bar) || !isRendered(heroActions)) return
         const reduce = reducedIn(context)
-        const show = contextSafe((visible: boolean) => {
+        // A plain function, not the hook's contextSafe: it fires from a
+        // ScrollTrigger callback that belongs to THIS context, and
+        // contextSafe would run it inside the hook's outer one — GSAP
+        // then files the outer context as this one's child, and the
+        // revert on crossing lg walks parent → child → parent until the
+        // stack overflows (Context.getTweens). The tween lands on the
+        // global timeline untracked, so its teardown is registered below.
+        const show = (visible: boolean) => {
           gsap.to(bar, {
             autoAlpha: visible ? 1 : 0,
             y: visible ? 0 : -6,
@@ -344,7 +351,11 @@ export function useProfileMotion(
             ease: 'power2.out',
             overwrite: 'auto'
           })
-        })
+        }
+        // A show still tweening when the context reverts (a rotate
+        // mid-fade) must not outlive it. Runs after the set below is
+        // reverted, so the bar is left as the stylesheet had it.
+        context.add(() => () => gsap.killTweensOf(bar))
         gsap.set(bar, { autoAlpha: 0, y: -6 })
         // start = the hero actions' bottom edge crossing the bar's bottom
         // edge, i.e. gone under the sticky bar. The bar sticks at

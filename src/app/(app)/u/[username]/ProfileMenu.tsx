@@ -198,6 +198,8 @@ export function ProfileMenu({
     <div
       className={`pf-panel sticky top-[calc(var(--pf-sticky-top)+3rem)] z-20 border-y border-[color:var(--pf-line-soft)] bg-[color:var(--pf-paper)] lg:static lg:bg-transparent ${className}`}
     >
+      {/* .pf-menu (dossier.css) also fades the strip's right edge below
+          lg — the cue that more rows are off it */}
       <div
         ref={listRef}
         role="tablist"

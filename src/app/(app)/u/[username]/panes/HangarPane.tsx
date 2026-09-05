@@ -519,11 +519,15 @@ function Bay({
           <span className="flex shrink-0 items-center gap-2">
             {card.inFlight && <InFlightChip />}
             <SourceGlyph card={card} />
+            {/* the link-out arrow: printed where there is no pointer
+                (a touch screen has no hover to reveal it), and only on
+                bay hover / focus where there is one — the FollowButton's
+                @media (hover: hover) gate */}
             {linked && (
               <Stroke
                 d={PATH_ARROW_UP_RIGHT}
                 size={11}
-                className={`${INK} opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100`}
+                className={`${INK} transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100`}
               />
             )}
           </span>
@@ -542,9 +546,13 @@ function Bay({
           <Telemetry card={card} />
         </div>
 
-        {/* 5 · CUSTOMIZE controls, always visible in that mode */}
+        {/* 5 · CUSTOMIZE controls, always visible in that mode. Wraps:
+            below sm the three 44px icon buttons leave ~120px at 320px,
+            short of SET IN FLIGHT at stencil tracking, so the label takes
+            its own row underneath (basis-full), right-aligned. From sm
+            it sits at the end of the one row. */}
         {customizing && (
-          <div className="pointer-events-auto mt-3 flex items-center gap-0.5 border-t border-[color:var(--pf-line-soft)] pt-2 sm:gap-1">
+          <div className="pointer-events-auto mt-3 flex flex-wrap items-center gap-0.5 border-t border-[color:var(--pf-line-soft)] pt-2 sm:gap-1">
             <button
               type="button"
               onClick={() => onMove(index, -1)}
@@ -580,10 +588,7 @@ function Bay({
               onClick={() => onSetInFlight(card.url)}
               disabled={busy || card.inFlight}
               aria-label={card.inFlight ? `${name} is in flight` : `Set ${name} in flight`}
-              // Tighter tracking + padding below sm: at 320px the row has
-              // ~120px left after three 44px buttons and the label must
-              // stay on one line (it wrapped at the stencil tracking).
-              className={`ml-auto flex h-11 items-center gap-1.5 whitespace-nowrap px-1.5 font-data text-[9px] tracking-[0.15em] transition-colors sm:h-7 sm:px-2 sm:tracking-[0.18em] ${
+              className={`flex h-11 basis-full items-center justify-end gap-1.5 whitespace-nowrap px-2 font-data text-[10px] tracking-[0.18em] transition-colors sm:ml-auto sm:h-7 sm:basis-auto ${
                 card.inFlight
                   ? `${INK} disabled:opacity-100`
                   : `${INK_3} ${PAPER_3_HOVER} ${ENABLED_HOVER_INK} disabled:opacity-30`

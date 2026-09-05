@@ -10,7 +10,9 @@
 // finished number. A podium rank prints in its medal ink — no glow.
 // SCORE and its +TODAY line are the pane's heat and print in
 // --pf-ember-ink (5.04:1 on paper, 5.78:1 on the hover paper-3); the
-// other cells stay charcoal.
+// other cells stay charcoal. Ember is earned: a zero (a fresh pilot's
+// SCORE, a quiet day's +0) is heat with no heat and prints in --pf-ink-3
+// instead, the mute of RANK's unranked dash.
 
 import { formatDuration, formatNumber, formatScore } from '@/components/dashboard-v2/format'
 import { MoveGlyph } from '@/components/leaderboard/icons'
@@ -19,6 +21,9 @@ import { ActivityGrid } from '../ActivityGrid'
 import { medalInk, MONO_NUMERAL, monthYear, PIXEL_NUMERAL, StatCell } from '../parts'
 import { SystemLog } from '../SystemLog'
 import { buildSystemLog } from '../systemLogEntries'
+
+/** SCORE's ink: ember for points on the board, ink-3 for none. */
+const heatInk = (points: number) => (points > 0 ? 'var(--pf-ember-ink)' : 'var(--pf-ink-3)')
 
 export function RecordPane({ profile }: { profile: PublicProfileData }) {
   const medal = medalInk(profile.rank)
@@ -61,14 +66,14 @@ export function RecordPane({ profile }: { profile: PublicProfileData }) {
 
         <StatCell
           label="SCORE"
-          sub={<span style={{ color: 'var(--pf-ember-ink)' }}>+{formatScore(profile.todayScore)} TODAY</span>}
+          sub={<span style={{ color: heatInk(profile.todayScore) }}>+{formatScore(profile.todayScore)} TODAY</span>}
           title={`${formatNumber(profile.score)} lifetime points`}
         >
           <span
             className={PIXEL_NUMERAL}
             data-pf-count={profile.score}
             data-pf-format="score"
-            style={{ color: 'var(--pf-ember-ink)' }}
+            style={{ color: heatInk(profile.score) }}
           >
             {formatScore(profile.score)}
           </span>

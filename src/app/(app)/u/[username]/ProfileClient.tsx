@@ -10,7 +10,10 @@
 // (StatusRibbon → BannerPlate → Dossier → the pane frame → footer).
 // Below lg it is one column: the phone compact bar, then the spine as
 // the hero block (banner first, avatar overlapping it), then the menu
-// strip, then the content.
+// strip, then the content — where the owner's RECRUIT frame follows the
+// pane (Spine's RecruitFrame; in the hero it pushed the menu strip out
+// of a 390px first fold, and the record is the document, recruitment
+// its appendix).
 //
 // The menu (ProfileMenu) swaps panes (panes/*) in place — RECORD ·
 // HANGAR · LOADOUT · SERVICE RECORD · AFFILIATES; which of the optional
@@ -58,7 +61,7 @@ import { PROFILE_TAB_LABEL, ProfileMenu, useProfileTab, type ProfileTabId } from
 import { MissingPilot, ProfileError, ProfileSkeleton } from './ProfileScreens'
 import { recruitingTeamHandle } from './recruiter'
 import { revStamp } from './ribbonLines'
-import { Spine } from './Spine'
+import { RecruitFrame, Spine } from './Spine'
 import { StatusRibbon } from './StatusRibbon'
 import { tabsFor } from './tabsFor'
 import { LG_QUERY, useMediaQuery } from './useMediaQuery'
@@ -444,8 +447,12 @@ export default function ProfileClient({ username }: { username: string }) {
 
         {/* ---------- content column ----------
             relative so the single .pf-scan line has a box to sweep; the
-            sheet gutter on three sides. */}
-        <div className="relative min-w-0 px-[var(--pf-gutter)] pb-6 pt-[var(--pf-gutter)]">
+            sheet gutter on three sides. A flex column from lg so the
+            footer can sit on the sheet's bottom edge (lg:mt-auto) when
+            the spine runs taller than the content — an owner's RECRUIT
+            frame over a short HANGAR pane left it floating mid-sheet
+            over empty paper. */}
+        <div className="relative min-w-0 px-[var(--pf-gutter)] pb-6 pt-[var(--pf-gutter)] lg:flex lg:flex-col">
           <span aria-hidden className="pf-scan" />
 
           <StatusRibbon profile={profile} chase={chase} />
@@ -463,8 +470,10 @@ export default function ProfileClient({ username }: { username: string }) {
 
           {/* ---------- pane frame ----------
               The panel re-keys on the tab so every switch mounts a fresh
-              node for the motion hook to slide in. */}
-          <Frame className="pf-panel mt-6">
+              node for the motion hook to slide in. lg:mb-5 keeps the
+              footer's gap when it is pushed to the bottom edge (its
+              lg:mt-auto is 0 whenever the content is the taller column). */}
+          <Frame className="pf-panel mt-6 lg:mb-5">
             <PanelHeader
               title={PROFILE_TAB_LABEL[tab]}
               aside={paneAside(tab, profile)}
@@ -475,7 +484,10 @@ export default function ProfileClient({ username }: { username: string }) {
             </div>
           </Frame>
 
-          <footer className="pf-panel mt-5 flex items-center justify-between gap-3 border-t border-[color:var(--pf-line-soft)] pt-3">
+          {/* ---------- recruit (owner, below lg; see the header) ---------- */}
+          {!desktop && isYou && <RecruitFrame className="mt-6" />}
+
+          <footer className="pf-panel mt-5 flex items-center justify-between gap-3 border-t border-[color:var(--pf-line-soft)] pt-3 lg:mt-auto">
             <span className="pf-micro">CRIBBLE · {new Date().getFullYear()} · UNIT RECORD</span>
             <span className="pf-micro">{revStamp(profile.memberSince)}</span>
           </footer>

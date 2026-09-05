@@ -604,8 +604,18 @@ html.light .pf-dossier {
 }
 
 /* Below lg the menu is a horizontal snap strip: rows size to their
-   label instead of the full-width list row above. */
+   label instead of the full-width list row above. The strip's last 24px
+   fade to nothing through an alpha mask — an affordance, not a colour:
+   at 320px LOADOUT ended exactly on the sheet edge and nothing said
+   SERVICE RECORD was off it. The rows' 16px gutter keeps every label
+   clear of the ramp except the last one's tail once it is scrolled
+   fully in, which is the cue's price. */
 @media (max-width: 1023px) {
+  .pf-menu {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+  }
+
   .pf-menu-row {
     width: auto;
     flex: 0 0 auto;
