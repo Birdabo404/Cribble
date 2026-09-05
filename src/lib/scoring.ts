@@ -488,18 +488,18 @@ async function recalculateUserScoreFallback(supabase: SupabaseClient, userId: nu
     .upsert({ ...payload, ...rollupColumns }, { onConflict: 'user_id' })
 
   // PGRST204 = a payload column is missing from the schema cache. If the
-  // rollup columns are what's missing (migration 036 not applied on this
-  // database), the score write itself must still land — retry without
-  // them rather than letting scores go permanently stale.
+  // rollup columns are what's missing (migration 036 or 069 not applied
+  // on this database), the score write itself must still land — retry
+  // without them rather than letting scores go permanently stale.
   if (
     upsertError &&
     upsertError.code === 'PGRST204' &&
-    /top_tools|active_days|longest_streak|total_active_ms|stats_updated_at/.test(
+    /top_tools|active_days|longest_streak|total_active_ms|stats_updated_at|activity_days/.test(
       upsertError.message || ''
     )
   ) {
     console.warn(
-      '[Scoring] Stats rollup columns missing (apply migrations/036_user_stats_rollup.sql); writing scores only.'
+      '[Scoring] Stats rollup columns missing (apply migrations/036_user_stats_rollup.sql and migrations/069_activity_days.sql); writing scores only.'
     )
     ;({ error: upsertError } = await supabase
       .from('user_scores')

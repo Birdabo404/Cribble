@@ -3,9 +3,10 @@
 // by handle) so the leaderboard card and the full profile page can
 // never drift apart. Exposes only data already visible on the
 // leaderboard plus persisted achievement unlocks, the user's own
-// published profile fields (bio, location, website, socials), and —
-// strictly opt-in via the token-sharing consent — their agent CLI mix.
-// Never emails, devices or admin fields.
+// published profile fields (bio, location, website, socials, hangar
+// pins joined to their cached cards), and — strictly opt-in via the
+// token-sharing consent — their agent CLI mix. Never emails, devices
+// or admin fields.
 
 import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -15,6 +16,9 @@ import {
   type AchievementRarity
 } from '@/lib/achievements'
 import { parseBannerFrame, type BannerFrame } from '@/lib/bannerFrame'
+import { loadCards, staleUrls, toHangarCards } from '@/lib/hangar/cards'
+import { cleanPins } from '@/lib/hangar/normalize'
+import type { HangarCard } from '@/lib/hangar/types'
 import {
   getOwnedPlateIds,
   isApprovedTeam,
@@ -29,8 +33,10 @@ import {
 import { createServiceClient } from '@/lib/supabaseServer'
 import { getAffiliatedTeamsBatch } from '@/lib/teams'
 import {
+  ACTIVITY_WINDOW_DAYS,
   ensureUserStatsRollup,
   USER_STATS_ROLLUP_SELECT,
+  type ActivityDay,
   type UserStatsRollupColumns
 } from '@/lib/userStats'
 
@@ -121,6 +127,10 @@ export interface PublicProfile {
    *  project_url is saved. name is the owner's label, or derived
    *  server-side (owner/repo for GitHub URLs, else the hostname). */
   project: { url: string; name: string } | null
+  /** HANGAR — pinned builds (metadata.pins, max HANGAR_MAX) resolved into
+   *  cards, in pin order. Public-by-design like bio/website/project, so
+   *  never gated. inFlight marks the pin matching project_url. */
+  hangar: HangarCard[]
   socials: {
     x: string | null
     github: string | null
@@ -152,10 +162,14 @@ export interface PublicProfile {
    *  owner enabled token sharing (consent v2). Never a ranking input. */
   topAgents: PublicProfileAgent[]
   badges: PublicProfileBadge[]
+  /** ACTIVITY GRID feed: per-UTC-day active ms for the last windowDays
+   *  days (only days with activity, ascending), straight off the
+   *  user_scores rollup. Gated like topTools/badges. */
+  activity: { windowDays: typeof ACTIVITY_WINDOW_DAYS; days: ActivityDay[] }
   /** Account is in private mode (owner opted in via profile settings). */
   isPrivate: boolean
   /** True when the current viewer cannot see the gated sections
-   *  (topTools/badges are emptied server-side in that case). */
+   *  (topTools/badges/activity are emptied server-side in that case). */
   restricted: boolean
 }
 
@@ -257,7 +271,15 @@ export const readAccountIsPrivate = (
 export type ProfileLookup = { userId: number } | { username: string }
 
 export type PublicProfileResult =
-  | { ok: true; profile: PublicProfile }
+  | {
+      ok: true
+      profile: PublicProfile
+      /** HANGAR pins whose link_cards row was missing or stale when this
+       *  profile was assembled — what /api/profile/[username] hands to
+       *  refreshStaleCards in after(). Empty when every card is fresh or
+       *  the table is unavailable. Not part of the payload. */
+      hangarStale: string[]
+    }
   | { ok: false; status: number; error: string }
 
 /**
@@ -295,12 +317,25 @@ export async function loadPublicProfile(
   const totalScore = Math.round(row.user_scores?.total_score || 0)
   const tier = normalizeTier(row.subscription_tier)
 
+  // HANGAR pins re-run the write-side sanitiser so a hand-edited
+  // metadata row can never surface a private or malformed URL.
+  const pins = cleanPins((row.metadata ?? {}).pins)
+
   // Rank + movement, unlocked badges, this player's stats rollup, their
-  // owned plates, and their team affiliation — all in parallel. The
-  // rollup reads straight off the already-fetched user_scores columns;
-  // only a row that predates migration 036 (stats_updated_at NULL) pays
-  // a one-time events backfill here.
-  const [rankRes, snapshotRes, badgesRes, rollup, ownedPlateIds, affiliatedTeams, agentsRes] =
+  // owned plates, their team affiliation and their hangar cards — all
+  // in parallel. The rollup reads straight off the already-fetched
+  // user_scores columns; only a row that predates migration 036
+  // (stats_updated_at NULL) pays a one-time events backfill here.
+  const [
+    rankRes,
+    snapshotRes,
+    badgesRes,
+    rollup,
+    ownedPlateIds,
+    affiliatedTeams,
+    agentsRes,
+    cardSet
+  ] =
     await Promise.all([
       totalScore > 0
         ? supabase
@@ -321,7 +356,8 @@ export async function loadPublicProfile(
       ensureUserStatsRollup(supabase, row.id, row.user_scores ?? null),
       getOwnedPlateIds(supabase, row.id),
       getAffiliatedTeamsBatch(supabase, [row.id]),
-      supabase.rpc('agent_profile_agents', { p_user_id: row.id })
+      supabase.rpc('agent_profile_agents', { p_user_id: row.id }),
+      loadCards(supabase, pins)
     ])
 
   const rank =
@@ -435,6 +471,7 @@ export async function loadPublicProfile(
 
   return {
     ok: true,
+    hangarStale: staleUrls(pins, cardSet),
     profile: {
       userId: row.id,
       username,
@@ -447,6 +484,9 @@ export async function loadPublicProfile(
       location: metaString(meta, 'location'),
       website: metaString(meta, 'website'),
       project: readProject(meta),
+      // Pin order; a pin without a fresh card renders as pending. The
+      // read path never resolves — see lib/hangar/cards.ts.
+      hangar: toHangarCards(pins, cardSet.rows, metaString(meta, 'project_url')),
       socials: {
         x: socialOr('x', provider === 'x' ? username : null),
         github: socialOr('github', provider === 'github' ? username : null),
@@ -481,6 +521,10 @@ export async function loadPublicProfile(
       topTools,
       topAgents,
       badges,
+      activity: {
+        windowDays: ACTIVITY_WINDOW_DAYS,
+        days: rollup?.activityDays ?? []
+      },
       isPrivate: readAccountIsPrivate(meta),
       restricted: false
     }
@@ -494,9 +538,10 @@ export async function loadPublicProfile(
 /**
  * Enforce private-mode gating for a viewer. Private accounts keep their
  * identity, bio and score public (they are on the leaderboard anyway),
- * but top tools and the service record are follower-only: anyone who
- * isn't the owner or a follower gets them emptied plus restricted=true
- * so clients can render a locked state instead of "no data".
+ * but top tools, the service record and the activity grid are
+ * follower-only: anyone who isn't the owner or a follower gets them
+ * emptied plus restricted=true so clients can render a locked state
+ * instead of "no data".
  */
 export function gateProfileForViewer(
   profile: PublicProfile,
@@ -505,7 +550,14 @@ export function gateProfileForViewer(
   const canSee =
     !profile.isPrivate || viewer?.isYou === true || viewer?.isFollowing === true
   if (canSee) return profile
-  return { ...profile, topTools: [], topAgents: [], badges: [], restricted: true }
+  return {
+    ...profile,
+    topTools: [],
+    topAgents: [],
+    badges: [],
+    activity: { ...profile.activity, days: [] },
+    restricted: true
+  }
 }
 
 /* ------------------------------------------------------------------ */
