@@ -1,3 +1,4 @@
+import { formatCompact } from '@/components/dashboard-v2/format'
 import { HARNESS_AGENT_LABELS } from '@/lib/harnessBrands'
 import type { SeasonState } from '@/lib/season'
 import { addCalendarDays, calendarDateInTimeZone } from '@/lib/timeZone'
@@ -334,6 +335,27 @@ export function usdDisplayParts(value: string): { tiny: boolean; number: string 
 
   const decimals = whole.length >= 4 ? '' : `.${fraction.padEnd(2, '0').slice(0, 2)}`
   return { tiny, number: `${formatExactInteger(whole)}${decimals}` }
+}
+
+/** USD digits for an approximate (tween-frame) number, no currency mark
+ *  and no sub-cent handling — the caller paints its own `$`. Mirrors
+ *  usdDisplayParts' ladder: cents below $1,000 (`123.45`), whole dollars
+ *  to $99,999 (`12,345`), compact from $100k (`250k`, `1.5M`). */
+export function formatApproxUsdNumber(value: number): string {
+  if (value >= 100_000) return formatCompact(value)
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: value >= 1_000 ? 0 : 2,
+    maximumFractionDigits: value >= 1_000 ? 0 : 2
+  })
+}
+
+/** Whole USD readout from an approximate number: `$0.00` for nothing (or
+ *  a non-finite value), `<$0.01` for a sub-cent trickle, otherwise `$` +
+ *  formatApproxUsdNumber. For a count-up formatter that owns the mark. */
+export function formatApproxUsd(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '$0.00'
+  if (value < 0.01) return '<$0.01'
+  return `$${formatApproxUsdNumber(value)}`
 }
 
 export function cleanBreakdown(

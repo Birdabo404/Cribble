@@ -5,8 +5,15 @@ import gsap from 'gsap'
 import { useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AnimatedCounter from '@/components/AnimatedCounter'
-import { formatCompact, formatNumber } from '@/components/dashboard-v2/format'
+import { formatNumber } from '@/components/dashboard-v2/format'
 import { Avatar } from '@/components/leaderboard/Avatar'
+import {
+  SOURCES,
+  type BoardFeedReport,
+  type BurnSource
+} from '@/components/leaderboard/burnSource'
+import { CrtBurn, type BurnFeed, type BurnSelection } from '@/components/leaderboard/CrtBurn'
+import { cursorProfileUrl } from '@/components/leaderboard/crtFeeds'
 import { CursorBoard } from '@/components/leaderboard/CursorBoard'
 import { leaderboardScrollTo } from '@/components/leaderboard/LeaderboardScrollRuntime'
 import { LeaderboardSponsorFlip } from '@/components/leaderboard/LeaderboardSponsorFlip'
@@ -29,11 +36,13 @@ import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { useSettingsModal } from '@/components/settings/SettingsModalContext'
 import { fetchMe as requestMe } from '@/lib/client/fetchMe'
+import type { CursorBoardRow } from '@/lib/cursorProfileBoard'
 import { isProTier } from '@/lib/entitlements'
 import { prefersReducedMotion } from '@/lib/motion'
 import {
   decimalToApproxNumber,
   exactIntegerToSafeNumber,
+  formatApproxUsdNumber,
   formatCompactTokenCount,
   formatExactInteger,
   tokenAgentLabel,
@@ -55,14 +64,9 @@ const WINDOWS: { id: TokenBoardWindowId; label: string }[] = [
   { id: 'all', label: 'ALL' }
 ]
 
-/** Which fuel THE BURN ranks: usage synced by the cribble-agent CLI, or
- *  scraped public cursor.com profiles (the no-CLI path). */
-export type BurnSource = 'cli' | 'cursor'
-
-const SOURCES: { id: BurnSource; label: string }[] = [
-  { id: 'cli', label: 'CLI' },
-  { id: 'cursor', label: 'CURSOR' }
-]
+// BurnSource lives in burnSource.ts (shared with the CRT wrapper); the
+// page keeps importing it from here.
+export type { BurnSource } from '@/components/leaderboard/burnSource'
 
 // Mobile is a two-zone layout — identity left, burn metrics right — so the
 // rank gutter shrinks to the medal box and the metrics column hugs its
@@ -84,14 +88,6 @@ function formatUsd(value: string): string {
   return `${display.tiny ? '<' : ''}$${display.number}`
 }
 
-function formatUsdNumber(value: number): string {
-  if (value >= 100_000) return formatCompact(value)
-  return value.toLocaleString('en-US', {
-    minimumFractionDigits: value >= 1_000 ? 0 : 2,
-    maximumFractionDigits: value >= 1_000 ? 0 : 2
-  })
-}
-
 function UsdValue({ value, animated = false }: { value: string; animated?: boolean }) {
   const display = usdDisplayParts(value)
   const approximate = decimalToApproxNumber(display.tiny ? '0.01' : value)
@@ -102,7 +98,7 @@ function UsdValue({ value, animated = false }: { value: string; animated?: boole
       {display.tiny ? '<' : null}
       <span className="lbt-money">$</span>
       {canAnimate ? (
-        <AnimatedCounter value={approximate} duration={1100} formatter={formatUsdNumber} />
+        <AnimatedCounter value={approximate} duration={1100} formatter={formatApproxUsdNumber} />
       ) : (
         display.number
       )}
@@ -131,7 +127,9 @@ function TokenValue({ value, animated = false }: { value: string; animated?: boo
 export function TokenBoard({
   burnSource = null,
   linkedStamp = null,
-  onOptInOpenChange
+  onOptInOpenChange,
+  frozen = false,
+  toolbar
 }: {
   /** Page-level source override (the coin-up success CTA lands on the
    *  CURSOR source even when this board mounted on CLI). */
@@ -142,6 +140,13 @@ export function TokenBoard({
   /** CursorBoard's JOIN modal open state, bubbled to the page's
    *  animation-freeze guard. */
   onOptInOpenChange?: (open: boolean) => void
+  /** True while a page-level modal covers the arena (the COIN-UP prompt)
+   *  — pauses the burn tube the way the page freeze pauses the CSS. */
+  frozen?: boolean
+  /** The page's board tabs (GLOBAL / TOKENS / AI / TEAMS). The burn CRT
+   *  mounts here, so this view seats the tabs itself — between the stat
+   *  strip and the list, where GLOBAL's toolbar row sits under its hero. */
+  toolbar?: React.ReactNode
 }) {
   const searchParams = useSearchParams()
   const [source, setSource] = useState<BurnSource>(() =>
@@ -149,9 +154,87 @@ export function TokenBoard({
   )
   const [windowId, setWindowId] = useState<TokenBoardWindowId>('season')
 
+  // The CRT's feed: whichever board is active reports its rows here (null
+  // while fetching). The burn card's selection lives up here too so the
+  // tube can open it from PRESS START and pause while it's up.
+  const [feed, setFeed] = useState<BurnFeed | null>(null)
+  const [feedFailed, setFeedFailed] = useState(false)
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null)
+  const [joinOpen, setJoinOpen] = useState(false)
+  const sourceRef = useRef(source)
+  sourceRef.current = source
+
+  // Re-tune: every path that changes what the tube is tuned to (source
+  // toggle, window pill, page override) drops the feed and the card in
+  // the same commit as the new feed identity, so the tube renders an
+  // empty rotation under the new id — clean AWAITING → glitch-in, never
+  // a stale rank 1 from the previous feed.
+  const retune = useCallback(() => {
+    setFeed(null)
+    setFeedFailed(false)
+    setSelectedUserId(null)
+  }, [])
+
+  const handleSourceChange = useCallback(
+    (next: BurnSource) => {
+      if (next === sourceRef.current) return
+      retune()
+      setSource(next)
+    },
+    [retune]
+  )
+
+  const handleWindowChange = useCallback(
+    (next: TokenBoardWindowId) => {
+      retune()
+      setWindowId(next)
+    },
+    [retune]
+  )
+
   useEffect(() => {
-    if (burnSource !== null) setSource(burnSource)
-  }, [burnSource])
+    if (burnSource !== null) handleSourceChange(burnSource)
+  }, [burnSource, handleSourceChange])
+
+  const handleCliFeed = useCallback(({ rows, failed }: BoardFeedReport<TokenBoardRow>) => {
+    setFeed(rows === null ? null : { source: 'cli', rows })
+    setFeedFailed(failed)
+  }, [])
+  const handleCursorFeed = useCallback(({ rows, failed }: BoardFeedReport<CursorBoardRow>) => {
+    setFeed(rows === null ? null : { source: 'cursor', rows })
+    setFeedFailed(failed)
+  }, [])
+
+  const handleOptInOpenChange = useCallback(
+    (open: boolean) => {
+      setJoinOpen(open)
+      onOptInOpenChange?.(open)
+    },
+    [onOptInOpenChange]
+  )
+
+  // PRESS START: CLI rows have a burn card; CURSOR rows have no card and
+  // mirror the row's handle link out to cursor.com.
+  const handleCrtSelect = useCallback((selection: BurnSelection) => {
+    switch (selection.source) {
+      case 'cli': {
+        setSelectedUserId(selection.row.userId)
+        return
+      }
+      case 'cursor': {
+        window.open(
+          cursorProfileUrl(selection.row.cursorUsername),
+          '_blank',
+          'noopener,noreferrer'
+        )
+        return
+      }
+      default: {
+        const exhaustive: never = selection
+        throw new Error(`Unhandled burn selection: ${String(exhaustive)}`)
+      }
+    }
+  }, [])
 
   const sourceToggle = (
     <div
@@ -167,7 +250,7 @@ export function TokenBoard({
             type="button"
             role="tab"
             aria-selected={active}
-            onClick={() => setSource(item.id)}
+            onClick={() => handleSourceChange(item.id)}
             className={`rounded-md px-2.5 py-1.5 text-[9px] tracking-[0.2em] transition-colors ${
               active ? 'text-orange-300' : 'text-zinc-600 hover:text-zinc-300'
             }`}
@@ -187,27 +270,70 @@ export function TokenBoard({
     </div>
   )
 
-  return source === 'cursor' ? (
-    <CursorBoard
-      windowId={windowId}
-      onWindowChange={setWindowId}
-      sourceToggle={sourceToggle}
-      linkedStamp={linkedStamp}
-      onOptInOpenChange={onOptInOpenChange}
-    />
-  ) : (
-    <CliTokenBoard windowId={windowId} onWindowChange={setWindowId} sourceToggle={sourceToggle} />
+  return (
+    <>
+      {/* ---------- CRT burn mode: the tube above the board, like GLOBAL ---------- */}
+      {/* Reveal cascade mirrors GLOBAL's (CRT → stat strip → toolbar row →
+          list): 40ms here, then 90 / 140 / 190ms inside the child board. */}
+      <section className="lb4-reveal" style={{ ['--rv' as string]: '40ms' }}>
+        <CrtBurn
+          source={source}
+          feed={feed}
+          windowId={windowId}
+          // A failed fetch is a dead channel (NO CARRIER), not a slow one.
+          loading={feed === null && !feedFailed}
+          frozen={frozen || selectedUserId !== null || joinOpen}
+          onSelect={handleCrtSelect}
+        />
+      </section>
+
+      {source === 'cursor' ? (
+        <CursorBoard
+          windowId={windowId}
+          onWindowChange={handleWindowChange}
+          toolbar={toolbar}
+          sourceToggle={sourceToggle}
+          linkedStamp={linkedStamp}
+          onOptInOpenChange={handleOptInOpenChange}
+          onFeed={handleCursorFeed}
+        />
+      ) : (
+        <CliTokenBoard
+          windowId={windowId}
+          onWindowChange={handleWindowChange}
+          toolbar={toolbar}
+          sourceToggle={sourceToggle}
+          selectedUserId={selectedUserId}
+          onSelectUser={setSelectedUserId}
+          onFeed={handleCliFeed}
+        />
+      )}
+    </>
   )
 }
 
 function CliTokenBoard({
   windowId,
   onWindowChange,
-  sourceToggle
+  toolbar,
+  sourceToggle,
+  selectedUserId,
+  onSelectUser,
+  onFeed
 }: {
   windowId: TokenBoardWindowId
   onWindowChange: (next: TokenBoardWindowId) => void
+  /** The page's board tabs, seated on the left of this board's one
+   *  toolbar row (GLOBAL's pattern). */
+  toolbar?: React.ReactNode
   sourceToggle: React.ReactNode
+  /** The open burn card's row, owned by TokenBoard so the CRT's PRESS
+   *  START can open it too; null closes it. */
+  selectedUserId: number | null
+  onSelectUser: (userId: number | null) => void
+  /** Reports the landed rows (null while fetching) and the failure state
+   *  to the CRT above. */
+  onFeed?: (report: BoardFeedReport<TokenBoardRow>) => void
 }) {
   const [rows, setRows] = useState<TokenBoardRow[] | null>(null)
   const [totals, setTotals] = useState<TokenBoardTotals | null>(null)
@@ -216,8 +342,11 @@ function CliTokenBoard({
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
   const [failed, setFailed] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null)
   const fetchSeq = useRef(0)
+
+  useEffect(() => {
+    onFeed?.({ rows, failed })
+  }, [rows, failed, onFeed])
 
   // Arrival spotlight (?welcome=1 from onboarding): your row's <li> plus a
   // latch so the ignition can only ever fire on the first data landing.
@@ -331,7 +460,7 @@ function CliTokenBoard({
 
   return (
     <>
-      <section className="lbt-reveal">
+      <section className="lbt-reveal" style={{ ['--rv' as string]: '90ms' }}>
         <LeaderboardSponsorFlip>
           <div className="lb-panel grid grid-cols-2 overflow-hidden md:grid-cols-4">
             <StatCell
@@ -389,73 +518,81 @@ function CliTokenBoard({
         </LeaderboardSponsorFlip>
       </section>
 
-      <section className="lbt-reveal relative" style={{ ['--rv' as string]: '80ms' }}>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-baseline gap-3">
+      {/* The one toolbar row (GLOBAL's pattern): the page's board tabs on
+          the left; fuel toggle, window pills and refresh ride the right
+          side, wrapping under the tabs on phones. */}
+      <div
+        className="lbt-reveal !mt-3 flex flex-wrap items-center justify-between gap-2"
+        style={{ ['--rv' as string]: '140ms' }}
+      >
+        {toolbar}
+
+        <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-1">
+          {sourceToggle}
+
+          <div
+            className="lb-inset flex items-center gap-0.5 rounded-lg p-0.5"
+            role="tablist"
+            aria-label="Token leaderboard period"
+          >
+            {WINDOWS.map((item) => {
+              const active = item.id === windowId
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => {
+                    if (item.id === windowId) return
+                    setRows(null)
+                    setFailed(false)
+                    onWindowChange(item.id)
+                  }}
+                  className={`rounded-md px-2.5 py-1.5 text-[9px] tracking-[0.2em] transition-colors ${
+                    active ? 'text-orange-300' : 'text-zinc-600 hover:text-zinc-300'
+                  }`}
+                  style={
+                    active
+                      ? {
+                          border: '1px solid rgb(251 146 60 / 0.35)',
+                          background: 'rgb(251 146 60 / 0.06)'
+                        }
+                      : { border: '1px solid transparent' }
+                  }
+                >
+                  {item.label}
+                </button>
+              )
+            })}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            disabled={refreshing}
+            className="lb-inset flex items-center gap-2 rounded-lg px-3 py-2 text-[9px] tracking-[0.2em] text-zinc-500 transition-colors hover:text-zinc-100 disabled:cursor-wait"
+            aria-label="Refresh token leaderboard"
+          >
+            <IconRefresh size={11} className={refreshing ? 'animate-spin' : ''} />
+            <span className="hidden sm:inline">{refreshing ? 'SYNCING' : 'REFRESH'}</span>
+          </button>
+        </div>
+      </div>
+
+      <section className="lbt-reveal relative" style={{ ['--rv' as string]: '190ms' }}>
+        <div className="lb-panel relative overflow-hidden">
+          {/* header strip folded into the panel's top edge, like STANDINGS */}
+          <div className="flex items-baseline justify-between gap-3 border-b border-[rgb(var(--lb-panel-edge)/0.08)] px-4 py-3 md:px-5">
             <h2 className="font-display text-[11px] font-semibold tracking-[0.45em] text-zinc-300">
               BURN BOARD
             </h2>
             {!loading && !failed && (rows?.length ?? 0) > 0 && (
-              <span className="text-[10px] tracking-[0.2em] text-zinc-600 tabular-nums">
+              <span className="text-[10px] tracking-[0.2em] text-zinc-500 tabular-nums">
                 {rows!.length} PLAYERS
               </span>
             )}
           </div>
-
-          <div className="flex items-center gap-2">
-            {sourceToggle}
-
-            <div
-              className="lb-inset flex items-center gap-0.5 rounded-lg p-0.5"
-              role="tablist"
-              aria-label="Token leaderboard period"
-            >
-              {WINDOWS.map((item) => {
-                const active = item.id === windowId
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={active}
-                    onClick={() => {
-                      if (item.id === windowId) return
-                      setRows(null)
-                      setFailed(false)
-                      onWindowChange(item.id)
-                    }}
-                    className={`rounded-md px-2.5 py-1.5 text-[9px] tracking-[0.2em] transition-colors ${
-                      active ? 'text-orange-300' : 'text-zinc-600 hover:text-zinc-300'
-                    }`}
-                    style={
-                      active
-                        ? {
-                            border: '1px solid rgb(251 146 60 / 0.35)',
-                            background: 'rgb(251 146 60 / 0.06)'
-                          }
-                        : { border: '1px solid transparent' }
-                    }
-                  >
-                    {item.label}
-                  </button>
-                )
-              })}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => void refresh()}
-              disabled={refreshing}
-              className="lb-inset flex items-center gap-2 rounded-lg px-3 py-2 text-[9px] tracking-[0.2em] text-zinc-500 transition-colors hover:text-zinc-100 disabled:cursor-wait"
-              aria-label="Refresh token leaderboard"
-            >
-              <IconRefresh size={11} className={refreshing ? 'animate-spin' : ''} />
-              <span className="hidden sm:inline">{refreshing ? 'SYNCING' : 'REFRESH'}</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="lb-panel relative overflow-hidden">
           <div
             className={`${ROW_GRID} border-b border-[rgb(var(--lb-panel-edge)/0.08)] py-3 text-[9px] tracking-[0.3em] text-zinc-500`}
           >
@@ -524,7 +661,7 @@ function CliTokenBoard({
                   leaderBurnUsd={(leader ?? row).burnUsd}
                   isMe={row.userId === currentUserId}
                   rowRef={row.userId === currentUserId ? myRowRef : undefined}
-                  onSelect={() => setSelectedUserId(row.userId)}
+                  onSelect={() => onSelectUser(row.userId)}
                 />
               ))}
           </ul>
@@ -541,7 +678,7 @@ function CliTokenBoard({
           row={selectedRow}
           isYou={selectedRow.userId === currentUserId}
           windowLabel={windowMeta?.label ?? WINDOWS.find((item) => item.id === windowId)?.label ?? 'TOKENS'}
-          onClose={() => setSelectedUserId(null)}
+          onClose={() => onSelectUser(null)}
         />
       )}
 

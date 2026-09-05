@@ -370,6 +370,39 @@ function LeaderboardArena() {
     [rows]
   )
 
+  // Board switch — pilots, the burn, the machines, or the teams. One
+  // tablist, rendered in the page's toolbar row on every view except
+  // TOKENS, where TokenBoard seats it in its own row under the burn CRT.
+  const boardTabs = (
+    <div
+      className="lb-inset flex min-w-0 max-w-full flex-nowrap items-center gap-0.5 overflow-x-auto overscroll-x-contain rounded-lg p-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      role="tablist"
+      aria-label="Leaderboard view"
+    >
+      {BOARD_TABS.map((tab) => {
+        // The GLOBAL top tab fronts both standings windows; the nested
+        // pills on its right pick between them.
+        const active = tab.id === 'season' ? isStandings : view === tab.id
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() =>
+              handleViewChange(tab.id === 'season' ? lastStandingsView.current : tab.id)
+            }
+            className={`lb-pill shrink-0 rounded-md px-2.5 py-2 sm:px-3 sm:py-1 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] transition-colors ${
+              active ? 'lb-pill-active' : 'text-zinc-500 hover:text-zinc-100'
+            }`}
+          >
+            {tab.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+
   return (
     <>
       {/* Scroll friction (desktop fine-pointer only; native fallback
@@ -445,43 +478,18 @@ function LeaderboardArena() {
           {/* ---------- view controls: the one toolbar row ---------- */}
           {/* Board tabs on the left; on the standings views the SEASON /
               ALL-TIME scope pills and the search ride the right side of the
-              same row (wrapping below on mobile, search full-width). */}
+              same row (wrapping below on mobile, search full-width). TOKENS
+              owns its own row: the burn CRT mounts inside TokenBoard, so
+              the tabs are handed down to sit between its stat strip and
+              its list, mirroring this row's place under the GLOBAL hero. */}
+          {view !== 'tokens' && (
           <div
             className={`lb4-reveal flex flex-wrap items-center justify-between gap-2 ${
               isStandings ? '!mt-3' : ''
             }`}
             style={{ ['--rv' as string]: '190ms' }}
           >
-            {/* board switch — pilots, the machines, or the teams */}
-            <div
-              className="lb-inset flex min-w-0 max-w-full flex-nowrap items-center gap-0.5 overflow-x-auto overscroll-x-contain rounded-lg p-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-              role="tablist"
-              aria-label="Leaderboard view"
-            >
-              {BOARD_TABS.map((tab) => {
-                // The GLOBAL top tab fronts both standings windows; the
-                // nested pills on its right pick between them.
-                const active = tab.id === 'season' ? isStandings : view === tab.id
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={active}
-                    onClick={() =>
-                      handleViewChange(
-                        tab.id === 'season' ? lastStandingsView.current : tab.id
-                      )
-                    }
-                    className={`lb-pill shrink-0 rounded-md px-2.5 py-2 sm:px-3 sm:py-1 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] transition-colors ${
-                      active ? 'lb-pill-active' : 'text-zinc-500 hover:text-zinc-100'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                )
-              })}
-            </div>
+            {boardTabs}
 
             {isStandings && (
               <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-1">
@@ -512,6 +520,7 @@ function LeaderboardArena() {
               </div>
             )}
           </div>
+          )}
 
           {/* ---------- THE AI LEADERBOARD ---------- */}
           {/* The viewer's faction seeds from their standings row (already
@@ -536,6 +545,8 @@ function LeaderboardArena() {
               burnSource={burnSource}
               linkedStamp={linkedStamp}
               onOptInOpenChange={setJoinOptInOpen}
+              frozen={claimPromptOpen}
+              toolbar={boardTabs}
             />
           )}
 
