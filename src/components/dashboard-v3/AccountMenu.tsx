@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { tierAccent } from '@/components/dashboard-v2/format'
 import { useSettingsModal } from '@/components/settings/SettingsModalContext'
 import type { SettingsSectionId } from '@/components/settings/sectionIds'
+import { seesTeamNav } from '@/components/nav/navItems'
 import type { ActiveDevice, MeUser } from '@/types/dashboard'
 
 /* ---------- icons (14px, stroke) ---------- */
@@ -273,11 +274,11 @@ export function AccountMenu({
               ACHIEVEMENTS
               <span className={arrowCls}>→</span>
             </Link>
-            {/* Company accounts and active OWNER affiliates get the
-                command deck (which links on to the roster console); the
-                row is invisible to everyone else (same gating as the
-                nav). */}
-            {(user.subscription_tier === 'TEAM' || user.team_authority === 'owner') && (
+            {/* Same gate as the TEAM nav row: company accounts, owners,
+                and signed members reach the console they can already
+                open. Operators get the command-deck label; members get
+                TEAM — they land on the read-only cut. */}
+            {seesTeamNav(user) && (
               <Link
                 href="/teams"
                 onClick={() => setOpen(false)}
@@ -287,7 +288,9 @@ export function AccountMenu({
                 <span className="text-zinc-500 transition-colors group-hover:text-yellow-300">
                   <Icon d={ICONS.team} />
                 </span>
-                COMMAND DECK
+                {user.subscription_tier === 'TEAM' || user.team_authority === 'owner'
+                  ? 'COMMAND DECK'
+                  : 'TEAM'}
                 <span className={arrowCls}>→</span>
               </Link>
             )}

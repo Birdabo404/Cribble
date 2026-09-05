@@ -107,22 +107,34 @@ interface OwnerAffiliationJoinRow {
   team: TeamUserRow | null
 }
 
+/** resolveTeamCommand's verdict: the authority plus the users row of
+ *  the team it commands — the caller's own row on the franchise arm,
+ *  the joined team row on the owner arm. Both probes already have the
+ *  row in hand, so surfaces that need the team's identity (the /me
+ *  payload's team_handle behind INVITE TO TEAM) read it here instead
+ *  of paying a second users read. */
+export interface TeamCommand {
+  authority: TeamAuthority
+  team: TeamUserRow
+}
+
 /**
- * Resolve who this user speaks for. Authority rides the affiliation row
- * and the team's liveness, so it dissolves for free: an owner who
- * leaves or is released loses the row (and with it the role), and a
- * lapsed/banned team fails teamIsLive — no cleanup writes anywhere.
- * A failed read never grants authority (it resolves null); routes that
- * must distinguish 500 from 403 load the user row themselves first.
+ * Resolve who this user speaks for, and for which team. Authority
+ * rides the affiliation row and the team's liveness, so it dissolves
+ * for free: an owner who leaves or is released loses the row (and with
+ * it the role), and a lapsed/banned team fails teamIsLive — no cleanup
+ * writes anywhere. A failed read never grants authority (it resolves
+ * null); routes that must distinguish 500 from 403 load the user row
+ * themselves first.
  */
-export async function resolveTeamAuthority(
+export async function resolveTeamCommand(
   supabase: SupabaseClient,
   userId: number
-): Promise<TeamAuthority | null> {
+): Promise<TeamCommand | null> {
   const loaded = await loadUserRow(supabase, userId)
   if (!loaded.ok) return null
   if (teamIsLive(loaded.user)) {
-    return { teamUserId: userId, via: 'team-account' }
+    return { authority: { teamUserId: userId, via: 'team-account' }, team: loaded.user }
   }
 
   // At most one row: the one-active partial index (029) caps ACTIVE
@@ -147,7 +159,20 @@ export async function resolveTeamAuthority(
   const row = data as unknown as OwnerAffiliationJoinRow | null
   if (!row?.team || !teamIsLive(row.team)) return null
 
-  return { teamUserId: Number(row.team_user_id), via: 'owner' }
+  return {
+    authority: { teamUserId: Number(row.team_user_id), via: 'owner' },
+    team: row.team
+  }
+}
+
+/** resolveTeamCommand's authority alone — the shape every /api/team/*
+ *  mutation gate consumes. */
+export async function resolveTeamAuthority(
+  supabase: SupabaseClient,
+  userId: number
+): Promise<TeamAuthority | null> {
+  const command = await resolveTeamCommand(supabase, userId)
+  return command?.authority ?? null
 }
 
 /** Row shape of the any-role affiliation -> team join below. */
