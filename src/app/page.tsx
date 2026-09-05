@@ -26,19 +26,30 @@ export const metadata: Metadata = {
   title: { absolute: TITLE },
   description: DESCRIPTION,
   alternates: { canonical: '/' },
-  // og/twitter images come from the file-based src/app/opengraph-image.tsx
-  // card — no explicit entry, or it would override the generated one.
+  // Point at the .png alias (rewritten to the generated card). X and
+  // a few other crawlers skip image URLs with no extension; the file
+  // convention emits /opengraph-image?hash, which they then ignore.
   openGraph: {
     title: TITLE,
     description: DESCRIPTION,
     type: 'website',
     url: '/',
-    siteName: 'Cribble'
+    siteName: 'Cribble',
+    images: [
+      {
+        url: '/opengraph-image.png',
+        width: 1200,
+        height: 630,
+        alt: 'Cribble — a worldwide leaderboard for AI users.'
+      }
+    ]
   },
   twitter: {
     card: 'summary_large_image',
+    site: '@cribble_ai',
     title: TITLE,
-    description: DESCRIPTION
+    description: DESCRIPTION,
+    images: ['/opengraph-image.png']
   }
 }
 

@@ -127,15 +127,17 @@ export const metadata: Metadata = {
   // No root-level canonical: alternates cascade to every nested page, so
   // each public page declares its own canonical instead.
   //
-  // No explicit og/twitter images: the file-based src/app/opengraph-image.tsx
-  // card cascades to every route without a closer one.
+  // Homepage and a few public routes set og/twitter images to the
+  // /opengraph-image.png alias (rewritten onto the generated card).
+  // Routes without their own images still pick up the file-based card.
   openGraph: {
     siteName: 'Cribble',
     type: 'website',
     url: '/'
   },
   twitter: {
-    card: 'summary_large_image'
+    card: 'summary_large_image',
+    site: '@cribble_ai'
   },
   icons: {
     icon: [

@@ -50,6 +50,17 @@ const nextConfig = {
       { source: '/admin/billboard', destination: '/admin/sponsorship', permanent: true },
     ]
   },
+  // Crawlers (X especially) often refuse image URLs with no extension.
+  // File-convention OG routes live at /…/opengraph-image; these aliases
+  // keep the generated card and give the URL a .png suffix.
+  async rewrites() {
+    return [
+      { source: '/opengraph-image.png', destination: '/opengraph-image' },
+      { source: '/status/opengraph-image.png', destination: '/status/opengraph-image' },
+      { source: '/join/:code/opengraph-image.png', destination: '/join/:code/opengraph-image' },
+      { source: '/u/:username/opengraph-image.png', destination: '/u/:username/opengraph-image' },
+    ]
+  },
   eslint: {
     // Warning: This allows production builds to successfully complete even if
     // your project has ESLint errors.

@@ -46,8 +46,8 @@ export function isAllowedDuringLock(pathname: string, hasSession = false): boole
   // does not catch them, and a locked rewrite hands crawlers the
   // /maintenance HTML as the image — every pasted link loses its card.
   // Exact matches: /u/** and /join/** cards ride their page rules.
-  if (pathname === '/opengraph-image') return true
-  if (pathname === '/status/opengraph-image') return true
+  if (pathname === '/opengraph-image' || pathname === '/opengraph-image.png') return true
+  if (pathname === '/status/opengraph-image' || pathname === '/status/opengraph-image.png') return true
   // Leaderboard visitor ticker (first-party pulse + heartbeat). Exact
   // match so nothing else under /api/analytics… rides along.
   if (pathname === '/api/analytics/visitors') return true
