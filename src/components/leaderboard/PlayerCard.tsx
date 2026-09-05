@@ -213,10 +213,11 @@ export function PlayerCard({
   const weekScore = profile?.weekScore ?? row.weekScore
   const badges = profile?.badges ?? null
 
-  // HANGAR pointer under the NOW BUILDING pill: the in-flight pin IS the
-  // pill, so it is not counted a second time.
+  // HANGAR pointer under the NOW BUILDING pill: inFlight is the server's
+  // "this pin is the project" (urlKey match against project_url), so the
+  // pinned copy of the pill is the one card not counted again.
   const hangar = profile?.hangar ?? []
-  const hangarBeyondPill = hangar.length - (hangar.some((card) => card.inFlight) ? 1 : 0)
+  const hangarBeyondPill = hangar.filter((card) => !card.inFlight).length
 
   const roleKey = (profile?.role ?? row.role) || null
   const RoleIcon = roleKey ? ROLE_ICONS[roleKey] : undefined

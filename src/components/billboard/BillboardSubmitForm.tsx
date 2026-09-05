@@ -232,7 +232,7 @@ const PLACEMENTS: {
   },
   {
     value: 'rail',
-    label: 'Profile rail',
+    label: 'Transmissions panel',
     price: `from $${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}/wk`,
     blurb: 'Always-on cell in the profile transmissions panel, 1024px and up.'
   },
@@ -718,7 +718,7 @@ export function BillboardSubmitForm({
                   id={slotLabelId}
                   className="text-[13px] font-medium leading-5 text-[color:var(--st-text)]"
                 >
-                  Rail slot
+                  Transmissions slot
                 </span>
                 <span className="text-[12.5px] text-[color:var(--st-text-faint)]">
                   {requestedSlot ? 'Tap again to clear' : 'Optional — any open slot'}

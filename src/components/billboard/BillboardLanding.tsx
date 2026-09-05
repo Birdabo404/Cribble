@@ -862,7 +862,7 @@ export function BillboardLanding() {
                 <div className="border-t border-[color:var(--st-border)] p-4 sm:p-5 lg:border-l lg:border-t-0">
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="font-data text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--st-text-faint)]">
-                      Profile rail
+                      Transmissions panel
                     </span>
                     <span className="font-data text-[12px] tabular-nums" style={GOLD}>
                       from ${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}/wk
@@ -886,7 +886,7 @@ export function BillboardLanding() {
                           key={slot}
                           type="button"
                           aria-pressed={selected}
-                          aria-label={`Claim rail slot ${slot}`}
+                          aria-label={`Claim transmissions slot ${slot}`}
                           // Re-clicking the selected slot relaxes the pitch
                           // to "any open slot" — placement stays rail.
                           onClick={() =>

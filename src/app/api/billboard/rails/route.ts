@@ -132,6 +132,6 @@ export async function GET() {
     )
   } catch (err) {
     console.error('[billboard/rails] Unexpected error:', err)
-    return NextResponse.json({ error: 'Failed to load the rails' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to load the transmissions panel' }, { status: 500 })
   }
 }

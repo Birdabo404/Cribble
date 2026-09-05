@@ -67,6 +67,20 @@ export type ReferralPhase = 'loading' | 'failed' | 'ready'
 export const referralPhase = (data: ReferralData | null, failed: boolean): ReferralPhase =>
   data !== null ? 'ready' : failed ? 'failed' : 'loading'
 
+/** What /api/user/referral must answer with before the plate trusts it
+ *  — the link the rows print and the four numerals the cells count.
+ *  Anything else parks the modal on RETRY. */
+export const isReferralData = (d: unknown): d is ReferralData => {
+  if (!d || typeof d !== 'object') return false
+  const { code, link, stats } = d as Partial<Record<keyof ReferralData, unknown>>
+  if (typeof code !== 'string' || typeof link !== 'string') return false
+  if (!stats || typeof stats !== 'object') return false
+  const s = stats as Partial<Record<keyof ReferralData['stats'], unknown>>
+  return [s.joined, s.rewarded, s.pointsEarned, s.capRemaining].every(
+    (n) => typeof n === 'number'
+  )
+}
+
 /* ---------- recipes (the spine's row grammar, on paper) ----------
    Colour utilities are appended per use, never stacked, so no two text-
    classes compete for one element. Inks are the --pf-* tokens via
@@ -105,14 +119,16 @@ export function ReferralPlate() {
   const [failed, setFailed] = useState(false)
   // In-flight guard: RETRY calls load() directly AND flips `failed`,
   // which re-runs the effect below — without the guard that races two
-  // parallel fetches.
-  const inFlightRef = useRef(false)
+  // parallel fetches. The ref holds the live request's controller (null
+  // when idle) so unmount can abort it: a fast profile-to-profile hop
+  // must not leave a fetch landing state on a plate that is gone.
+  const inFlightRef = useRef<AbortController | null>(null)
 
   const load = useCallback(() => {
     if (inFlightRef.current) return
-    inFlightRef.current = true
-    setFailed(false)
     const controller = new AbortController()
+    inFlightRef.current = controller
+    setFailed(false)
     const timer = setTimeout(() => controller.abort(), 10_000)
     fetch('/api/user/referral', {
       credentials: 'include',
@@ -120,14 +136,19 @@ export function ReferralPlate() {
       signal: controller.signal
     })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error('referral fetch failed'))))
-      .then((d) => {
-        if (typeof d?.link !== 'string' || !d?.stats) throw new Error('referral fetch failed')
-        setData(d as ReferralData)
+      .then((d: unknown) => {
+        if (!isReferralData(d)) throw new Error('referral fetch failed')
+        setData(d)
       })
-      .catch(() => setFailed(true))
+      // Only the live request reports. The unmount abort has already
+      // released the ref, so its rejection is not a failure; the timeout
+      // abort has not, so it still parks the modal on RETRY.
+      .catch(() => {
+        if (inFlightRef.current === controller) setFailed(true)
+      })
       .finally(() => {
         clearTimeout(timer)
-        inFlightRef.current = false
+        if (inFlightRef.current === controller) inFlightRef.current = null
       })
   }, [])
 
@@ -137,6 +158,17 @@ export function ReferralPlate() {
   useEffect(() => {
     if (!data && !failed) load()
   }, [data, failed, load])
+
+  // Unmount: abort the prefetch and release the guard in the same
+  // breath, so a remount (StrictMode's replayed effects, a return to
+  // this profile) is never blocked by a fetch that will not land.
+  useEffect(
+    () => () => {
+      inFlightRef.current?.abort()
+      inFlightRef.current = null
+    },
+    []
+  )
 
   return (
     <>
