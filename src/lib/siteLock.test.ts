@@ -4,7 +4,9 @@ import { isAllowedDuringLock } from './siteLock'
 describe('isAllowedDuringLock — unfurl cards', () => {
   it('lets crawlers fetch the generated cards for the public pages', () => {
     expect(isAllowedDuringLock('/opengraph-image')).toBe(true)
+    expect(isAllowedDuringLock('/opengraph-image.png')).toBe(true)
     expect(isAllowedDuringLock('/status/opengraph-image')).toBe(true)
+    expect(isAllowedDuringLock('/status/opengraph-image.png')).toBe(true)
     expect(isAllowedDuringLock('/u/birdabo/opengraph-image')).toBe(true)
   })
 

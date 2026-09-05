@@ -32,7 +32,7 @@ export const metadata: Metadata = {
     type: 'website',
     images: [
       {
-        url: '/opengraph-image',
+        url: '/opengraph-image.png',
         width: 1200,
         height: 630,
         alt: 'Cribble — a worldwide leaderboard for AI users.'
@@ -43,7 +43,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'AI Usage Leaderboard',
     description: DESCRIPTION,
-    images: ['/opengraph-image']
+    images: ['/opengraph-image.png']
   }
 }
 
