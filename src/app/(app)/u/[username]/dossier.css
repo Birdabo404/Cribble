@@ -130,6 +130,12 @@
 
   background-color: var(--pf-paper);
   color: var(--pf-ink);
+  /* The root is its own stacking context so the dot screen (.pf-screen,
+     an absolute first child at z-index -1) paints above this fill and
+     below every child, and the sticky compact bar (z 30) and phone menu
+     strip (z 20) stack inside the sheet rather than against the page. */
+  position: relative;
+  isolation: isolate;
 }
 
 /* Light: the printed dossier, carbon ink on sand paper. The paper
@@ -247,29 +253,55 @@ html.light .pf-dossier {
 
 /* ---------- textures (overlay layers; position them yourself) ---------- */
 
-/* Dot-screen over the whole column, drifting one tile diagonally every
-   24s so the paper breathes. 4px tile, so any whole-tile offset loops
-   seamlessly. Density is --pf-screen-alpha (lighter on blue, where
-   cream dots carry further). */
-.pf-screen {
-  pointer-events: none;
+/* Dot screen: a 4px tile of ink dots at --pf-screen-alpha (lighter on
+   blue, where cream dots carry further). A .pf-dossier root wears it as
+   its first child (<span class="pf-screen"><span/></span> — the sheet in
+   ProfileClient, the modal panel in ReferralPlate), not as its own
+   background: the outer span is an out-of-flow layer over the padding
+   box at z-index -1, which the root's isolation keeps above its paper
+   fill and below every child, so plates, the compact bar and the
+   banner's paper-2 cover the dots exactly as they covered a root
+   background. The inner span is the tile, oversized by one drift (12px)
+   on every side so the layer stays covered while it moves; the outer
+   span's overflow clips it to the root. (The root's own ::before /
+   ::after are spoken for: .pf-sheet draws the registration marks there.) */
+.pf-dossier > .pf-screen > span {
   background-image: radial-gradient(circle, rgb(var(--pf-ink-rgb) / var(--pf-screen-alpha)) 0.6px, transparent 0.8px);
   background-size: 4px 4px;
-  animation: pf-screen-drift 24s linear infinite;
 }
 
-@keyframes pf-screen-drift {
-  to {
-    background-position: 12px 12px;
+.pf-dossier > .pf-screen {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.pf-dossier > .pf-screen > span {
+  position: absolute;
+  inset: -12px;
+}
+
+/* Drift: one 12px diagonal (three whole tiles, so the loop is seamless)
+   every 24s so the paper breathes, as a transform — compositor only.
+   background-position is not compositor-eligible and repainted the
+   entire sheet every frame. Desktop only, like the lamp and the scan;
+   below lg the screen is static. */
+@media (min-width: 1024px) {
+  .pf-dossier > .pf-screen > span {
+    animation: pf-screen-drift 24s linear infinite;
+    will-change: transform;
   }
 }
 
-/* The root section wears the screen itself (dots over its paper fill)
-   rather than a separate overlay layer, so the pointer must stay live:
-   pointer-events inherits, and `none` on the root would deaden every
-   row inside. */
-.pf-dossier.pf-screen {
-  pointer-events: auto;
+@keyframes pf-screen-drift {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(12px, 12px, 0);
+  }
 }
 
 /* Photo host (the banner, the spine avatar): the containing block for
@@ -458,6 +490,24 @@ html.light .pf-dossier {
 
 .pf-brackets::after {
   background-size: 1px 8px;
+}
+
+/* ---------- focus ---------- */
+
+/* One focus grammar for the sheet. Every row, social square, count
+   button and menu tab answers keyboard focus with a 1px outline in its
+   own ink, drawn one pixel inside its box, in place of the UA ring
+   (blue, rounded, off-material): a plate row outlines in plate-fg, an
+   ink row in ink, and on a .pf-frame row the outline lands exactly on
+   the hairline, so nothing leaks past a frame or the menu plate.
+   Components carry no focus utilities of their own — this rule
+   outranks them (three compounds to a utility's two), so a per-element
+   ring would be dead weight. Inputs are left out: the HANGAR dock field
+   answers focus by inking its own frame (focus:border-*), and an
+   outline on top would double the edge. */
+.pf-dossier :is(a, button, [role='tab'], [tabindex]):focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: -1px;
 }
 
 /* ---------- type ---------- */
@@ -676,8 +726,9 @@ html.light .pf-dossier {
 /* ---------- reduced motion ---------- */
 
 @media (prefers-reduced-motion: reduce) {
-  .pf-screen {
+  .pf-dossier > .pf-screen > span {
     animation: none;
+    will-change: auto;
   }
   .pf-scan {
     display: none;

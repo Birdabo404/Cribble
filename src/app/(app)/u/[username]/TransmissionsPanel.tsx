@@ -77,8 +77,9 @@ const ROW_BOX = 'flex min-h-10 items-center gap-3 px-[var(--pf-inset)] py-2'
 const LINES = 'flex h-8 min-w-0 flex-1 flex-col justify-center'
 /** 16px line box for a .pf-micro line (its own line-height is 12px). */
 const MICRO_LINE = 'flex h-4 items-center'
-/** A live row: the box plus the stagger hook, hover and focus. */
-const ROW = `pf-row ${ROW_BOX} transition-colors hover:bg-[color:var(--pf-paper-3)] focus-visible:outline focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-[color:var(--pf-ink)]`
+/** A live row: the box plus the stagger hook and hover (focus is the
+ *  sheet's rule, dossier.css). */
+const ROW = `pf-row ${ROW_BOX} transition-colors hover:bg-[color:var(--pf-paper-3)]`
 const LIST = 'divide-y divide-[color:var(--pf-line-soft)]'
 /** Loading bars: paper-2 blocks, pulse only when motion is allowed. */
 const SKELETON = 'bg-[color:var(--pf-paper-2)] animate-pulse motion-reduce:animate-none'

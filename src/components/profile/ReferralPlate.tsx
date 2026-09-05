@@ -23,8 +23,12 @@
 //
 // The modal portals to document.body — outside .pf-dossier — so the
 // panel carries the pf-dossier class itself: that is what resolves the
-// --pf-* tokens and paints the panel paper. The scrim stays a flat black
-// wash so the page behind it never turns paper.
+// --pf-* tokens and paints the panel paper, and it wears the dot screen
+// the way the sheet does (dossier.css "textures": a composited first
+// child, not a background the panel repaints). The sheet's one focus
+// rule applies inside it too, so no control here carries a ring of its
+// own. The scrim stays a flat black wash so the page behind it never
+// turns paper.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -74,18 +78,14 @@ const INK_3 = 'text-[color:var(--pf-ink-3)]'
 /** Lime print ink: the reward numeral (live / recruit). Falls back to
  *  plain ink should the dossier not carry the accent yet. */
 const LIME_INK = 'text-[color:var(--pf-lime-ink,var(--pf-ink))]'
-/** Keyboard focus as a 1px ink outline — rings are box-shadows, and the
- *  paper has none. */
-const FOCUS_RING =
-  'focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pf-ink)]'
 /** 11px tracked Plex Mono row label; the caller sets height and colour. */
 const ROW_TYPE = 'font-data text-[11px] font-medium uppercase tracking-[0.18em]'
 /** The one filled action per view: solid ember with its own foreground.
  *  Falls back to the ink plate should the accent tokens be missing, so
  *  the row never renders as bare text. */
-const EMBER_ROW = `flex w-full items-center justify-center gap-2 bg-[color:var(--pf-ember,var(--pf-plate))] text-[color:var(--pf-ember-fg,var(--pf-plate-fg))] transition-opacity enabled:hover:opacity-90 disabled:opacity-40 ${ROW_TYPE} ${FOCUS_RING}`
+const EMBER_ROW = `flex w-full items-center justify-center gap-2 bg-[color:var(--pf-ember,var(--pf-plate))] text-[color:var(--pf-ember-fg,var(--pf-plate-fg))] transition-opacity enabled:hover:opacity-90 disabled:opacity-40 ${ROW_TYPE}`
 /** Framed secondary control (COPY, RETRY, close); colour appended per use. */
-const FRAMED = `pf-frame flex shrink-0 items-center justify-center transition-colors hover:bg-[color:var(--pf-paper-3)] hover:text-[color:var(--pf-ink)] ${FOCUS_RING}`
+const FRAMED = `pf-frame flex shrink-0 items-center justify-center transition-colors hover:bg-[color:var(--pf-paper-3)] hover:text-[color:var(--pf-ink)]`
 /** Modal rows: 44px on phones, 40px with a pointer. */
 const MODAL_ROW_H = 'h-11 sm:h-10'
 /** Press Start 2P numeral; the caller sets size and ink. */
@@ -261,9 +261,13 @@ function ReferralModal({
       <div className="absolute inset-0 bg-black/70" onClick={onClose} aria-hidden />
 
       {/* the panel is the paper: pf-dossier resolves the tokens and fills
-          it, pf-screen lays the sheet's dot-screen over that, pf-frame is
-          the 1px line */}
-      <div className="pf-dossier pf-screen pf-frame relative flex max-h-[calc(100svh-2rem)] w-full max-w-md flex-col overflow-hidden sm:max-h-[calc(100vh-3rem)]">
+          it, pf-frame is the 1px line, and the first child is the sheet's
+          dot screen (.pf-dossier > .pf-screen, out of the column's flow) */}
+      <div className="pf-dossier pf-frame relative flex max-h-[calc(100svh-2rem)] w-full max-w-md flex-col overflow-hidden sm:max-h-[calc(100vh-3rem)]">
+        <span aria-hidden className="pf-screen">
+          <span />
+        </span>
+
         {/* ---------- header ---------- */}
         <div className="flex items-center justify-between gap-3 border-b border-[color:var(--pf-line)] py-2 pl-4 pr-2 sm:pl-5 sm:pr-3">
           <h2 className="pf-label whitespace-nowrap">

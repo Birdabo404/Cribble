@@ -86,22 +86,22 @@ const NAME = 'mt-2.5 truncate font-display text-[15px] font-medium leading-5'
 /** Two lines of 12px / leading-relaxed (1.625) reserved so bays align. */
 const DESCRIPTION = 'mt-1.5 min-h-[39px] text-[12px] leading-relaxed line-clamp-2'
 const TELEMETRY = `mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 font-data text-[10px] tracking-[0.15em] tabular-nums sm:text-[9px] ${INK_3}`
-/** Keyboard focus as a 1px ink outline — rings are box-shadows, and the
- *  paper has none. */
-const FOCUS_RING =
-  'focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--pf-ink)]'
+// Keyboard focus is the sheet's one rule (dossier.css "focus": a 1px
+// currentColor outline inside the box on every a / button), so no recipe
+// here carries a ring of its own. INPUT is the exception the rule leaves
+// alone — it inks its own frame on focus.
 /** ProfileClient's META_LINK_HIT: a ≈44px phone hit area drawn by the
  *  after: box so the row height stays put; sm+ has a pointer and drops
  *  it. Needs `relative` on the element. */
 const HIT_AREA = "after:absolute after:-inset-x-2 after:-inset-y-4 after:content-[''] sm:after:content-none"
 /** Text buttons in the PUBLISH YOUR AGENTS → register. */
-const TEXT_BTN = `relative font-data text-[10px] tracking-[0.18em] transition-colors ${HIT_AREA} ${FOCUS_RING}`
+const TEXT_BTN = `relative font-data text-[10px] tracking-[0.18em] transition-colors ${HIT_AREA}`
 /** 44px square on phones, 28px with a pointer. */
-const ICON_BTN = `flex h-11 w-11 shrink-0 items-center justify-center transition-colors disabled:opacity-30 sm:h-7 sm:w-7 ${INK_2} ${PAPER_3_HOVER} ${ENABLED_HOVER_INK} ${FOCUS_RING}`
+const ICON_BTN = `flex h-11 w-11 shrink-0 items-center justify-center transition-colors disabled:opacity-30 sm:h-7 sm:w-7 ${INK_2} ${PAPER_3_HOVER} ${ENABLED_HOVER_INK}`
 // EditProfileModal's inputCls on paper, 44px tall on phones (text-base
 // below sm: sub-16px inputs make iOS Safari zoom the page on focus).
 const INPUT = `pf-frame h-11 w-full min-w-0 bg-[color:var(--pf-paper-3)] px-3 font-data text-base placeholder:text-[color:var(--pf-ink-3)] transition-colors focus:border-[color:var(--pf-ink)] focus:outline-none disabled:opacity-50 sm:h-9 sm:text-sm ${INK}`
-const DOCK_BTN = `pf-plate flex h-11 shrink-0 items-center px-3 font-data text-[10px] font-medium tracking-[0.18em] transition-opacity enabled:hover:opacity-90 disabled:opacity-40 sm:h-9 ${FOCUS_RING}`
+const DOCK_BTN = `pf-plate flex h-11 shrink-0 items-center px-3 font-data text-[10px] font-medium tracking-[0.18em] transition-opacity enabled:hover:opacity-90 disabled:opacity-40 sm:h-9`
 
 /** How long the bays stay inert after a successful PATCH if the refetch
  *  never hands down a new payload (refreshProfile swallows its errors). */
@@ -508,7 +508,7 @@ function Bay({
           target="_blank"
           rel="noopener noreferrer"
           aria-label={`Open ${name} in a new tab`}
-          className="absolute inset-0 z-0 focus-visible:outline focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-[color:var(--pf-ink)]"
+          className="absolute inset-0 z-0"
         />
       )}
 
@@ -587,7 +587,7 @@ function Bay({
                 card.inFlight
                   ? `${INK} disabled:opacity-100`
                   : `${INK_3} ${PAPER_3_HOVER} ${ENABLED_HOVER_INK} disabled:opacity-30`
-              } ${FOCUS_RING}`}
+              }`}
             >
               <Marker hollow={!card.inFlight} />
               {card.inFlight ? 'IN FLIGHT' : 'SET IN FLIGHT'}
@@ -675,7 +675,7 @@ function EmptyBay({
             <button
               type="button"
               onClick={onCancel}
-              className={`ml-auto flex min-h-11 items-center font-data text-[10px] tracking-[0.18em] transition-colors sm:min-h-0 ${INK_3} ${HOVER_INK} ${FOCUS_RING}`}
+              className={`ml-auto flex min-h-11 items-center font-data text-[10px] tracking-[0.18em] transition-colors sm:min-h-0 ${INK_3} ${HOVER_INK}`}
             >
               CANCEL
             </button>
@@ -687,7 +687,7 @@ function EmptyBay({
             type="button"
             onClick={onOpen}
             disabled={busy}
-            className={`${NAME} flex min-h-11 w-full items-center gap-2 text-left transition-colors disabled:opacity-40 sm:min-h-0 ${INK_2} ${ENABLED_HOVER_INK} ${FOCUS_RING}`}
+            className={`${NAME} flex min-h-11 w-full items-center gap-2 text-left transition-colors disabled:opacity-40 sm:min-h-0 ${INK_2} ${ENABLED_HOVER_INK}`}
           >
             <Stroke d={PATH_PLUS} size={13} className="shrink-0" />
             DOCK A BUILD
@@ -702,7 +702,7 @@ function EmptyBay({
                 onClick={() => onDockShortcut(shortcut.url)}
                 disabled={busy}
                 title={shortcut.url}
-                className={`relative flex min-w-0 max-w-full items-center gap-1.5 transition-colors disabled:opacity-40 ${ENABLED_HOVER_INK} ${HIT_AREA} ${FOCUS_RING}`}
+                className={`relative flex min-w-0 max-w-full items-center gap-1.5 transition-colors disabled:opacity-40 ${ENABLED_HOVER_INK} ${HIT_AREA}`}
               >
                 <span className="shrink-0">DOCK</span>
                 <span className={`truncate tracking-normal ${INK_2}`}>{shortcut.name}</span>
