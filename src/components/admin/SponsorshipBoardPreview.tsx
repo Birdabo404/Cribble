@@ -369,15 +369,15 @@ function RailPanel({
 
   if (bySlot.size === 0 && staged.length === 0) {
     return (
-      <PlacementPanel title="Profile rails">
-        <EmptyNote>No rail ads live or queued.</EmptyNote>
+      <PlacementPanel title="Profile transmissions panel">
+        <EmptyNote>No transmissions panel ads live or queued.</EmptyNote>
       </PlacementPanel>
     )
   }
 
   return (
     <PlacementPanel
-      title="Profile rails"
+      title="Profile transmissions panel"
       meta={
         <span className="font-data text-[11px] font-medium tabular-nums text-[color:var(--st-text-muted)]">
           Slots {bySlot.size}/{RAIL_SLOTS.length}
@@ -420,7 +420,7 @@ function RailPanel({
         {staged.length > 0 && (
           <div className="space-y-2 border-t border-[color:var(--st-border)] pt-3">
             <p className="font-data text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--st-text-faint)]">
-              Queued for a rail slot
+              Queued for a transmissions slot
             </p>
             <div className="flex flex-wrap gap-3">
               {staged.map(({ ad, origin }) => (

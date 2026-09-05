@@ -135,7 +135,8 @@ export const metadata: Metadata = {
     url: '/'
   },
   twitter: {
-    card: 'summary_large_image'
+    card: 'summary_large_image',
+    site: '@cribble_ai'
   },
   icons: {
     icon: [

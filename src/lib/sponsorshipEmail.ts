@@ -100,7 +100,7 @@ function placementLabel(placement: BillboardPlacement): string {
     case 'flipper':
       return 'the flipper'
     case 'rail':
-      return 'a profile rail slot'
+      return 'a transmissions panel slot'
     // Unreachable through the review route (leaderboard payment is
     // self-serve Polar bidding, migration 055 — the approve flow skips
     // this email for that placement), kept total for the type.

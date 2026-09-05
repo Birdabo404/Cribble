@@ -3,6 +3,7 @@ import {
   capPercent,
   displayLink,
   inviteText,
+  isReferralData,
   REFERRAL_CAP,
   REFERRAL_POINTS,
   referralPhase,
@@ -29,6 +30,25 @@ describe('referralPhase', () => {
     ['link in hand beats a stale failure flag', data, true, 'ready']
   ])('%s', (_, d, failed, expected) => {
     expect(referralPhase(d, failed)).toBe(expected)
+  })
+})
+
+describe('isReferralData', () => {
+  it('accepts the route payload', () => {
+    expect(isReferralData(data)).toBe(true)
+  })
+
+  it.each<[string, unknown]>([
+    ['null', null],
+    ['a string', 'https://cribble.dev/join/ACE-01'],
+    ['no link', { code: 'ACE-01', stats: data.stats }],
+    ['no code', { link: data.link, stats: data.stats }],
+    ['no stats', { code: 'ACE-01', link: data.link }],
+    ['stats not an object', { ...data, stats: 4 }],
+    ['a numeral missing', { ...data, stats: { joined: 3, rewarded: 2, pointsEarned: 3_000 } }],
+    ['a numeral as a string', { ...data, stats: { ...data.stats, joined: '3' } }]
+  ])('rejects %s', (_, d) => {
+    expect(isReferralData(d)).toBe(false)
   })
 })
 

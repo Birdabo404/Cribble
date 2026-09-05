@@ -181,7 +181,7 @@ interface BatchOutcome {
   failures: Array<{ adId: number; error: string }>
 }
 
-const PAGE_DESCRIPTION = `Paid ad slots, three placements — the flipper train on the dashboard + leaderboard ($${BILLBOARD_PRICE_CENTS / 100}/wk, max ${BILLBOARD_MAX_LIVE} live), the always-on profile rails ($${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}–$${RAIL_SLOT_PRICE_CENTS.L1 / 100}/wk by row, ${RAIL_SLOTS.length} fixed slots), and the leaderboard sponsor board (rolling 24h Polar bids from ${formatSponsorUsd(LEADERBOARD_SPONSOR_OPENING_CENTS)}). Flipper + rail close payment manually: approving emails the instructions to the ad's billing address (X DM @${BILLBOARD_PAYMENT_X_HANDLE} as backup), then mark paid + go live — rail ads take their slot at activation. Leaderboard creatives only need review: bidding, payment and liveness run themselves.`
+const PAGE_DESCRIPTION = `Paid ad slots, three placements — the flipper train on the dashboard + leaderboard ($${BILLBOARD_PRICE_CENTS / 100}/wk, max ${BILLBOARD_MAX_LIVE} live), the always-on profile transmissions panel ($${BILLBOARD_RAIL_PRICE_MIN_CENTS / 100}–$${RAIL_SLOT_PRICE_CENTS.L1 / 100}/wk by row, ${RAIL_SLOTS.length} fixed slots), and the leaderboard sponsor board (rolling 24h Polar bids from ${formatSponsorUsd(LEADERBOARD_SPONSOR_OPENING_CENTS)}). Flipper + transmissions close payment manually: approving emails the instructions to the ad's billing address (X DM @${BILLBOARD_PAYMENT_X_HANDLE} as backup), then mark paid + go live — transmissions ads take their slot at activation. Leaderboard creatives only need review: bidding, payment and liveness run themselves.`
 
 /** Mirrors the review-batch route's per-request ceiling. */
 const BATCH_APPROVE_MAX = 25
@@ -208,9 +208,9 @@ function adChipMeta(ad: AdRow, expired: boolean): { label: string; tone: AdminCh
   }
 }
 
-/** FLIPPER / RAIL / LEADERBOARD placement badge; a rail ad with an
- *  assigned slot carries its code (RAIL · L2) so the live bucket reads
- *  at a glance. */
+/** FLIPPER / TRANSMISSIONS / LEADERBOARD placement badge; a
+ *  transmissions ad with an assigned slot carries its code
+ *  (TRANSMISSIONS · L2) so the live bucket reads at a glance. */
 function PlacementChip({ ad }: { ad: AdRow }) {
   switch (ad.placement) {
     case 'flipper':
@@ -218,7 +218,7 @@ function PlacementChip({ ad }: { ad: AdRow }) {
     case 'rail':
       return (
         <AdminChip tone="neutral">
-          {ad.rail_slot ? `RAIL · ${ad.rail_slot}` : 'RAIL'}
+          {ad.rail_slot ? `TRANSMISSIONS · ${ad.rail_slot}` : 'TRANSMISSIONS'}
         </AdminChip>
       )
     case 'leaderboard':
@@ -439,7 +439,7 @@ function KpiStat({
   )
 }
 
-const railFullMsg = `All ${RAIL_SLOTS.length} rail slots are occupied — archive one or wait for a window to end.`
+const railFullMsg = `All ${RAIL_SLOTS.length} transmissions slots are occupied — archive one or wait for a window to end.`
 
 /** Narrows the review response's emailStatus. Anything unexpected reads
  *  as 'skipped' — the "no email went out, work it by hand" answer. */
@@ -1420,7 +1420,7 @@ export default function AdminBillboardPage() {
                 used={counts.flipperLive}
                 max={counts.maxFlipper}
               />
-              <OccupancyMeter label="Rail" used={counts.railLive} max={counts.maxRail} />
+              <OccupancyMeter label="Transmissions" used={counts.railLive} max={counts.maxRail} />
             </div>
           )}
         </div>

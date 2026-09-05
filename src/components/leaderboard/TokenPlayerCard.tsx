@@ -189,10 +189,11 @@ export function TokenPlayerCard({
   const isTeam = profile?.isTeam === true
   const avatarShape = isTeam ? 'rounded-xl' : 'rounded-full'
 
-  // HANGAR pointer under the NOW BUILDING pill: the in-flight pin IS the
-  // pill, so it is not counted a second time.
+  // HANGAR pointer under the NOW BUILDING pill: inFlight is the server's
+  // "this pin is the project" (urlKey match against project_url), so the
+  // pinned copy of the pill is the one card not counted again.
   const hangar = profile?.hangar ?? []
-  const hangarBeyondPill = hangar.length - (hangar.some((card) => card.inFlight) ? 1 : 0)
+  const hangarBeyondPill = hangar.filter((card) => !card.inFlight).length
 
   // ---- share card mapping --------------------------------------------
   // viewer is non-null exactly when the profile request carried a valid
