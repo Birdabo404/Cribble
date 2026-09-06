@@ -11,7 +11,7 @@
 // used to render as "nothing owned". Now it reads 'error' and the header
 // can offer RETRY; equip is a no-op until the sheet is synced.
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from '@/components/Toaster'
 import { fetchMe } from '@/lib/client/fetchMe'
 import { getPlate } from '@/lib/cosmetics/plates'
@@ -45,7 +45,8 @@ export interface BagData {
   achievementsState: AchievementsState
   /** Force the achievements fetch now (BADGES tab open). No-op once requested. */
   loadAchievements: () => void
-  /** Optimistic equip/unequip. No-op while syncState !== 'ok'. */
+  /** Optimistic equip/unequip. No-op while syncState !== 'ok' or while a
+   * previous equip is still in flight. */
   equip: (nextPlateId: string | null) => Promise<void>
   /** Re-run the cosmetics + identity load (and achievements if they failed). */
   retry: () => void
@@ -136,6 +137,10 @@ export function useBagData(): BagData {
   const [identity, setIdentity] = useState<Identity>(NEUTRAL_IDENTITY)
   const [equippedPlate, setEquippedPlate] = useState<string | null>(null)
   const [equipping, setEquipping] = useState(false)
+  // Synchronous twin of `equipping` for the guard inside equip(). State only
+  // lands on the next render, so a second call arriving before that (Enter,
+  // Enter on a row) would read a stale false and race the first PATCH.
+  const equipInFlight = useRef(false)
   const [syncState, setSyncState] = useState<SyncState>('loading')
   const [defaultPlateId, setDefaultPlateId] = useState<string | null>(null)
   // Bumped by retry(); the load effect re-runs on every change.
@@ -222,6 +227,11 @@ export function useBagData(): BagData {
       // Never write against a sheet we could not read: the optimistic
       // state would be a guess on top of a guess.
       if (syncState !== 'ok') return
+      // One write at a time. A second call while the first PATCH is out
+      // would flip the optimistic state again and let the two responses
+      // race — the rollback could then restore the wrong plate.
+      if (equipInFlight.current) return
+      equipInFlight.current = true
       const prev = equippedPlate
       setEquipping(true)
       setEquippedPlate(nextPlateId)
@@ -255,6 +265,7 @@ export function useBagData(): BagData {
           body: 'The board did not take it. Try again.'
         })
       } finally {
+        equipInFlight.current = false
         setEquipping(false)
       }
     },
