@@ -5,7 +5,9 @@
 // the buyer sees WHERE the card runs — a mock dashboard (nav bar +
 // flipper strip + countdown hairline) for flipper ads, a mock profile
 // page (rail card + profile silhouette + one vacant opposite slot) for
-// rail ads, a mock leaderboard page (title lockup + the sponsor face on
+// rail ads — a stand-in for the profile's TRANSMISSIONS panel, which
+// lists the eight slots as compact rows from 1024px up — a mock
+// leaderboard page (title lockup + the sponsor face on
 // the stat panel's footprint + ghost board rows) for leaderboard ads.
 // The dark well is always dark in both themes because the
 // surfaces it mocks (ticker, rails, the arena) are always dark — the one
@@ -247,14 +249,17 @@ function FlipperViewport({ card }: { card: StageCard }) {
   )
 }
 
-/** A fake profile viewport: the rail card on its real side, a quiet
- *  profile silhouette in the middle for context and scale, and one
- *  vacant plate on the opposite side — a rail system with exactly one
- *  slot sold. Narrow viewports drop to card + silhouette stacked. */
+/** A fake profile viewport: the rail card, a quiet profile silhouette
+ *  in the middle for context and scale, and one vacant plate on the
+ *  opposite side — a slot system with exactly one slot sold. The live
+ *  placement is the profile's TRANSMISSIONS panel (eight compact rows
+ *  in the page's left column, 1024px+); this stage keeps the L/R split
+ *  of the pitch board's slot map so the pick reads as a position.
+ *  Narrow viewports drop to card + silhouette stacked. */
 function RailViewport({ card, slot }: { card: StageCard; slot: RailSlot | null }) {
-  // L-slots (and the "any open slot" default) mount in the profile's
-  // left column, R-slots in the right — mirror that so the buyer's pick
-  // reads as geometry, not just a code.
+  // L-slots (and the "any open slot" default) sit on the left, R-slots
+  // on the right — the slot map's columns, so the buyer's pick reads as
+  // geometry, not just a code.
   const onRight = slot !== null && slot.startsWith('R')
 
   return (
@@ -287,9 +292,8 @@ function RailViewport({ card, slot }: { card: StageCard; slot: RailSlot | null }
 }
 
 /** One vacant slot in the open-slot language — corner brackets over a
- *  faint hatch, echoing .billboard-rail-vacant but built locally so the
- *  fixed-position rails CSS never leaks in. 160px sits inside the real
- *  rail cell's height clamp. */
+ *  faint hatch (the profile panel's open rows wear the same hatch),
+ *  built locally so no page CSS leaks in. */
 function GhostPlate() {
   return (
     <div
@@ -481,7 +485,7 @@ function Caption({ placement, slot }: { placement: BillboardPlacement; slot: Rai
     case 'rail':
       return (
         <p className="mt-1.5 text-[12.5px] leading-5 text-[color:var(--st-text-muted)]">
-          Profile rail{' · '}
+          Profile transmissions{' · '}
           {slot ? <span className="font-data">{slot}</span> : 'any open slot'}
           {' · '}
           <span className="font-data">{BILLBOARD_DURATION_DAYS} days</span>

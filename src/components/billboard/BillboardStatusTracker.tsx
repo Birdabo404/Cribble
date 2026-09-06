@@ -76,7 +76,8 @@ export interface MineAd {
   logo_url: string | null
   /** #rrggbb extracted from the logo server-side; null = neutral strip. */
   accent_color: string | null
-  /** Which product this card buys — the flipper strip or a profile rail. */
+  /** Which product this card buys — the flipper strip, a slot in the
+   *  profile TRANSMISSIONS panel, or the leaderboard sponsor board. */
   placement: BillboardPlacement
   /** Rail slot code (L1-R4), assigned by the admin at activation; null
    *  until then and always null on flipper ads. */
@@ -870,7 +871,7 @@ function SlotPayConsole({
                 key={railSlot}
                 type="button"
                 aria-pressed={selected}
-                aria-label={`Pick rail slot ${railSlot}`}
+                aria-label={`Pick transmissions slot ${railSlot}`}
                 onClick={() => pickSlot(railSlot)}
                 className={`min-w-0 rounded-lg border px-2.5 py-2 text-left transition-colors ${
                   selected
@@ -1025,18 +1026,20 @@ function AdRow({
   }
 
   const title = ad.company_name ?? hostOfLink(ad.link_url) ?? 'Untitled'
-  // A rail ad wears its assigned slot once the admin stamps one; until
-  // then the buyer's request shows as a wish ("wants R1"), never as if
-  // the slot were already theirs.
+  // A transmissions ad wears its assigned slot once the admin stamps
+  // one; until then the buyer's request shows as a wish ("wants R1"),
+  // never as if the slot were already theirs. The label is a shrink-0
+  // item of a wrapping row, so the longest form drops to its own line
+  // on a narrow card rather than clipping.
   const placementLabel =
     ad.placement === 'leaderboard'
       ? 'Leaderboard'
       : ad.placement === 'rail'
         ? ad.rail_slot
-          ? `Rail · ${ad.rail_slot}`
+          ? `Transmissions · ${ad.rail_slot}`
           : ad.requested_rail_slot
-            ? `Rail · wants ${ad.requested_rail_slot}`
-            : 'Rail'
+            ? `Transmissions · wants ${ad.requested_rail_slot}`
+            : 'Transmissions'
         : 'Flipper'
   const regionId = `billboard-ad-${ad.id}`
 

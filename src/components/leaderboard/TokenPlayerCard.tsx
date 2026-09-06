@@ -189,6 +189,12 @@ export function TokenPlayerCard({
   const isTeam = profile?.isTeam === true
   const avatarShape = isTeam ? 'rounded-xl' : 'rounded-full'
 
+  // HANGAR pointer under the NOW BUILDING pill: inFlight is the server's
+  // "this pin is the project" (urlKey match against project_url), so the
+  // pinned copy of the pill is the one card not counted again.
+  const hangar = profile?.hangar ?? []
+  const hangarBeyondPill = hangar.filter((card) => !card.inFlight).length
+
   // ---- share card mapping --------------------------------------------
   // viewer is non-null exactly when the profile request carried a valid
   // session; before hydration the sheet stays optimistic and degrades on
@@ -553,23 +559,36 @@ export function TokenPlayerCard({
             )}
 
             {/* Appears on profile hydration — no skeleton; the card simply
-                gains the pill when the payload lands. */}
-            {profile?.project && (
-              <div className="mt-4 flex justify-center">
-                <a
-                  href={profile.project.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={profile.project.url}
-                  className="group flex max-w-full items-center gap-2 rounded-lg border border-ember/25 bg-ember/[0.05] px-3 py-1.5 transition-colors hover:border-ember/45"
-                >
-                  <span className="shrink-0 text-[8px] tracking-[0.25em] text-ember">
-                    NOW BUILDING
-                  </span>
-                  <span className="min-w-0 truncate text-[10px] tracking-[0.12em] text-zinc-200 transition-colors group-hover:text-zinc-50">
-                    {profile.project.name}
-                  </span>
-                </a>
+                gains the pill when the payload lands. The one-line pointer
+                under it deep-links to the profile's HANGAR tab. */}
+            {(profile?.project || hangarBeyondPill > 0) && (
+              <div className="mt-4 flex flex-col items-center gap-2">
+                {profile?.project && (
+                  <a
+                    href={profile.project.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={profile.project.url}
+                    className="group flex max-w-full items-center gap-2 rounded-lg border border-ember/25 bg-ember/[0.05] px-3 py-1.5 transition-colors hover:border-ember/45"
+                  >
+                    <span className="shrink-0 text-[8px] tracking-[0.25em] text-ember">
+                      NOW BUILDING
+                    </span>
+                    <span className="min-w-0 truncate text-[10px] tracking-[0.12em] text-zinc-200 transition-colors group-hover:text-zinc-50">
+                      {profile.project.name}
+                    </span>
+                  </a>
+                )}
+                {hangarBeyondPill > 0 && (
+                  <Link
+                    href={`/u/${encodeURIComponent(row.username)}#hangar`}
+                    className="text-[8px] tracking-[0.25em] text-zinc-500 transition-colors hover:text-zinc-200"
+                  >
+                    {profile?.project
+                      ? `+${hangarBeyondPill} MORE IN HANGAR →`
+                      : `${hangarBeyondPill} IN HANGAR →`}
+                  </Link>
+                )}
               </div>
             )}
           </div>

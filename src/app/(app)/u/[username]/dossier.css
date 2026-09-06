@@ -1,0 +1,752 @@
+/* ---------------------------------------------------------------------------
+   /u/[username] UNIT RECORD material — imported by ProfileClient.tsx.
+
+   Everything is scoped under .pf-dossier (the profile's root <section>)
+   so the tokens never leak into the glass pages. Two materials, one
+   token set. Light (html.light) is the printed dossier: carbon ink on
+   sand paper. Dark (the base, the same switch as html.light
+   .settings-scope in globals.css) is the same record as a cyanotype
+   blueprint: Prussian-blue substrate, the sand hex turned into the
+   ink. Photographs (the banner, the avatar) are the one thing neither
+   material touches: they keep their own colours, framed by the page.
+   The desk around the sheet is .pf-page (globals.css), which AppShell
+   paints on profile routes: a drafting board in both materials — khaki
+   ruled in carbon under the sand sheet, blue-black ruled in chalk under
+   the blueprint — with the sheet's registration marks (.pf-sheet)
+   floating off its corners in the sheet's ink.
+
+   Class names below are a contract shared with Spine / ProfileMenu /
+   the panes / useProfileMotion. Final states live here, so reduced
+   motion (and a pre-boot paint) shows the finished page; the motion
+   hook only ever animates *from* something toward these values.
+
+   Loads after globals.css (layout -> route), so at equal specificity a
+   recipe beats a Tailwind utility — same footing as the custom blocks
+   in globals.css. Override through the --pf-* variables, not utilities.
+--------------------------------------------------------------------------- */
+
+/* ---------- tokens ---------- */
+
+/* Dark is the base; html.light restores paper below. Every recipe in
+   this sheet reads tokens only, so each has a single definition and
+   the two materials differ in these two blocks alone. Spacing and the
+   sticky offset are material-independent and live here once. */
+.pf-dossier {
+  /* surfaces: Prussian blue on the blue-black .pf-page board
+     (globals.css). oklch 0.27 0.055 245; the steps are 1.11 / 1.14,
+     matching paper's 1.11 / 1.15. */
+  --pf-paper: #0b293f;
+  --pf-paper-2: #032036;
+  --pf-paper-3: #16334a;
+  /* spacing, two roles. --pf-gutter: the sheet's column gutter — every
+     block that sits directly on the sheet (spine identity / actions,
+     the content column, pane bodies and the pane header, the compact
+     bar, the phone menu rows, the framed spine panels' outer margins)
+     pads or insets by it, 16px on phones and 20px from lg. --pf-inset:
+     padding INSIDE a framed panel (the ribbon, the TRANSMISSIONS header
+     and rows, the RECRUIT header and body, lg menu rows). */
+  --pf-gutter: 16px;
+  --pf-inset: 12px;
+  /* ink: the sand paper becomes the ink — cream lines on blue, as on a
+     real blueprint. primary (9.74:1 on paper), secondary (6.97:1),
+     micro (4.81:1 — the 9-11px tracked labels read clearer here than
+     their 3.15:1 on paper) */
+  --pf-ink: #d6d1b8;
+  --pf-ink-2: #b6b1a0;
+  --pf-ink-3: #969285;
+  --pf-ink-rgb: 214 209 184;
+  /* lines: outer frames (2.52:1 on paper) vs inner rules (1.64:1). A
+     step stronger than paper's 1.91 / 1.36 — hairlines die on dark. */
+  --pf-line: #4c677b;
+  --pf-line-soft: #2f4b60;
+  /* the one accent is inversion: a sand plate carrying blue type
+     (9.74:1). FOLLOW, DOCK and the menu plate flip to sand; the menu
+     wings (--pf-ink) become sand ticks. */
+  --pf-plate: #d6d1b8;
+  --pf-plate-fg: #0b293f;
+  /* hazard: rank loss, the UNFOLLOW threat, the leading agent bar,
+     errors. The crimson lifted to read on blue: oklch L 0.72 C 0.16
+     H 16°, still 26° from --pf-ember-ink so a rank-loss line and SCORE
+     stay two inks. WCAG 2: paper 5.60:1 · paper-2 6.22:1 · paper-3
+     4.89:1 — type-safe on every surface. Never on the plate (1.74:1). */
+  --pf-alert: #f87582;
+  /* Brand lime + neon orange keep their ONE job each (lime = live,
+     ember = heat; the paper block below spells out the roles). On blue
+     both bright fills clear as they are: #ccff00 is 12.7:1 on paper
+     and #ff5e00 4.88:1, so the lamp and the level-4 dot need no ink
+     rim (--pf-rim is paper here). The -ink steps lift toward the fills
+     instead of darkening away from them, hue held (123° lime / 41°
+     ember), WCAG 2:
+       --pf-lime-ink  #cef034  paper 11.5:1 — ONLINE and +1,500 read
+                               as the brand lime itself
+       --pf-ember-ink #fb7f4c  paper 5.87:1 · paper-2 6.52:1 · paper-3
+                               5.13:1
+     Hazard and heat stay 26° apart in hue. --pf-ember-fg is unchanged:
+     type ON the solid --pf-ember fill, 5.79:1, and the fill is the
+     same hex in both materials. */
+  --pf-lime: #ccff00;
+  --pf-lime-ink: #cef034;
+  --pf-lime-rgb: 204 255 0;
+  --pf-ember: #ff5e00;
+  --pf-ember-ink: #fb7f4c;
+  --pf-ember-rgb: 255 94 0;
+  --pf-ember-fg: #1a1813;
+  /* print inks for medals and rarities (parts.tsx medalInk / rarityInk),
+     lifted to read on blue; every stamp clears 4.5:1 on paper (gold
+     7.40 · bronze 5.88 · rare 7.60 · epic 6.31 · mythic 7.28; silver,
+     common and legendary share ink-2 / gold) */
+  --pf-gold: #ddb049;
+  --pf-silver: var(--pf-ink-2);
+  --pf-bronze: #d59466;
+  --pf-rarity-common: var(--pf-ink-2);
+  --pf-rarity-rare: #6ec3eb;
+  --pf-rarity-epic: #ec86cc;
+  --pf-rarity-legendary: #ddb049;
+  --pf-rarity-mythic: #bbaceb;
+  /* roles: one token per recipe that differs between the materials.
+     --pf-rim edges the ONLINE lamp and the level-4 dot — paper here
+     (lime is 12.7:1 on blue and needs no rim), ink on paper.
+     --pf-dot-3 is the level-3 activity dot: a dimmed lime, 3.59:1 on
+     paper and 3.55:1 against the level-4 lime, so 3 and 4 stay
+     distinct. --pf-screen-alpha is the dot-screen density. The
+     --pf-print-* pair prints the TRANSMISSIONS sponsor logos (.pf-print
+     — never a photograph): on paper they multiply into the sheet; on
+     blue they screen, grayscale chalk on blue instead of crushing to
+     black. --pf-scan-line is the pane scan sweep, a faint ink line
+     here. --pf-reg is the registration-mark ink (.pf-sheet): the
+     crosses off the sheet's corners on the drafting board, the sheet's
+     ink at 60% — the one role both materials spell the same way, so it
+     is declared once and light inherits it. */
+  --pf-rim: var(--pf-paper);
+  --pf-dot-3: #6f850e;
+  --pf-screen-alpha: 0.12;
+  --pf-print-blend: screen;
+  --pf-print-filter: grayscale(1) contrast(1.1) brightness(0.85);
+  --pf-scan-line: rgb(var(--pf-ink-rgb) / 0.22);
+  --pf-reg: rgb(var(--pf-ink-rgb) / 0.6);
+  /* Sticky offsets clear the fixed top bar (md+ value divided by the 0.9
+     .page-zoom-out zoom, since sticky `top` is scaled by zoom). */
+  --pf-sticky-top: var(--nav-topbar-h);
+
+  background-color: var(--pf-paper);
+  color: var(--pf-ink);
+  /* The root is its own stacking context so the dot screen (.pf-screen,
+     an absolute first child at z-index -1) paints above this fill and
+     below every child, and the sticky compact bar (z 30) and phone menu
+     strip (z 20) stack inside the sheet rather than against the page. */
+  position: relative;
+  isolation: isolate;
+}
+
+/* Light: the printed dossier, carbon ink on sand paper. The paper
+   values and their measurements, verbatim — nothing here moved when
+   the blueprint arrived, so light renders as it always has. */
+html.light .pf-dossier {
+  /* surfaces (the .pf-page board in globals.css sits a step below
+     --pf-paper; keep the two files in sync) */
+  --pf-paper: #d6d1b8;
+  --pf-paper-2: #ccc7ae;
+  --pf-paper-3: #e3dfcb;
+  /* ink: primary (6.6:1 on paper), secondary (5.1:1 paper / 4.6:1
+     paper-2), micro (3.15:1 on paper — 9-11px tracked labels only) */
+  --pf-ink: #454138;
+  --pf-ink-2: #565244;
+  --pf-ink-3: #777259;
+  --pf-ink-rgb: 69 65 56;
+  /* lines: outer frames vs inner rules */
+  --pf-line: #9c9781;
+  --pf-line-soft: #b9b49c;
+  /* the one accent is inversion */
+  --pf-plate: #454138;
+  --pf-plate-fg: #dad4bb;
+  /* hazard: rank loss, the UNFOLLOW threat, the leading agent bar,
+     errors. Crimson, not brick: oklch L 0.454 C 0.151 H 15°, 26° from
+     --pf-ember-ink (H 41°) at the same lightness, so a rank-loss line
+     and SCORE read as two inks (the old #9a3625 sat 9° off ember at
+     1.08:1 and the two were twins). WCAG 2: paper 5.16:1 · paper-2
+     4.66:1 · paper-3 5.92:1 — type-safe on every paper surface (the
+     old value was 4.22:1 on paper-2). Never on the plate (1.3:1). */
+  --pf-alert: #98243a;
+  /* Brand lime + neon orange, each with ONE job. Lime = live (ONLINE
+     lamp, activity dots at levels 3-4, the recruit numeral); ember =
+     heat (SCORE and +TODAY, the CHASE line, the recruit primary fill).
+     Everything else stays charcoal.
+     The bright values are fills only: #ccff00 is 1.31:1 on paper (Lc
+     -16) and #ff5e00 is 1.99:1 (Lc 29), so neither ever carries type
+     on paper. A bright fill sits inside a 1px --pf-ink rim (6.6:1
+     against paper, and 8.65:1 lime / 3.3:1 ember against the rim) or
+     on the plate (lime 8.65:1 / Lc -86, ember 3.32:1 / Lc -35).
+     The -ink steps are the same hue darkened (oklch hue held at 123°
+     lime / 41° ember, chroma at the sRGB edge), measured with WCAG 2 +
+     APCA-W3 0.1.9:
+       --pf-lime-ink  #465a00  paper 5.02:1 / Lc 60 · paper-2 4.53:1 /
+                               Lc 54 · paper-3 5.76:1 / Lc 68
+       --pf-ember-ink #933300  paper 5.04:1 / Lc 59 · paper-2 4.55:1 /
+                               Lc 53 · paper-3 5.78:1 / Lc 67
+     Both clear 4.5:1 as type on every paper surface. Ember-ink holds
+     the brand hue (41°); --pf-alert moved to crimson (15°) to make
+     room for it, so heat and hazard are 26° apart at equal lightness
+     and hue alone tells SCORE from a rank-loss line.
+     --pf-ember-fg is the type ON a solid --pf-ember fill: the fill's
+     mid lightness caps even #000 at 6.85:1 / Lc 48, paper fails at
+     1.99:1, --pf-ink at 3.32:1; this warm near-black measures 5.79:1 /
+     Lc 46. */
+  --pf-lime: #ccff00;
+  --pf-lime-ink: #465a00;
+  --pf-lime-rgb: 204 255 0;
+  --pf-ember: #ff5e00;
+  --pf-ember-ink: #933300;
+  --pf-ember-rgb: 255 94 0;
+  --pf-ember-fg: #1a1813;
+  /* print inks for medals and rarities (parts.tsx medalInk / rarityInk);
+     every stamp clears 3:1 on paper */
+  --pf-gold: #866a17;
+  --pf-silver: var(--pf-ink-2);
+  --pf-bronze: #8c4e24;
+  --pf-rarity-common: var(--pf-ink-2);
+  --pf-rarity-rare: #2f5f7a;
+  --pf-rarity-epic: #7a2f5a;
+  --pf-rarity-legendary: #866a17;
+  --pf-rarity-mythic: #5a4a8a;
+  /* roles: the literals the recipes carried before the tokens existed.
+     Ink rim on the lamp and level-4 dot, lime-ink level 3, and the
+     printed sponsor logos multiply into the paper. --pf-reg is
+     inherited: carbon at 60% on the khaki board. */
+  --pf-rim: var(--pf-ink);
+  --pf-dot-3: var(--pf-lime-ink);
+  --pf-screen-alpha: 0.16;
+  --pf-print-blend: multiply;
+  --pf-print-filter: grayscale(0.35) contrast(1.15) sepia(0.25);
+  --pf-scan-line: var(--pf-paper-3);
+}
+
+@media (min-width: 768px) {
+  .pf-dossier {
+    --pf-sticky-top: calc(var(--nav-topbar-h) / 0.9);
+  }
+  /* rail mode has no top bar */
+  html[data-nav-pos='left'] .pf-dossier {
+    --pf-sticky-top: 0px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .pf-dossier {
+    --pf-gutter: 20px;
+  }
+}
+
+.pf-dossier ::selection {
+  background: var(--pf-ink);
+  color: var(--pf-paper);
+}
+
+/* Phones: the column runs edge to edge under the nav bar. */
+@media (max-width: 639px) {
+  .pf-bleed {
+    border-left: 0;
+    border-right: 0;
+    border-top: 0;
+    border-radius: 0;
+  }
+}
+
+/* ---------- textures (overlay layers; position them yourself) ---------- */
+
+/* Dot screen: a 4px tile of ink dots at --pf-screen-alpha (lighter on
+   blue, where cream dots carry further). A .pf-dossier root wears it as
+   its first child (<span class="pf-screen"><span/></span> — the sheet in
+   ProfileClient, the modal panel in ReferralPlate), not as its own
+   background: the outer span is an out-of-flow layer over the padding
+   box at z-index -1, which the root's isolation keeps above its paper
+   fill and below every child, so plates, the compact bar and the
+   banner's paper-2 cover the dots exactly as they covered a root
+   background. The inner span is the tile, oversized by one drift (12px)
+   on every side so the layer stays covered while it moves; the outer
+   span's overflow clips it to the root. (The root's own ::before /
+   ::after are spoken for: .pf-sheet draws the registration marks there.) */
+.pf-dossier > .pf-screen > span {
+  background-image: radial-gradient(circle, rgb(var(--pf-ink-rgb) / var(--pf-screen-alpha)) 0.6px, transparent 0.8px);
+  background-size: 4px 4px;
+}
+
+.pf-dossier > .pf-screen {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.pf-dossier > .pf-screen > span {
+  position: absolute;
+  inset: -12px;
+}
+
+/* Drift: one 12px diagonal (three whole tiles, so the loop is seamless)
+   every 24s so the paper breathes, as a transform — compositor only.
+   background-position is not compositor-eligible and repainted the
+   entire sheet every frame. Desktop only, like the lamp and the scan;
+   below lg the screen is static. */
+@media (min-width: 1024px) {
+  .pf-dossier > .pf-screen > span {
+    animation: pf-screen-drift 24s linear infinite;
+    will-change: transform;
+  }
+}
+
+@keyframes pf-screen-drift {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(12px, 12px, 0);
+  }
+}
+
+/* Photo host (the banner, the spine avatar): the containing block for
+   an `absolute inset-0` image that renders exactly as uploaded — no
+   filter, no screen, in either material; the page only frames it. No
+   colour lives here. The boot fades the host in (useProfileMotion, at
+   rest fully opaque). */
+.pf-photo {
+  position: relative;
+}
+
+/* A printed image (the 20px TRANSMISSIONS sponsor logos):
+   --pf-print-filter and --pf-print-blend, so a logo prints into
+   whichever material it sits on instead of multiplying into black on
+   blue. Never on a photograph — those are .pf-photo. */
+.pf-print {
+  mix-blend-mode: var(--pf-print-blend);
+  filter: var(--pf-print-filter);
+}
+
+/* Vacant cells (open sponsor slots, empty bays). */
+.pf-hatch {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgb(var(--pf-ink-rgb) / 0.06) 0 1px,
+    transparent 1px 7px
+  );
+}
+
+/* 120px desaturated fractal-noise tile — a whisper of print grain for
+   any layer that wants it. */
+.pf-grain {
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 120px 120px;
+  opacity: 0.05;
+}
+
+/* ---------- frames, rules, plates ---------- */
+
+.pf-frame {
+  border: 1px solid var(--pf-line);
+  border-radius: 0;
+}
+
+/* Registration marks: a 1px `+` with 7px legs floating 13px off each
+   corner of the page sheet, on the drafting board — the crosses the
+   sheet was aligned to, half again the size of the board's own 9px
+   ticks so they read as the sheet's. Same anatomy as .pf-brackets
+   (::before draws the horizontal legs, ::after the vertical, four
+   gradient layers each), but centred outside the corners: the pseudo
+   box overhangs by 21px, a leg is 15px, so a 7px offset centres the
+   cross at -13.5px — inside the wrapper's 24px gutter. Only the page
+   sheet carries it (parts.tsx SHEET — never the modal panel) and only
+   from sm (below, the sheet bleeds edge to edge). Chalk on the blue
+   board, carbon on the khaki one (--pf-reg). */
+.pf-sheet {
+  position: relative;
+}
+
+.pf-sheet::before,
+.pf-sheet::after {
+  content: '';
+  position: absolute;
+  inset: -21px;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--pf-reg), var(--pf-reg)),
+    linear-gradient(var(--pf-reg), var(--pf-reg)),
+    linear-gradient(var(--pf-reg), var(--pf-reg)),
+    linear-gradient(var(--pf-reg), var(--pf-reg));
+  background-repeat: no-repeat;
+}
+
+.pf-sheet::before {
+  background-size: 15px 1px;
+  background-position:
+    0 7px,
+    100% 7px,
+    0 calc(100% - 7px),
+    100% calc(100% - 7px);
+}
+
+.pf-sheet::after {
+  background-size: 1px 15px;
+  background-position:
+    7px 0,
+    calc(100% - 7px) 0,
+    7px 100%,
+    calc(100% - 7px) 100%;
+}
+
+@media (max-width: 639px) {
+  .pf-sheet::before,
+  .pf-sheet::after {
+    display: none;
+  }
+}
+
+/* Unfoldable block. Final state; the boot timeline animates from
+   inset(50% 0 50% 0) and the pane swap collapses back to it. */
+.pf-panel {
+  clip-path: inset(0);
+}
+
+/* Hairlines draw from the left; share bars fill from the left. */
+.pf-rule {
+  height: 1px;
+  background: var(--pf-line-soft);
+  transform-origin: left center;
+}
+
+.pf-fill {
+  transform-origin: left center;
+}
+
+/* Inverted row: the page's only highlight. */
+.pf-plate {
+  background: var(--pf-plate);
+  color: var(--pf-plate-fg);
+}
+
+/* 6px square marker. currentColor, so it reads ink on paper and paper
+   inside a plate without a variant. The lamp pulse animates the host. */
+.pf-marker {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  vertical-align: middle;
+}
+
+.pf-marker::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+}
+
+.pf-marker-hollow::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+/* The ONLINE lamp: the one bright lime on the page. A 1px --pf-rim
+   carries the marker's edge: on paper #ccff00 alone is 1.31:1, so the
+   rim is ink (6.6:1 paper side, 8.65:1 lime side — see the token
+   block); on blue lime is 12.7:1 and the rim is paper, a bare lamp.
+   anime pulses the host's opacity on desktop; at rest it is fully
+   opaque. */
+.pf-lamp::before {
+  background: var(--pf-lime);
+  box-shadow: inset 0 0 0 1px var(--pf-rim);
+}
+
+/* Four corner ticks (8px legs, 1px currentColor): ::before draws the
+   horizontal legs, ::after the vertical ones, each as four positioned
+   gradient layers. --pf-bracket-inset pushes them outside a frame. */
+.pf-brackets {
+  position: relative;
+}
+
+.pf-brackets::before,
+.pf-brackets::after {
+  content: '';
+  position: absolute;
+  inset: var(--pf-bracket-inset, 0px);
+  pointer-events: none;
+  background-image:
+    linear-gradient(currentColor, currentColor),
+    linear-gradient(currentColor, currentColor),
+    linear-gradient(currentColor, currentColor),
+    linear-gradient(currentColor, currentColor);
+  background-position:
+    0 0,
+    100% 0,
+    0 100%,
+    100% 100%;
+  background-repeat: no-repeat;
+}
+
+.pf-brackets::before {
+  background-size: 8px 1px;
+}
+
+.pf-brackets::after {
+  background-size: 1px 8px;
+}
+
+/* ---------- focus ---------- */
+
+/* One focus grammar for the sheet. Every row, social square, count
+   button and menu tab answers keyboard focus with a 1px outline in its
+   own ink, drawn one pixel inside its box, in place of the UA ring
+   (blue, rounded, off-material): a plate row outlines in plate-fg, an
+   ink row in ink, and on a .pf-frame row the outline lands exactly on
+   the hairline, so nothing leaks past a frame or the menu plate.
+   Components carry no focus utilities of their own — this rule
+   outranks them (three compounds to a utility's two), so a per-element
+   ring would be dead weight. Inputs are left out: the HANGAR dock field
+   answers focus by inking its own frame (focus:border-*), and an
+   outline on top would double the edge. */
+.pf-dossier :is(a, button, [role='tab'], [tabindex]):focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: -1px;
+}
+
+/* ---------- type ---------- */
+
+/* Tracking: 0.18em on the 10-11px stencil labels, 0.2em on section
+   labels. Wide enough to read as stencil, tight enough that
+   `[ TRANSMISSIONS ]` and the FOLLOWS YOU stamp fit in the 296px spine. */
+
+/* Tracked mono micro-label (9-11px only; 3.15:1 on paper). */
+.pf-micro {
+  font-family: var(--font-data), ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--pf-ink-3);
+}
+
+/* Section label (5.1:1 on paper). */
+.pf-label {
+  font-family: var(--font-data), ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--pf-ink-2);
+}
+
+/* Inline ink stamp (medal, rarity): the caller sets `color`. Right
+   padding drops the trailing letter-space so the glyphs sit centred.
+   inline-flex, not inline-block: this recipe outranks the caller's
+   `inline-flex` utility (same specificity, later sheet), and as a flex
+   item inline-block blockifies — the role stamp's 9px icon then stacked
+   above FOUNDER instead of sitting beside it. */
+.pf-stamp {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid currentColor;
+  padding: 1px calc(6px - 0.18em) 1px 6px;
+  font-family: var(--font-data), ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  white-space: nowrap;
+}
+
+/* ---------- menu ---------- */
+
+/* Tablist container: positioned so .pf-menu-plate can be laid under the
+   selected row by the motion hook (x / y / width / height). */
+.pf-menu {
+  position: relative;
+}
+
+.pf-menu-row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  text-align: left;
+  font-family: var(--font-data), ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--pf-ink-2);
+  transition: color 150ms ease, background-color 150ms ease;
+}
+
+.pf-menu-row:hover {
+  background: var(--pf-paper-3);
+}
+
+.pf-menu-row[aria-selected='true'] {
+  color: var(--pf-plate-fg);
+}
+
+/* the plate underneath is the selected background */
+.pf-menu-row[aria-selected='true']:hover {
+  background: transparent;
+}
+
+@media (min-width: 1024px) {
+  .pf-menu-row {
+    min-height: 40px;
+  }
+}
+
+/* Below lg the menu is a horizontal snap strip: rows size to their
+   label instead of the full-width list row above. The strip's last 24px
+   fade to nothing through an alpha mask — an affordance, not a colour:
+   at 320px LOADOUT ended exactly on the sheet edge and nothing said
+   SERVICE RECORD was off it. The rows' 16px gutter keeps every label
+   clear of the ramp except the last one's tail once it is scrolled
+   fully in, which is the cue's price. */
+@media (max-width: 1023px) {
+  .pf-menu {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+  }
+
+  .pf-menu-row {
+    width: auto;
+    flex: 0 0 auto;
+  }
+}
+
+/* One inverted plate slid under the selected row. Bracket wings: 2px
+   ink ticks just outside both ends, full height. */
+.pf-menu-plate {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  background: var(--pf-plate);
+  will-change: transform, width, height;
+  pointer-events: none;
+}
+
+.pf-menu-plate::before,
+.pf-menu-plate::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--pf-ink);
+}
+
+.pf-menu-plate::before {
+  left: -5px;
+}
+
+.pf-menu-plate::after {
+  right: -5px;
+}
+
+/* ---------- live surface ---------- */
+
+/* Hairline scan sweep across the content pane (anime.js translates it
+   down; desktop only). --pf-scan-line: a lighter paper on paper, a
+   faint ink line on blue. */
+.pf-scan {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 1px;
+  background: var(--pf-scan-line);
+  transform: translateY(-100%);
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+@media (max-width: 1023px) {
+  .pf-scan {
+    display: none;
+  }
+}
+
+/* Activity grid dot; data-level 0-4 is the active-time quantile.
+   Levels 0-2 are the ink density ramp (1.13 / 1.54 / 2.28:1 on paper);
+   the top two quantiles go live in lime: level 3 is solid --pf-dot-3
+   (lime-ink on paper, 5.02:1; a dimmed lime on blue, 3.59:1), level 4
+   the lamp — a bright lime core inside a 1px --pf-rim. On paper the
+   rim is ink (6.62:1 on paper, core 8.65:1 against the rim, 6.56:1
+   against a level-3 dot); on blue the rim is paper and the core alone
+   is 12.7:1, 3.55:1 against a level-3 dot. Either way it is the most
+   prominent cell and never mistaken for a 3. */
+.pf-grid-dot {
+  display: block;
+  width: 8px;
+  height: 8px;
+  background: var(--pf-ink);
+  transform-origin: center;
+  opacity: 0.08;
+}
+
+.pf-grid-dot[data-level='1'] {
+  opacity: 0.28;
+}
+
+.pf-grid-dot[data-level='2'] {
+  opacity: 0.5;
+}
+
+.pf-grid-dot[data-level='3'] {
+  background: var(--pf-dot-3);
+  opacity: 1;
+}
+
+.pf-grid-dot[data-level='4'] {
+  background: var(--pf-lime);
+  box-shadow: inset 0 0 0 1px var(--pf-rim);
+  opacity: 1;
+}
+
+@media (min-width: 640px) {
+  .pf-grid-dot {
+    width: 10px;
+    height: 10px;
+  }
+}
+
+/* Phone compact name bar (ScrollTrigger reveals it once the hero has
+   scrolled out). */
+.pf-compact {
+  position: sticky;
+  top: var(--pf-sticky-top);
+  z-index: 30;
+  background: var(--pf-paper);
+}
+
+@media (min-width: 1024px) {
+  .pf-compact {
+    display: none;
+  }
+}
+
+/* ---------- reduced motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .pf-dossier > .pf-screen > span {
+    animation: none;
+    will-change: auto;
+  }
+  .pf-scan {
+    display: none;
+  }
+  .pf-menu-row {
+    transition: none;
+  }
+  .pf-menu-plate {
+    will-change: auto;
+  }
+}

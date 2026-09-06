@@ -143,8 +143,8 @@ const CARD_VARS = {
   '--px-bone-4': '#fffdf5'
 } as React.CSSProperties
 
-// Gate-pass lime, the literal --ref-lime from globals.css (same move as
-// the /join OG image — the plate must not flip with the theme).
+// Gate-pass lime (#FCFF00), the literal the /join interstitial and its OG
+// image hard-code — the plate must not flip with the theme.
 const LIME = 'rgb(252 255 0)'
 const LIME_DIM = 'rgb(252 255 0 / 0.3)'
 const LIME_FAINT = 'rgb(252 255 0 / 0.12)'

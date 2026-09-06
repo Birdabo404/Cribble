@@ -28,16 +28,19 @@ export type BillboardStatus =
   | 'ARCHIVED'
 
 /** Which Billboard product an ad occupies: the rotating flipper train
- *  under the navbar, one of the always-on sponsor rails flanking the
- *  profile pages (migration 035), or the rolling 24h sponsor ranking
+ *  under the navbar, one of the eight always-on rail slots in the
+ *  profile page's TRANSMISSIONS panel (migration 035; 1024px and up,
+ *  no rotation), or the rolling 24h sponsor ranking
  *  on the leaderboard page (migration 055). Leaderboard creatives ride
  *  the same review lifecycle and click redirect but NOT the 7-day LIVE
  *  window — their liveness is APPROVED + at least one active paid
  *  contribution (isLiveAd does not apply; see lib/leaderboardSponsor). */
 export type BillboardPlacement = 'flipper' | 'rail' | 'leaderboard'
 
-/** The 8 fixed rail slots in board/render order: L1-L4 down the left
- *  column, R1-R4 down the right. */
+/** The 8 fixed rail slots in board/render order: L1-L4 then R1-R4. The
+ *  L/R prefix is the slot's column on the pitch board's slot map (and
+ *  its price-ladder row); the profile's TRANSMISSIONS panel lists all
+ *  eight top to bottom in this order. */
 export const RAIL_SLOTS = ['L1', 'L2', 'L3', 'L4', 'R1', 'R2', 'R3', 'R4'] as const
 export type RailSlot = (typeof RAIL_SLOTS)[number]
 
@@ -301,8 +304,8 @@ export type BillboardHypeItem = Extract<BillboardItem, { kind: 'hype' }>
 export type BillboardClubItem = Extract<BillboardItem, { kind: 'club' }>
 
 /** One live rail ad, as served by GET /api/billboard/rails. Field
- *  semantics match BillboardItem's ad variant; slot is where the card
- *  mounts on the profile pages. */
+ *  semantics match BillboardItem's ad variant; slot is the row it
+ *  occupies in the profile's TRANSMISSIONS panel. */
 export type RailItem = {
   id: number
   slot: RailSlot
@@ -327,7 +330,8 @@ export type SlotBoard = {
   }
   rails: Array<{
     slot: RailSlot
-    /** Which profile-page column the slot mounts in (L* left, R* right). */
+    /** Which column of the pitch board's slot map the slot sits in (L*
+     *  left, R* right). The profile panel itself is one list. */
     side: 'left' | 'right'
     priceCents: number
     /** Live occupant's window end; null = slot open right now. */

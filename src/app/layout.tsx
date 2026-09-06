@@ -71,7 +71,7 @@ const pressStart = Press_Start_2P({
 // Geometric display sans for competitive surfaces (leaderboard names,
 // headers, big numerals) — sharper than mono, still space-age.
 const spaceGrotesk = Space_Grotesk({
-  weight: ['400', '500', '600', '700'],
+  weight: ['300', '400', '500', '600', '700'],
   subsets: ['latin'],
   variable: '--font-display',
   display: 'swap',
@@ -127,9 +127,8 @@ export const metadata: Metadata = {
   // No root-level canonical: alternates cascade to every nested page, so
   // each public page declares its own canonical instead.
   //
-  // Homepage and a few public routes set og/twitter images to the
-  // /opengraph-image.png alias (rewritten onto the generated card).
-  // Routes without their own images still pick up the file-based card.
+  // No explicit og/twitter images: the file-based src/app/opengraph-image.tsx
+  // card cascades to every route without a closer one.
   openGraph: {
     siteName: 'Cribble',
     type: 'website',

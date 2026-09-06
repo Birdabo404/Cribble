@@ -1,5 +1,6 @@
 import type { AchievementIcon, AchievementRarity } from '@/lib/achievements'
 import type { BannerFrame } from '@/lib/bannerFrame'
+import type { HangarCard } from '@/lib/hangar/types'
 import type { PublicProfileAgent } from '@/lib/profileAgents'
 import type { TeamRef } from '@/components/premium/TeamMiniLogo'
 import { ROLE_META } from '@/lib/roles'
@@ -82,6 +83,10 @@ export interface PlayerProfile {
    *  for GitHub URLs, else hostname) when the owner didn't set one.
    *  Optional so cached payloads that predate the field still parse. */
   project?: { url: string; name: string } | null
+  /** HANGAR — pinned builds in pin order, inFlight marking the one that
+   *  matches `project`. Optional so payloads that predate the field (and
+   *  the legacy /api/leaderboard/profile shape) still parse. */
+  hangar?: HangarCard[]
   socials: Socials
   role: string | null
   tier: string

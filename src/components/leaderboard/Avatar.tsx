@@ -11,10 +11,19 @@ import { useEffect, useState } from 'react'
 import { isXAvatarUrl, xAvatarRefreshUrl } from '@/lib/avatarRefresh'
 import { bannerFrameStyle, type BannerFrame } from '@/lib/bannerFrame'
 
+/** The largest twimg size variant with a name; past it only the
+ *  suffix-less original exists. */
+const TWIMG_NAMED_MAX = 400
+
 /** twimg avatars are stored at multiple sizes; the OAuth flow persists the
- * 48px `_normal` variant which is blurry on retina. Swap in the 400px one. */
-const upgraded = (src: string) =>
-  src.includes('pbs.twimg.com') ? src.replace(/_normal(\.[a-z]+)(\?.*)?$/i, '_400x400$1$2') : src
+ * 48px `_normal` variant which is blurry on retina. Swap in the 400px one,
+ * or — when the box needs more than 400 device pixels — drop the suffix
+ * for X's original upload (its only larger variant; heavier, so only
+ * asked for where it shows). */
+const upgraded = (src: string, px: number) =>
+  src.includes('pbs.twimg.com')
+    ? src.replace(/_normal(\.[a-z]+)(\?.*)?$/i, px > TWIMG_NAMED_MAX ? '$1$2' : '_400x400$1$2')
+    : src
 
 export function Avatar({
   src,
@@ -22,7 +31,8 @@ export function Avatar({
   handle,
   imgClassName,
   fallbackClassName,
-  imgStyle
+  imgStyle,
+  px = TWIMG_NAMED_MAX
 }: {
   src: string | null | undefined
   /** monogram character shown when no/broken image */
@@ -34,12 +44,17 @@ export function Avatar({
   imgClassName: string
   fallbackClassName: string
   imgStyle?: React.CSSProperties
+  /** Longest edge this instance renders at, in device pixels (CSS size ×
+   *  DPR). Only twimg URLs are sizable: up to 400 the `_400x400` variant
+   *  (the default), above it the original. GitHub avatars serve 460
+   *  whatever is asked and unavatar has no size parameter. */
+  px?: number
 }) {
   const [stage, setStage] = useState<'hi' | 'original' | 'refresh' | 'monogram'>('hi')
 
   useEffect(() => setStage('hi'), [src])
 
-  const hi = src ? upgraded(src) : null
+  const hi = src ? upgraded(src, px) : null
   const refresh = src && handle && isXAvatarUrl(src) ? xAvatarRefreshUrl(handle) : null
   const shown =
     stage === 'hi' ? hi : stage === 'original' ? src : stage === 'refresh' ? refresh : null

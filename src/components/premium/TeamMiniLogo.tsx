@@ -50,6 +50,8 @@ export function TeamMiniLogo({
     window.location.assign(href)
   }
 
+  // The clip lives on an inner span so the anchor itself can carry an
+  // after: hit-area extension (the /u/ profile hands one in for phones).
   return (
     <a
       href={href}
@@ -57,24 +59,25 @@ export function TeamMiniLogo({
       onAuxClick={(e) => e.stopPropagation()}
       title={label}
       aria-label={label}
-      className={`relative inline-flex shrink-0 overflow-hidden ${className}`}
-      style={{
-        width: size,
-        height: size,
-        borderRadius: Math.max(2, Math.round(size * 0.22))
-      }}
+      className={`relative inline-flex shrink-0 ${className}`}
+      style={{ width: size, height: size }}
     >
-      <Avatar
-        src={team.logo}
-        char={team.name[0]?.toUpperCase() ?? '?'}
-        imgClassName="h-full w-full object-cover"
-        fallbackClassName="flex h-full w-full items-center justify-center bg-zinc-900 font-display text-[8px] leading-none text-zinc-300"
-      />
       <span
-        aria-hidden
-        className="pointer-events-none absolute inset-0 border border-white/15"
-        style={{ borderRadius: 'inherit' }}
-      />
+        className="relative block h-full w-full overflow-hidden"
+        style={{ borderRadius: Math.max(2, Math.round(size * 0.22)) }}
+      >
+        <Avatar
+          src={team.logo}
+          char={team.name[0]?.toUpperCase() ?? '?'}
+          imgClassName="h-full w-full object-cover"
+          fallbackClassName="flex h-full w-full items-center justify-center bg-zinc-900 font-display text-[8px] leading-none text-zinc-300"
+        />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 border border-white/15"
+          style={{ borderRadius: 'inherit' }}
+        />
+      </span>
     </a>
   )
 }
