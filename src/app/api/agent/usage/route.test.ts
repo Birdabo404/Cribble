@@ -435,6 +435,17 @@ afterEach(() => {
 })
 
 describe('POST /api/agent/usage — storage and staleness', () => {
+  it('accepts privacy-safe local events while preserving unknown token classes', async () => {
+    addKey()
+    const local = eventPayload({
+      provenance: { source: 'cribble-agent', sources: ['ccusage', 'prime-agent', 'ollama'], cliVersion: '2.0.0' },
+      events: [{ eventId: 'ollama:req-1', requestId: 'req-1', occurredAt: '2026-08-21T23:30:00.000Z', agent: 'hermes', provider: 'ollama', runtime: 'ollama', model: 'qwen2.5:3b', provenance: ['local_runtime_ledger'], inputTokens: 11, outputTokens: 7, billedCostUsd: 0 }]
+    })
+    const response = await POST(request(local))
+    expect(response.status).toBe(200)
+    expect(state.eventRows[0]).toMatchObject({ event_id: 'ollama:req-1', total_tokens: 18 })
+  })
+
   it('inserts a valid daily row for the key owner and recomputes its total', async () => {
     addKey()
 

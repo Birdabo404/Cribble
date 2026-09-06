@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:migrations": "bash scripts/test-migrations.sh",
     "audit:prod": "npm audit --omit=dev",
     "setup:polar": "vite-node scripts/setup-polar.ts",
     "setup:polar:check": "vite-node scripts/setup-polar.ts --check"
