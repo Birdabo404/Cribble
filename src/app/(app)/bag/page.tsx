@@ -120,7 +120,10 @@ export default function BagPage() {
     if (!isMd) setDrawerOpen(true)
   }
 
-  const loading = cosmetics === null
+  // Any sync in flight, not just the first: RETRY resets syncState to
+  // 'loading' while the last (neutral) payload stays put, and that guess
+  // must read SYNCING — never LOCKED — until the resync lands.
+  const loading = cosmetics === null || syncState === 'loading'
   const visiblePlates = useMemo(
     () => filterPlates({ query, ownFilter, rarityFilter, usableIds }),
     [query, ownFilter, rarityFilter, usableIds]
