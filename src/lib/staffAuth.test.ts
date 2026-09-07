@@ -66,7 +66,9 @@ describe('minRoleFor', () => {
       // Sponsorship acceptance and team approval are content review —
       // moderator work; neither path touches billing.
       'billboard.review',
-      'team.review'
+      'team.review',
+      // Fraud triage is review work at the moderator floor too.
+      'abuse.review'
     ]
     for (const action of moderatorActions) {
       expect(minRoleFor(action)).toBe('moderator')
