@@ -3462,6 +3462,235 @@ html[data-motion='reduced'] .command-deck .deck-grain {
   display: none;
 }
 
+/* ============================================================
+   ==== BAG MANIFEST ==== — the /bag inventory sheet. Same two
+   archetypes as the command deck: dark is tactical telemetry (phosphor
+   signal on the panel ink, CRT raster), light is Swiss industrial print
+   (ink on the deck's warm dossier paper, orange signal, grain). Scoped
+   to .bag-manifest; only substrate tokens flip under html.light.
+   Hairline grids come from `gap: 1px` on a --bag-line parent with
+   --bag-paper children. Square corners throughout. Status colors:
+   equipped = signal, stowed = ink, locked = mute; rarity stays on --r-*.
+   One color, one meaning: the signal hue is the EQUIP fill and the
+   equipped mark only; selection and keyboard focus ride --bag-focus (ink).
+   Type stops: micro 10px (the floor), label 11px, copy 12.5px — and from
+   md the page sits under .page-zoom-out (zoom 0.9), so the stops and the
+   tap floor are pre-divided there to land at their nominal rendered size.
+   ============================================================ */
+
+.bag-manifest {
+  /* surfaces */
+  --bag-paper: rgb(var(--lb-panel-bg));
+  --bag-well: rgb(255 255 255 / 0.028);
+  /* text — mute is the floor for micro text (≥ 7:1 on the dark paper) */
+  --bag-ink: rgb(var(--z50));
+  --bag-mute: rgb(var(--z400));
+  /* lines */
+  --bag-line: rgb(var(--lb-panel-edge) / 0.2);
+  --bag-line-soft: rgb(var(--lb-panel-edge) / 0.09);
+  /* the one filled action (EQUIP) — signal fill, dark type on it */
+  --bag-signal: rgb(var(--accent-rgb));
+  --bag-on-signal: rgb(9 10 13);
+  /* signal as TEXT or a thin mark (EQUIPPED, the equipped bar, GET IT):
+     the same hue in dark, a deeper orange in light where the accent alone
+     cannot clear 4.5:1 on paper */
+  --bag-signal-text: rgb(var(--accent-rgb));
+  /* selection outline + focus ring — ink, never the signal hue */
+  --bag-focus: var(--bag-ink);
+  /* drawer backdrop */
+  --bag-veil: rgb(0 0 0 / 0.72);
+  /* type stops */
+  --bag-fs-micro: 10px;
+  --bag-fs-label: 11px;
+  --bag-fs-copy: 12.5px;
+  /* tap floor for every interactive element */
+  --bag-tap: 44px;
+  --bag-font-data: var(--font-data), ui-monospace, monospace;
+  --bag-font-pixel: var(--font-pixel), ui-monospace, monospace;
+  --bag-font-display: var(--font-display), 'Inter', system-ui, sans-serif;
+  /* compartment gutter */
+  --bag-pad: 1.25rem;
+  position: relative;
+  color: var(--bag-ink);
+}
+
+@media (max-width: 767px) {
+  .bag-manifest {
+    --bag-pad: 0.9rem;
+  }
+}
+
+/* md+: .page-zoom-out scales the sheet by 0.9, so a 10px token would
+   render at 9px and a 44px control at 39.6px. Pre-divide so the rendered
+   sizes hit the floors. */
+@media (min-width: 768px) {
+  .bag-manifest {
+    --bag-fs-micro: calc(10px / 0.9);
+    --bag-fs-label: calc(11px / 0.9);
+    --bag-fs-copy: calc(12.5px / 0.9);
+    --bag-tap: calc(44px / 0.9);
+  }
+}
+
+/* Light: the deck's dossier paper. Re-pins the zinc primitives so every
+   zinc utility and bag-* token inside lands on warm paper; the signal
+   stays the accent (orange in light) with dark ink riding it. RARE and
+   LEGENDARY are re-pinned deeper so their 10px tags clear 7:1 on paper;
+   signal-as-text drops to a burnt orange that measures 5.0:1. */
+html.light .bag-manifest {
+  --z50: 28 24 17;
+  --z100: 43 38 29;
+  --z200: 60 54 42;
+  --z300: 84 76 60;
+  --z400: 106 97 79;
+  --z500: 129 120 101;
+  --z600: 110 105 90;
+  --z700: 140 134 116;
+  --z800: 222 216 200;
+  --z900: 238 234 223;
+  --z950: 245 242 233;
+  --lb-panel-bg: 252 251 247;
+  --lb-panel-edge: 47 41 28;
+  --r-rare: 7 89 133;
+  --r-legendary: 113 63 18;
+  --bag-well: rgb(var(--lb-panel-edge) / 0.05);
+  --bag-line: rgb(var(--lb-panel-edge) / 0.28);
+  --bag-line-soft: rgb(var(--lb-panel-edge) / 0.12);
+  --bag-on-signal: rgb(var(--z50));
+  --bag-signal-text: rgb(194 65 12);
+  --bag-veil: rgb(var(--z50) / 0.5);
+}
+
+/* ---- substrate textures (host must be positioned) ---- */
+
+/* Dark only: CRT raster over the sheet. Print has no scanlines. */
+.bag-manifest .bag-scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, transparent 0 2px, rgb(0 0 0 / 0.16) 2px 3px);
+}
+html.light .bag-manifest .bag-scanlines::after {
+  display: none;
+}
+
+/* Light only: paper grain, multiplied into the sheet. */
+.bag-manifest .bag-grain::before {
+  content: '';
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 140px 140px;
+}
+html.light .bag-manifest .bag-grain::before {
+  display: block;
+}
+
+/* One-bit 2x2 checker laid over locked items — the paper pokes through
+   every other pixel, so art underneath reads as a ghosted halftone. */
+.bag-manifest .bag-dither {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.7;
+  background: repeating-conic-gradient(var(--bag-paper) 0 25%, transparent 0 50%) 0 0 / 2px 2px;
+}
+
+/* Registration crosses: an 8px `+` centred on each corner of the host,
+   1px --bag-line. ::before draws the top pair, ::after the bottom pair,
+   each as four no-repeat gradient strokes. Host must not clip overflow. */
+.bag-manifest .bag-regmarks::before,
+.bag-manifest .bag-regmarks::after {
+  --bag-cross: linear-gradient(var(--bag-line), var(--bag-line));
+  content: '';
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  height: 8px;
+  pointer-events: none;
+  background:
+    var(--bag-cross) left 0 top 3px / 8px 1px no-repeat,
+    var(--bag-cross) left 3px top 0 / 1px 8px no-repeat,
+    var(--bag-cross) right 0 top 3px / 8px 1px no-repeat,
+    var(--bag-cross) right 3px top 0 / 1px 8px no-repeat;
+}
+.bag-manifest .bag-regmarks::before {
+  top: -4px;
+}
+.bag-manifest .bag-regmarks::after {
+  bottom: -4px;
+}
+
+/* ---- motion ---- */
+
+/* Spec-sheet content swap: two hard frames, 1 → 0.35 → 1, no easing — a
+   terminal refresh, not a fade. Step timing applies per keyframe interval,
+   so each value holds its whole 60ms. Re-key the node to replay. */
+.bag-manifest .bag-cut {
+  animation: bag-cut 120ms steps(1, end);
+}
+@keyframes bag-cut {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Blinking block cursor after loading copy: `LOADING MANIFEST_` */
+.bag-manifest .bag-cursor::after {
+  content: '▮';
+  margin-left: 0.15em;
+  animation: bag-blink 1s steps(1, end) infinite;
+}
+@keyframes bag-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Register thumbnails: PlateLayer FX frozen on the first frame — only
+   the spec sheet is alive, so 15 rows scan like a ledger. */
+.bag-manifest .bag-thumb [data-plate-fx] * {
+  animation-play-state: paused !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bag-manifest .bag-cut,
+  .bag-manifest .bag-cursor::after {
+    animation: none;
+  }
+}
+html[data-motion='reduced'] .bag-manifest .bag-cut,
+html[data-motion='reduced'] .bag-manifest .bag-cursor::after {
+  animation: none;
+}
+
+/* ---- spec table ---- */
+
+/* <dl> row: term · dotted leader · value. The spacer span has no text,
+   so its synthesized baseline is its bottom edge — the dots sit exactly
+   on the type baseline at any size. */
+.bag-manifest .bag-leaders {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  column-gap: 0.5em;
+}
+.bag-manifest .bag-leaders > .bag-leader {
+  min-width: 1em;
+  border-bottom: 1px dotted var(--bag-line);
+}
+
 /* Competitive display face (Space Grotesk, loaded in the root layout). */
 .font-display {
   font-family: var(--font-display), 'Inter', system-ui, sans-serif;
