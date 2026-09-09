@@ -22,6 +22,10 @@ const migration057 = readFileSync(
   join(process.cwd(), 'migrations/057_token_leaderboard_legacy_top_agent.sql'),
   'utf8'
 )
+const migration071 = readFileSync(
+  join(process.cwd(), 'migrations/071_profile_cursor_agent_attribution.sql'),
+  'utf8'
+)
 
 describe('Agent usage migrations', () => {
   it('keeps the production-recorded migration 046 in source control input', () => {
@@ -113,5 +117,30 @@ describe('Agent usage migrations', () => {
     // The RPC stays service-role only.
     expect(migration057).toContain('from public, anon, authenticated')
     expect(migration057).toContain('to service_role')
+  })
+
+  it('merges published Cursor profile tokens without double-counting CLI usage', () => {
+    expect(migration071).toContain('inner join public.agent_usage_sharing as sharing')
+    expect(migration071).toContain('and sharing.leaderboard_enabled')
+    expect(migration071).toContain('and sharing.consent_version >= 2')
+    expect(migration071).toContain('profile.board_enabled')
+    expect(migration071).toContain("profile.last_sync_status = 'ok'")
+    expect(migration071).toMatch(
+      /greatest\(\s+coalesce\(cursor_total\.tokens, 0\),\s+coalesce\(cli_cursor\.tokens, 0\)\s+\)::numeric as tokens/
+    )
+    expect(migration071).toContain(
+      'coalesce(non_cursor_total.tokens, 0) + merged_cursor.tokens'
+    )
+    expect(migration071).toMatch(
+      /greatest\(\s+coalesce\(cli_totals\.total_tokens, 0\),/
+    )
+    expect(migration071).not.toContain(
+      'coalesce(cursor_total.tokens, cli_cursor.tokens)'
+    )
+    expect(migration071).not.toContain(
+      'coalesce(cli_totals.total_tokens, 0) + cursor_total.tokens'
+    )
+    expect(migration071).toContain('from public, anon, authenticated')
+    expect(migration071).toContain('to service_role')
   })
 })

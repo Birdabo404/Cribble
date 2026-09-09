@@ -107,7 +107,9 @@ export function HeroCard({
               className="anim-fade flex items-center gap-2.5"
               style={animDelay(80)}
             >
-              <span className="font-data text-[10px] tracking-[0.4em] text-zinc-300">TOTAL SCORE</span>
+              <span className="font-data text-[10px] tracking-[0.4em] text-zinc-300">
+                ALL-TIME SCORE
+              </span>
               <RefreshButton onRefresh={onRefresh} refreshing={refreshing} />
             </div>
             <div className="mt-4 flex items-baseline gap-3">
@@ -129,14 +131,14 @@ export function HeroCard({
               {(tier || 'FREE').toUpperCase()}
             </span>
             <Link
-              href="/leaderboard"
+              href="/leaderboard?view=season"
               className="group anim-rise mt-1 text-right"
               style={animDelay(260)}
-              title="View global leaderboard"
+              title="View seasonal leaderboard"
             >
               <div className="flex items-center justify-end gap-1.5 font-data text-[9px] tracking-[0.35em] text-zinc-500">
                 <IconCrosshair size={11} className="text-ice/80" />
-                GLOBAL RANK
+                SEASON RANK
               </div>
               <div className="mt-0.5 font-display text-2xl font-semibold tracking-tight tabular-nums text-ice group-hover:text-ember transition-colors">
                 {rank ? `#${rank.position}` : '—'}

@@ -78,6 +78,24 @@ describe('buildProfileAgents', () => {
     expect(agents.map((agent) => agent.name)).toEqual(['claude-code', 'cursor', 'codex'])
   })
 
+  it('renders linked Cursor alongside a partial CLI attribution', () => {
+    expect(
+      buildProfileAgents(
+        agentRow({
+          total_tokens: '4358677387',
+          agent_breakdown: [
+            { name: 'cursor', totalTokens: '1462302089' },
+            { name: 'codex', totalTokens: '661175825' }
+          ],
+          agent_breakdown_complete: false
+        })
+      )
+    ).toEqual([
+      { name: 'cursor', totalTokens: '1462302089', percent: 34 },
+      { name: 'codex', totalTokens: '661175825', percent: 15 }
+    ])
+  })
+
   it('returns an empty list for a missing row or empty breakdown', () => {
     expect(buildProfileAgents(null)).toEqual([])
     expect(buildProfileAgents(agentRow({ agent_breakdown: [] }))).toEqual([])
