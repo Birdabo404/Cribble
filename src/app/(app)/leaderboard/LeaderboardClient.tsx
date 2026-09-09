@@ -48,7 +48,6 @@ import { AiBoard } from '@/components/leaderboard/AiBoard'
 import { CrtAttract, HeroTitle } from '@/components/leaderboard/CrtAttract'
 import { CursorClaimPrompt } from '@/components/leaderboard/CursorClaimPrompt'
 import { LeaderboardScrollRuntime } from '@/components/leaderboard/LeaderboardScrollRuntime'
-import { LeaderboardSponsorFlip } from '@/components/leaderboard/LeaderboardSponsorFlip'
 import { PlayerCard, type ChaseInfo } from '@/components/leaderboard/PlayerCard'
 import { RankAvatar } from '@/components/leaderboard/RankRegalia'
 import { TeamBoard } from '@/components/leaderboard/TeamBoard'
@@ -455,23 +454,16 @@ function LeaderboardArena() {
             </section>
           )}
 
-          {/* ---------- stat bar / sponsor flip ---------- */}
-          {/* The flip wrapper owns the 8s/6s stats-to-sponsor rotation
-              (lib/leaderboardSponsor cadence) around the untouched
-              StatBar. TOKENS / AI / TEAMS wrap their own stat strips
-              the same way so the paid face airs on every board. With
-              no sponsor data it renders the stats alone. */}
+          {/* ---------- stat bar ---------- */}
           {isStandings && (
             <section className="lb4-reveal" style={{ ['--rv' as string]: '140ms' }}>
-              <LeaderboardSponsorFlip>
-                <StatBar
-                  totalPlayers={totals.totalPlayers}
-                  activePlayers={totals.activePlayers}
-                  topScore={topScore}
-                  leaderName={leader?.username ?? null}
-                  season={seasonMeta}
-                />
-              </LeaderboardSponsorFlip>
+              <StatBar
+                totalPlayers={totals.totalPlayers}
+                activePlayers={totals.activePlayers}
+                topScore={topScore}
+                leaderName={leader?.username ?? null}
+                season={seasonMeta}
+              />
             </section>
           )}
 

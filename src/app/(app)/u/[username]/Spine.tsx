@@ -5,14 +5,14 @@
 // in corner brackets (the photo itself untouched by either material),
 // the decoded name, @handle and the DESIGNATION line (designation.ts) —
 // which from lg sits in one 1px --pf-line frame, the first of the
-// spine's stack of frames (its edges on the gutter like the menu,
-// TRANSMISSIONS and RECRUIT below it), which the photo fills: a square
+// spine's stack of frames (its edges on the gutter like the menu and
+// RECRUIT below it), which the photo fills: a square
 // the frame's content width less the ticks' margins (218px in the 296px
 // spine), so it is centred by construction; under that frame the role
 // / medal stamps and the presence
 // marker; the action rows (FOLLOW or EDIT PROFILE as the inverted
-// plate, SHARE and INVITE TO TEAM framed); the menu slot; the
-// TRANSMISSIONS panel (lg only); and, for the owner, the RECRUIT frame
+// plate, SHARE and INVITE TO TEAM framed); the menu slot; and, for the
+// owner, the RECRUIT frame
 // (RecruitFrame, exported: lg only here — below lg ProfileClient mounts
 // the same frame after the pane, where the phone reads the spine's
 // order, record before recruit, and the menu strip stays in the first
@@ -52,7 +52,6 @@ import { designationFor } from './designation'
 import { Frame, Marker, medalInk, PanelHeader, PATH_EDIT, PATH_LOCK, PATH_SHARE, Stamp, Stroke } from './parts'
 import { onRecruiterRoster } from './recruiter'
 import { agoUpper } from './ribbonLines'
-import { TransmissionsPanel } from './TransmissionsPanel'
 
 /* ---------- row recipes (44px phones, 40px lg) ---------- */
 
@@ -88,10 +87,9 @@ export interface SpineProps {
   /** The menu (ProfileMenu), from lg only (the vertical list under the
    *  actions). Null below lg, where it is the sheet's own child. */
   menu: ReactNode
-  /** lg+ viewport: gates the TRANSMISSIONS fetch, keeps the owner's
-   *  RECRUIT frame here (ProfileClient mounts it below lg) and picks the
-   *  avatar's source size (the 218px portrait wants more pixels than the
-   *  96px hero). */
+  /** lg+ viewport: keeps the owner's RECRUIT frame here (ProfileClient
+   *  mounts it below lg) and picks the avatar's source size (the 218px
+   *  portrait wants more pixels than the 96px hero). */
   desktop: boolean
 }
 
@@ -126,8 +124,8 @@ export function Spine({
         {/* the identity frame, lg only: avatar, name, @handle and the
             DESIGNATION line in one 1px --pf-line box inset by --pf-inset
             (the ProfileClient menu's lg:border precedent), its outer
-            edges on the gutter like the menu / TRANSMISSIONS / RECRUIT
-            frames below. Inside the unfolding .pf-panel, so it unfolds
+            edges on the gutter like the menu / RECRUIT frames below.
+            Inside the unfolding .pf-panel, so it unfolds
             with the identity. Below lg a bare block: the avatar is the
             hero pulled up over the banner (its -mt-12 still collapses
             through here) and a frame would cut across it. */}
@@ -271,9 +269,6 @@ export function Spine({
 
       {/* ---------- menu (lg only; see the header) ---------- */}
       {menu}
-
-      {/* ---------- transmissions (lg only; the feed is only fetched there) ---------- */}
-      <TransmissionsPanel enabled={desktop} className="lg:mx-[var(--pf-gutter)] lg:mb-[var(--pf-gutter)]" />
 
       {/* ---------- recruit (owner, lg only; see the header) ---------- */}
       {isYou && desktop && <RecruitFrame className="mx-[var(--pf-gutter)] mb-[var(--pf-gutter)]" />}

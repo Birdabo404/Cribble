@@ -4,7 +4,7 @@
 // record so the swap to the real thing changes nothing but the ink:
 // the loading skeleton (same two-pane anatomy at the same breakpoints —
 // spine, divider, ribbon, banner, meta rows, the RECORD pane's cells,
-// grid and log, the footer; from lg the TRANSMISSIONS frame — every
+// grid and log, the footer — every
 // row on the real line boxes, so the boot lands without a jump and the
 // swap does not double the sheet's height; CSS pulse only, no GSAP
 // before the data), the 404 (PILOT NOT FOUND) and the error (RECORD
@@ -167,33 +167,6 @@ function LogSkeleton() {
   )
 }
 
-/** The spine's TRANSMISSIONS frame, lg only, on that panel's own
- *  skeleton anatomy (a py-2 header, eight 48px rows with a hairline
- *  between) so the spine is as tall before the payload as after it. */
-function TransmissionsSkeleton() {
-  return (
-    <Frame className="hidden lg:mx-[var(--pf-gutter)] lg:mb-[var(--pf-gutter)] lg:block">
-      <div className="flex h-[29px] items-center gap-3 px-[var(--pf-inset)]">
-        <div className={`h-2 w-28 ${PULSE}`} />
-        <div className="h-px min-w-3 flex-1 bg-[color:var(--pf-line-soft)]" />
-        <div className={`h-2 w-6 ${PULSE}`} />
-      </div>
-      <div className="divide-y divide-[color:var(--pf-line-soft)]">
-        {Array.from({ length: 8 }, (_, i) => (
-          <div key={i} className="flex h-12 items-center gap-3 px-[var(--pf-inset)]">
-            <div className={`h-5 w-5 shrink-0 ${PULSE}`} />
-            <div className="flex flex-1 flex-col justify-center gap-2.5">
-              <div className={`h-2 w-24 ${PULSE}`} />
-              <div className={`h-1.5 w-32 ${PULSE}`} />
-            </div>
-            <div className={`h-1.5 w-4 ${PULSE}`} />
-          </div>
-        ))}
-      </div>
-    </Frame>
-  )
-}
-
 export function ProfileSkeleton() {
   return (
     <div className={PAGE_WRAP}>
@@ -245,7 +218,6 @@ export function ProfileSkeleton() {
               </div>
             ))}
           </div>
-          <TransmissionsSkeleton />
         </div>
 
         <div aria-hidden className="hidden w-px self-stretch bg-[color:var(--pf-line-soft)] lg:block" />

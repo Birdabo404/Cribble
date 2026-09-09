@@ -18,7 +18,6 @@ export default function robots(): MetadataRoute.Robots {
           '/leaderboard',
           '/u/',
           '/teams',
-          '/sponsorship',
           '/status',
           '/privacy',
           '/welcome'

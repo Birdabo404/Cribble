@@ -107,11 +107,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.5
     },
     {
-      url: `${origin}/sponsorship`,
-      changeFrequency: 'monthly',
-      priority: 0.4
-    },
-    {
       url: `${origin}/status`,
       changeFrequency: 'monthly',
       priority: 0.3

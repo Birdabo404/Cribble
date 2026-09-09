@@ -197,26 +197,6 @@ export const rateLimitConfigs = {
   admin: {
     windowMs: 60 * 1000, // 1 minute
     maxRequests: 10 // 10 requests per minute
-  },
-
-  // Paid-checkout creation: every allowed request mints a real Polar
-  // checkout plus a ledger row, so the budget is a handful of clicks —
-  // no legitimate buyer creates more. Used per-user through
-  // checkDistributedRateLimit so serverless fan-out can't multiply it.
-  checkoutCreation: {
-    windowMs: 60 * 1000, // 1 minute
-    maxRequests: 5
-  },
-
-  // Anonymous sponsor submissions (migration 063): every allowed
-  // request can mint a fresh guest identity plus a PENDING row in the
-  // admin review queue, and cookie-clearing resets the guest, so the
-  // durable budget is per IP through checkDistributedRateLimit. A
-  // legitimate sponsor submits one ad, maybe a redo — a handful an
-  // hour is generous.
-  guestSubmission: {
-    windowMs: 60 * 60 * 1000, // 1 hour
-    maxRequests: 5
   }
 }
 

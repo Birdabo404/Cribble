@@ -1,10 +1,6 @@
 import { unstable_cache } from 'next/cache'
 import { NextResponse } from 'next/server'
-import {
-  BILLBOARD_MAX_LIVE,
-  type BillboardHypeTier,
-  type BillboardItem
-} from '@/lib/billboard'
+import type { BillboardHypeTier, BillboardItem } from '@/lib/billboard'
 import {
   HYPE_KIND_PRIORITY,
   type BurnHypeEventKind,
@@ -49,28 +45,6 @@ const HYPE_FETCH_MAX = 12
 // The admin announcements API keeps at most one row live at a time —
 // this cap is defensive, against hand-edited rows or a broken invariant.
 const ANNOUNCE_MAX = 3
-
-interface LiveAdRow {
-  id: number
-  text: string
-  company_name: string | null
-  link_url: string
-  logo_url: string | null
-  accent_color: string | null
-  owner_user_id: number | null
-}
-
-// Title-line fallback for ads without a company_name (pre-034 rows):
-// the link's bare hostname, lowercased, leading 'www.' stripped.
-// link_url was validated at submission, but parse defensively — a bad
-// stored URL degrades that ad's host to '' instead of killing the train.
-function linkHostOf(linkUrl: string): string {
-  try {
-    return new URL(linkUrl).hostname.toLowerCase().replace(/^www\./, '')
-  } catch {
-    return ''
-  }
-}
 
 interface HypeEventRow {
   id: number
@@ -194,26 +168,13 @@ const loadBillboardItems = unstable_cache(
     const nowIso = now.toISOString()
     const hypeCutoffIso = new Date(now.getTime() - HYPE_WINDOW_MS).toISOString()
 
-    // Live flipper ads (migration 030's definition: APPROVED + paid +
-    // now inside the window; rail ads ride their own feed since
-    // migration 035), recent one-shot hype events and live operator
-    // announcements (migration 051's definition: LIVE + started + not
-    // yet ended), side by side. The ads read is the paid product — it
-    // throws; the hype and announcement reads degrade to empty lists,
-    // the same stance /api/leaderboard takes on movement tracking when
-    // migration 012 is missing — either table may not exist yet in
-    // environments behind on migrations 051/052.
-    const [adsRes, hypeRes, announceRes] = await Promise.all([
-      supabase
-        .from('billboard_ads')
-        .select('id, text, company_name, link_url, logo_url, accent_color, owner_user_id')
-        .eq('placement', 'flipper')
-        .eq('status', 'APPROVED')
-        .not('paid_at', 'is', null)
-        .lte('starts_at', nowIso)
-        .gte('ends_at', nowIso)
-        .order('starts_at', { ascending: true })
-        .limit(BILLBOARD_MAX_LIVE),
+    // Recent one-shot hype events and live operator announcements
+    // (migration 051's definition: LIVE + started + not yet ended),
+    // side by side. Both reads degrade to empty lists, the same stance
+    // /api/leaderboard takes on movement tracking when migration 012 is
+    // missing — either table may not exist yet in environments behind
+    // on migrations 051/052.
+    const [hypeRes, announceRes] = await Promise.all([
       supabase
         .from('billboard_hype_events')
         .select(
@@ -231,11 +192,6 @@ const loadBillboardItems = unstable_cache(
         .order('starts_at', { ascending: true })
         .limit(ANNOUNCE_MAX)
     ])
-
-    if (adsRes.error) {
-      throw new Error(`billboard_ads read failed: ${adsRes.error.message}`)
-    }
-    const ads = (adsRes.data || []) as unknown as LiveAdRow[]
 
     if (hypeRes.error) {
       console.warn('[Billboard] Hype read failed:', hypeRes.error.message)
@@ -271,22 +227,17 @@ const loadBillboardItems = unstable_cache(
         return true
       })
 
-    // One users read serves every side: hype needs the celebrant's and
-    // victim's name/avatar, and an ad without a logo falls back to its
-    // owner's avatar (migration 030). The active-status filter mirrors
-    // the leaderboard query so a banned or suspended player never gets
-    // hyped — dropping out of this map is exactly how an inactive
-    // celebrant kills their event and an inactive victim mutes the
-    // callout.
-    const fallbackOwnerIds = ads
-      .filter((ad) => !ad.logo_url && ad.owner_user_id !== null)
-      .map((ad) => Number(ad.owner_user_id))
+    // One users read for the hype side: the celebrant's and victim's
+    // name/avatar. The active-status filter mirrors the leaderboard
+    // query so a banned or suspended player never gets hyped — dropping
+    // out of this map is exactly how an inactive celebrant kills their
+    // event and an inactive victim mutes the callout.
     const hypeParticipantIds = hypeCandidates.flatMap((row) =>
       row.victim_user_id !== null
         ? [Number(row.user_id), Number(row.victim_user_id)]
         : [Number(row.user_id)]
     )
-    const userIds = [...new Set([...hypeParticipantIds, ...fallbackOwnerIds])]
+    const userIds = [...new Set(hypeParticipantIds)]
 
     const usersById = new Map<number, TickerUserRow>()
     if (userIds.length > 0) {
@@ -305,7 +256,7 @@ const loadBillboardItems = unstable_cache(
     }
 
     // Contract order (lib/billboard.ts): operator announcements first,
-    // then hype/club events, then live ads by starts_at ascending.
+    // then hype/club events.
     const items: BillboardItem[] = []
     for (const row of announcements) {
       items.push({
@@ -326,21 +277,6 @@ const loadBillboardItems = unstable_cache(
       items.push(item)
       hypeAired++
     }
-    for (const ad of ads) {
-      const ownerAvatar =
-        ad.owner_user_id !== null
-          ? usersById.get(Number(ad.owner_user_id))?.twitter_profile_image || null
-          : null
-      items.push({
-        kind: 'ad',
-        id: Number(ad.id),
-        text: ad.text,
-        companyName: ad.company_name || null,
-        linkHost: linkHostOf(ad.link_url),
-        logoUrl: ad.logo_url || ownerAvatar,
-        accentColor: ad.accent_color || null
-      })
-    }
     return items
   },
   // Each payload-shape change burns a new key so a persisted older
@@ -352,7 +288,8 @@ const loadBillboardItems = unstable_cache(
   // id/tier/victim and the club kind joined the train. v6: the Burn
   // Board joined (migration 065) — hype/club items gained the board
   // discriminator and hype items burnUsd.
-  ['billboard-items-v6'],
+  // v7: paid ad items left the train.
+  ['billboard-items-v7'],
   { revalidate: REVALIDATE_SECONDS }
 )
 

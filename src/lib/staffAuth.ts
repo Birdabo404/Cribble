@@ -8,7 +8,7 @@ import { createServiceClient } from '@/lib/supabaseServer'
 //   owner     — the site operator. Everything, including entitlement
 //               grants and staff management.
 //   moderator — trusted helpers. Community moderation plus content
-//               review queues (feedback, sponsorship acceptance).
+//               review queues (feedback, team approval).
 //
 // Roles live in users.staff_role (migration 018). The ADMIN_USERNAMES
 // env allowlist and the legacy is_admin flag both resolve to 'owner' as
@@ -36,8 +36,6 @@ export type StaffAction =
   | 'invite.manage'
   | 'season.manage'
   | 'team.review'
-  | 'billboard.review'
-  | 'billboard.activate'
   | 'announcement.manage'
   | 'status.manage'
   | 'debug.manage'
@@ -51,14 +49,10 @@ export function minRoleFor(action: StaffAction): StaffRole {
     case 'audit.view':
     case 'feedback.view':
     case 'feedback.manage':
-    // Sponsorship acceptance — viewing the billboard queue and deciding
-    // approve / reject / request changes — is content review, so
-    // moderators work it. The money levers stay on billboard.activate.
-    case 'billboard.review':
-    // Team approval is the same shape of review work: judging the
+    // Team approval is content review work: judging the
     // anti-impersonation signals and handing out (or refusing) the gold
     // badge. Billing is never touched on this path — rejection refunds
-    // happen manually in Polar — so moderators work this queue too.
+    // happen manually in Polar — so moderators work this queue.
     case 'team.review':
       return 'moderator'
     case 'entitlement.grant_pro':
@@ -74,13 +68,8 @@ export function minRoleFor(action: StaffAction): StaffRole {
     // The season calendar controls every player's scores and standings —
     // rescheduling or force-ending a season is an owner power.
     case 'season.manage':
-    // Flipping a billboard ad's paid/live state (and archiving) settles
-    // real money collected manually over email/X DM — that stays an
-    // owner call even though the acceptance decision above is
-    // moderator work.
-    case 'billboard.activate':
     // Announcements push site-wide broadcast copy into the
-    // every-visitor ticker — an owner call, same as billboard.activate.
+    // every-visitor ticker — an owner call.
     case 'announcement.manage':
     // The status log speaks for the company on cribble.dev/status —
     // declaring an outage (or an all-clear) is the operator's word.

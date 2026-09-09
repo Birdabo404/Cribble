@@ -35,8 +35,3 @@ export type { AdminAvatarProps } from './AdminAvatar'
 export { AdminSkeletonList } from './AdminSkeletonList'
 export type { AdminSkeletonListProps } from './AdminSkeletonList'
 export { ReasonDialog } from './ReasonDialog'
-export { SponsorshipBoardPreview } from './SponsorshipBoardPreview'
-export type {
-  SponsorshipBoardPreviewAd,
-  SponsorshipBoardPreviewProps
-} from './SponsorshipBoardPreview'

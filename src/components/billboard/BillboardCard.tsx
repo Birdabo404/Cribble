@@ -1,35 +1,21 @@
 'use client'
 
-// One paid ad, reused 1:1 across the flipper, the buyer-side live
-// preview and the admin queue so every surface shows exactly what airs.
-// Three shapes:
-//   sm — the original compact pill in the nav chip language (see
-//        NavTopBar), kept for dense admin lists; a title renders inline
-//        as "Title — text".
+// The ticker's text card — the strip an operator announcement wears on
+// the Billboard flipper (BillboardTicker), with a compact variant kept
+// for dense lists. Two shapes:
+//   sm — a compact pill in the nav chip language (see NavTopBar); a
+//        title renders inline as "Title — text".
 //   lg — the flipper's full-width sub-banner strip, broadcast
 //        lower-third style: a 3px accent stripe on the left, a low-alpha
-//        accent wash, a 32px logo (40px from sm up, accent ring)
-//        spanning both lines, the company/title line on top and the ad
-//        text under it. Padding and logo tighten below sm so the strip
-//        fits phone-width banners without clipping. Without a title it
-//        stays the original single-line strip. accentColor is
-//        extracted from the logo server-side and arrives at runtime as
+//        accent wash, an optional 32px logo (40px from sm up, accent
+//        ring) spanning both lines, the title line on top and the text
+//        under it. Padding and logo tighten below sm so the strip fits
+//        phone-width banners without clipping. Without a title it stays
+//        a single-line strip. accentColor arrives at runtime as
 //        #rrggbb, so the tints are inline styles (hex + alpha suffix),
 //        not classes; null renders the same strip in neutral zinc.
-//   rail — the vertical 208px card (canivibecodeit style) a rail ad
-//        wears on the sponsorship preview stage and the admin board:
-//        the same wash + ring machinery with the stripe moved to the
-//        top edge, a 36px logo with the AD tag opposite, the title line
-//        under it and the ad text wrapping up to three clamped lines.
-//        The profile itself lists rail ads as compact rows in its
-//        TRANSMISSIONS panel (TransmissionsPanel), not in this shape.
-//        animateIn is a no-op here — rail ads never rotate.
-// Every shape carries a corner "AD" glyph by default; adTag={false}
-// drops it for the one non-ad tenant (operator announcements on the
-// ticker's lg strip) — free copy is never dressed as sponsorship.
-// Renders an <a> when given href (the /api/billboard/[id]/click
-// redirect), a <button> for onClick-only surfaces, otherwise an inert
-// <div>. Buyer text is untrusted and always renders as plain text.
+// Renders an <a> when given href, a <button> for onClick-only surfaces,
+// otherwise an inert <div>. Copy always renders as plain text.
 //
 // Logos are URL-based and often twimg avatars, which go stale — like
 // Avatar.tsx this drops the <img> on error instead of painting the
@@ -46,11 +32,9 @@ const PILL_SM =
 const STRIP_LG =
   'relative flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/80 px-3 py-2 sm:px-4 sm:py-2.5'
 
-const CARD_RAIL =
-  'relative flex w-52 flex-col overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/80 px-3.5 py-3'
-
 // The two lines of the lg strip — BillboardTicker's hype layer mirrors
-// these classes 1:1 so ad->hype flips read as one continuous surface.
+// these classes 1:1 so announce->hype flips read as one continuous
+// surface.
 const TITLE_LINE = 'truncate text-[11px] font-semibold uppercase leading-4 tracking-[0.2em] text-zinc-50'
 const TEXT_LINE = 'truncate text-sm leading-5 text-zinc-200'
 
@@ -63,27 +47,22 @@ export function BillboardCard({
   onClick,
   size = 'sm',
   animateIn = false,
-  adTag = true,
   className = ''
 }: {
   text: string
-  /** Company / brand identity line. lg renders it above the text; sm
-   *  inlines it as "Title — text". null keeps the single-line shapes. */
+  /** Title line. lg renders it above the text; sm inlines it as
+   *  "Title — text". null keeps the single-line shapes. */
   title?: string | null
   logoUrl?: string | null
-  /** #rrggbb derived from the logo server-side; null = neutral zinc. */
+  /** #rrggbb accent; null = neutral zinc. */
   accentColor?: string | null
   href?: string
   onClick?: () => void
-  size?: 'sm' | 'lg' | 'rail'
+  size?: 'sm' | 'lg'
   /** lg only: the staggered build-in (title line first, text ~150ms
    *  later). CSS animations restart when the classes land on fresh
    *  DOM — the ticker re-keys the card to replay the build-in. */
   animateIn?: boolean
-  /** The corner "AD" glyph. Paid surfaces keep the default; operator
-   *  announcements riding the lg strip opt out — free copy is never
-   *  dressed as sponsorship (billboardChrome's stance). */
-  adTag?: boolean
   className?: string
 }) {
   const [logoDead, setLogoDead] = useState(false)
@@ -105,9 +84,8 @@ export function BillboardCard({
           />
         )}
         <span className="text-xs text-zinc-200">{title ? `${title} — ${text}` : text}</span>
-        {adTag && <span className="text-[9px] tracking-[0.3em] text-zinc-500">AD</span>}
       </>
-    ) : size === 'lg' ? (
+    ) : (
       <>
         {/* Wash + stripe sit under the content (which carries relative);
             0x1A ≈ 10% alpha on the runtime hex. */}
@@ -147,53 +125,10 @@ export function BillboardCard({
             {text}
           </span>
         </span>
-        {adTag && (
-          <span className="relative shrink-0 text-[10px] tracking-[0.3em] text-zinc-500">AD</span>
-        )}
-      </>
-    ) : (
-      <>
-        {/* Same accent machinery as lg — wash under the content, the
-            stripe relocated to the top edge for the vertical shape and
-            breathing on a slow cycle (the parked card's only idle
-            motion). */}
-        {accentColor && (
-          <span
-            aria-hidden
-            className="pointer-events-none absolute inset-0"
-            style={{ background: `${accentColor}1a` }}
-          />
-        )}
-        <span
-          aria-hidden
-          className={`billboard-rail-breathe absolute inset-x-0 top-0 h-[3px] ${accentColor ? '' : 'bg-zinc-700'}`}
-          style={accentColor ? { background: accentColor } : undefined}
-        />
-        <span className="relative flex items-start justify-between gap-2">
-          {logoUrl && !logoDead && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={logoUrl}
-              alt=""
-              aria-hidden
-              loading="lazy"
-              className="h-9 w-9 shrink-0 rounded object-cover"
-              style={{
-                boxShadow: `0 0 0 1px ${accentColor ? `${accentColor}80` : 'rgb(255 255 255 / 0.14)'}`
-              }}
-              onError={() => setLogoDead(true)}
-            />
-          )}
-          {adTag && <span className="ml-auto text-[9px] tracking-[0.3em] text-zinc-500">AD</span>}
-        </span>
-        <span className="relative mt-2.5 flex min-w-0 flex-col gap-1">
-          {title && <span className={TITLE_LINE}>{title}</span>}
-          <span className="line-clamp-3 text-xs leading-5 text-zinc-200">{text}</span>
-        </span>
       </>
     )
 
-  const base = size === 'sm' ? PILL_SM : size === 'lg' ? STRIP_LG : CARD_RAIL
+  const base = size === 'sm' ? PILL_SM : STRIP_LG
 
   if (href) {
     return (

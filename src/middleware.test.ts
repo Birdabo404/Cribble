@@ -150,12 +150,8 @@ describe('middleware site lock', () => {
     expect(rewriteTarget('/leaderboard')).toBeNull()
     // Payments must survive the lock: the API lanes stay reachable so
     // Polar webhooks and checkout bounces keep landing.
-    // The Team and sponsorship pitch pages are publicly shareable while
-    // the beta is locked — otherwise cribble.dev/sponsorship rewrites
-    // to /maintenance for every visitor, signed-in or not.
+    // The Team pitch page is publicly shareable while the beta is locked.
     expect(rewriteTarget('/teams')).toBeNull()
-    expect(rewriteTarget('/sponsorship')).toBeNull()
-    expect(rewriteTarget('/sponsorship?slot=L2')).toBeNull()
     // The team console is Polar's checkout success URL and its API lanes
     // back it — a mid-lock Team purchase must not land on /maintenance.
     expect(rewriteTarget('/team')).toBeNull()
@@ -163,9 +159,8 @@ describe('middleware site lock', () => {
     expect(middleware(request('/api/team/roster')).status).toBe(200)
     expect(middleware(request('/api/webhooks/polar')).status).toBe(200)
     expect(middleware(request('/api/user/subscription/sync')).status).toBe(200)
-    // Billboard APIs back the ticker/rails on allowlisted shell pages.
+    // The billboard train backs the ticker on allowlisted shell pages.
     expect(middleware(request('/api/billboard')).status).toBe(200)
-    expect(middleware(request('/api/billboard/slots')).status).toBe(200)
     expect(middleware(request('/api/analytics/visitors')).status).toBe(200)
     expect(middleware(request('/api/analytics/hit')).status).toBe(200)
   })

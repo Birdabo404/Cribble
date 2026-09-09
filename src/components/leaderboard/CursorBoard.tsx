@@ -13,7 +13,6 @@ import { formatNumber } from '@/components/dashboard-v2/format'
 import { Avatar } from '@/components/leaderboard/Avatar'
 import type { BoardFeedReport } from '@/components/leaderboard/burnSource'
 import { CursorOptInModal } from '@/components/leaderboard/CursorOptInModal'
-import { LeaderboardSponsorFlip } from '@/components/leaderboard/LeaderboardSponsorFlip'
 import {
   IconBolt,
   IconCrown,
@@ -257,69 +256,67 @@ export function CursorBoard({
   return (
     <>
       <section className="lbc-reveal" style={{ ['--rv' as string]: '90ms' }}>
-        <LeaderboardSponsorFlip>
-          <div className="lb-panel grid grid-cols-2 overflow-hidden md:grid-cols-4">
-            <StatCell
-              divider={0}
-              icon={<IconUsers size={11} className="text-zinc-600" />}
-              label="PLAYERS"
-              hint="linked profiles"
-            >
-              <AnimatedCounter
-                value={totals?.pilots ?? 0}
-                duration={1000}
-                formatter={(value) => formatNumber(Math.round(value))}
-              />
-            </StatCell>
+        <div className="lb-panel grid grid-cols-2 overflow-hidden md:grid-cols-4">
+          <StatCell
+            divider={0}
+            icon={<IconUsers size={11} className="text-zinc-600" />}
+            label="PLAYERS"
+            hint="linked profiles"
+          >
+            <AnimatedCounter
+              value={totals?.pilots ?? 0}
+              duration={1000}
+              formatter={(value) => formatNumber(Math.round(value))}
+            />
+          </StatCell>
 
-            <StatCell
-              divider={1}
-              icon={<IconFlame size={11} className="text-orange-400" />}
-              label="TOKENS TORCHED"
-              hint={windowMeta?.label.toLowerCase()}
-            >
-              <TokenValue value={totals?.totalTokens ?? '0'} animated />
-            </StatCell>
+          <StatCell
+            divider={1}
+            icon={<IconFlame size={11} className="text-orange-400" />}
+            label="TOKENS TORCHED"
+            hint={windowMeta?.label.toLowerCase()}
+          >
+            <TokenValue value={totals?.totalTokens ?? '0'} animated />
+          </StatCell>
 
-            <StatCell
-              divider={2}
-              icon={<IconBolt size={11} className="text-orange-400" />}
-              label="AGENTS RUN"
-              hint={
-                totals
-                  ? `${formatNumber(totals.agentsLocal)} local · ${formatNumber(totals.agentsCloud)} cloud`
-                  : undefined
-              }
-            >
-              <AnimatedCounter
-                value={agentsTotal}
-                duration={1000}
-                formatter={(value) => formatNumber(Math.round(value))}
-              />
-            </StatCell>
+          <StatCell
+            divider={2}
+            icon={<IconBolt size={11} className="text-orange-400" />}
+            label="AGENTS RUN"
+            hint={
+              totals
+                ? `${formatNumber(totals.agentsLocal)} local · ${formatNumber(totals.agentsCloud)} cloud`
+                : undefined
+            }
+          >
+            <AnimatedCounter
+              value={agentsTotal}
+              duration={1000}
+              formatter={(value) => formatNumber(Math.round(value))}
+            />
+          </StatCell>
 
-            <StatCell
-              divider={3}
-              icon={<IconCrown size={11} className="text-[rgb(var(--lb-gold)/0.8)]" />}
-              label="TOP BURNER"
-              hint={leader ? `${formatCompactTokenCount(leader.tokens)} tokens` : undefined}
-              valueStyle={
-                leader
-                  ? {
-                      color: 'rgb(var(--lb-gold))',
-                      textShadow: '0 0 12px rgb(var(--lb-gold) / calc(0.4 * var(--lb-glow, 1)))'
-                    }
-                  : undefined
-              }
-            >
-              {leader ? (
-                <span className="block truncate">@{leader.cursorUsername.toUpperCase()}</span>
-              ) : (
-                <span className="text-zinc-700">—</span>
-              )}
-            </StatCell>
-          </div>
-        </LeaderboardSponsorFlip>
+          <StatCell
+            divider={3}
+            icon={<IconCrown size={11} className="text-[rgb(var(--lb-gold)/0.8)]" />}
+            label="TOP BURNER"
+            hint={leader ? `${formatCompactTokenCount(leader.tokens)} tokens` : undefined}
+            valueStyle={
+              leader
+                ? {
+                    color: 'rgb(var(--lb-gold))',
+                    textShadow: '0 0 12px rgb(var(--lb-gold) / calc(0.4 * var(--lb-glow, 1)))'
+                  }
+                : undefined
+            }
+          >
+            {leader ? (
+              <span className="block truncate">@{leader.cursorUsername.toUpperCase()}</span>
+            ) : (
+              <span className="text-zinc-700">—</span>
+            )}
+          </StatCell>
+        </div>
       </section>
 
       {/* The one toolbar row (GLOBAL's pattern): the page's board tabs on

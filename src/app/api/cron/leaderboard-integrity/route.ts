@@ -8,7 +8,6 @@ import {
   leaderboardMonitorError,
   type IntegrityStanding
 } from '@/lib/leaderboardIntegrity'
-import { sweepFinishedLeaderboardSponsorAds } from '@/lib/leaderboardSponsorServer'
 import { createServiceClient } from '@/lib/supabaseServer'
 
 export const dynamic = 'force-dynamic'
@@ -140,13 +139,6 @@ async function handle(request: NextRequest) {
   const supabase = createServiceClient()
   const checkedAt = new Date()
 
-  // Piggybacked daily sponsor sweep (Vercel Hobby caps cron jobs at 2,
-  // so finished leaderboard runs archive here rather than on their own
-  // schedule; the admin billboard GET also sweeps lazily). Never throws
-  // and runs before the integrity check, so an unhealthy leaderboard
-  // can't leave finished runs unarchived.
-  const sponsorSweep = await sweepFinishedLeaderboardSponsorAds(supabase, checkedAt)
-
   try {
     const [apiRows, canonicalRows, snapshotRows] = await Promise.all([
       loadApiRows(request, secret!),
@@ -179,8 +171,7 @@ async function handle(request: NextRequest) {
       success: true,
       checkedAt: checkedAt.toISOString(),
       healthy: true,
-      playersChecked: apiRows.length,
-      sponsorSweep
+      playersChecked: apiRows.length
     })
   } catch (error) {
     const report = leaderboardMonitorError(error)

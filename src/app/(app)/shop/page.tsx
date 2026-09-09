@@ -257,12 +257,11 @@ function SectionHead({
   )
 }
 
-/** Utility rail — Team / Sponsorship / Manage as small right-aligned chips.
+/** Utility rail — Team / Manage as small right-aligned chips.
  * Deliberately quiet: these are doors out of the store, not products. */
 function ShopDoors({ isTeam, complimentary }: { isTeam: boolean; complimentary: boolean }) {
   const doors: { href: string; label: string; gold?: boolean; native?: boolean }[] = [
     { href: '/teams', label: isTeam ? 'COMMAND DECK' : 'TEAM', gold: true },
-    { href: '/sponsorship#pitch', label: 'SPONSORSHIP' },
     ...(complimentary ? [] : [{ href: '/api/portal', label: 'MANAGE', native: true }])
   ]
 

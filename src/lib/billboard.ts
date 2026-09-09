@@ -1,195 +1,21 @@
-// Shared contract for the Billboard ad-spot system (migration 030):
-// the horizontally-scrolling train of paid ads + free hype events
-// (rank breakthroughs and score-milestone clubs, migration 052)
-// + operator-pushed announcements shown under the navbar on the
-// dashboard and leaderboard. The API routes, admin queue, buyer page
-// and ticker all build against the shapes and helpers here. Pure and
-// isomorphic — safe to import from 'use client' components. URL
-// validation (cleanBillboardUrl) needs node builtins and lives in
-// @/lib/billboardServer.
+// Shared contract for the Billboard ticker: the train of free
+// announcements shown under the navbar on the dashboard and
+// leaderboard — hype events (rank breakthroughs and score-milestone
+// clubs from billboard_hype_events, migrations 052 + 065) and
+// operator-pushed announcements (billboard_announcements, migration
+// 051). The train route, the admin announcements page and the ticker
+// all build against the shapes and helpers here. Pure and isomorphic —
+// safe to import from 'use client' components.
 //
 // Public API contract:
 //   GET /api/billboard -> { items: BillboardItem[] }
-//     Live operator announcements first, then hype items, then live
-//     flipper ads ordered by starts_at ascending.
-//   GET /api/billboard/rails -> { items: RailItem[] }
-//     Live rail ads (placement 'rail'), in RAIL_SLOTS order.
-//   GET /api/billboard/slots -> SlotBoard
-//     Public availability board: flipper occupancy + per-slot rail state.
-//   GET /api/billboard/[id]/click
-//     Increments the ad's clicks and 302-redirects to its link_url.
-//     Ad cards must link here, never to link_url directly.
+//     Live operator announcements first, then hype/club items.
 
-export type BillboardStatus =
-  | 'PENDING'
-  | 'CHANGES_REQUESTED'
-  | 'APPROVED'
-  | 'REJECTED'
-  | 'ARCHIVED'
-
-/** Which Billboard product an ad occupies: the rotating flipper train
- *  under the navbar, one of the eight always-on rail slots in the
- *  profile page's TRANSMISSIONS panel (migration 035; 1024px and up,
- *  no rotation), or the rolling 24h sponsor ranking
- *  on the leaderboard page (migration 055). Leaderboard creatives ride
- *  the same review lifecycle and click redirect but NOT the 7-day LIVE
- *  window — their liveness is APPROVED + at least one active paid
- *  contribution (isLiveAd does not apply; see lib/leaderboardSponsor). */
-export type BillboardPlacement = 'flipper' | 'rail' | 'leaderboard'
-
-/** The 8 fixed rail slots in board/render order: L1-L4 then R1-R4. The
- *  L/R prefix is the slot's column on the pitch board's slot map (and
- *  its price-ladder row); the profile's TRANSMISSIONS panel lists all
- *  eight top to bottom in this order. */
-export const RAIL_SLOTS = ['L1', 'L2', 'L3', 'L4', 'R1', 'R2', 'R3', 'R4'] as const
-export type RailSlot = (typeof RAIL_SLOTS)[number]
-
-export function isRailSlot(value: unknown): value is RailSlot {
-  return (RAIL_SLOTS as readonly unknown[]).includes(value)
-}
-
-/** Ceiling on concurrently live flipper ads — enforced by the admin
- *  activation route in application code, not the database. Rail ads are
- *  capped by slot uniqueness instead (one live ad per RAIL_SLOTS entry,
- *  enforced at the same point). */
-export const BILLBOARD_MAX_LIVE = 8
-/** Ceiling on a logo upload (POST /api/billboard/logo). Isomorphic so
- *  the composer can pre-check the picked file for a friendly error;
- *  the route enforces it for real on both the declared and the actually
- *  read body size. */
-export const BILLBOARD_LOGO_UPLOAD_MAX_BYTES = 2 * 1024 * 1024
-export const BILLBOARD_TEXT_MAX = 80
-/** Cap on the company/brand title line (migration 034), counted in
- *  code points like BILLBOARD_TEXT_MAX. */
-export const BILLBOARD_COMPANY_MAX = 40
 /** Caps on operator-announcement copy (migration 051), counted in code
- *  points like BILLBOARD_COMPANY_MAX / BILLBOARD_TEXT_MAX: the headline
- *  is the strip's title line, the body its text line. */
+ *  points: the headline is the strip's title line, the body its text
+ *  line. */
 export const BILLBOARD_ANNOUNCE_HEADLINE_MAX = 40
 export const BILLBOARD_ANNOUNCE_BODY_MAX = 80
-/** $200 per flipper slot per rolling 7 days — the advertised sticker
- *  price, and what Cribble nets: the self-serve Polar checkout
- *  (migration 061) charges the fee-grossed total instead
- *  (billboardSlotGrossCents below). */
-export const BILLBOARD_PRICE_CENTS = 20000
-/** Weekly rail price per slot: a scarcity ladder by row — the top row
- *  (L1/R1) dearest, the bottom (L4/R4) cheapest — same price on both
- *  sides. Advertised/netted like BILLBOARD_PRICE_CENTS; the checkout
- *  charges the grossed-up total. */
-export const RAIL_SLOT_PRICE_CENTS: Record<RailSlot, number> = {
-  L1: 49900,
-  R1: 49900,
-  L2: 39900,
-  R2: 39900,
-  L3: 29900,
-  R3: 29900,
-  L4: 19900,
-  R4: 19900
-}
-/** The ladder's floor — every "from $199/wk" surface derives from this. */
-export const BILLBOARD_RAIL_PRICE_MIN_CENTS = 19900
-export const BILLBOARD_DURATION_DAYS = 7
-
-/* ------------------------------------------------------------------ *
- * Slot checkout pricing — the Polar fee gross-up (migration 061).
- * The sticker prices above stay on every advertised surface; only the
- * Polar checkout charges gross, so Cribble nets exactly the sticker.
- * Isomorphic so the tracker can preview the charged total from the
- * same math the checkout route prices with.
- * ------------------------------------------------------------------ */
-
-/** Polar's processing cut on a one-time order: 4% of the charged total
- *  plus a fixed 40 cents. */
-export const BILLBOARD_POLAR_FEE_RATE = 0.04
-export const BILLBOARD_POLAR_FEE_FIXED_CENTS = 40
-
-/** What the Polar checkout charges for a slot advertised at listCents:
- *  the smallest gross total that still nets the sticker price after
- *  Polar's cut — (list + 40) / 0.96 — rounded UP to whole dollars so
- *  the buyer never sees odd cents ($200 flipper charges $209; the
- *  rail ladder charges $521 / $417 / $312 / $208). The verification
- *  gate compares Polar's netAmount against THIS amount, stored in the
- *  ledger row's amount_cents. */
-export function billboardSlotGrossCents(listCents: number): number {
-  return (
-    Math.ceil(
-      (listCents + BILLBOARD_POLAR_FEE_FIXED_CENTS) /
-        (1 - BILLBOARD_POLAR_FEE_RATE) /
-        100
-    ) * 100
-  )
-}
-
-/** How long a PENDING billboard_slot_orders row counts as an in-flight
- *  checkout — the slot twin of LEADERBOARD_SPONSOR_PENDING_TTL_MS.
- *  Polar hosted checkouts expire about an hour after creation, so a
- *  row still PENDING past this window belongs to an abandoned checkout
- *  that can no longer be paid: the checkout route stops treating it as
- *  a duplicate-purchase block. Deliberately NOT an activation gate — a
- *  verified paid order always activates, however late the webhook. */
-export const BILLBOARD_SLOT_PENDING_TTL_MS = 2 * 3_600_000
-/** Payment is manual in v1, arranged over email since migration 040:
- *  approval emails the instructions to the ad's billing_email. This is
- *  the client-safe address shown in UI copy — the server's reply-to
- *  inbox comes from SPONSORSHIP_EMAIL_REPLY_TO instead, never from a
- *  bundled constant. */
-export const BILLBOARD_PAYMENT_EMAIL = 'birdabo@cribble.dev'
-/** The backup channel — for ads with no billing_email on file (external
- *  sponsors, pre-040 rows) or when the email goes unanswered. These feed
- *  every "or DM @birdabo" surface (notifications, tracker, admin). */
-export const BILLBOARD_PAYMENT_X_HANDLE = 'birdabo'
-export const BILLBOARD_PAYMENT_X_URL = 'https://x.com/birdabo'
-
-/** Row shape of billboard_ads (timestamptz columns arrive as ISO strings). */
-export type BillboardAd = {
-  id: number
-  /** NULL = admin-created external-sponsor ad. */
-  owner_user_id: number | null
-  text: string
-  /** Title line of the two-line sub-banner. Required on new
-   *  submissions/edits (<= BILLBOARD_COMPANY_MAX code points); NULL on
-   *  pre-034 rows, rendered with the link-domain fallback instead. */
-  company_name: string | null
-  link_url: string
-  /** NULL falls back to the owner's avatar at render time. */
-  logo_url: string | null
-  /** Sub-banner tint auto-extracted from the ad's logo (or the owner-
-   *  avatar fallback) at submit/edit time. Lowercase '#rrggbb'
-   *  (migration 031's CHECK); NULL = no image or extraction failed,
-   *  rendered with the neutral monochrome look. */
-  accent_color: string | null
-  /** Which product the buyer purchased (migration 035); pre-035 rows
-   *  backfill to 'flipper'. */
-  placement: BillboardPlacement
-  /** The rail slot a rail ad occupies while live — assigned by the
-   *  admin activate route at go-live, never buyer-settable (the buyer's
-   *  wish travels in requested_rail_slot instead). NULL on flipper ads
-   *  and on rail ads not yet activated. */
-  rail_slot: RailSlot | null
-  /** The slot a rail buyer asked for at submission (migration 038) — a
-   *  preference, never a hold: slots go to the first confirmed payment,
-   *  and the admin still assigns the live rail_slot at activation.
-   *  Buyer-settable, unlike rail_slot. NULL = any slot; always NULL on
-   *  flipper ads. */
-  requested_rail_slot: RailSlot | null
-  /** Billing contact for the email-first payment flow (migration 040):
-   *  approval emails the payment instructions here. Required on buyer
-   *  submissions/edits since 040; NULL on pre-040 rows and on admin-
-   *  created external-sponsor ads — the approve flow then skips the
-   *  send and ops falls back to X DM. */
-  billing_email: string | null
-  status: BillboardStatus
-  /** Admin feedback shown to the buyer on redo / reject. */
-  review_note: string | null
-  reviewed_by: number | null
-  reviewed_at: string | null
-  paid_at: string | null
-  starts_at: string | null
-  ends_at: string | null
-  clicks: number
-  created_at: string
-  updated_at: string
-}
 
 /** The rank tiers a hype event can announce, tightest first. A climb
  *  lands in exactly one — a 12 -> 1 jump is one throne event, not
@@ -210,21 +36,9 @@ export type BillboardHypeVictim = {
   avatarUrl: string | null
 }
 
-/** One card in the train, as served by GET /api/billboard. */
+/** One card in the train, as served by GET /api/billboard. Every kind
+ *  is free copy on the same announcement cadence and chrome. */
 export type BillboardItem =
-  | {
-      kind: 'ad'
-      id: number
-      text: string
-      /** Title line; NULL on pre-034 ads — render linkHost instead. */
-      companyName: string | null
-      /** link_url's hostname, lowercased, leading 'www.' stripped —
-       *  the title-line fallback. '' if the stored URL fails to parse. */
-      linkHost: string
-      logoUrl: string | null
-      /** '#rrggbb' sub-banner tint; NULL renders neutral. */
-      accentColor: string | null
-    }
   | {
       /** A one-shot rank hype event from billboard_hype_events
        *  (migration 052), recorded by the leaderboard snapshot diff
@@ -261,9 +75,9 @@ export type BillboardItem =
     }
   | {
       /** A score-milestone club event (100K+) from
-       *  billboard_hype_events — free copy like hype, riding the same
-       *  announcement cadence and chrome. No rank story: the staging
-       *  lands the club label where hype rolls the rank reel. */
+       *  billboard_hype_events, riding the same announcement cadence
+       *  and chrome as hype. No rank story: the staging lands the club
+       *  label where hype rolls the rank reel. */
       kind: 'club'
       id: number
       /** Which ladder was crossed: 'score' the lifetime-points clubs,
@@ -280,9 +94,7 @@ export type BillboardItem =
     }
   | {
       /** An operator-pushed site announcement from
-       *  billboard_announcements (migration 051). Free copy like hype —
-       *  it rides the announcement cadence and chrome, never dressed as
-       *  SPONSOR. */
+       *  billboard_announcements (migration 051), pushed from /admin. */
       kind: 'announce'
       id: number
       /** Title line, <= BILLBOARD_ANNOUNCE_HEADLINE_MAX code points. */
@@ -290,8 +102,7 @@ export type BillboardItem =
       /** Text line, <= BILLBOARD_ANNOUNCE_BODY_MAX code points. */
       body: string
       /** Operator-supplied link; NULL renders a non-interactive card.
-       *  Operator-trusted, so cards link it directly — the click-redirect
-       *  route is for paid ads only. */
+       *  Operator-trusted, so cards link it directly. */
       linkUrl: string | null
     }
 
@@ -303,120 +114,45 @@ export type BillboardHypeItem = Extract<BillboardItem, { kind: 'hype' }>
  *  club payload and the sentence helper below take this. */
 export type BillboardClubItem = Extract<BillboardItem, { kind: 'club' }>
 
-/** One live rail ad, as served by GET /api/billboard/rails. Field
- *  semantics match BillboardItem's ad variant; slot is the row it
- *  occupies in the profile's TRANSMISSIONS panel. */
-export type RailItem = {
-  id: number
-  slot: RailSlot
-  companyName: string | null
-  linkHost: string
-  text: string
-  logoUrl: string | null
-  accentColor: string | null
-}
-
-/** Public availability board served by GET /api/billboard/slots — the
- *  pitch page's "The slots" section renders straight from this. */
-export type SlotBoard = {
-  flipper: {
-    /** Live flipper ads right now, of max. */
-    taken: number
-    max: number
-    priceCents: number
-    /** Earliest live window end while the flipper is full; null when
-     *  a slot is open. */
-    nextOpensAt: string | null
-  }
-  rails: Array<{
-    slot: RailSlot
-    /** Which column of the pitch board's slot map the slot sits in (L*
-     *  left, R* right). The profile panel itself is one list. */
-    side: 'left' | 'right'
-    priceCents: number
-    /** Live occupant's window end; null = slot open right now. */
-    takenUntil: string | null
-    /** Live occupant's title line (company name, falling back to its
-     *  link host) — null only when the slot is open. */
-    companyName: string | null
-  }>
-}
-
-/**
- * Mirrors the LIVE definition documented in migration 030:
- * status = 'APPROVED' AND paid_at IS NOT NULL AND now() BETWEEN
- * starts_at AND ends_at — inclusive on both ends, like SQL BETWEEN.
- * Flipper and rail ads only — a 'leaderboard' creative has no window
- * (its ad-row paid_at/starts_at/ends_at stay NULL) and is live while
- * APPROVED with an active bid ledger total; this helper would always
- * say false for it, which callers must not mistake for "not shown".
- */
-export function isLiveAd(
-  ad: Pick<BillboardAd, 'status' | 'paid_at' | 'starts_at' | 'ends_at'>,
-  now: Date = new Date()
-): boolean {
-  if (ad.status !== 'APPROVED' || !ad.paid_at || !ad.starts_at || !ad.ends_at) return false
-  const t = now.getTime()
-  return t >= new Date(ad.starts_at).getTime() && t <= new Date(ad.ends_at).getTime()
-}
-
 /* ------------------------------------------------------------------ *
- * Flipper cadence + chrome — the ticker's per-kind timing contract.
- * Paid ads are the product and keep the long exposure. Hype events,
- * club events and operator announcements (kind 'announce') are free
- * copy on identical cadence: each gets one unhurried hold, but
- * announcement-only trains play a single pass and retract instead of
- * looping for the full sponsored show — that one-pass close, not the
- * hold length, is what keeps free copy short of a sponsor's airtime.
- * Pure so BillboardTicker's scheduling stays unit-testable without
- * mounting the component.
+ * Ticker cadence + chrome — the per-kind timing contract. Hype events,
+ * club events and operator announcements (kind 'announce') are all
+ * free copy on identical cadence: each gets one unhurried hold, and a
+ * train plays a single pass and retracts instead of looping — that
+ * one-pass close, not the hold length, is what bounds the ticker's
+ * airtime. Pure so BillboardTicker's scheduling stays unit-testable
+ * without mounting the component.
  * ------------------------------------------------------------------ */
 
-/** Per-rotation hold for a paid ad on a multi-item show. */
-export const BILLBOARD_AD_HOLD_MS = 8_000
-/** Per-appearance hold for a hype/club announcement — a longer beat
- *  than an ad's rotation so the moment reads, affordable because each
- *  event only ever airs once per show. */
+/** Per-appearance hold for an announcement — one unhurried beat so the
+ *  moment reads, affordable because each item only ever airs once per
+ *  show. */
 export const BILLBOARD_HYPE_HOLD_MS = 30_000
-/** A train that is a single paid ad re-keys its build-in at this
- *  cadence instead of flipping. */
-export const BILLBOARD_AD_SOLO_REPLAY_MS = 24_000
-/** Wall-clock show length whenever at least one paid ad is aboard. */
-export const BILLBOARD_AD_SHOW_FOR_MS = 180_000
-/** Wall-clock cap on announcement-only shows. They normally end
- *  themselves after one pass (billboardShouldCloseAfterHold); this
- *  backstops that, e.g. against hover-pausing the rotation forever.
- *  Sized to fit a full pass of the API's max three hype items; live
- *  operator announcements riding along can overflow it, and the
- *  backstop trims that pass short — acceptable for a cap that exists
- *  to bound free airtime. */
+/** Wall-clock cap on a show. Shows normally end themselves after one
+ *  pass (billboardShouldCloseAfterHold); this backstops that, e.g.
+ *  against hover-pausing the rotation forever. Sized to fit a full
+ *  pass of the API's max three hype items; live operator announcements
+ *  riding along can overflow it, and the backstop trims that pass
+ *  short — acceptable for a cap that exists to bound airtime. */
 export const BILLBOARD_HYPE_SHOW_FOR_MS = 90_000
 
-/** True when the fetched train carries no paid ads — only free copy
- *  (hype events, club events, operator announcements). An empty train
- *  is nobody's announcement. */
+/** True when the fetched train has something to announce. Every kind
+ *  aboard is free copy (hype events, club events, operator
+ *  announcements), so this is just non-emptiness — an empty train is
+ *  nobody's announcement. Kept as the one predicate the ticker's
+ *  one-pass close and the tests key on. */
 export function isAnnouncementOnly(items: BillboardItem[]): boolean {
-  return (
-    items.length > 0 &&
-    items.every(
-      (item) => item.kind === 'hype' || item.kind === 'club' || item.kind === 'announce'
-    )
-  )
+  return items.length > 0
 }
 
-/** How long the given item holds on screen before the ticker advances.
- *  `multi` = more than one item in the train: a solo ad's "hold" is the
- *  replay cadence of its build-in; hype, club and operator
- *  announcements never earn the solo replay treatment — their hold is
- *  one announcement beat either way. */
-export function billboardHoldMs(item: BillboardItem, multi: boolean): number {
+/** How long the given item holds on screen before the ticker advances:
+ *  one announcement beat for every kind, solo or not. */
+export function billboardHoldMs(item: BillboardItem): number {
   switch (item.kind) {
     case 'hype':
     case 'club':
     case 'announce':
       return BILLBOARD_HYPE_HOLD_MS
-    case 'ad':
-      return multi ? BILLBOARD_AD_HOLD_MS : BILLBOARD_AD_SOLO_REPLAY_MS
     default: {
       const exhaustive: never = item
       return exhaustive
@@ -424,22 +160,16 @@ export function billboardHoldMs(item: BillboardItem, multi: boolean): number {
   }
 }
 
-/** Wall-clock show length for a fetched train: any paid ad buys the
- *  full sponsored loop; announcement-only trains get one hold per
- *  item, capped. */
+/** Wall-clock show length for a fetched train: one hold per item,
+ *  capped at BILLBOARD_HYPE_SHOW_FOR_MS. */
 export function billboardShowForMs(items: BillboardItem[]): number {
-  if (items.some((item) => item.kind === 'ad')) return BILLBOARD_AD_SHOW_FOR_MS
   return Math.min(BILLBOARD_HYPE_SHOW_FOR_MS, items.length * BILLBOARD_HYPE_HOLD_MS)
 }
 
 /** Broadcast chrome for the active item: the inverted-mono label block
- *  and the banner's aria-label. Hype, club and operator announcements
- *  are announcements, not ads — mislabeling any of them as SPONSOR is
- *  the bug this exists to prevent. */
+ *  and the banner's aria-label. Every kind is an announcement. */
 export function billboardChrome(item: BillboardItem): { label: string; ariaLabel: string } {
   switch (item.kind) {
-    case 'ad':
-      return { label: 'SPONSOR', ariaLabel: 'Sponsorship' }
     case 'hype':
     case 'club':
     case 'announce':
@@ -451,11 +181,9 @@ export function billboardChrome(item: BillboardItem): { label: string; ariaLabel
   }
 }
 
-/** Announcement-only trains end after the last item's hold instead of
- *  wrapping (or, solo, replaying): true exactly when every item is free
- *  copy (hype, club or announce) and `activeIndex` is the final one.
- *  Always false once an ad is aboard — mixed trains keep the sponsored
- *  loop. */
+/** A train ends after the last item's hold instead of wrapping (or,
+ *  solo, replaying): true exactly when the train has items and
+ *  `activeIndex` is the final one. */
 export function billboardShouldCloseAfterHold(
   items: BillboardItem[],
   activeIndex: number

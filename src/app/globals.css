@@ -4100,8 +4100,9 @@ html[data-nav-exp='0'] .app-nav-rail .nav-row[aria-expanded='true'] > .nav-tip {
 }
 
 /* ---------------------------------------------------------------------------
-   Billboard flipper v3 — the paid-ad + hype banner that expands in-flow
-   under the nav on the dashboard and leaderboard (BillboardTicker.tsx).
+   Billboard flipper v3 — the announcement + hype banner that expands
+   in-flow under the nav on the dashboard and leaderboard
+   (BillboardTicker.tsx).
    Mounted as the first child inside .app-nav-inset, so it participates
    in layout and pushes page content down in both topbar and left-rail
    nav modes. News-flipper display: one item at a time in its own
@@ -4200,10 +4201,9 @@ html.light .billboard-label {
    first, the text line follows 150ms behind. BillboardCard applies
    these via its animateIn prop (HypeAnnouncement's below-sm strip
    inlines the same classes); CSS animations start when the classes land
-   on fresh DOM, so they play on each flip-in mount and on each solo
-   replay re-key. `backwards` keeps the delayed text line hidden until
-   its turn. Two identical keyframes so the lines can be tuned apart
-   later. */
+   on fresh DOM, so they play on each flip-in mount. `backwards` keeps
+   the delayed text line hidden until its turn. Two identical keyframes
+   so the lines can be tuned apart later. */
 @keyframes billboard-build-title {
   from {
     transform: translateY(6px);
@@ -4228,9 +4228,9 @@ html.light .billboard-label {
 
 /* Per-item countdown: scaleX 0 -> 1 over one hold. The duration comes
    from the component (--billboard-hold-ms) so the bar and the rotation
-   timer share one cadence — HOLD_MS on multi-item shows, SOLO_REPLAY_MS
-   on solo ones; keyed remounts restart it per item (or per solo replay),
-   and the -run class only lands once the show is actually looping. */
+   timer share one cadence (billboardHoldMs for the active item); keyed
+   remounts restart it per item, and the -run class only lands once the
+   show is actually looping. */
 @keyframes billboard-progress {
   to {
     transform: scaleX(1);
@@ -4257,9 +4257,9 @@ html.light .billboard-progress-fill {
 
 /* Hype/club cycles sweep the countdown in the tier's accent —
    --hype-accent, set by BillboardTicker's shell from the staging theme,
-   falling back to the leaderboard gold; paid ads keep the monochrome
-   fill. The accent variables are themed per mode, and the html.light
-   selector outranks the light mono fill above. */
+   falling back to the leaderboard gold; announcements keep the
+   monochrome fill. The accent variables are themed per mode, and the
+   html.light selector outranks the light mono fill above. */
 .billboard-progress-fill-hype,
 html.light .billboard-progress-fill-hype {
   background: rgb(var(--hype-accent, var(--lb-gold)));
@@ -4396,12 +4396,8 @@ html.light .billboard-progress-fill-hype {
    never mounts a leaving layer or the progress bar, and its fallback
    timers cover the missing transitionend. The flip-out visibility guard
    keeps a mid-show OS toggle from freezing a half-flipped layer on top
-   of the active one. Build-ins are off too, and BillboardTicker skips
-   the solo replay re-key entirely under reduced motion — with these
-   animations disabled a re-key would be invisible DOM churn (plus a
-   pointless <img> remount), so a solo item simply holds for the whole
-   show, as it did before replays existed. The hype takeover renders its
-   resolved state component-side (no decode, no reel roll, no shader
+   of the active one. Build-ins are off too. The hype takeover renders
+   its resolved state component-side (no decode, no reel roll, no shader
    mount); nulling its animations here covers a mid-show OS toggle —
    `both`/`backwards` fills all resolve to the landed pose. */
 @media (prefers-reduced-motion: reduce) {
@@ -4422,56 +4418,6 @@ html.light .billboard-progress-fill-hype {
   .billboard-flip-out {
     animation: none;
     visibility: hidden;
-  }
-}
-
-/* Rail-size BillboardCard idle life (size="rail" — the sponsorship
-   preview stage, admin board and queue): the card's 3px top stripe
-   breathes on a slow cycle so a parked card doesn't read as frozen.
-   Near-subliminal on purpose — a slow exhale, not a blinking light.
-   The rest of the old profile-rail geometry moved into the profile's
-   TRANSMISSIONS panel (dossier.css). */
-@keyframes billboard-rail-breathe {
-  50% {
-    opacity: 0.45;
-  }
-}
-
-.billboard-rail-breathe {
-  animation: billboard-rail-breathe 7s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .billboard-rail-breathe {
-    animation: none;
-  }
-}
-
-/* Sponsorship preview stage (BillboardPreviewStage.tsx): the fake
-   flipper viewport's countdown hairline. The real ticker's bar fills
-   once per hold (billboard-progress) and then flips to the next item;
-   the stage has no rotation to time, so its sweep just loops at the
-   ticker's default 8s cadence — a "this strip rotates" cue, not a real
-   countdown. Reduced motion parks it at a mid-hold snapshot instead of
-   hiding it, so the hairline still reads as a progress bar, frozen. */
-@keyframes billboard-stage-sweep {
-  from {
-    transform: scaleX(0);
-  }
-  to {
-    transform: scaleX(1);
-  }
-}
-
-.billboard-stage-sweep {
-  transform-origin: left;
-  animation: billboard-stage-sweep 8s linear infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .billboard-stage-sweep {
-    animation: none;
-    transform: scaleX(0.38);
   }
 }
 
@@ -4556,9 +4502,9 @@ html.light .dash-duotone {
 }
 
 /* ---------------------------------------------------------------------------
-   Settings hub — scoped monochrome design system (the settings modal and
-   /sponsorship; SettingsModal.tsx overrides the full-page min-height
-   inline since its panel sizes to the dialog, not the viewport).
+   Settings hub — scoped monochrome design system (the settings modal;
+   SettingsModal.tsx overrides the full-page min-height inline since its
+   panel sizes to the dialog, not the viewport).
 
    Scoped-token isolation (the same pattern as the profile's .pf-dossier
    in dossier.css): every settings component styles itself with the

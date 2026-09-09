@@ -1,40 +1,36 @@
 'use client'
 
-// The Billboard banner — paid ads + free copy (rank/club hype events,
+// The Billboard banner — free announcements (rank/club hype events,
 // operator announcements) shown one at a time, news-flipper style, in a
 // content-height block that expands in-flow under the nav on the
 // dashboard and leaderboard, pushing page content down. Two stacked
-// rows: a broadcast-chrome row (kind-aware label + live dot, counter,
+// rows: a broadcast-chrome row (ANNOUNCEMENT label + live dot, counter,
 // countdown) above a full-width card stage, so phones give the whole
-// banner width to the card. The chrome follows the active item's kind
-// (lib/billboard's billboardChrome): SPONSOR for paid ads,
-// ANNOUNCEMENT for hype, club and operator announcements — free copy
-// is never dressed as a sponsor.
+// banner width to the card. The chrome comes from lib/billboard's
+// billboardChrome for the active item's kind.
 // Mounted once inside .app-nav-inset in AppShell and self-gating: it
 // never starts a show off the two allowed routes, and a localStorage
 // timestamp caps appearances to one per 10 minutes per visitor. Hype
 // and club events additionally air once per visitor, ever: a second
 // localStorage map records each event when it displays, and recorded
-// events are filtered from later fetches (ads and operator
-// announcements always ride).
+// events are filtered from later fetches (operator announcements
+// always ride).
 // Visitors parked on an allowed route aren't stranded: while the banner
 // is hidden there, a retry tick re-attempts the show every RETRY_TICK_MS,
-// so a lapsing cooldown or a newly activated ad surfaces the banner
-// without a fresh navigation. The tick only runs while the tab is
-// visible — background tabs don't poll — and becoming visible again
+// so a lapsing cooldown or a newly pushed announcement surfaces the
+// banner without a fresh navigation. The tick only runs while the tab
+// is visible — background tabs don't poll — and becoming visible again
 // re-attempts immediately instead of waiting out a fresh interval.
 //
 // One show: after a short delay (so the expand doesn't fight initial
 // page paint) the grid slot animates 0fr -> 1fr, then the flipper
-// rotates — each item holds for its own billboardHoldMs (an ad its
-// rotation hold, a hype announcement its longer announcement beat),
-// then flips out (slides up + fades) while the next flips in from
-// below — until the billboardShowForMs wall-clock end, when the slot
-// collapses and content slides back up. Any paid ad aboard buys the
-// full 3-minute loop; an announcement-only train instead plays one
-// pass and closes itself after the last item's hold
-// (billboardShouldCloseAfterHold), with the short wall clock only as
-// a backstop — free hype never gets a sponsor's total exposure.
+// rotates — each item holds for billboardHoldMs (one announcement
+// beat), then flips out (slides up + fades) while the next flips in
+// from below. The train plays one pass and closes itself after the
+// last item's hold (billboardShouldCloseAfterHold), when the slot
+// collapses and content slides back up; the billboardShowForMs wall
+// clock is only a backstop behind that. A solo item never replays —
+// its one "advance" is the close.
 // Hovering the banner pauses rotation for this visitor only: the
 // unspent hold is banked and resumed on unhover, and the progress bar
 // pauses via CSS animation-play-state — but the end-of-show is
@@ -46,14 +42,7 @@
 // seen-once gate filters down to nothing — records no cooldown, but
 // arms a fetch backoff: retry ticks skip fetching for EMPTY_RETRY_MS
 // afterwards. Route changes clear the backoff, so a genuine landing
-// always fetches. Exactly one fetched ad: no flips and no counter,
-// but not a static block either — every BILLBOARD_AD_SOLO_REPLAY_MS
-// the sub-banner re-keys in place so its build-in replays (no flip-out
-// layer, no vertical motion), with the progress bar sweeping at that
-// cadence. The replay clock is the same pause-aware hold timer, so
-// hovering banks the remaining cycle exactly like a multi-item hold
-// does. A solo hype item never replays — its one "advance" is the
-// close.
+// always fetches.
 //
 // Phases advance on transitionend of grid-template-rows, with a timer
 // fallback slightly longer than the transition for when it can't fire
@@ -61,10 +50,9 @@
 // would swallow it too).
 //
 // prefers-reduced-motion: swaps are instant (no leaving layer mounts,
-// so no flip animations render), the progress bar is dropped, the
-// build-in classes are animation:none (globals.css) and the solo-ad
-// replay re-key is skipped, but the per-item hold cadence and the
-// show lengths are unchanged — including the announcement-only
+// so no flip animations render), the progress bar is dropped and the
+// build-in classes are animation:none (globals.css), but the per-item
+// hold cadence and the show length are unchanged — including the
 // one-pass close.
 
 import type { CSSProperties, TransitionEvent } from 'react'
@@ -72,7 +60,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  BILLBOARD_AD_HOLD_MS,
+  BILLBOARD_HYPE_HOLD_MS,
   billboardChrome,
   billboardHoldMs,
   billboardShouldCloseAfterHold,
@@ -142,8 +130,8 @@ function recordShown() {
  * lapse for two days. A localStorage map of event key -> epoch ms of
  * when it displayed; entries older than the TTL are pruned on every
  * read and write (the API stops serving an event after 48h, so ~7 days
- * is pure headroom — the map stays a handful of entries). Ads and
- * operator announcements are never subject to this gate.
+ * is pure headroom — the map stays a handful of entries). Operator
+ * announcements are never subject to this gate.
  * ------------------------------------------------------------------ */
 
 const HYPE_SEEN_KEY = 'cribble:billboard-hype-seen'
@@ -199,8 +187,8 @@ function recordHypeSeen(key: string) {
   }
 }
 
-/** The fetched train minus already-seen hype/club events. Ads and
- *  operator announcements always pass. */
+/** The fetched train minus already-seen hype/club events. Operator
+ *  announcements always pass. */
 function dropSeenHype(items: BillboardItem[]): BillboardItem[] {
   const seen = readHypeSeen(Date.now())
   return items.filter((item) => {
@@ -225,15 +213,13 @@ export function BillboardTicker() {
   })
   /** Hover pause — mirrors the CSS :hover that pauses the progress bar. */
   const [paused, setPaused] = useState(false)
-  /** Solo-ad shows: bumped once per replay cycle to re-key the
-   *  sub-banner so its build-in plays again. Constant 0 otherwise. */
-  const [replay, setReplay] = useState(0)
   /** Unspent hold for the current cycle: banked on pause, spent on resume. */
-  const holdRemainingRef = useRef(BILLBOARD_AD_HOLD_MS)
+  const holdRemainingRef = useRef(BILLBOARD_HYPE_HOLD_MS)
   /** When the running hold timer started; 0 = nothing unbanked running. */
   const holdStartedAtRef = useRef(0)
-  /** Which cycle ("active:replay") the banked hold belongs to — a new
-   *  cycle gets the full hold for its mode; '' forces that reset. */
+  /** Which cycle (the active index, as a string) the banked hold
+   *  belongs to — a new cycle gets the item's full hold; '' forces that
+   *  reset. */
   const holdCycleRef = useRef('')
   /** Bumped while parked so the show-attempt effect re-runs its gates. */
   const [retryTick, setRetryTick] = useState(0)
@@ -247,8 +233,7 @@ export function BillboardTicker() {
     setItems([])
     setFlip({ active: 0, leaving: null })
     setPaused(false)
-    setReplay(0)
-    holdRemainingRef.current = BILLBOARD_AD_HOLD_MS
+    holdRemainingRef.current = BILLBOARD_HYPE_HOLD_MS
     holdStartedAtRef.current = 0
     holdCycleRef.current = ''
   }, [])
@@ -310,7 +295,7 @@ export function BillboardTicker() {
 
   // The parked retry tick: while hidden on an allowed route, nudge the
   // show attempt above every RETRY_TICK_MS so a lapsed cooldown or a
-  // newly activated ad surfaces without a navigation. Most ticks are
+  // newly pushed announcement surfaces without a navigation. Most ticks are
   // free (canShowNow or the backoff fails fast — no network). The
   // interval only runs while the tab is visible, and becoming visible
   // again ticks immediately rather than waiting out a fresh interval.
@@ -369,9 +354,8 @@ export function BillboardTicker() {
   }, [phase, open])
 
   // Looping: wall-clock show length (a plain timeout — hovering pauses
-  // the rotation but doesn't extend the show). Any paid ad aboard gets
-  // the full sponsored loop; an announcement-only train's clock is one
-  // hold per item, a backstop behind the close-after-last-hold below.
+  // the rotation but doesn't extend the show). The clock is one hold
+  // per item, capped: a backstop behind the close-after-last-hold below.
   useEffect(() => {
     if (phase !== 'looping') return
     const timer = window.setTimeout(beginLeaving, billboardShowForMs(items))
@@ -386,23 +370,15 @@ export function BillboardTicker() {
     return () => window.clearTimeout(timer)
   }, [phase, finishShow])
 
-  // Advance one step. An announcement-only train that just spent its
-  // last item's hold doesn't wrap (or replay) — it retracts: free hype
-  // plays one pass, never a sponsor's loop. Otherwise, multi-item: the
-  // active item becomes the leaving layer (kept for the flip-out) and
-  // the next becomes active; reduced motion swaps instantly — no
-  // leaving layer, so no flip classes ever render. Solo (only ever a
-  // paid ad here — a solo hype closed above): same item, same index —
-  // just bump the replay counter so the sub-banner re-keys and its
-  // build-in plays again, with no flip-out layer and no vertical
-  // motion.
+  // Advance one step. A train that just spent its last item's hold
+  // doesn't wrap — it retracts: the show plays one pass (a solo item's
+  // one advance is that close). Otherwise the active item becomes the
+  // leaving layer (kept for the flip-out) and the next becomes active;
+  // reduced motion swaps instantly — no leaving layer, so no flip
+  // classes ever render.
   const advance = useCallback(() => {
     if (billboardShouldCloseAfterHold(items, flip.active)) {
       beginLeaving()
-      return
-    }
-    if (items.length === 1) {
-      setReplay((r) => r + 1)
       return
     }
     setFlip((f) => ({
@@ -412,27 +388,20 @@ export function BillboardTicker() {
   }, [items, flip.active, beginLeaving, reducedMotion])
 
   // The pause-aware cycle clock: each cycle holds for the ACTIVE item's
-  // billboardHoldMs — a multi-train ad its rotation hold, a hype item
-  // its announcement beat, a solo ad its replay cadence. Each (re)run spends
-  // holdRemainingRef — the full hold when the cycle is new, the banked
-  // remainder when resuming from hover. Pausing just tears the timer
-  // down: the mouseenter handler banks what's left before this cleanup
-  // runs. A cycle is (active index, replay count): multi advances
-  // change the index, solo-ad replays bump the counter, and either one
-  // resets the bank to that item's full hold. A solo AD under reduced
-  // motion arms nothing — its build-in is animation:none there, so a
-  // re-key would be invisible DOM churn and the ad just holds for the
-  // whole show. A solo hype still arms: its "advance" is the close, an
-  // actual retraction, reduced motion or not.
+  // billboardHoldMs. Each (re)run spends holdRemainingRef — the full
+  // hold when the cycle is new, the banked remainder when resuming from
+  // hover. Pausing just tears the timer down: the mouseenter handler
+  // banks what's left before this cleanup runs. A cycle is the active
+  // index: an advance changes it and resets the bank to that item's
+  // full hold. Reduced motion changes nothing here — the "advance" is
+  // a real flip or the close, either way an actual state change.
   useEffect(() => {
     if (phase !== 'looping' || paused || items.length === 0) return
     const item = items[flip.active]
-    const solo = items.length === 1
-    if (solo && reducedMotion && item.kind === 'ad') return
-    const cycle = `${flip.active}:${replay}`
+    const cycle = String(flip.active)
     if (holdCycleRef.current !== cycle) {
       holdCycleRef.current = cycle
-      holdRemainingRef.current = billboardHoldMs(item, !solo)
+      holdRemainingRef.current = billboardHoldMs(item)
       // Seen-once mark, on display rather than hold completion: the
       // new-cycle branch is the one existing hook that fires exactly
       // once per item appearance (pause/resume re-runs keep the cycle),
@@ -446,7 +415,7 @@ export function BillboardTicker() {
     holdStartedAtRef.current = Date.now()
     const timer = window.setTimeout(advance, holdRemainingRef.current)
     return () => window.clearTimeout(timer)
-  }, [phase, paused, items, reducedMotion, flip.active, replay, advance])
+  }, [phase, paused, items, flip.active, advance])
 
   // Drop the leaving layer once the flip-out has played. A timer rather
   // than animationend so environments where the animation can't run
@@ -490,8 +459,8 @@ export function BillboardTicker() {
   const multi = items.length > 1
   const activeItem = items[flip.active]
   const leavingItem = flip.leaving === null ? null : items[flip.leaving]
-  // Broadcast chrome tracks the ACTIVE item's kind — SPONSOR for paid
-  // ads, ANNOUNCEMENT for free copy — as does the banner's aria-label.
+  // Broadcast chrome tracks the ACTIVE item's kind, as does the banner's
+  // aria-label.
   const chrome = billboardChrome(activeItem)
   // The active hype/club item's tier accent, set on the shell so the
   // progress hairline sweeps in the same hue as the staging (which sets
@@ -503,16 +472,15 @@ export function BillboardTicker() {
       : null
 
   // One sub-banner as a full-width layer — the layer itself is the whole
-  // click target. Ads go through the click-redirect route, never straight
-  // to link_url; buyer text is untrusted and BillboardCard renders it as
-  // plain text. The leaving copy is animation-only: hidden from the
-  // accessibility tree, unfocusable and click-through — and it never
-  // gets the build-in classes, so its lines don't re-build while it
-  // slides out. The active layer's build-in arms once `open` flips (the
-  // classes land on already-mounted lines, so the first build plays
-  // during the slot expand rather than invisibly inside the collapsed
-  // slot), then replays on every flip-in mount; the replay counter in
-  // the keys remounts a solo card each cycle (constant 0 when multi).
+  // click target. Announcement copy is operator-pushed, and
+  // BillboardCard renders it as plain text regardless. The leaving copy
+  // is animation-only: hidden from the accessibility tree, unfocusable
+  // and click-through — and it never gets the build-in classes, so its
+  // lines don't re-build while it slides out. The active layer's
+  // build-in arms once `open` flips (the classes land on already-
+  // mounted lines, so the first build plays during the slot expand
+  // rather than invisibly inside the collapsed slot), then replays on
+  // every flip-in mount.
   const renderLayer = (item: BillboardItem, leaving: boolean) => {
     const layerCls = leaving
       ? 'billboard-flip-out pointer-events-none absolute inset-0'
@@ -522,38 +490,11 @@ export function BillboardTicker() {
       'transition-[border-color,background-color] duration-150 group-hover:border-zinc-600 group-hover:bg-white/[0.06]'
     const animate = open && !leaving
 
-    if (item.kind === 'ad') {
-      return (
-        <a
-          key={`ad-${item.id}-${leaving ? 'out' : 'in'}-r${replay}`}
-          href={`/api/billboard/${item.id}/click`}
-          target="_blank"
-          rel="noopener noreferrer"
-          tabIndex={leaving ? -1 : undefined}
-          aria-hidden={leaving || undefined}
-          className={linkCls}
-        >
-          <BillboardCard
-            text={item.text}
-            title={item.companyName ?? item.linkHost}
-            logoUrl={item.logoUrl}
-            accentColor={item.accentColor ?? null}
-            size="lg"
-            animateIn={animate}
-            className={hoverCls}
-          />
-        </a>
-      )
-    }
-
-    // Operator announcements reuse the ad strip geometry (headline as
-    // the title line, body under it, no logo, neutral accent, no AD
-    // glyph — the chrome row already says ANNOUNCEMENT, and free copy
-    // is never dressed as sponsorship) so announce<->ad flips read as
-    // one continuous surface. The link, when present, is
-    // operator-trusted copy pushed from /admin, so it goes straight out
-    // instead of through the click-redirect route — that route exists
-    // to count clicks on untrusted buyer URLs.
+    // Operator announcements ride the lg strip (headline as the title
+    // line, body under it, no logo, neutral accent) on the same anatomy
+    // as the hype staging, so announce<->hype flips read as one
+    // continuous surface. The link, when present, is operator-trusted
+    // copy pushed from /admin, so it goes straight out.
     if (item.kind === 'announce') {
       const card = (
         <BillboardCard
@@ -563,14 +504,13 @@ export function BillboardTicker() {
           accentColor={null}
           size="lg"
           animateIn={animate}
-          adTag={false}
           className={item.linkUrl !== null ? hoverCls : ''}
         />
       )
       if (item.linkUrl !== null) {
         return (
           <a
-            key={`announce-${item.id}-${leaving ? 'out' : 'in'}-r${replay}`}
+            key={`announce-${item.id}-${leaving ? 'out' : 'in'}`}
             href={item.linkUrl}
             target="_blank"
             rel="noopener noreferrer"
@@ -587,7 +527,7 @@ export function BillboardTicker() {
       // clickable, so nothing should invite a click).
       return (
         <div
-          key={`announce-${item.id}-${leaving ? 'out' : 'in'}-r${replay}`}
+          key={`announce-${item.id}-${leaving ? 'out' : 'in'}`}
           aria-hidden={leaving || undefined}
           className={`block w-full min-w-0 rounded-lg ${layerCls}`}
         >
@@ -598,7 +538,7 @@ export function BillboardTicker() {
 
     return (
       <Link
-        key={`${item.kind}-${item.id}-${leaving ? 'out' : 'in'}-r${replay}`}
+        key={`${item.kind}-${item.id}-${leaving ? 'out' : 'in'}`}
         href={`/u/${item.username}`}
         tabIndex={leaving ? -1 : undefined}
         aria-hidden={leaving || undefined}
@@ -606,7 +546,7 @@ export function BillboardTicker() {
       >
         {/* Hype and club events ride one broadcast staging
             (HypeAnnouncement, themed per tier/threshold) on the same
-            strip anatomy as the ad card, so the flip reads as one
+            strip anatomy as the announce card, so the flip reads as one
             continuous surface. The leaving copy's animate=false renders
             it resolved — no sting replay while it slides out. */}
         <HypeAnnouncement item={item} animate={animate} paused={paused} className={hoverCls} />
@@ -625,7 +565,7 @@ export function BillboardTicker() {
           className="billboard-shell relative"
           style={
             {
-              '--billboard-hold-ms': `${billboardHoldMs(activeItem, multi)}ms`,
+              '--billboard-hold-ms': `${billboardHoldMs(activeItem)}ms`,
               ...(accentVar !== null ? { '--hype-accent': `var(${accentVar})` } : null)
             } as CSSProperties
           }
@@ -638,7 +578,7 @@ export function BillboardTicker() {
           <div className="flex flex-col gap-1.5 px-3 py-2 sm:px-4 sm:py-2.5">
             <div className="flex items-center gap-2">
               {/* Broadcast chrome: inverted-monochrome label + live dot,
-                  reading ANNOUNCEMENT or SPONSOR per the active item. */}
+                  reading ANNOUNCEMENT for the active item. */}
               <div className="billboard-label flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5">
                 <span aria-hidden className="billboard-live-dot shrink-0" />
                 <span className="text-[9px] font-semibold tracking-[0.3em]">{chrome.label}</span>
@@ -669,17 +609,17 @@ export function BillboardTicker() {
               floor — reads as a broadcast timer across the whole width.
               Same contract as when it lived in the chrome row: the sweep
               duration comes from --billboard-hold-ms, keyed remounts
-              restart it per item (or per solo replay), the -run class
-              only lands while looping, and the .billboard-shell:hover
-              rule pauses it alongside the banked rotation hold. Reduced
-              motion drops it entirely. */}
+              restart it per item, the -run class only lands while
+              looping, and the .billboard-shell:hover rule pauses it
+              alongside the banked rotation hold. Reduced motion drops
+              it entirely. */}
           {!reducedMotion && (
             <span
               aria-hidden
               className="billboard-progress-track absolute inset-x-0 bottom-0 block h-px overflow-hidden"
             >
               <span
-                key={`${flip.active}-r${replay}`}
+                key={flip.active}
                 className={`billboard-progress-fill block h-full w-full ${
                   accentVar !== null ? 'billboard-progress-fill-hype' : ''
                 } ${phase === 'looping' ? 'billboard-progress-run' : ''}`}

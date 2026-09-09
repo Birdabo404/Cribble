@@ -287,11 +287,9 @@ function NotificationGlyph({
  *  a "started following you" lands one click from FOLLOW BACK; team
  *  invites and transfer-request outcomes land on the member's
  *  accept/withdraw page, an inbound transfer request takes the team to
- *  its /teams command deck, an accepted invite or an identity-review
- *  update takes the team straight to its console, and a sponsorship
- *  review update lands on /sponsorship (its data.kind stays
- *  'billboard_review' — a frozen internal contract, not part of the
- *  rename). */
+ *  its /teams command deck, and an accepted invite or an identity-review
+ *  update takes the team straight to its console. Anything else (legacy
+ *  sponsorship-review rows included) takes the default target. */
 function SingleFeedRow({
   notification: n,
   fresh,
@@ -316,11 +314,9 @@ function SingleFeedRow({
           n.type === 'team_invite_accepted' ||
           n.data?.kind === 'team_review'
         ? '/teams'
-        : n.data?.kind === 'billboard_review'
-            ? '/sponsorship'
-            : actorUsername
-              ? `/u/${encodeURIComponent(actorUsername)}`
-              : null
+        : actorUsername
+          ? `/u/${encodeURIComponent(actorUsername)}`
+          : null
   const rowCls = `notif-row-in flex items-start gap-3 border-b border-white/[0.045] px-4 py-3 last:border-b-0 ${
     fresh ? 'bg-white/[0.03]' : ''
   }`

@@ -63,9 +63,8 @@ describe('minRoleFor', () => {
       'audit.view',
       'feedback.view',
       'feedback.manage',
-      // Sponsorship acceptance and team approval are content review —
-      // moderator work; neither path touches billing.
-      'billboard.review',
+      // Team approval is content review — moderator work; the path never
+      // touches billing.
       'team.review'
     ]
     for (const action of moderatorActions) {
@@ -81,9 +80,6 @@ describe('minRoleFor', () => {
       'entitlement.revoke_plate',
       'staff.manage',
       'invite.manage',
-      // Billboard activation settles real money — owner only, even
-      // though the acceptance decision is moderator work.
-      'billboard.activate',
       'announcement.manage',
       'status.manage',
       'debug.manage'

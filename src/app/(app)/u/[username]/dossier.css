@@ -43,8 +43,8 @@
      the content column, pane bodies and the pane header, the compact
      bar, the phone menu rows, the framed spine panels' outer margins)
      pads or insets by it, 16px on phones and 20px from lg. --pf-inset:
-     padding INSIDE a framed panel (the ribbon, the TRANSMISSIONS header
-     and rows, the RECRUIT header and body, lg menu rows). */
+     padding INSIDE a framed panel (the ribbon, the RECRUIT header and
+     body, lg menu rows). */
   --pf-gutter: 16px;
   --pf-inset: 12px;
   /* ink: the sand paper becomes the ink — cream lines on blue, as on a
@@ -108,11 +108,8 @@
      (lime is 12.7:1 on blue and needs no rim), ink on paper.
      --pf-dot-3 is the level-3 activity dot: a dimmed lime, 3.59:1 on
      paper and 3.55:1 against the level-4 lime, so 3 and 4 stay
-     distinct. --pf-screen-alpha is the dot-screen density. The
-     --pf-print-* pair prints the TRANSMISSIONS sponsor logos (.pf-print
-     — never a photograph): on paper they multiply into the sheet; on
-     blue they screen, grayscale chalk on blue instead of crushing to
-     black. --pf-scan-line is the pane scan sweep, a faint ink line
+     distinct. --pf-screen-alpha is the dot-screen density.
+     --pf-scan-line is the pane scan sweep, a faint ink line
      here. --pf-reg is the registration-mark ink (.pf-sheet): the
      crosses off the sheet's corners on the drafting board, the sheet's
      ink at 60% — the one role both materials spell the same way, so it
@@ -120,8 +117,6 @@
   --pf-rim: var(--pf-paper);
   --pf-dot-3: #6f850e;
   --pf-screen-alpha: 0.12;
-  --pf-print-blend: screen;
-  --pf-print-filter: grayscale(1) contrast(1.1) brightness(0.85);
   --pf-scan-line: rgb(var(--pf-ink-rgb) / 0.22);
   --pf-reg: rgb(var(--pf-ink-rgb) / 0.6);
   /* Sticky offsets clear the fixed top bar (md+ value divided by the 0.9
@@ -209,14 +204,11 @@ html.light .pf-dossier {
   --pf-rarity-legendary: #866a17;
   --pf-rarity-mythic: #5a4a8a;
   /* roles: the literals the recipes carried before the tokens existed.
-     Ink rim on the lamp and level-4 dot, lime-ink level 3, and the
-     printed sponsor logos multiply into the paper. --pf-reg is
+     Ink rim on the lamp and level-4 dot, lime-ink level 3. --pf-reg is
      inherited: carbon at 60% on the khaki board. */
   --pf-rim: var(--pf-ink);
   --pf-dot-3: var(--pf-lime-ink);
   --pf-screen-alpha: 0.16;
-  --pf-print-blend: multiply;
-  --pf-print-filter: grayscale(0.35) contrast(1.15) sepia(0.25);
   --pf-scan-line: var(--pf-paper-3);
 }
 
@@ -313,16 +305,7 @@ html.light .pf-dossier {
   position: relative;
 }
 
-/* A printed image (the 20px TRANSMISSIONS sponsor logos):
-   --pf-print-filter and --pf-print-blend, so a logo prints into
-   whichever material it sits on instead of multiplying into black on
-   blue. Never on a photograph — those are .pf-photo. */
-.pf-print {
-  mix-blend-mode: var(--pf-print-blend);
-  filter: var(--pf-print-filter);
-}
-
-/* Vacant cells (open sponsor slots, empty bays). */
+/* Vacant cells (empty bays, the unset banner). */
 .pf-hatch {
   background-image: repeating-linear-gradient(
     45deg,
@@ -513,8 +496,8 @@ html.light .pf-dossier {
 /* ---------- type ---------- */
 
 /* Tracking: 0.18em on the 10-11px stencil labels, 0.2em on section
-   labels. Wide enough to read as stencil, tight enough that
-   `[ TRANSMISSIONS ]` and the FOLLOWS YOU stamp fit in the 296px spine. */
+   labels. Wide enough to read as stencil, tight enough that the
+   FOLLOWS YOU stamp fits in the 296px spine. */
 
 /* Tracked mono micro-label (9-11px only; 3.15:1 on paper). */
 .pf-micro {

@@ -4,18 +4,10 @@ import { validateEvent, WebhookVerificationError } from '@polar-sh/sdk/webhooks'
 import type { Order } from '@polar-sh/sdk/models/components/order'
 import type { Subscription } from '@polar-sh/sdk/models/components/subscription'
 import {
-  activateBillboardSlotFromOrder,
-  revokeBillboardSlotFromOrder
-} from '@/lib/billboardSlotServer'
-import {
   grantPlatePurchase,
   grantProEntitlement,
   grantTeamEntitlement
 } from '@/lib/entitlementGrant'
-import {
-  activateSponsorBidFromOrder,
-  revokeSponsorBidFromOrder
-} from '@/lib/leaderboardSponsorServer'
 import { houseGrantFor } from '@/lib/houseEntitlements'
 import { getPolarWebhookSecret, isTeamSubscription } from '@/lib/polar'
 import { createServiceClient } from '@/lib/supabaseServer'
@@ -37,25 +29,12 @@ import { createServiceClient } from '@/lib/supabaseServer'
 //                            (see houseEntitlements) are left alone
 //   subscription.canceled -> no-op (the tier stays until the period ends)
 //   order.paid            -> grant plate in user_cosmetics (if plate
-//                            order), activate a leaderboard sponsor
-//                            bid (if kind='leaderboard_bid' metadata /
-//                            the sponsor product), or activate a
-//                            billboard slot window (if
-//                            kind='billboard_slot' metadata / the slot
-//                            product) — each after verifying the order
-//                            against its PENDING ledger row
+//                            order — plate metadata on the product or
+//                            checkout); plain subscription-cycle orders
+//                            carry no plate and are a no-op
 //   order.refunded        -> delete user_cosmetics rows by
-//                            source_order_id + revoke any sponsor bid
-//                            or billboard slot order (PENDING or PAID)
-//                            by the order's checkout id, falling back
-//                            to polar_order_id — a refund beating
-//                            order.paid to delivery must still strike
-//                            the ledger row
-// The three one-time fulfillments can't collide: plates key off plate
-// metadata the checkout-priced products never set, bids and slots each
-// key off their own kind metadata / product id, and every handler
-// no-ops on the others' orders. Everything else is recorded for audit
-// and acked.
+//                            source_order_id
+// Everything else is recorded for audit and acked.
 
 export const dynamic = 'force-dynamic'
 
@@ -220,9 +199,7 @@ async function revokePlateFromOrder(order: Order) {
 
 // Deliberately partial dispatch (not an exhaustive switch): only these four
 // events have side effects; subscription.canceled and every other verified
-// event type keeps its audit row and is acked with no DB effect. Both
-// order handlers run every one-time fulfillment — each keys off markers
-// the other products never set, so exactly one (or none) has any effect.
+// event type keeps its audit row and is acked with no DB effect.
 async function processEvent(event: PolarEvent) {
   if (event.type === 'subscription.active') {
     await activateSubscription(event.data)
@@ -230,15 +207,8 @@ async function processEvent(event: PolarEvent) {
     await revokeSubscription(event.data)
   } else if (event.type === 'order.paid') {
     await grantPlateFromOrder(event.data)
-    // Verification refusals resolve (logged inside) rather than throw:
-    // a mismatched amount or missing ledger row is permanent, and a 500
-    // here would make Polar redeliver an event no retry can fix.
-    await activateSponsorBidFromOrder(supabase, event.data)
-    await activateBillboardSlotFromOrder(supabase, event.data)
   } else if (event.type === 'order.refunded') {
     await revokePlateFromOrder(event.data)
-    await revokeSponsorBidFromOrder(supabase, event.data)
-    await revokeBillboardSlotFromOrder(supabase, event.data)
   }
 }
 

@@ -33,7 +33,6 @@ import AnimatedCounter from '@/components/AnimatedCounter'
 import { formatCompact, formatNumber } from '@/components/dashboard-v2/format'
 import { Avatar } from '@/components/leaderboard/Avatar'
 import { leaderboardScrollTo } from '@/components/leaderboard/LeaderboardScrollRuntime'
-import { LeaderboardSponsorFlip } from '@/components/leaderboard/LeaderboardSponsorFlip'
 import {
   IconChevronDown,
   IconFlame,
@@ -285,76 +284,74 @@ export function TeamBoard() {
 
   return (
     <>
-      {/* ---------- stat strip / sponsor flip ---------- */}
+      {/* ---------- stat strip ---------- */}
       <section className="lbt-reveal">
-        <LeaderboardSponsorFlip>
-          <div className="lb-panel grid grid-cols-2 overflow-hidden md:grid-cols-4">
-            <StatCell
-              icon={<IconShieldStar size={11} className="text-zinc-600" />}
-              label="TEAMS"
-            >
-              <AnimatedCounter
-                value={totals?.teams ?? 0}
-                duration={1100}
-                formatter={(v) => formatNumber(Math.round(v))}
-              />
-            </StatCell>
+        <div className="lb-panel grid grid-cols-2 overflow-hidden md:grid-cols-4">
+          <StatCell
+            icon={<IconShieldStar size={11} className="text-zinc-600" />}
+            label="TEAMS"
+          >
+            <AnimatedCounter
+              value={totals?.teams ?? 0}
+              duration={1100}
+              formatter={(v) => formatNumber(Math.round(v))}
+            />
+          </StatCell>
 
-            <StatCell
-              className="border-l border-[rgb(var(--lb-panel-edge)/0.08)]"
-              icon={<IconUsers size={11} className="text-zinc-600" />}
-              label="PILOTS"
-              hint="on rosters"
-            >
-              <AnimatedCounter
-                value={totals?.members ?? 0}
-                duration={1100}
-                formatter={(v) => formatNumber(Math.round(v))}
-              />
-            </StatCell>
+          <StatCell
+            className="border-l border-[rgb(var(--lb-panel-edge)/0.08)]"
+            icon={<IconUsers size={11} className="text-zinc-600" />}
+            label="PILOTS"
+            hint="on rosters"
+          >
+            <AnimatedCounter
+              value={totals?.members ?? 0}
+              duration={1100}
+              formatter={(v) => formatNumber(Math.round(v))}
+            />
+          </StatCell>
 
-            <StatCell
-              className="border-t border-[rgb(var(--lb-panel-edge)/0.08)] md:border-l md:border-t-0"
-              icon={<IconTrophy size={11} className="text-[rgb(var(--lb-gold)/0.8)]" />}
-              label="TOP SCORE"
-              valueStyle={{
-                color: 'rgb(var(--lb-score))',
-                textShadow: '0 0 14px rgb(var(--lb-score) / calc(0.4 * var(--lb-glow, 1)))'
-              }}
-              hint={
-                leader ? (
-                  <>
-                    held by <span className="text-zinc-400">@{leader.username}</span>
-                  </>
-                ) : undefined
-              }
-            >
-              <AnimatedCounter
-                value={totals?.topScore ?? 0}
-                duration={1100}
-                formatter={(v) => formatCompact(Math.round(v))}
-              />
-            </StatCell>
+          <StatCell
+            className="border-t border-[rgb(var(--lb-panel-edge)/0.08)] md:border-l md:border-t-0"
+            icon={<IconTrophy size={11} className="text-[rgb(var(--lb-gold)/0.8)]" />}
+            label="TOP SCORE"
+            valueStyle={{
+              color: 'rgb(var(--lb-score))',
+              textShadow: '0 0 14px rgb(var(--lb-score) / calc(0.4 * var(--lb-glow, 1)))'
+            }}
+            hint={
+              leader ? (
+                <>
+                  held by <span className="text-zinc-400">@{leader.username}</span>
+                </>
+              ) : undefined
+            }
+          >
+            <AnimatedCounter
+              value={totals?.topScore ?? 0}
+              duration={1100}
+              formatter={(v) => formatCompact(Math.round(v))}
+            />
+          </StatCell>
 
-            <StatCell
-              className="border-l border-t border-[rgb(var(--lb-panel-edge)/0.08)] md:border-t-0"
-              icon={<IconFlame size={11} className="text-orange-400" />}
-              label="SEASON BURN"
-              hint="OPT-IN ESTIMATES"
-            >
-              <span className="inline-flex items-center gap-1.5">
-                <span>
-                  <BurnValue
-                    value={totals?.burnUsd ?? '0'}
-                    animated
-                    estimated={totals?.burnIncludesEstimate === true}
-                  />
-                </span>
-                {totals?.burnIncludesEstimate === true && <EstChip />}
+          <StatCell
+            className="border-l border-t border-[rgb(var(--lb-panel-edge)/0.08)] md:border-t-0"
+            icon={<IconFlame size={11} className="text-orange-400" />}
+            label="SEASON BURN"
+            hint="OPT-IN ESTIMATES"
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <span>
+                <BurnValue
+                  value={totals?.burnUsd ?? '0'}
+                  animated
+                  estimated={totals?.burnIncludesEstimate === true}
+                />
               </span>
-            </StatCell>
-          </div>
-        </LeaderboardSponsorFlip>
+              {totals?.burnIncludesEstimate === true && <EstChip />}
+            </span>
+          </StatCell>
+        </div>
       </section>
 
       {/* ---------- team standings ---------- */}

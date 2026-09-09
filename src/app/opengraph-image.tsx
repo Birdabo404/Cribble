@@ -10,7 +10,7 @@ import { getLandingLive } from '@/lib/landingLive'
 // telemetry pinned to the edges like an instrument plate.
 //
 // This file-convention image cascades to every route without a closer
-// one (/, /leaderboard, /teams, /sponsorship, /status); /join/[code]
+// one (/, /leaderboard, /teams, /status); /join/[code]
 // and /u/[username] keep their own crafted cards.
 //
 // Satori quirks documented on the join card apply here too: every div

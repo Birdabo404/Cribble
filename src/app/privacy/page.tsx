@@ -95,7 +95,6 @@ export default function PrivacyPage() {
               <CollectedItem text="Profile details you choose to add (role, goals, preferred tools)" />
               <CollectedItem text="Usage stats derived from extension data: scores, streaks, and ranks" />
               <CollectedItem text="Records linking your browser extension to your account" />
-              <CollectedItem text="If you submit a sponsor ad: the ad content you submit and the billing email you provide for it" />
               <CollectedItem text="Your browser's timezone and a two-letter country code, used as coarse context for aggregate trends" />
               <CollectedItem text="If you enable Cribble Agent: machine name, IANA timezone, coding-agent/model identifiers, event timestamps, token counts, and estimated cost (never prompts, responses, files, or message content)" />
             </ul>
@@ -146,9 +145,7 @@ export default function PrivacyPage() {
               We do not sell your data, and we do not share it with third
               parties, except for the infrastructure providers (hosting and
               database services) that process it on our behalf to run
-              Cribble. Cribble does show sponsor cards — clearly marked
-              paid placements. They are never targeted using your personal
-              data; everyone sees the same cards.
+              Cribble.
             </p>
             <p className="mt-4">
               If Cribble is ever acquired or merged into another company,

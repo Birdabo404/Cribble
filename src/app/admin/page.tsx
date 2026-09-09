@@ -8,7 +8,6 @@ import {
   AdminEmpty,
   AdminList,
   AdminListRow,
-  AdminNotice,
   AdminPageHeader,
   AdminSection,
   AdminSkeletonList,
@@ -162,143 +161,12 @@ function UserSearchSection() {
   )
 }
 
-/** One KPI cell — microlabel, big tabular number, one muted clause,
- *  whole cell clicks through to the queue it counts. */
-function KpiCell({
-  href,
-  label,
-  number,
-  clause,
-  numberClass
-}: {
-  href: string
-  label: string
-  number: string
-  clause: string
-  numberClass: string
-}) {
-  return (
-    <Link
-      href={href}
-      className="block p-4 transition-colors duration-150 hover:bg-[color:var(--st-panel-hover)] sm:p-5"
-    >
-      <p className="font-data text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--st-text-faint)]">
-        {label}
-      </p>
-      <p className={`mt-1.5 text-[22px] font-semibold leading-7 tabular-nums ${numberClass}`}>
-        {number}
-      </p>
-      <p className="mt-1 text-[12px] leading-4 text-[color:var(--st-text-muted)]">{clause}</p>
-    </Link>
-  )
-}
-
-const KPI_GRID =
-  'grid grid-cols-1 divide-y divide-[color:var(--st-border)] sm:grid-cols-3 sm:divide-x sm:divide-y-0'
-
-// Billboard acceptance sits at the moderator floor (billboard.review),
-// so every staff member gets these counts; only activation is owner work.
+// The queues that need a staff decision. Each link opens the queue page,
+// where the counts live.
 function NeedsAttentionSection() {
-  const [counts, setCounts] = useState<{
-    queue: number
-    awaiting: number
-    live: number
-    maxLive: number
-  } | null>(null)
-  const [loaded, setLoaded] = useState(false)
-
-  useEffect(() => {
-    const load = async () => {
-      const res = await fetch('/api/admin/billboard', { credentials: 'include' })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !Array.isArray(data?.queue)) {
-        setCounts(null)
-        setLoaded(true)
-        return
-      }
-      // The server-computed counts object is the single number source
-      // shared with the sponsorship page — rendered verbatim so the two
-      // pages can never disagree. Awaiting includes leaderboard
-      // creatives with bidding open, same as the sponsorship page's
-      // bucket. The live KPI is windowed occupancy (flipper + rail
-      // against the flipper cap); leaderboard creatives have no cap to
-      // meter. A cached pre-counts response falls back to the legacy
-      // fields it carried.
-      const serverCounts = data.counts
-      setCounts(
-        serverCounts && typeof serverCounts === 'object'
-          ? {
-              queue: Number(serverCounts.queue) || 0,
-              awaiting: Number(serverCounts.awaiting) || 0,
-              live:
-                (Number(serverCounts.flipperLive) || 0) +
-                (Number(serverCounts.railLive) || 0),
-              maxLive: Number(serverCounts.maxFlipper) || 0
-            }
-          : {
-              queue: data.queue.length,
-              awaiting: Array.isArray(data.awaiting) ? data.awaiting.length : 0,
-              live: Number(data.liveCount) || 0,
-              maxLive: Number(data.maxLive) || 0
-            }
-      )
-      setLoaded(true)
-    }
-    load()
-  }, [])
-
   return (
     <AdminSection title="Needs attention" flush>
-      {!loaded ? (
-        <div aria-hidden className={KPI_GRID}>
-          {Array.from({ length: 3 }, (_, index) => (
-            <div key={index} className="p-4 sm:p-5">
-              <Skeleton className="h-3 w-24 max-w-full" />
-              <Skeleton className="mt-2.5 h-7 w-14" />
-              <Skeleton className="mt-2 h-3 w-40 max-w-[80%]" />
-            </div>
-          ))}
-        </div>
-      ) : !counts ? (
-        <div className="p-4 sm:p-5">
-          <AdminNotice tone="danger">Sponsorship stats are unavailable right now.</AdminNotice>
-        </div>
-      ) : (
-        <div className={KPI_GRID}>
-          <KpiCell
-            href="/admin/sponsorship"
-            label="Awaiting review"
-            number={String(counts.queue)}
-            clause="Sponsorship submissions waiting on a decision"
-            numberClass={
-              counts.queue > 0
-                ? 'text-[color:var(--ad-attention)]'
-                : 'text-[color:var(--st-text-muted)]'
-            }
-          />
-          <KpiCell
-            href="/admin/sponsorship"
-            label="Awaiting payment"
-            number={String(counts.awaiting)}
-            clause="Approved ads on manual payment or open bidding"
-            numberClass={
-              counts.awaiting > 0
-                ? 'text-[color:var(--ad-attention)]'
-                : 'text-[color:var(--st-text-muted)]'
-            }
-          />
-          {/* Live occupancy is a live/on signal, not an attention number —
-              the one place the brand accent appears on this page. */}
-          <KpiCell
-            href="/admin/sponsorship"
-            label="Live now"
-            number={`${counts.live}/${counts.maxLive}`}
-            clause="Billboard slots currently running"
-            numberClass={counts.live > 0 ? 'text-accent' : 'text-[color:var(--st-text-muted)]'}
-          />
-        </div>
-      )}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[color:var(--st-border)] px-4 py-2.5 text-[12.5px] leading-5 sm:px-5">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 text-[12.5px] leading-5 sm:px-5">
         <span className="text-[color:var(--st-text-faint)]">Open queues</span>
         <Link href="/admin/feedback" className={QUIET_LINK}>
           Feedback

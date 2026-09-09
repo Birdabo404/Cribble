@@ -6,7 +6,7 @@
 // blur, no shadow (tokens and recipes in dossier.css, applied on the
 // .pf-dossier root). From lg the sheet is a two-column dossier —
 // a 296px sticky SPINE (Spine: avatar, identity, action rows, the menu,
-// TRANSMISSIONS, RECRUIT), a hairline track, and the content column
+// RECRUIT), a hairline track, and the content column
 // (StatusRibbon → BannerPlate → Dossier → the pane frame → footer).
 // Below lg it is one column: the phone compact bar, then the spine as
 // the hero block (banner first, avatar overlapping it), then the menu
@@ -85,8 +85,7 @@ export default function ProfileClient({ username }: { username: string }) {
   const [recruiterHandle, setRecruiterHandle] = useState<string | null>(null)
   const recruiterChecked = useRef(false)
   const columnRef = useRef<HTMLElement>(null)
-  /** lg+ decides where the banner and the menu live and whether
-   *  TRANSMISSIONS fetch. */
+  /** lg+ decides where the banner and the menu live. */
   const desktop = useMediaQuery(LG_QUERY)
 
   const fetchProfile = useCallback(async () => {

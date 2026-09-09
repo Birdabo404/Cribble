@@ -16,7 +16,8 @@
     "test:run": "vitest run",
     "audit:prod": "npm audit --omit=dev",
     "setup:polar": "vite-node scripts/setup-polar.ts",
-    "setup:polar:check": "vite-node scripts/setup-polar.ts --check"
+    "setup:polar:check": "vite-node scripts/setup-polar.ts --check",
+    "polar:archive-sponsorship": "vite-node scripts/polar-archive-sponsorship.ts"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",

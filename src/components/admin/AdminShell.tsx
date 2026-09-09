@@ -113,13 +113,6 @@ const ICON_WAITLIST = (
   </IconBase>
 )
 
-const ICON_SPONSORSHIP = (
-  <IconBase>
-    <path d="M13.25 2.75 5.75 5.35H3.4c-.91 0-1.65.74-1.65 1.65v1.7c0 .91.74 1.65 1.65 1.65h2.35l7.5 2.6Z" />
-    <path d="m6.5 10.6.55 2.65" />
-  </IconBase>
-)
-
 const ICON_ANNOUNCEMENTS = (
   <IconBase>
     <circle cx="8" cy="8" r="1.4" />
@@ -189,7 +182,6 @@ const NAV_GROUPS: readonly AdminNavGroup[] = [
   {
     label: 'Product',
     items: [
-      { href: '/admin/sponsorship', label: 'Sponsorship', icon: ICON_SPONSORSHIP },
       {
         href: '/admin/announcements',
         label: 'Announcements',
