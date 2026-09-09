@@ -1,10 +1,9 @@
 // Pure assembly for the profile's AGENTIC block. Turns the single
-// consent-gated row of agent_profile_agents (migration 058) into the
-// display list both the profile page and the PlayerCard modal render.
-// Shares cleanBreakdown/exactRatioPercent with the token leaderboard so
-// the profile can never disagree with the Burn Board about a player's
-// agent mix — token totals exceed 2^53, so the math stays in exact
-// integer strings and only the final percent becomes a Number.
+// consent-gated row of agent_profile_agents (migrations 058/071) into
+// the display list both the profile page and the PlayerCard modal render.
+// The RPC conservatively merges published CLI and linked Cursor facts
+// without summing overlap; this layer keeps its exact integer denominator.
+// Token totals exceed 2^53, so only the final percent becomes a Number.
 
 import { cleanBreakdown, exactInteger, exactRatioPercent } from '@/lib/tokenLeaderboard'
 

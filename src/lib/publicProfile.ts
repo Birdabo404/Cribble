@@ -4,8 +4,8 @@
 // never drift apart. Exposes only data already visible on the
 // leaderboard plus persisted achievement unlocks, the user's own
 // published profile fields (bio, location, website, socials, hangar
-// pins joined to their cached cards), and — strictly opt-in via the
-// token-sharing consent — their agent CLI mix. Never emails, devices
+// pins joined to their cached cards), and — strictly opt-in per source —
+// their published CLI / linked Cursor agent mix. Never emails, devices
 // or admin fields.
 
 import { unstable_cache } from 'next/cache'
@@ -158,8 +158,9 @@ export interface PublicProfile {
   longestStreak: number
   totalActiveMs: number
   topTools: PublicProfileTool[]
-  /** Opt-in agent CLI mix by share of lifetime tokens — empty unless the
-   *  owner enabled token sharing (consent v2). Never a ranking input. */
+  /** Opt-in agent mix by share of lifetime tokens. Linked Cursor requires
+   *  both public-display choices; overlapping facts are conservatively
+   *  deduplicated by the aggregate RPC. Never a ranking input. */
   topAgents: PublicProfileAgent[]
   badges: PublicProfileBadge[]
   /** ACTIVITY GRID feed: per-UTC-day active ms for the last windowDays
@@ -412,11 +413,11 @@ export async function loadPublicProfile(
       percent
     }))
 
-  // Agent CLI mix — at most one consent-gated aggregate row; zero rows
-  // means not opted in, no usage, or not active. PGRST202/42883 mean
-  // migration 058 hasn't deployed yet (same tolerance as the tokens
-  // route); any error degrades to an empty block without failing the
-  // profile, since this is display-only decoration.
+  // Published agent mix — at most one aggregate row. Every result requires
+  // sharing consent v2; linked Cursor also requires that profile's board
+  // toggle and a healthy sync. Migration 071 keeps the larger exact Cursor
+  // source so overlap is neither added twice nor discarded. PGRST202/42883
+  // mean the RPC has not deployed yet; errors degrade to an empty display block.
   if (
     agentsRes.error &&
     agentsRes.error.code !== 'PGRST202' &&
