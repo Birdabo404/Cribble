@@ -1,20 +1,25 @@
 'use client'
 
-// Shop — Cribble's storefront. The page is the composition layer: fan
-// hero, Pro, mythic + plate grids, Founder / Champion. This file keeps
-// the cosmetics/sync state machine, query-flag notices, section order
-// and the reveal cascade.
+// Shop — Cribble's storefront. The page is the composition layer only:
+// masthead, season ticker, the sticky catalog index, the five indexed
+// sections (01 FEATURED stage · 02 PRO · 03 MYTHIC · 04 PLATES · 05
+// VAULT), the footer stamp, the Spec drawer and the query-flag notice.
+// State lives in useShopCosmetics (cosmetics, Polar sync, notices, the
+// Premium welcome); the section components own their own chrome; this
+// file owns section order, the `?plate=` deep link, the stage-hold and
+// perf tiers, and the GSAP entrance + scroll reveals.
 //
 // Checkout and the customer portal are plain browser navigations to
 // /api/checkout and /api/portal — those routes resolve Polar products
 // server-side and redirect to the hosted pages. Both bounce back here
-// with query flags (?checkout=success|error|owned|complimentary,
-// ?portal=none|error|complimentary) which render as a dismissable notice
-// strip. Fulfillment normally arrives via
-// webhook, but webhooks can't reach localhost — so both the success
-// bounce and the Re-check button also POST /api/user/subscription/sync,
-// which reconciles the tier straight from Polar. When that call is the
-// one that flips the account to PRO, the Premium welcome modal fires.
+// with query flags which useShopCosmetics captures into a dismissable
+// notice strip and scrubs from the URL (keeping `?plate=`).
+//
+// URL contract for the inspect step: opening the Spec drawer writes
+// `/shop?plate=<id>` (replace, no scroll) and closing writes `/shop`;
+// landing on `?plate=<id>` opens the drawer for a known catalog id. While
+// the drawer is open the root carries `data-stage-hold`, which pauses
+// every page scene (globals.css) — one live scene at a time.
 //
 // The catalog is static (src/lib/cosmetics/plates.ts, sliced into
 // storefront views by components/shop/catalog.ts) so the storefront
@@ -22,21 +27,47 @@
 // async. A signed-out or failed fetch degrades to a browsable neutral
 // storefront — the checkout route enforces auth itself.
 
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { IconClose, IconRefresh } from '@/components/leaderboard/icons'
+import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { PremiumWelcomeModal } from '@/components/premium/PremiumWelcomeModal'
-import { RESERVE_PLATES, SHOP_PLATES } from '@/components/shop/catalog'
+import { CatalogIndex, SECTION_SCROLL_MT } from '@/components/shop/CatalogIndex'
+import { FeaturedStage } from '@/components/shop/FeaturedStage'
 import { GoldRow } from '@/components/shop/GoldRow'
-import { MarqueeFan } from '@/components/shop/MarqueeFan'
+import { Masthead, type MastheadTier } from '@/components/shop/Masthead'
 import { PlateCard } from '@/components/shop/PlateCard'
 import { ProCards } from '@/components/shop/ProCards'
 import { ReserveCard } from '@/components/shop/ReserveCard'
-import { toast } from '@/components/Toaster'
-import { requestNotificationsRefresh } from '@/hooks/useNotifications'
+import { ShopNoticeBanner } from '@/components/shop/ShopNotice'
+import { SpecDrawer } from '@/components/shop/SpecDrawer'
+import { Ticker } from '@/components/shop/Ticker'
+import {
+  CHAMPION_PLATE,
+  FEATURED_PLATES,
+  FOUNDER_PLATE,
+  JP as GLOSSARY,
+  PRO_PLATES,
+  RESERVE_PLATES,
+  SHOP_PLATES,
+  SHOP_SECTIONS,
+  type ShopSection,
+  type ShopSectionId
+} from '@/components/shop/catalog'
+import { INK, JP, JP_KICKER, LABEL, LINE, MICRO, MUTE, PAPER_BG } from '@/components/shop/shopChrome'
+import {
+  STAGGER,
+  ScrollTrigger,
+  drawRule,
+  gsap,
+  motionReduced,
+  revealIn,
+  scrollReveal,
+  useGSAP
+} from '@/components/shop/shopMotion'
+import { useShopCosmetics, type CosmeticsData } from '@/components/shop/useShopCosmetics'
+import { getPlate } from '@/lib/cosmetics/plates'
 
-// "SHOP" in ANSI Shadow, same family as Bag / Dashboard / Achievements.
+// "SHOP" in ANSI Shadow, same family as Bag / Dashboard / Achievements —
+// survives only as the mute footer stamp.
 const ASCII_SHOP = String.raw`███████╗██╗  ██╗ ██████╗ ██████╗ 
 ██╔════╝██║  ██║██╔═══██╗██╔══██╗
 ███████╗███████║██║   ██║██████╔╝
@@ -44,577 +75,395 @@ const ASCII_SHOP = String.raw`███████╗██╗  ██╗ █�
 ███████║██║  ██║╚██████╔╝██║     
 ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝     `
 
-/* ================= cosmetics state ================= */
+/** Every plate the storefront sells, for the masthead's catalog count. */
+const PLATE_COUNT = SHOP_PLATES.length + RESERVE_PLATES.length + (FOUNDER_PLATE ? 1 : 0)
 
-interface CosmeticsData {
-  tier: string
-  isPro: boolean
-  complimentary: boolean
-  owned: ReadonlySet<string>
-  premiumSince: string | null
+/** 04 PLATES is a gap-px grid over the line colour, so a trailing empty
+ * cell would paint as a solid line-coloured block. Fillers complete the
+ * last row per breakpoint (paper, aria-hidden); both are 0 today. */
+const PLATES_FILL_LG = (3 - (SHOP_PLATES.length % 3)) % 3
+const PLATES_FILL_SM = (2 - (SHOP_PLATES.length % 2)) % 2
+
+/* ================= entrance guard ================= */
+
+// The storefront is server-rendered, so its content paints before React
+// hydrates — and a GSAP entrance that starts at hydration would blink that
+// content off and fade it back in. The `.shop-floor` block in globals.css
+// (styled-jsx is client-only here, so it has to be the stylesheet) holds
+// every entrance target at opacity 0 from first paint until the root
+// carries `data-motion-ready` (set by the entrance effect), via a CSS
+// animation that doubles as a fail-safe fade at FAILSAFE_DELAY_MS in case
+// hydration is slow or never comes. If that fail-safe has already begun
+// when the effect runs, the content has been seen: the effect skips the
+// entrance for whatever is on screen and only arms the scroll reveals
+// below the fold. Name and delay mirror the stylesheet.
+const FAILSAFE_NAME = 'shop-entrance-failsafe'
+const FAILSAFE_DELAY_MS = 800
+
+/** True when the fail-safe fade on `el` has passed its delay — the SSR
+ * paint has been (or is being) revealed. A fresh client mount (soft
+ * navigation) has a just-started animation, so this reads false there. */
+function failsafeStarted(el: Element | null): boolean {
+  if (!el || typeof el.getAnimations !== 'function') return false
+  return el.getAnimations().some((animation) => {
+    // Duck-typed: CSSAnimation is not a global in every engine.
+    if (!('animationName' in animation)) return false
+    const css = animation as CSSAnimation
+    return (
+      css.animationName === FAILSAFE_NAME &&
+      typeof css.currentTime === 'number' &&
+      css.currentTime >= FAILSAFE_DELAY_MS
+    )
+  })
 }
 
-/** Signed-out / failed-fetch mode: browsable, nothing owned, no Pro. */
-const NEUTRAL_COSMETICS: CosmeticsData = {
-  tier: 'FREE',
-  isPro: false,
-  complimentary: false,
-  owned: new Set(),
-  premiumSince: null
+/** Any part of `el` inside the viewport right now. */
+function inViewport(el: Element): boolean {
+  const rect = el.getBoundingClientRect()
+  return rect.bottom > 0 && rect.top < window.innerHeight
 }
 
-/** POST /api/user/subscription/sync — reconcile tier straight from Polar.
- * `changed: true` means this call just flipped the account to PRO.
- * A fresh-from-checkout bounce passes the checkout id so the route can
- * verify the session and drop the purchase-ack notification.
- * Null on any failure; the caller falls back to the plain cosmetics read. */
-async function syncSubscription(
-  checkoutId?: string
-): Promise<{ isPro: boolean; changed: boolean } | null> {
-  try {
-    const res = await fetch('/api/user/subscription/sync', {
-      method: 'POST',
-      credentials: 'include',
-      ...(checkoutId
-        ? {
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ checkoutId })
-          }
-        : {})
-    })
-    if (!res.ok) return null
-    const data = await res.json()
-    if (!data?.success) return null
-    return { isPro: Boolean(data.isPro), changed: Boolean(data.changed) }
-  } catch {
-    return null
-  }
+/* ================= sections ================= */
+
+function tierOf(cosmetics: CosmeticsData): MastheadTier {
+  if (cosmetics.tier.toUpperCase() === 'TEAM') return 'TEAM'
+  if (cosmetics.isPro) return 'PRO'
+  return 'FREE'
 }
 
-/* ================= query-flag notices ================= */
-
-type ShopNotice =
-  | 'checkout-success'
-  | 'checkout-owned'
-  | 'checkout-complimentary'
-  | 'checkout-error'
-  | 'portal-none'
-  | 'portal-complimentary'
-  | 'portal-error'
-
-type NoticeTone = 'up' | 'down' | 'info'
-
-const NOTICE_TONES: Record<NoticeTone, { fg: string; border: string; wash: string }> = {
-  up: {
-    fg: 'rgb(var(--lb-up))',
-    border: 'rgb(var(--lb-up) / 0.28)',
-    wash: 'rgb(var(--lb-up) / 0.05)'
-  },
-  down: {
-    fg: 'rgb(var(--lb-down))',
-    border: 'rgb(var(--lb-down) / 0.28)',
-    wash: 'rgb(var(--lb-down) / 0.05)'
-  },
-  info: {
-    fg: 'rgb(var(--lb-panel-edge) / 0.7)',
-    border: 'rgb(var(--lb-panel-edge) / 0.14)',
-    wash: 'rgb(var(--lb-panel-edge) / 0.04)'
-  }
+/** `REV YYYY.MM` for the footer line. */
+function revStamp(date: Date): string {
+  return `REV ${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, '0')}`
 }
 
-function noticeMeta(notice: ShopNotice): { tone: NoticeTone; title: string; body: string } {
-  switch (notice) {
-    case 'checkout-success':
-      return {
-        tone: 'up',
-        title: 'Order confirmed',
-        body: 'Polar is processing the purchase — perks unlock in a few seconds. Re-check if nothing has changed yet.'
-      }
-    case 'checkout-owned':
-      return {
-        tone: 'info',
-        title: 'Already owned',
-        body: 'You already own that plate. Nothing was charged.'
-      }
-    case 'checkout-complimentary':
-      return {
-        tone: 'info',
-        title: 'Already complimentary',
-        body: 'This account is house complimentary — nothing was charged.'
-      }
-    case 'checkout-error':
-      return {
-        tone: 'down',
-        title: 'Checkout failed',
-        body: 'Nothing was charged. Give it a moment and try again.'
-      }
-    case 'portal-none':
-      return {
-        tone: 'info',
-        title: 'No purchases yet',
-        body: 'The customer portal opens after your first checkout.'
-      }
-    case 'portal-complimentary':
-      return {
-        tone: 'info',
-        title: 'Complimentary plan',
-        body: 'House complimentary accounts are never billed, so there is no customer portal.'
-      }
-    case 'portal-error':
-      return {
-        tone: 'down',
-        title: 'Portal unavailable',
-        body: 'Could not reach the customer portal. Try again shortly.'
-      }
+function sectionVisible(id: ShopSectionId): boolean {
+  switch (id) {
+    case 'featured':
+      return FEATURED_PLATES.length > 0
+    case 'pro':
+      return true
+    case 'mythic':
+      return RESERVE_PLATES.length > 0
+    case 'plates':
+      return SHOP_PLATES.length > 0
+    case 'vault':
+      return FOUNDER_PLATE !== null || CHAMPION_PLATE !== null
     default: {
-      const exhaustive: never = notice
+      const exhaustive: never = id
       return exhaustive
     }
   }
 }
 
-function NoticeBanner({
-  notice,
-  refreshing,
-  onRefresh,
-  onDismiss
-}: {
-  notice: ShopNotice
-  refreshing: boolean
-  onRefresh: () => void
-  onDismiss: () => void
-}) {
-  const meta = noticeMeta(notice)
-  const tone = NOTICE_TONES[meta.tone]
-
-  return (
-    <div
-      role="status"
-      className="shp-notice flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl px-4 py-3"
-      style={{
-        border: `1px solid ${tone.border}`,
-        background: tone.wash
-      }}
-    >
-      <span className="text-[12px] font-medium" style={{ color: tone.fg }}>
-        {meta.title}
-      </span>
-      <span className="min-w-0 flex-1 basis-52 text-[12px] leading-relaxed text-zinc-400">
-        {meta.body}
-      </span>
-      {notice === 'checkout-success' && (
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={refreshing}
-          className="flex min-h-11 items-center gap-2 rounded-[10px] px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:text-zinc-100 disabled:cursor-wait md:min-h-0"
-        >
-          <IconRefresh size={11} className={refreshing ? 'animate-spin' : ''} />
-          {refreshing ? 'Checking' : 'Re-check'}
-        </button>
-      )}
-      <button
-        type="button"
-        onClick={onDismiss}
-        aria-label="Dismiss notice"
-        className="flex h-11 w-11 shrink-0 items-center justify-center text-zinc-600 transition-colors hover:text-zinc-200 md:h-auto md:w-auto md:p-1"
-      >
-        <IconClose size={12} />
-      </button>
-    </div>
-  )
+/** The count printed at the end of every section head. */
+function sectionCount(id: ShopSectionId): string {
+  switch (id) {
+    case 'featured':
+      return `${FEATURED_PLATES.length} PLATES`
+    case 'pro':
+      return `${PRO_PLATES.length} PLATES · 2 TERMS`
+    case 'mythic':
+      return `${RESERVE_PLATES.length} PLATES`
+    case 'plates':
+      return `${SHOP_PLATES.length} PLATES`
+    case 'vault':
+      return `${(FOUNDER_PLATE ? 1 : 0) + (CHAMPION_PLATE ? 1 : 0)} PLATES`
+    default: {
+      const exhaustive: never = id
+      return exhaustive
+    }
+  }
 }
 
-function SectionHead({
-  title,
-  count,
-  kicker
-}: {
-  title: string
-  count?: number
-  kicker?: string
-}) {
+/** `NN NAME 漢字 ………… count` over a full-width hairline. The head is one
+ * reveal target; the rule (`shp-section-rule`) draws on its own trigger. */
+function SectionHead({ section }: { section: ShopSection }) {
   return (
-    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-      <span aria-hidden className="font-mono text-[12px] text-accent/70">
-        {'//'}
-      </span>
-      <h2 className="font-display text-[13px] font-semibold tracking-[0.12em] text-zinc-300">
-        {title}
-      </h2>
-      {count !== undefined && (
-        <span className="text-[11px] tabular-nums text-zinc-600">{count}</span>
-      )}
-      {kicker && (
-        <>
-          <span aria-hidden className="text-[12px] text-zinc-700">
-            ·
-          </span>
-          <span className="text-[12px] text-zinc-600">{kicker}</span>
-        </>
-      )}
-    </div>
-  )
-}
-
-/** Utility rail — Team / Manage as small right-aligned chips.
- * Deliberately quiet: these are doors out of the store, not products. */
-function ShopDoors({ isTeam, complimentary }: { isTeam: boolean; complimentary: boolean }) {
-  const doors: { href: string; label: string; gold?: boolean; native?: boolean }[] = [
-    { href: '/teams', label: isTeam ? 'COMMAND DECK' : 'TEAM', gold: true },
-    ...(complimentary ? [] : [{ href: '/api/portal', label: 'MANAGE', native: true }])
-  ]
-
-  return (
-    <nav
-      aria-label="Shop links"
-      className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1.5"
-    >
-      {doors.map((door) => {
-        const className = `shp-door inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] tracking-[0.18em] ${
-          door.gold ? 'shp-door-gold' : ''
-        }`
-        const inner = (
-          <>
-            {door.gold && <span aria-hidden className="shp-door-dot" />}
-            {door.label}
-          </>
-        )
-        if (door.native) {
-          return (
-            <a key={door.href} href={door.href} className={className}>
-              {inner}
-            </a>
-          )
-        }
-        return (
-          <Link key={door.href} href={door.href} className={className}>
-            {inner}
-          </Link>
-        )
-      })}
-    </nav>
-  )
-}
-
-/* ================= the shop ================= */
-
-function ShopDepot() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-
-  const [cosmetics, setCosmetics] = useState<CosmeticsData | null>(null)
-  const [notice, setNotice] = useState<ShopNotice | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
-  // Non-null while the post-purchase celebration is up; holds premiumSince.
-  const [welcome, setWelcome] = useState<{ premiumSince: string | null } | null>(null)
-
-  // Monotonic guard — a slow initial load must not overwrite a re-check.
-  const fetchSeq = useRef(0)
-
-  // Low-end tier: a one-shot client heuristic (≤4GB reported device memory
-  // or ≤4 cores) flips `data-perf="low"` on the shop root — the CSS tier
-  // in the style block below then parks every ambient scene and skips the
-  // fan's layer promotion. Hover-wake stays. setAttribute (not state):
-  // purely presentational, no re-render.
-  const depotRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const nav = navigator as Navigator & { deviceMemory?: number }
-    const low = (nav.deviceMemory ?? 8) <= 4 || navigator.hardwareConcurrency <= 4
-    if (low) depotRef.current?.setAttribute('data-perf', 'low')
-  }, [])
-
-  // Returns the snapshot it applied (null when superseded by a newer call),
-  // so sync flows can read premiumSince without waiting on a state round-trip.
-  const loadCosmetics = useCallback(async (): Promise<CosmeticsData | null> => {
-    const seq = ++fetchSeq.current
-    const apply = (next: CosmeticsData): CosmeticsData => {
-      setCosmetics(next)
-      return next
-    }
-    try {
-      const res = await fetch('/api/user/cosmetics', {
-        cache: 'no-store',
-        credentials: 'include'
-      })
-      if (seq !== fetchSeq.current) return null
-      if (!res.ok) {
-        // 401 (signed out) or any failure: neutral, still browsable.
-        return apply(NEUTRAL_COSMETICS)
-      }
-      const data = await res.json()
-      if (seq !== fetchSeq.current) return null
-      if (!data?.success) {
-        return apply(NEUTRAL_COSMETICS)
-      }
-      return apply({
-        tier: typeof data.tier === 'string' ? data.tier : 'FREE',
-        isPro: Boolean(data.isPro),
-        complimentary: data.complimentary === true,
-        owned: new Set(
-          Array.isArray(data.ownedPlateIds) ? data.ownedPlateIds.map(String) : []
-        ),
-        premiumSince: typeof data.premiumSince === 'string' ? data.premiumSince : null
-      })
-    } catch {
-      if (seq === fetchSeq.current) return apply(NEUTRAL_COSMETICS)
-      return null
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadCosmetics()
-  }, [loadCosmetics])
-
-  // Post-purchase bell nudges: the ack notification lands with the sync
-  // response, but the "delivered" one arrives on webhook timing — so poke
-  // the bell now and again shortly after, instead of waiting on the 60s
-  // poll. The timer array is mutated in place so the unmount cleanup
-  // (which captures it once) always sees the live set.
-  const notifNudgeTimers = useRef<ReturnType<typeof setTimeout>[]>([])
-
-  const nudgeNotifications = useCallback(() => {
-    const timers = notifNudgeTimers.current
-    timers.forEach(clearTimeout)
-    timers.length = 0
-    requestNotificationsRefresh()
-    for (const delay of [5_000, 15_000]) {
-      timers.push(setTimeout(requestNotificationsRefresh, delay))
-    }
-  }, [])
-
-  useEffect(() => {
-    const timers = notifNudgeTimers.current
-    return () => timers.forEach(clearTimeout)
-  }, [])
-
-  // Reconcile with Polar, then re-read cosmetics. Only the call that
-  // actually flips the tier (changed && isPro) earns the celebration —
-  // a plate purchase by an existing subscriber stays quiet.
-  const syncAndLoad = useCallback(
-    async (checkoutId?: string) => {
-      const sync = await syncSubscription(checkoutId)
-      const fresh = await loadCosmetics()
-      if (sync?.changed && sync.isPro) {
-        setWelcome({ premiumSince: fresh?.premiumSince ?? null })
-        toast({
-          kind: 'success',
-          title: 'PREMIUM ACTIVE',
-          body: "You're verified. The blue check is live on your callsign."
-        })
-      }
-      nudgeNotifications()
-    },
-    [loadCosmetics, nudgeNotifications]
-  )
-
-  // Webhook fulfillment lag: the success notice offers a manual re-check,
-  // which is also how localhost (unreachable by webhooks) flips the tier.
-  // Minimum spin so the control visibly reacts even on instant responses.
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true)
-    await Promise.all([syncAndLoad(), new Promise((r) => setTimeout(r, 650))])
-    setRefreshing(false)
-  }, [syncAndLoad])
-
-  // Capture checkout/portal flags into state, then scrub the URL so a
-  // reload or share doesn't replay the notice. Dismissal is manual.
-  useEffect(() => {
-    const checkout = searchParams.get('checkout')
-    const checkoutId = searchParams.get('checkout_id')
-    const portal = searchParams.get('portal')
-    const next: ShopNotice | null =
-      checkout === 'success'
-        ? 'checkout-success'
-        : checkout === 'owned'
-          ? 'checkout-owned'
-          : checkout === 'complimentary'
-            ? 'checkout-complimentary'
-            : checkout === 'error'
-              ? 'checkout-error'
-              : portal === 'none'
-                ? 'portal-none'
-                : portal === 'complimentary'
-                  ? 'portal-complimentary'
-                  : portal === 'error'
-                    ? 'portal-error'
-                    : null
-    if (!next) return
-    setNotice(next)
-    // Fresh from Polar checkout: reconcile immediately instead of waiting
-    // on a webhook that can't reach localhost anyway. The checkout id
-    // rides along so the sync route can drop the purchase-ack
-    // notification; the scrub below removes it with the rest.
-    if (next === 'checkout-success') void syncAndLoad(checkoutId ?? undefined)
-    router.replace('/shop', { scroll: false })
-  }, [searchParams, router, syncAndLoad])
-
-  const loading = cosmetics === null
-  const isPro = cosmetics?.isPro ?? false
-  const complimentary = cosmetics?.complimentary ?? false
-  const isTeam = (cosmetics?.tier ?? 'FREE').toUpperCase() === 'TEAM'
-  const owned = cosmetics?.owned ?? NEUTRAL_COSMETICS.owned
-
-  return (
-    // overflow-x is clipped (not hidden — the fan must never gain a scroll
-    // container ancestor) because the marquee's rotated card corners poke
-    // past the content column between ~640 and 1024px.
-    <div
-      ref={depotRef}
-      className="page-zoom-out relative mx-auto max-w-6xl px-6 pb-16 pt-6"
-      style={{ overflowX: 'clip' }}
-    >
-      {welcome && (
-        <PremiumWelcomeModal
-          premiumSince={welcome.premiumSince}
-          onClose={() => setWelcome(null)}
-        />
-      )}
-
-      <header
-        className="shp-reveal relative mt-3 flex flex-col items-center"
-        style={{ ['--rv' as string]: '0ms' }}
-      >
-        <div className="w-full overflow-x-auto py-1">
-          <pre
-            aria-label="SHOP"
-            className="mx-auto whitespace-pre text-center font-mono leading-[0.9] text-accent"
-            style={{
-              fontSize: 'clamp(7px, 1.45vw, 13px)',
-              textShadow:
-                '0 0 8px rgb(var(--accent-rgb)/0.33), 0 0 22px rgb(var(--accent-rgb)/0.15)',
-              letterSpacing: '-0.02em'
-            }}
-          >
-            {ASCII_SHOP}
-          </pre>
-        </div>
-        <p className="mt-2 text-center text-[10px] tracking-[0.3em] text-zinc-600">
-          <span className="text-accent/80">{'// '}</span>
-          PLATES FOR THE BOARD
-          <span className="mx-2 text-zinc-800">·</span>
-          RANK STAYS EARNED
-        </p>
-      </header>
-
-      <div className="shp-reveal mt-4" style={{ ['--rv' as string]: '40ms' }}>
-        <ShopDoors isTeam={isTeam} complimentary={complimentary} />
+    <>
+      <div className="shop-reveal flex flex-wrap items-baseline gap-x-3 gap-y-1 pb-3">
+        <span className={`${MICRO} ${MUTE}`}>{section.index}</span>
+        <h2 className={`m-0 ${LABEL} ${INK}`}>{section.label}</h2>
+        <span lang="ja" className={`${JP_KICKER} ${MUTE}`}>
+          {section.jp}
+        </span>
+        <span className={`ml-auto ${MICRO} ${MUTE}`}>{sectionCount(section.id)}</span>
       </div>
+      <div aria-hidden className={`shp-section-rule border-t ${LINE}`} />
+    </>
+  )
+}
 
-      <main className="mt-4 space-y-14 md:space-y-16">
-        {notice && (
-          <NoticeBanner
-            notice={notice}
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            onDismiss={() => setNotice(null)}
-          />
-        )}
+interface SectionBodyProps {
+  loading: boolean
+  isPro: boolean
+  complimentary: boolean
+  owned: ReadonlySet<string>
+  onInspect: (plateId: string) => void
+}
 
-        <section className="shp-reveal" style={{ ['--rv' as string]: '60ms' }}>
-          <MarqueeFan />
-        </section>
-
-        <section className="shp-reveal" style={{ ['--rv' as string]: '120ms' }}>
+/** Every body cell that should reveal on scroll carries `shop-reveal`.
+ * The 04 grid keeps its paper on a static cell wrapper so the hairlines
+ * (the gap) stay put while the card inside fades in. */
+function SectionBody({
+  id,
+  loading,
+  isPro,
+  complimentary,
+  owned,
+  onInspect
+}: SectionBodyProps & { id: ShopSectionId }): ReactNode {
+  switch (id) {
+    case 'featured':
+      return (
+        <div className="shop-reveal">
+          <FeaturedStage loading={loading} isPro={isPro} owned={owned} onInspect={onInspect} />
+        </div>
+      )
+    case 'pro':
+      return (
+        <div className="shop-reveal">
           <ProCards loading={loading} isPro={isPro} complimentary={complimentary} />
-        </section>
-
-        {RESERVE_PLATES.length > 0 && (
-          <section className="shp-mythic shp-reveal" style={{ ['--rv' as string]: '200ms' }}>
-            <SectionHead title="Mythic" kicker="Living scenes" />
-            <div className="shp-mythic-grid mt-4">
-              {RESERVE_PLATES.map((plate, i) => (
-                <ReserveCard
-                  key={plate.id}
-                  plate={plate}
-                  index={i}
-                  featured={plate.id === 'prime-anomaly'}
-                  loading={loading}
-                  isPro={isPro}
-                  owned={owned.has(plate.id)}
-                />
-              ))}
-            </div>
-          </section>
-        )}
-
-        <section className="shp-reveal" style={{ ['--rv' as string]: '240ms' }}>
-          <SectionHead title="Plates" count={SHOP_PLATES.length} />
-          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {SHOP_PLATES.map((plate, i) => (
-              <PlateCard
-                key={plate.id}
+        </div>
+      )
+    case 'mythic':
+      return (
+        <div className="shp-mythic-grid">
+          {RESERVE_PLATES.map((plate) => (
+            <div key={plate.id} className="shop-reveal">
+              <ReserveCard
                 plate={plate}
-                index={i}
+                featured={plate.id === 'prime-anomaly'}
                 loading={loading}
                 isPro={isPro}
                 owned={owned.has(plate.id)}
+                onInspect={onInspect}
               />
-            ))}
-          </div>
-        </section>
+            </div>
+          ))}
+        </div>
+      )
+    case 'plates':
+      return (
+        <div
+          className={`grid gap-px border ${LINE} bg-[color:var(--shop-line)] sm:grid-cols-2 lg:grid-cols-3`}
+        >
+          {SHOP_PLATES.map((plate) => (
+            <div key={plate.id} className={PAPER_BG}>
+              <div className="shop-reveal h-full">
+                <PlateCard
+                  plate={plate}
+                  loading={loading}
+                  isPro={isPro}
+                  owned={owned.has(plate.id)}
+                  onInspect={onInspect}
+                />
+              </div>
+            </div>
+          ))}
+          {Array.from({ length: PLATES_FILL_LG }, (_, i) => (
+            <div key={`fill-lg-${i}`} aria-hidden className={`hidden lg:block ${PAPER_BG}`} />
+          ))}
+          {Array.from({ length: PLATES_FILL_SM }, (_, i) => (
+            <div key={`fill-sm-${i}`} aria-hidden className={`hidden sm:block lg:hidden ${PAPER_BG}`} />
+          ))}
+        </div>
+      )
+    case 'vault':
+      return (
+        <div className="shop-reveal">
+          <GoldRow loading={loading} isPro={isPro} owned={owned} onInspect={onInspect} />
+        </div>
+      )
+    default: {
+      const exhaustive: never = id
+      return exhaustive
+    }
+  }
+}
 
-        <section className="shp-reveal" style={{ ['--rv' as string]: '300ms' }}>
-          <GoldRow loading={loading} isPro={isPro} owned={owned} />
-        </section>
+/* ================= the floor ================= */
+
+function ShopFloor() {
+  const searchParams = useSearchParams()
+  const shop = useShopCosmetics()
+
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  // Low-end tier: a one-shot client heuristic (≤4GB reported device memory
+  // or ≤4 cores) flips `data-perf="low"` on the shop root — the CSS tier
+  // in the style block below then parks every ambient scene except the
+  // stage well. Hover-wake stays. setAttribute (not state): purely
+  // presentational, no re-render.
+  useEffect(() => {
+    const nav = navigator as Navigator & { deviceMemory?: number }
+    const low = (nav.deviceMemory ?? 8) <= 4 || navigator.hardwareConcurrency <= 4
+    if (low) rootRef.current?.setAttribute('data-perf', 'low')
+  }, [])
+
+  /* ---- the inspect step: ?plate=<id> ⇄ SpecDrawer ---- */
+  const [plateId, setPlateId] = useState<string | null>(null)
+  const plateParam = searchParams.get('plate')
+
+  // A deep link (or a share) to a known plate opens the drawer; unknown
+  // ids are ignored so a stale link degrades to the plain storefront.
+  useEffect(() => {
+    if (plateParam !== null && getPlate(plateParam) !== null) setPlateId(plateParam)
+  }, [plateParam])
+
+  // Native replaceState (Next integrates it with useSearchParams) instead
+  // of router.replace: the URL flips synchronously with the drawer and
+  // no RSC round-trip fires for a purely client-side inspect step.
+  const openInspect = useCallback((id: string) => {
+    setPlateId(id)
+    window.history.replaceState(null, '', `/shop?plate=${encodeURIComponent(id)}`)
+  }, [])
+
+  const closeInspect = useCallback(() => {
+    setPlateId(null)
+    window.history.replaceState(null, '', '/shop')
+  }, [])
+
+  /* ---- motion: one entrance timeline, then a scroll reveal per section ---- */
+  useGSAP(
+    () => {
+      const root = rootRef.current
+      if (!root) return
+
+      // Read the fail-safe before the attribute flips it off (see the
+      // entrance guard above); the from-states GSAP writes next land in
+      // the same task, so the CSS hold hands over without a paint between.
+      const late = failsafeStarted(root.querySelector('.shpm-lockup'))
+      root.setAttribute('data-motion-ready', '')
+
+      if (!late) {
+        const tl = gsap.timeline()
+        tl.add(
+          revealIn(
+            '.shpm-masthead .shpm-lockup, .shpm-masthead .shpm-telemetry, .shpm-masthead .shpm-telemetry-line',
+            { stagger: STAGGER.header }
+          ),
+          0
+        )
+        tl.add(drawRule('.shpm-rule'), 0.12)
+        tl.add(drawRule('.shpt-rule'), 0.2)
+        tl.add(revealIn('.shpi-item', { stagger: 0.03, y: 6 }), 0.24)
+      }
+
+      const reduced = motionReduced()
+      for (const section of gsap.utils.toArray<HTMLElement>('[data-shop-section]', root)) {
+        // Already on screen since first paint: leave it be.
+        if (late && inViewport(section)) continue
+        const targets = section.querySelectorAll('.shop-reveal')
+        if (targets.length > 0) scrollReveal(section, targets, { stagger: STAGGER.cards, y: 10 })
+        const rule = section.querySelector('.shp-section-rule')
+        if (!rule) continue
+        if (reduced) {
+          drawRule(rule)
+          continue
+        }
+        ScrollTrigger.create({
+          trigger: section,
+          start: 'top 85%',
+          once: true,
+          animation: drawRule(rule).pause(0)
+        })
+      }
+    },
+    { scope: rootRef }
+  )
+
+  const { loading, isPro, complimentary, isTeam, owned } = shop
+  const tier: MastheadTier | null = shop.cosmetics ? tierOf(shop.cosmetics) : null
+
+  return (
+    // overflow-x is clipped (not hidden — clip never creates a scroll
+    // container, so the sticky index and ScrollTrigger keep the viewport
+    // as their frame) so nothing inside can widen the page on phones.
+    <div
+      ref={rootRef}
+      className="shop-floor page-zoom-out relative mx-auto max-w-6xl px-4 pt-6 sm:px-6 pb-[max(4rem,env(safe-area-inset-bottom))]"
+      data-stage-hold={plateId !== null ? '' : undefined}
+      style={{ overflowX: 'clip' }}
+    >
+      {shop.welcome && (
+        <PremiumWelcomeModal premiumSince={shop.welcome.premiumSince} onClose={shop.closeWelcome} />
+      )}
+
+      {/* header block: raster (dark) / grain (light) over the masthead and
+          the ticker only — never over plate art */}
+      <div className="shop-scanlines shop-grain relative mt-3">
+        <Masthead tier={tier} plateCount={PLATE_COUNT} />
+        <Ticker />
+      </div>
+
+      <CatalogIndex doors={{ isTeam, complimentary }} />
+
+      <main className="mt-8 space-y-12 md:space-y-14">
+        {shop.notice && (
+          <ShopNoticeBanner
+            notice={shop.notice}
+            refreshing={shop.refreshing}
+            onRefresh={shop.handleRefresh}
+            onDismiss={shop.dismissNotice}
+          />
+        )}
+
+        {SHOP_SECTIONS.filter((section) => sectionVisible(section.id)).map((section) => (
+          <section
+            key={section.id}
+            id={section.anchor}
+            data-shop-section={section.id}
+            aria-label={`${section.index} ${section.label}`}
+            className={SECTION_SCROLL_MT}
+          >
+            <SectionHead section={section} />
+            <div className="mt-4">
+              <SectionBody
+                id={section.id}
+                loading={loading}
+                isPro={isPro}
+                complimentary={complimentary}
+                owned={owned}
+                onInspect={openInspect}
+              />
+            </div>
+          </section>
+        ))}
       </main>
 
-      <footer className="mt-16 text-[11px] tracking-[0.08em] text-zinc-600">
-        Cosmetic · USD · Polar
+      <footer
+        className={`mt-14 flex flex-wrap items-end justify-between gap-x-6 gap-y-3 border-t ${LINE} pt-3 ${MICRO} ${MUTE}`}
+      >
+        <pre
+          aria-hidden
+          className="shp-stamp m-0 max-w-full overflow-x-auto whitespace-pre font-mono text-[5px] leading-[0.9] tracking-normal opacity-50"
+        >
+          {ASCII_SHOP}
+        </pre>
+        <p className="m-0 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-right">
+          <span>COSMETIC · USD · POLAR · {revStamp(new Date())} ·</span>
+          <span lang="ja" className={`${JP} tracking-[0.2em]`}>
+            {GLOSSARY.shop}
+          </span>
+        </p>
       </footer>
 
+      <SpecDrawer
+        plateId={plateId}
+        loading={loading}
+        isPro={isPro}
+        owned={owned}
+        onClose={closeInspect}
+      />
+
       <style jsx global>{`
-        .shp-reveal {
-          animation: shp-reveal-in 640ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
-          animation-delay: var(--rv, 0ms);
-        }
-        @keyframes shp-reveal-in {
-          from {
-            opacity: 0;
-            transform: translateY(14px);
-          }
-        }
-
-        /* utility rail chips — no lift, no glow; these are doors out */
-        .shp-door {
-          border: 1px solid rgb(var(--lb-panel-edge) / 0.12);
-          color: rgb(var(--z500));
-          transition:
-            border-color 220ms ease,
-            color 220ms ease;
-        }
-        .shp-door-dot {
-          height: 4px;
-          width: 4px;
-          border-radius: 9999px;
-          background: rgb(var(--lb-gold));
-        }
-        .shp-door-gold {
-          border-color: rgb(var(--lb-gold) / 0.24);
-          color: rgb(var(--lb-gold) / 0.85);
-        }
-        @media (hover: hover) and (pointer: fine) {
-          .shp-door:hover {
-            border-color: rgb(var(--lb-panel-edge) / 0.28);
-            color: rgb(var(--z200));
-          }
-          .shp-door-gold:hover {
-            border-color: rgb(var(--lb-gold) / 0.5);
-            color: rgb(var(--lb-gold));
-          }
-        }
-        .shp-door:focus-visible {
-          outline: 2px solid rgb(var(--accent-rgb) / 0.7);
-          outline-offset: 2px;
-        }
-
         /* Flagship (last in catalog order) takes the tall left cell on
            md+; koi / horizon stack on the right. DOM order stays cheapest
            first so shot harnesses keep reading cards 1–3 as koi → horizon
-           → anomaly. */
+           → anomaly. The grid children are the reveal wrappers. */
         .shp-mythic-grid {
           display: grid;
-          gap: 1rem;
+          gap: 0.75rem;
         }
         @media (min-width: 768px) {
           .shp-mythic-grid {
@@ -635,16 +484,6 @@ function ShopDepot() {
           }
         }
 
-        .shp-notice {
-          animation: shp-notice-in 420ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
-        }
-        @keyframes shp-notice-in {
-          from {
-            opacity: 0;
-            transform: translateY(-8px);
-          }
-        }
-
         /* Cards flip data-offstage via the shared IntersectionObserver in
            components/shop/stage.ts; every scene animation under one pauses
            wholesale. !important is required: the scenes' animation
@@ -654,32 +493,20 @@ function ShopDepot() {
         }
 
         /* data-perf="low" is set on the shop root by the one-shot device
-           heuristic in ShopDepot (≤4GB memory or ≤4 cores). */
+           heuristic in ShopFloor (≤4GB memory or ≤4 cores): every scene
+           parks; a hovered / focused card wakes its own, and the stage well
+           stays live (it is the one scene the page is about) unless the
+           drawer holds the stage or the well has scrolled offstage. */
         [data-perf='low'] [data-plate-fx] * {
           animation-play-state: paused !important;
         }
-        [data-perf='low'] .shpc-hoverable:hover [data-plate-fx] *,
-        [data-perf='low'] .shpc-hoverable:focus-within [data-plate-fx] *,
-        [data-perf='low'] .shpm-card:hover [data-plate-fx] *,
-        [data-perf='low'] .shpm-card:focus-visible [data-plate-fx] * {
+        [data-perf='low']:not([data-stage-hold]) .shpc-hoverable:hover [data-plate-fx] *,
+        [data-perf='low']:not([data-stage-hold]) .shpc-hoverable:focus-within [data-plate-fx] *,
+        [data-perf='low']:not([data-stage-hold]) .shpf-well:not([data-offstage]) [data-plate-fx] * {
           animation-play-state: running !important;
         }
-        [data-perf='low'] .shpp-go-clip::after,
-        [data-perf='low'] .shpp-keyline::after {
+        [data-perf='low'] .shop-pro-keyline::after {
           display: none;
-        }
-        [data-perf='low'] .shpm-card {
-          will-change: auto;
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .shp-reveal,
-          .shp-notice {
-            animation: none;
-          }
-          .shp-door {
-            transition: none;
-          }
         }
       `}</style>
     </div>
@@ -694,7 +521,7 @@ function ShopDepot() {
 export default function ShopPage() {
   return (
     <Suspense fallback={null}>
-      <ShopDepot />
+      <ShopFloor />
     </Suspense>
   )
 }

@@ -1,9 +1,11 @@
 // Shop catalog slices — pure data + helpers, no React. These are the
 // storefront's views over the plate catalog (src/lib/cosmetics/plates.ts),
-// shared by shop/page.tsx and the shop section components (marquee fan,
-// grids, Pro cards, gold row).
+// shared by shop/page.tsx and the shop section components (featured stage,
+// catalog index, ticker, grids, Pro cards, gold row, spec drawer). Every
+// word of chrome copy (section names, the Japanese glossary, the ticker)
+// lives here too, so the components never invent filler.
 
-import { PLATES, type PlateDef, type PlateRarity } from '@/lib/cosmetics/plates'
+import { PLATES, PLATE_RARITY_META, type PlateDef, type PlateRarity } from '@/lib/cosmetics/plates'
 
 /** A catalog plate narrowed to "actually purchasable": priceUsd is set. */
 export type ShopPlate = PlateDef & { priceUsd: number }
@@ -81,24 +83,136 @@ export const CHAMPION_PLATE: PlateDef | null =
 export const proPrice = (priceUsd: number) => Math.round(priceUsd * 100 * 0.75) / 100
 export const usd = (n: number) => `$${n.toFixed(2)}`
 
-/** The marquee fan's curated featured five, in visual left-to-right order —
- * prime-anomaly is the center card. */
-export const MARQUEE_PLATE_IDS: string[] = [
-  'founder',
-  'event-horizon',
+/** The featured stage's curated five, in thumb-rail order — prime-anomaly
+ * leads so it is the plate on the stage before anyone clicks. */
+export const FEATURED_PLATE_IDS: string[] = [
   'prime-anomaly',
+  'event-horizon',
   'koi-pond',
-  'season-01-ignition'
+  'season-01-ignition',
+  'founder'
 ]
 
-/** MARQUEE_PLATE_IDS resolved against the catalog, order preserved. Ids
- * missing from the catalog are dropped, so a catalog edit can thin the fan
+/** FEATURED_PLATE_IDS resolved against the catalog, order preserved. Ids
+ * missing from the catalog are dropped, so a catalog edit can thin the rail
  * but never crash it. */
-export const MARQUEE_PLATES: PlateDef[] = MARQUEE_PLATE_IDS.map((id) =>
+export const FEATURED_PLATES: PlateDef[] = FEATURED_PLATE_IDS.map((id) =>
   PLATES.find((plate) => plate.id === id)
 ).filter((plate): plate is PlateDef => plate !== undefined)
 
 /** Cross-component anchor contract: shelf/gold cards set
- * `id={plateAnchorId(plate.id)}` on their card root; the marquee fan
- * scrolls to those anchors. */
+ * `id={plateAnchorId(plate.id)}` on their card root; the featured stage
+ * and the catalog index scroll to those anchors. */
 export const plateAnchorId = (plateId: string) => `plate-${plateId}`
+
+/* ---- storefront chrome copy ---- */
+
+/** The five indexed sections, in page order. `index` is the printed `NN`,
+ * `anchor` the section element id the sticky catalog index scrolls to. */
+export type ShopSectionId = 'featured' | 'pro' | 'mythic' | 'plates' | 'vault'
+
+export interface ShopSection {
+  id: ShopSectionId
+  index: string
+  label: string
+  jp: string
+  anchor: string
+}
+
+export const SHOP_SECTIONS: readonly ShopSection[] = [
+  { id: 'featured', index: '01', label: 'FEATURED', jp: '特集', anchor: 'shop-featured' },
+  { id: 'pro', index: '02', label: 'PRO', jp: 'プロ', anchor: 'shop-pro' },
+  { id: 'mythic', index: '03', label: 'MYTHIC', jp: '神話級', anchor: 'shop-mythic' },
+  { id: 'plates', index: '04', label: 'PLATES', jp: 'プレート', anchor: 'shop-plates' },
+  { id: 'vault', index: '05', label: 'VAULT', jp: '保管庫', anchor: 'shop-vault' }
+]
+
+/** The Japanese glossary — every katakana/kanji kicker on the floor comes
+ * from here and is always printed beside its English word. */
+export const JP = {
+  shop: 'ショップ',
+  plate: 'プレート',
+  featured: '特集',
+  pro: 'プロ',
+  mythic: '神話級',
+  legendary: '伝説',
+  limited: '限定',
+  owned: '所持済',
+  equip: '装備',
+  buy: '購入',
+  spec: '仕様',
+  vault: '保管庫',
+  season01: 'シーズン01',
+  rankEarned: '順位は実力で',
+  champion: '王者',
+  founder: '創設者'
+} as const
+
+/** Ticker strip segments, in loop order — English and Japanese interleaved.
+ * The track renders them twice for a seamless loop; the strip itself is
+ * aria-hidden and TICKER_SENTENCE stands in for readers. */
+export const TICKER_SEGMENTS: readonly string[] = [
+  'SEASON 01 · IGNITION',
+  'シーズン01',
+  'PLATES FOR THE BOARD',
+  'プレート',
+  'RANK STAYS EARNED',
+  '順位は実力で',
+  'COSMETIC ONLY',
+  'USD · POLAR',
+  'ショップ'
+]
+
+export const TICKER_SENTENCE =
+  'Season 01 Ignition: plates for the board, rank stays earned, cosmetic only, priced in USD through Polar.'
+
+/** Rarity in Japanese — the kicker beside every English rarity label. */
+export function rarityJp(rarity: PlateRarity): string {
+  switch (rarity) {
+    case 'common':
+      return '一般'
+    case 'rare':
+      return '希少'
+    case 'epic':
+      return '上級'
+    case 'legendary':
+      return '伝説'
+    case 'mythic':
+      return '神話級'
+    default: {
+      const exhaustive: never = rarity
+      return exhaustive
+    }
+  }
+}
+
+/** 'WATER, CHOREOGRAPHED' → 'Water, Choreographed'. */
+const titleCase = (text: string) =>
+  text.toLowerCase().replace(/(^|[\s(])([a-z])/g, (_, lead: string, ch: string) => lead + ch.toUpperCase())
+
+/** The kicker pair printed above a plate name on cards, the stage and the
+ * spec drawer: mythics carry their RESERVE_NOTES kicker, everything else
+ * its rarity; the Japanese side is the rarity, with `· 限定` appended for
+ * seasonal drops. */
+export function plateKicker(plate: PlateDef): { en: string; jp: string } {
+  const note = plate.rarity === 'mythic' ? RESERVE_NOTES[plate.id] : undefined
+  const en = note ? titleCase(note.kicker) : PLATE_RARITY_META[plate.rarity].label
+  const jp = plate.seasonal ? `${rarityJp(plate.rarity)} · ${JP.limited}` : rarityJp(plate.rarity)
+  return { en, jp }
+}
+
+/** Every purchasable plate in storefront order: the Reserve shelf, then the
+ * grid, then the vault's founder drop. This is what the printed `/NN`
+ * index on every card counts through. */
+const STOREFRONT_ORDER: ShopPlate[] = [
+  ...RESERVE_PLATES,
+  ...SHOP_PLATES,
+  ...(FOUNDER_PLATE ? [FOUNDER_PLATE] : [])
+]
+
+/** Zero-padded two-digit catalog position (`'01'`…), or `'--'` for plates
+ * that are not for sale (Pro / champion / beta exclusives). */
+export function plateIndex(plateId: string): string {
+  const at = STOREFRONT_ORDER.findIndex((plate) => plate.id === plateId)
+  return at === -1 ? '--' : String(at + 1).padStart(2, '0')
+}

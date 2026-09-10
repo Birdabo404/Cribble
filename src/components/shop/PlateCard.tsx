@@ -1,35 +1,52 @@
 'use client'
 
-// Rack grid card. Whole-card checkout overlay carries the accessible
-// price; owned cards dim slightly and offer Equip. Styled-jsx under
-// `shpk-`. Grid children are `w-full` — no shelf snap contract.
+// Rack grid compartment. The page lays these in a `grid gap-px` over the
+// --shop-line color, so the cell paints paper and carries NO border of its
+// own — the hairlines are the gaps. Anatomy, top to bottom: micro row
+// (index · rarity · season), the 4:1 live art well, name, one-line
+// tagline, then SPEC on the left and the price chip (or EQUIP) on the
+// right. Body click inspects; the chip is the checkout `<a>`; the SPEC
+// button is the keyboard path. Hover is an ink outline + corner brackets +
+// the inverted chip — no lift, no shadow. Styled-jsx under `shpk-`.
+//
+// `group` stays on the root: PlateLayer hover flourishes key off it.
 
-import { useRef } from 'react'
-import Link from 'next/link'
+import { useRef, type MouseEvent } from 'react'
 import { PlatePreview } from '@/components/cosmetics/PlateLayer'
-import { plateAnchorId, proPrice, usd, type ShopPlate } from './catalog'
-import { BuyChip, OwnedChip, PriceTag, RarityChip, SeasonalChip } from './chips'
+import { plateAnchorId, plateIndex, proPrice, usd, type ShopPlate } from './catalog'
+import {
+  EquipLink,
+  OwnedMark,
+  PriceChip,
+  PriceLockup,
+  RarityTick,
+  SeasonTag,
+  SpecButton
+} from './chips'
+import { COPY, DISPLAY, INK, MICRO, MUTE, PAPER_BG } from './shopChrome'
 import { useOnStage } from './stage'
 
-export function PlateCard({
-  plate,
-  index,
-  loading,
-  isPro,
-  owned
-}: {
+export interface PlateCardProps {
   plate: ShopPlate
-  index: number
   loading: boolean
   isPro: boolean
   owned: boolean
-}) {
+  onInspect: (plateId: string) => void
+}
+
+const NAME = `${DISPLAY} ${INK} text-[15px] font-semibold leading-tight tracking-[-0.01em] md:text-[length:calc(15px/0.9)]`
+
+export function PlateCard({ plate, loading, isPro, owned, onInspect }: PlateCardProps) {
   const rootRef = useRef<HTMLElement>(null)
   useOnStage(rootRef)
 
-  const accent = plate.render.kind === 'css' ? plate.render.accent : 'var(--lb-panel-edge)'
   const checkoutPrice = usd(isPro ? proPrice(plate.priceUsd) : plate.priceUsd)
-  const canBuy = !loading && !owned
+
+  // Anywhere on the compartment that is not a door or the SPEC button.
+  const handleBodyClick = (event: MouseEvent<HTMLElement>) => {
+    if ((event.target as Element).closest('a,button')) return
+    onInspect(plate.id)
+  }
 
   return (
     <>
@@ -37,143 +54,88 @@ export function PlateCard({
         ref={rootRef}
         id={plateAnchorId(plate.id)}
         data-offstage=""
-        className={`shpk-card shpk-reveal group shpc-hoverable relative flex h-full scroll-mt-24 flex-col rounded-2xl p-3 ${
-          canBuy ? 'shpk-buyable' : ''
-        }${owned ? ' shpk-owned' : ''}`}
-        style={{
-          ['--rv' as string]: `${240 + Math.min(index, 7) * 60}ms`,
-          ['--tile-accent' as string]: accent
-        }}
+        onClick={handleBodyClick}
+        className={`shpk-card shpc-hoverable shop-brackets group relative flex h-full cursor-pointer scroll-mt-32 flex-col p-[var(--shop-pad)] ${PAPER_BG}`}
       >
-        <div className="relative">
-          <PlatePreview plateId={plate.id} />
-          {owned && (
-            <span className="absolute right-2 top-2 z-10">
-              <OwnedChip overlay />
-            </span>
-          )}
-        </div>
-
-        <div className="mt-3 flex items-start justify-between gap-3 px-1">
-          <h3 className="font-display text-[13px] font-semibold leading-snug text-zinc-200">
-            {plate.name}
-          </h3>
-          {loading ? (
-            <span className="h-8 w-[4.5rem] shrink-0 animate-pulse rounded-[10px] bg-zinc-500/10" />
-          ) : owned ? null : (
-            <BuyChip>
-              <PriceTag priceUsd={plate.priceUsd} isPro={isPro} size="md" />
-            </BuyChip>
-          )}
-        </div>
-
-        <div className="mt-auto flex items-center justify-between gap-2 px-1 pt-3">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <RarityChip rarity={plate.rarity} />
+        {/* micro row: catalog index · rarity · season */}
+        <div className={`flex items-center justify-between gap-3 ${MICRO}`}>
+          <span className={MUTE}>/{plateIndex(plate.id)}</span>
+          <span className="flex min-w-0 items-center gap-2">
+            <RarityTick rarity={plate.rarity} />
             {plate.seasonal && (
               <>
-                <span aria-hidden className="text-[11px] text-zinc-700">
+                <span aria-hidden className={MUTE}>
                   ·
                 </span>
-                <SeasonalChip label={plate.seasonal.label} />
+                <SeasonTag label={plate.seasonal.label} />
               </>
             )}
-          </div>
+          </span>
+        </div>
 
-          {!loading && owned && (
-            <Link
-              href="/profile"
-              className="relative z-30 text-[12px] text-zinc-400 transition-colors hover:text-zinc-200"
-            >
-              Equip
-            </Link>
+        {/* art well — live, square; owned reads as ghosted print */}
+        <div className="relative mt-3">
+          <PlatePreview plateId={plate.id} />
+          {owned && (
+            <>
+              <span aria-hidden className="shop-dither z-20" />
+              <span className="absolute right-2 top-2 z-30">
+                <OwnedMark overlay />
+              </span>
+            </>
           )}
         </div>
 
-        {canBuy && (
-          <a
-            href={`/api/checkout?type=plate&plateId=${plate.id}`}
-            aria-label={`Buy ${plate.name} — ${checkoutPrice}`}
-            className="shpk-link absolute inset-0 z-20 rounded-2xl"
-          />
-        )}
+        <div className="mt-3 min-w-0">
+          <h3 className={NAME}>{plate.name}</h3>
+          <p className={`mt-1 line-clamp-1 ${COPY} ${MUTE}`}>{plate.tagline}</p>
+        </div>
+
+        <div className="mt-auto flex items-center justify-between gap-3 pt-3">
+          <SpecButton onClick={() => onInspect(plate.id)} />
+          {loading ? (
+            <span
+              aria-hidden
+              className="h-8 w-24 shrink-0 animate-pulse bg-[color:var(--shop-line-soft)]"
+            />
+          ) : owned ? (
+            <EquipLink />
+          ) : (
+            <PriceChip
+              href={`/api/checkout?type=plate&plateId=${plate.id}`}
+              ariaLabel={`Buy ${plate.name} — ${checkoutPrice}`}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <PriceLockup priceUsd={plate.priceUsd} isPro={isPro} size="md" />
+            </PriceChip>
+          )}
+        </div>
       </article>
 
       <style jsx global>{`
+        /* the cell has no border of its own (the grid's 1px gaps are the
+           hairlines), so "border → ink" is a 1px outline drawn inside */
         .shpk-card {
-          background: rgb(var(--lb-panel-bg));
-          border: 1px solid rgb(var(--lb-panel-edge) / 0.1);
           contain: layout style;
-          transition:
-            transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
-            border-color 320ms ease;
+          outline: 1px solid transparent;
+          outline-offset: -1px;
+          transition: outline-color 160ms ease;
         }
-        .shpk-card::after {
-          content: '';
-          position: absolute;
-          inset: 0;
-          border-radius: inherit;
-          box-shadow: 0 12px 28px -18px rgb(0 0 0 / 0.55);
-          opacity: 0;
-          transition: opacity 320ms ease;
-          pointer-events: none;
-          z-index: -1;
-        }
-        .shpk-owned .plx-preview {
-          opacity: 0.72;
-        }
-        .shpk-buyable {
-          cursor: pointer;
-        }
-        .shpk-link {
-          outline: none;
-        }
-        .shpk-link:focus-visible {
-          outline: 2px solid rgb(var(--tile-accent) / 0.85);
-          outline-offset: 3px;
+        .shpk-card:focus-within {
+          outline-color: var(--shop-ink);
         }
         @media (hover: hover) and (pointer: fine) {
           .shpk-card:hover {
-            transform: translateY(-2px);
-            border-color: rgb(var(--tile-accent) / 0.35);
-          }
-          .shpk-card:hover::after {
-            opacity: 1;
-          }
-        }
-        .shpk-card:focus-within {
-          transform: translateY(-2px);
-          border-color: rgb(var(--tile-accent) / 0.35);
-        }
-        .shpk-card:focus-within::after {
-          opacity: 1;
-        }
-
-        .shpk-reveal {
-          animation: shpk-reveal-in 640ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
-          animation-delay: var(--rv, 0ms);
-        }
-        @keyframes shpk-reveal-in {
-          from {
-            opacity: 0;
-            transform: translateY(14px);
+            outline-color: var(--shop-ink);
           }
         }
 
         @media (prefers-reduced-motion: reduce) {
-          .shpk-reveal {
-            animation: none;
-          }
-          .shpk-card,
-          .shpk-card::after {
+          .shpk-card {
             transition: none;
           }
         }
-        html[data-motion='reduced'] .shpk-reveal {
-          animation: none;
-        }
-        html[data-motion='reduced'] .shpk-card,
-        html[data-motion='reduced'] .shpk-card::after {
+        html[data-motion='reduced'] .shpk-card {
           transition: none;
         }
       `}</style>

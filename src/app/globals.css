@@ -3702,6 +3702,352 @@ html[data-motion='reduced'] .bag-manifest .bag-cursor::after {
   font-family: var(--font-data), ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
+/* Japanese kicker face (Zen Kaku Gothic New, loaded in the root layout) —
+   the shop's katakana interleaves; Noto JP then the system faces behind. */
+.font-jp {
+  font-family: var(--font-jp), var(--font-japanese), 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+}
+
+/* ============================================================
+   ==== SHOP FLOOR ==== — the /shop storefront. The Bag manifest's
+   sibling: dark is tactical telemetry (phosphor signal on the panel ink,
+   CRT raster), light is Swiss industrial print (ink on warm dossier
+   paper, orange signal, grain). Scoped to .shop-floor; only substrate
+   tokens flip under html.light. Hairline grids come from `gap: 1px` on a
+   --shop-line parent with --shop-paper children. Square corners
+   throughout. Two filled hues, two meanings: signal = the stage BUY
+   (plate), gold = the Pro tier (subscription); everything else is
+   outlined ink that inverts on hover. Ownership rides --shop-owned;
+   rarity stays on --r-* as a tick and a 10px label, never a button.
+   Selection and keyboard focus ride --shop-focus (ink).
+   Type stops: micro 10px (the floor), label 11px, copy 12.5px — and from
+   md the page sits under .page-zoom-out (zoom 0.9), so the stops and the
+   tap floor are pre-divided there to land at their nominal rendered size.
+   ============================================================ */
+
+.shop-floor {
+  /* surfaces */
+  --shop-paper: rgb(var(--lb-panel-bg));
+  --shop-well: rgb(255 255 255 / 0.028);
+  /* text — mute is the floor for micro text (≥ 7:1 on the dark paper) */
+  --shop-ink: rgb(var(--z50));
+  --shop-mute: rgb(var(--z400));
+  /* lines */
+  --shop-line: rgb(var(--lb-panel-edge) / 0.2);
+  --shop-line-soft: rgb(var(--lb-panel-edge) / 0.09);
+  /* the plate action (BUY) — signal fill, dark type on it */
+  --shop-signal: rgb(var(--accent-rgb));
+  --shop-on-signal: rgb(9 10 13);
+  /* signal as TEXT or a thin mark: the same hue in dark, a deeper orange
+     in light where the accent alone cannot clear 4.5:1 on paper */
+  --shop-signal-text: rgb(var(--accent-rgb));
+  /* the subscription action (Pro YEARLY) — gold fill, paper type on it */
+  --shop-gold: rgb(var(--lb-gold));
+  --shop-gold-hi: rgb(var(--lb-gold-hi));
+  --shop-on-gold: rgb(var(--lb-panel-bg));
+  /* gold as TEXT (Pro price, tier, Founder name): same as the fill in dark;
+     light drops lightness so 7–10px gold type clears 4.5:1 on paper */
+  --shop-gold-text: var(--shop-gold);
+  /* ownership mark (OWNED ✓) — text only */
+  --shop-owned: rgb(var(--lb-up));
+  /* selection outline + focus ring — ink, never the signal hue */
+  --shop-focus: var(--shop-ink);
+  /* drawer backdrop */
+  --shop-veil: rgb(0 0 0 / 0.72);
+  /* type stops */
+  --shop-fs-micro: 10px;
+  --shop-fs-label: 11px;
+  --shop-fs-copy: 12.5px;
+  /* tap floor for every interactive element */
+  --shop-tap: 44px;
+  /* compartment gutter */
+  --shop-pad: 1.25rem;
+  /* faces */
+  --shop-font-data: var(--font-data), ui-monospace, monospace;
+  --shop-font-pixel: var(--font-pixel), ui-monospace, monospace;
+  --shop-font-display: var(--font-display), 'Inter', system-ui, sans-serif;
+  --shop-font-jp: var(--font-jp), var(--font-japanese), 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+  position: relative;
+  color: var(--shop-ink);
+}
+
+@media (max-width: 767px) {
+  .shop-floor {
+    --shop-pad: 0.9rem;
+  }
+}
+
+/* md+: .page-zoom-out scales the floor by 0.9, so a 10px token would
+   render at 9px and a 44px control at 39.6px. Pre-divide so the rendered
+   sizes hit the floors. */
+@media (min-width: 768px) {
+  .shop-floor {
+    --shop-fs-micro: calc(10px / 0.9);
+    --shop-fs-label: calc(11px / 0.9);
+    --shop-fs-copy: calc(12.5px / 0.9);
+    --shop-tap: calc(44px / 0.9);
+  }
+}
+
+/* Light: the deck's dossier paper. Re-pins the zinc primitives so every
+   zinc utility and shop-* token inside lands on warm paper; the signal
+   stays the accent (orange in light) with dark ink riding it. RARE and
+   LEGENDARY are re-pinned deeper so their 10px tags clear 7:1 on paper;
+   signal-as-text drops to a burnt orange that measures 5.0:1. */
+html.light .shop-floor {
+  --z50: 28 24 17;
+  --z100: 43 38 29;
+  --z200: 60 54 42;
+  --z300: 84 76 60;
+  --z400: 106 97 79;
+  --z500: 129 120 101;
+  --z600: 110 105 90;
+  --z700: 140 134 116;
+  --z800: 222 216 200;
+  --z900: 238 234 223;
+  --z950: 245 242 233;
+  --lb-panel-bg: 252 251 247;
+  --lb-panel-edge: 47 41 28;
+  --r-rare: 7 89 133;
+  --r-legendary: 113 63 18;
+  --shop-well: rgb(var(--lb-panel-edge) / 0.05);
+  --shop-line: rgb(var(--lb-panel-edge) / 0.28);
+  --shop-line-soft: rgb(var(--lb-panel-edge) / 0.12);
+  --shop-on-signal: rgb(var(--z50));
+  --shop-signal-text: rgb(194 65 12);
+  /* paper on the light gold (202 138 4) measures under 3:1 — ride ink */
+  --shop-on-gold: rgb(var(--z50));
+  /* gold text: 202 138 4 on paper is 2.8:1 — same hue, lightness down → 5.4:1 */
+  --shop-gold-text: rgb(140 96 3);
+  /* owned green: lb-up 22 163 74 on paper is 3.2:1 — same hue, darker → 5.6:1 */
+  --shop-owned: rgb(16 117 53);
+  --shop-veil: rgb(var(--z50) / 0.5);
+}
+
+/* ---- substrate textures (host must be positioned) ---- */
+
+/* Dark only: CRT raster over the floor. Print has no scanlines. */
+.shop-floor .shop-scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, transparent 0 2px, rgb(0 0 0 / 0.16) 2px 3px);
+}
+html.light .shop-floor .shop-scanlines::after {
+  display: none;
+}
+
+/* Light only: paper grain, multiplied into the floor. */
+.shop-floor .shop-grain::before {
+  content: '';
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 140px 140px;
+}
+html.light .shop-floor .shop-grain::before {
+  display: block;
+}
+
+/* One-bit 2x2 checker laid over owned art — the paper pokes through
+   every other pixel, so the plate underneath reads as a ghosted halftone. */
+.shop-floor .shop-dither {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.7;
+  background: repeating-conic-gradient(var(--shop-paper) 0 25%, transparent 0 50%) 0 0 / 2px 2px;
+}
+
+/* Registration crosses: an 8px `+` centred on each corner of the host,
+   1px --shop-line. ::before draws the top pair, ::after the bottom pair,
+   each as four no-repeat gradient strokes. Host must not clip overflow. */
+.shop-floor .shop-regmarks::before,
+.shop-floor .shop-regmarks::after {
+  --shop-cross: linear-gradient(var(--shop-line), var(--shop-line));
+  content: '';
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  height: 8px;
+  pointer-events: none;
+  background:
+    var(--shop-cross) left 0 top 3px / 8px 1px no-repeat,
+    var(--shop-cross) left 3px top 0 / 1px 8px no-repeat,
+    var(--shop-cross) right 0 top 3px / 8px 1px no-repeat,
+    var(--shop-cross) right 3px top 0 / 1px 8px no-repeat;
+}
+.shop-floor .shop-regmarks::before {
+  top: -4px;
+}
+.shop-floor .shop-regmarks::after {
+  bottom: -4px;
+}
+
+/* Corner brackets: four 6px `L` marks hugging the host's corners, 1px
+   --shop-ink, hidden until the compartment is hovered, holds focus, or is
+   the active one (`data-active`). Opacity only — no lift, no shadow. The
+   marks ride the host's ::after as eight no-repeat gradient strokes; when
+   that pseudo is already spoken for, drop an empty
+   `<span aria-hidden class="shop-brackets-b" />` inside instead — same
+   marks, same states, and the host's ::after is left alone. Host must be
+   positioned. */
+.shop-floor .shop-brackets:not(:has(> .shop-brackets-b))::after,
+.shop-floor .shop-brackets > .shop-brackets-b {
+  --shop-bkt: linear-gradient(var(--shop-ink), var(--shop-ink));
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms ease;
+  background:
+    var(--shop-bkt) left 0 top 0 / 6px 1px no-repeat,
+    var(--shop-bkt) left 0 top 0 / 1px 6px no-repeat,
+    var(--shop-bkt) right 0 top 0 / 6px 1px no-repeat,
+    var(--shop-bkt) right 0 top 0 / 1px 6px no-repeat,
+    var(--shop-bkt) left 0 bottom 0 / 6px 1px no-repeat,
+    var(--shop-bkt) left 0 bottom 0 / 1px 6px no-repeat,
+    var(--shop-bkt) right 0 bottom 0 / 6px 1px no-repeat,
+    var(--shop-bkt) right 0 bottom 0 / 1px 6px no-repeat;
+}
+.shop-floor .shop-brackets:focus-within:not(:has(> .shop-brackets-b))::after,
+.shop-floor .shop-brackets[data-active]:not(:has(> .shop-brackets-b))::after,
+.shop-floor .shop-brackets:focus-within > .shop-brackets-b,
+.shop-floor .shop-brackets[data-active] > .shop-brackets-b {
+  opacity: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .shop-floor .shop-brackets:hover:not(:has(> .shop-brackets-b))::after,
+  .shop-floor .shop-brackets:hover > .shop-brackets-b {
+    opacity: 1;
+  }
+}
+
+/* ---- motion ---- */
+
+/* Entrance hold: every target of the page's GSAP entrance and scroll
+   reveals sits at opacity 0 from first paint until the shop root carries
+   data-motion-ready — shop/page.tsx sets it at hydration and writes its
+   own from-states in the same task, so the hold hands over without a
+   paint between (SSR content never blinks off and back on). The animation
+   doubles as the fail-safe: past its 800ms delay it fades the content in
+   by itself, for slow or absent hydration; page.tsx reads its progress to
+   know whether the content has already been seen. Name + delay are
+   mirrored there (FAILSAFE_NAME / FAILSAFE_DELAY_MS). Opacity only, so it
+   is left running under reduced motion. */
+.shop-floor:not([data-motion-ready]) .shpm-lockup,
+.shop-floor:not([data-motion-ready]) .shpm-telemetry,
+.shop-floor:not([data-motion-ready]) .shpm-telemetry-line,
+.shop-floor:not([data-motion-ready]) .shpm-rule,
+.shop-floor:not([data-motion-ready]) .shpt-rule,
+.shop-floor:not([data-motion-ready]) .shpi-item,
+.shop-floor:not([data-motion-ready]) .shp-section-rule,
+.shop-floor:not([data-motion-ready]) .shop-reveal {
+  animation: shop-entrance-failsafe 320ms cubic-bezier(0.23, 1, 0.32, 1) 800ms both;
+}
+@keyframes shop-entrance-failsafe {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Season ticker: the track holds its segments twice and slides half its
+   own width, so the loop seam is invisible. Linear, 40s, paused on hover;
+   the strip is aria-hidden with a static sentence for readers beside it. */
+.shop-floor .shop-ticker {
+  overflow: hidden;
+}
+.shop-floor .shop-ticker-track {
+  display: flex;
+  width: max-content;
+  animation: shop-ticker 40s linear infinite;
+}
+@keyframes shop-ticker {
+  to {
+    transform: translateX(-50%);
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .shop-floor .shop-ticker:hover .shop-ticker-track {
+    animation-play-state: paused;
+  }
+}
+
+/* Blinking block cursor after loading copy: `LOADING CATALOG_` */
+.shop-floor .shop-cursor::after {
+  content: '▮';
+  margin-left: 0.15em;
+  animation: shop-blink 1s steps(1, end) infinite;
+}
+@keyframes shop-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Rail / card thumbnails: PlateLayer FX frozen on the first frame — only
+   the stage (or the open drawer) is alive, so the grid scans like a ledger. */
+.shop-floor .shop-thumb [data-plate-fx] * {
+  animation-play-state: paused !important;
+}
+
+/* Stage hold: while the spec drawer is open the page root carries
+   data-stage-hold and every page scene freezes — one live scene at a time. */
+.shop-floor[data-stage-hold] [data-plate-fx] * {
+  animation-play-state: paused !important;
+}
+
+/* PlatePreview inside the shop is square like everything else here. */
+.shop-floor .plx-preview {
+  border-radius: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shop-floor .shop-ticker-track,
+  .shop-floor .shop-cursor::after {
+    animation: none;
+  }
+  .shop-floor .shop-brackets::after,
+  .shop-floor .shop-brackets > .shop-brackets-b {
+    transition: none;
+  }
+}
+html[data-motion='reduced'] .shop-floor .shop-ticker-track,
+html[data-motion='reduced'] .shop-floor .shop-cursor::after {
+  animation: none;
+}
+html[data-motion='reduced'] .shop-floor .shop-brackets::after,
+html[data-motion='reduced'] .shop-floor .shop-brackets > .shop-brackets-b {
+  transition: none;
+}
+
+/* ---- spec table ---- */
+
+/* <dl> row: term · dotted leader · value. The spacer span has no text,
+   so its synthesized baseline is its bottom edge — the dots sit exactly
+   on the type baseline at any size. */
+.shop-floor .shop-leaders {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  column-gap: 0.5em;
+}
+.shop-floor .shop-leaders > .shop-leader {
+  min-width: 1em;
+  border-bottom: 1px dotted var(--shop-line);
+}
+
 /* Nested chips / mini-stats sitting on top of a glass panel */
 .liquid-glass-inset {
   background: var(--glass-inset-bg);

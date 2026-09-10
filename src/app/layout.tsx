@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next'
-import { IBM_Plex_Mono, Instrument_Serif, Inter, Noto_Sans_Arabic, Noto_Sans_JP, Noto_Sans_KR, Noto_Sans_SC, Press_Start_2P, Roboto, Space_Grotesk } from 'next/font/google'
+import { IBM_Plex_Mono, Instrument_Serif, Inter, Noto_Sans_Arabic, Noto_Sans_JP, Noto_Sans_KR, Noto_Sans_SC, Press_Start_2P, Roboto, Space_Grotesk, Zen_Kaku_Gothic_New } from 'next/font/google'
 import Script from 'next/script'
 import { Analytics } from '@vercel/analytics/react'
 import { VisitorPulse } from '@/components/analytics/VisitorPulse'
@@ -56,6 +56,19 @@ const notoKorean = Noto_Sans_KR({
 const notoChinese = Noto_Sans_SC({ 
   subsets: ['latin'],
   variable: '--font-chinese',
+  display: 'swap',
+  preload: false,
+})
+
+// Shop-floor Japanese face — the katakana kickers and ticker interleaves
+// on /shop (ショップ, 特集, 神話級 …). Same deal as the Notos: the latin
+// subset is what next/font hosts, and the Japanese glyphs still arrive via
+// unicode-range on use (how WorldwideText already renders 世界的に).
+// Never preloaded; only the storefront asks for it.
+const zenKaku = Zen_Kaku_Gothic_New({
+  weight: ['400', '500'],
+  subsets: ['latin'],
+  variable: '--font-jp',
   display: 'swap',
   preload: false,
 })
@@ -162,7 +175,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.className} ${instrumentSerif.variable} ${notoArabic.variable} ${notoJapanese.variable} ${notoKorean.variable} ${notoChinese.variable} ${roboto.variable} ${pressStart.variable} ${spaceGrotesk.variable} ${plexMono.variable}`}>
+      <body className={`${inter.className} ${instrumentSerif.variable} ${notoArabic.variable} ${notoJapanese.variable} ${notoKorean.variable} ${notoChinese.variable} ${zenKaku.variable} ${roboto.variable} ${pressStart.variable} ${spaceGrotesk.variable} ${plexMono.variable}`}>
         {/* Seeds nav position/expansion attributes on <html> before first
             paint so the app shell inset renders correctly with no flash. */}
         <script dangerouslySetInnerHTML={{ __html: NAV_BOOT_SCRIPT }} />
