@@ -1,25 +1,46 @@
 'use client'
 
-// Founder (one run) and Champion (awarded at #1) as a two-column pair.
-// Art first, one sentence, one action. Founder keeps the marquee-fan
-// scroll target. Styled-jsx under `shpg-`.
+// 05 VAULT — Founder (one run, buyable) and Champion (awarded at #1, never
+// sold) as two compartments in a gapped pair, so each cell carries its own
+// hairline. Same anatomy as the rack cards; gold is the premium ink here
+// and nowhere else on the cards: the index numerals, the names and the
+// Founder's filled chip. Body click and SPEC inspect both; the Champion's
+// door is the leaderboard. Styled-jsx under `shpg-`.
 
-import { useRef } from 'react'
-import Link from 'next/link'
+import { useRef, type MouseEvent, type ReactNode, type RefObject } from 'react'
 import { PlatePreview } from '@/components/cosmetics/PlateLayer'
-import { CHAMPION_PLATE, FOUNDER_PLATE, plateAnchorId, proPrice, usd } from './catalog'
-import { BuyChip, OwnedChip, PriceTag } from './chips'
+import type { PlateDef } from '@/lib/cosmetics/plates'
+import {
+  CHAMPION_PLATE,
+  FOUNDER_PLATE,
+  JP as JP_COPY,
+  plateAnchorId,
+  plateIndex,
+  proPrice,
+  usd
+} from './catalog'
+import {
+  DoorLink,
+  EquipLink,
+  OwnedMark,
+  PriceChip,
+  PriceLockup,
+  RarityTick,
+  SpecButton
+} from './chips'
+import { COPY, DISPLAY, GOLD_TEXT, JP_KICKER, LINE, MICRO, MUTE, PAPER_BG } from './shopChrome'
 import { useOnStage } from './stage'
 
-export function GoldRow({
-  loading,
-  isPro,
-  owned
-}: {
+export interface GoldRowProps {
   loading: boolean
   isPro: boolean
   owned: ReadonlySet<string>
-}) {
+  onInspect: (plateId: string) => void
+}
+
+const NAME = `${DISPLAY} ${GOLD_TEXT} text-[15px] font-semibold leading-tight tracking-[-0.01em] md:text-[length:calc(15px/0.9)]`
+
+export function GoldRow({ loading, isPro, owned, onInspect }: GoldRowProps) {
   const vaultRef = useRef<HTMLElement>(null)
   const trophyRef = useRef<HTMLElement>(null)
   useOnStage(vaultRef)
@@ -28,168 +49,155 @@ export function GoldRow({
   if (!FOUNDER_PLATE && !CHAMPION_PLATE) return null
 
   const founderOwned = FOUNDER_PLATE ? owned.has(FOUNDER_PLATE.id) : false
-  const founderBuyable = Boolean(FOUNDER_PLATE && !loading && !founderOwned)
   const championOwned = CHAMPION_PLATE ? owned.has(CHAMPION_PLATE.id) : false
 
   return (
     <>
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-2">
         {FOUNDER_PLATE && (
-          <article
-            ref={vaultRef}
-            id={plateAnchorId(FOUNDER_PLATE.id)}
-            data-offstage=""
-            className={`shpg-card group shpc-hoverable relative flex scroll-mt-24 flex-col rounded-2xl p-3 ${
-              founderBuyable ? 'shpg-buyable' : ''
-            }${founderOwned ? ' shpg-owned' : ''}`}
-            style={{ ['--tile-accent' as string]: '255 214 68' }}
-          >
-            <div className="relative">
-              <PlatePreview plateId={FOUNDER_PLATE.id} />
-              {founderOwned && (
-                <span className="absolute right-2 top-2 z-10">
-                  <OwnedChip overlay />
-                </span>
-              )}
-            </div>
-            <div className="mt-3 flex items-start justify-between gap-3 px-1">
-              <div className="min-w-0">
-                <h3 className="shpg-name font-display text-[13px] font-semibold">Founder</h3>
-                <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">One run.</p>
-              </div>
-              {loading ? (
-                <span className="h-8 w-[4.5rem] shrink-0 animate-pulse rounded-[10px] bg-zinc-500/10" />
+          <VaultCell
+            rootRef={vaultRef}
+            plate={FOUNDER_PLATE}
+            kicker={{ en: 'FOUNDER', jp: JP_COPY.founder }}
+            note="One run."
+            owned={founderOwned}
+            onInspect={onInspect}
+            door={
+              loading ? (
+                <span
+                  aria-hidden
+                  className="h-8 w-24 shrink-0 animate-pulse bg-[color:var(--shop-line-soft)]"
+                />
               ) : founderOwned ? (
-                <Link
-                  href="/profile"
-                  className="relative z-30 text-[12px] text-zinc-400 transition-colors hover:text-zinc-200"
-                >
-                  Equip
-                </Link>
+                <EquipLink />
               ) : (
-                <BuyChip>
-                  <PriceTag priceUsd={FOUNDER_PLATE.priceUsd} isPro={isPro} size="md" />
-                </BuyChip>
-              )}
-            </div>
-            {founderBuyable && (
-              <a
-                href={`/api/checkout?type=plate&plateId=${FOUNDER_PLATE.id}`}
-                aria-label={`Buy ${FOUNDER_PLATE.name} — ${usd(
-                  isPro ? proPrice(FOUNDER_PLATE.priceUsd) : FOUNDER_PLATE.priceUsd
-                )}`}
-                className="shpg-link absolute inset-0 z-20 rounded-2xl"
-              />
-            )}
-          </article>
+                <PriceChip
+                  tone="gold"
+                  href={`/api/checkout?type=plate&plateId=${FOUNDER_PLATE.id}`}
+                  ariaLabel={`Buy ${FOUNDER_PLATE.name} — ${usd(
+                    isPro ? proPrice(FOUNDER_PLATE.priceUsd) : FOUNDER_PLATE.priceUsd
+                  )}`}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <PriceLockup priceUsd={FOUNDER_PLATE.priceUsd} isPro={isPro} size="md" />
+                </PriceChip>
+              )
+            }
+          />
         )}
 
         {CHAMPION_PLATE && (
-          <article
-            ref={trophyRef}
-            data-offstage=""
-            className={`shpg-card group shpc-hoverable relative flex flex-col rounded-2xl p-3${
-              championOwned ? ' shpg-owned' : ''
-            }`}
-          >
-            <div className="relative">
-              <PlatePreview plateId={CHAMPION_PLATE.id} />
-              {championOwned && (
-                <span className="absolute right-2 top-2 z-10">
-                  <OwnedChip overlay />
-                </span>
-              )}
-            </div>
-            <div className="mt-3 flex items-start justify-between gap-3 px-1">
-              <div className="min-w-0">
-                <h3 className="shpg-name font-display text-[13px] font-semibold">Champion</h3>
-                <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">Awarded at #1.</p>
-              </div>
-              {championOwned ? (
-                <Link
-                  href="/profile"
-                  className="relative z-30 text-[12px] text-zinc-400 transition-colors hover:text-zinc-200"
-                >
-                  Equip
-                </Link>
+          <VaultCell
+            rootRef={trophyRef}
+            plate={CHAMPION_PLATE}
+            kicker={{ en: 'CHAMPION', jp: JP_COPY.champion }}
+            note="Awarded at #1."
+            owned={championOwned}
+            onInspect={onInspect}
+            door={
+              championOwned ? (
+                <EquipLink />
               ) : (
-                <Link
-                  href="/leaderboard"
-                  className="text-[12px] text-zinc-400 transition-colors hover:text-zinc-200"
-                >
-                  Leaderboard
-                </Link>
-              )}
-            </div>
-          </article>
+                <DoorLink href="/leaderboard">
+                  LEADERBOARD
+                  <span aria-hidden>→</span>
+                </DoorLink>
+              )
+            }
+          />
         )}
       </div>
 
       <style jsx global>{`
-        /* gold is the premium ink: Pro, Team, and these two */
-        .shpg-name {
-          color: rgb(var(--lb-gold));
-        }
         .shpg-card {
-          background: rgb(var(--lb-panel-bg));
-          border: 1px solid rgb(var(--lb-gold) / 0.2);
           contain: layout style;
-          transition:
-            transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
-            border-color 320ms ease;
+          transition: border-color 160ms ease;
         }
-        .shpg-card::after {
-          content: '';
-          position: absolute;
-          inset: 0;
-          border-radius: inherit;
-          box-shadow: 0 12px 28px -18px rgb(0 0 0 / 0.55);
-          opacity: 0;
-          transition: opacity 320ms ease;
-          pointer-events: none;
-          z-index: -1;
-        }
-        .shpg-owned .plx-preview {
-          opacity: 0.72;
-        }
-        .shpg-buyable {
-          cursor: pointer;
-        }
-        .shpg-link {
-          outline: none;
-        }
-        .shpg-link:focus-visible {
-          outline: 2px solid rgb(var(--tile-accent) / 0.85);
-          outline-offset: 3px;
+        .shpg-card:focus-within {
+          border-color: var(--shop-ink);
         }
         @media (hover: hover) and (pointer: fine) {
           .shpg-card:hover {
-            transform: translateY(-2px);
-            border-color: rgb(var(--lb-gold) / 0.45);
+            border-color: var(--shop-ink);
           }
-          .shpg-card:hover::after {
-            opacity: 1;
-          }
-        }
-        .shpg-card:focus-within {
-          transform: translateY(-2px);
-          border-color: rgb(var(--lb-gold) / 0.45);
-        }
-        .shpg-card:focus-within::after {
-          opacity: 1;
         }
 
         @media (prefers-reduced-motion: reduce) {
-          .shpg-card,
-          .shpg-card::after {
+          .shpg-card {
             transition: none;
           }
         }
-        html[data-motion='reduced'] .shpg-card,
-        html[data-motion='reduced'] .shpg-card::after {
+        html[data-motion='reduced'] .shpg-card {
           transition: none;
         }
       `}</style>
     </>
+  )
+}
+
+/** One vault compartment. `door` is the bottom-right slot: the Founder's
+ * gold chip / skeleton, the Champion's leaderboard link, or EQUIP. */
+function VaultCell({
+  rootRef,
+  plate,
+  kicker,
+  note,
+  owned,
+  onInspect,
+  door
+}: {
+  rootRef: RefObject<HTMLElement>
+  plate: PlateDef
+  kicker: { en: string; jp: string }
+  note: string
+  owned: boolean
+  onInspect: (plateId: string) => void
+  door: ReactNode
+}) {
+  const handleBodyClick = (event: MouseEvent<HTMLElement>) => {
+    if ((event.target as Element).closest('a,button')) return
+    onInspect(plate.id)
+  }
+
+  return (
+    <article
+      ref={rootRef}
+      id={plateAnchorId(plate.id)}
+      data-offstage=""
+      onClick={handleBodyClick}
+      className={`shpg-card shpc-hoverable shop-brackets group relative flex h-full cursor-pointer scroll-mt-32 flex-col border p-[var(--shop-pad)] ${LINE} ${PAPER_BG}`}
+    >
+      {/* micro row: the vault's numerals are gold · rarity */}
+      <div className={`flex items-center justify-between gap-3 ${MICRO}`}>
+        <span className={GOLD_TEXT}>/{plateIndex(plate.id)}</span>
+        <RarityTick rarity={plate.rarity} />
+      </div>
+
+      <div className="relative mt-3">
+        <PlatePreview plateId={plate.id} />
+        {owned && (
+          <>
+            <span aria-hidden className="shop-dither z-20" />
+            <span className="absolute right-2 top-2 z-30">
+              <OwnedMark overlay />
+            </span>
+          </>
+        )}
+      </div>
+
+      <div className="mt-3 min-w-0">
+        <p className={`flex flex-wrap items-baseline gap-x-2 ${MICRO} ${MUTE}`}>
+          <span>{kicker.en}</span>
+          <span className={JP_KICKER}>{kicker.jp}</span>
+        </p>
+        <h3 className={`mt-1.5 ${NAME}`}>{plate.name}</h3>
+        <p className={`mt-1 line-clamp-1 ${COPY} ${MUTE}`}>{note}</p>
+      </div>
+
+      <div className="mt-auto flex items-center justify-between gap-3 pt-3">
+        <SpecButton onClick={() => onInspect(plate.id)} />
+        {door}
+      </div>
+    </article>
   )
 }
