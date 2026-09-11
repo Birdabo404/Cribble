@@ -213,9 +213,9 @@ describe('middleware site lock', () => {
     // the CSS fallback disc instead of the planet.
     expect(rewriteTarget('/geo/countries-110m.geojson')).toBeNull()
     expect(middleware(request('/geo/countries-110m.geojson')).status).toBe(200)
-    // The GLB prop models retired with the old renderer — .glb no longer
-    // rides the static-asset allowance.
-    expect(rewriteTarget('/models/clouds-puffy.glb')).toBe('/maintenance')
+    // Retired GLB props are unknown paths: they must 404 instead of
+    // masquerading as the locked maintenance screen.
+    expect(rewriteTarget('/models/clouds-puffy.glb')).toBeNull()
   })
 
   it('walls /shop /bag /settings behind sign-in while locked', () => {
