@@ -944,6 +944,11 @@ export function AiBoard({
         .aib-toggle[aria-selected='true'] {
           color: rgb(var(--aib-amber));
         }
+        /* the wrapper only exists for the phone deck; on desktop it is
+           transparent to layout so filter and count stay row items */
+        .aib-filter-row {
+          display: contents;
+        }
         .aib-filter {
           display: inline-flex;
           align-items: center;
@@ -971,12 +976,6 @@ export function AiBoard({
         .aib-filter input::placeholder {
           color: rgb(var(--aib-ink-2));
           opacity: 1;
-        }
-        /* iOS zooms the page into any focused input under 16px */
-        @media (max-width: 767px) {
-          .aib-filter input {
-            font-size: 16px;
-          }
         }
         .aib-count {
           font-size: calc(11 * var(--u));
@@ -1012,6 +1011,116 @@ export function AiBoard({
           text-decoration: underline;
           text-decoration-thickness: 1px;
           text-underline-offset: calc(5 * var(--u));
+        }
+
+        /* ================= the phone deck =================
+           Bare words spaced across a 320px column read as debris, so under
+           768 the controls become a deck of framed rows that share one
+           border, one height and one active state (amber fill, dark text):
+             $ rank --window=season --top=25▮
+             ┌ SEASON ──────┬ ALL-TIME ─────┐   segmented switch
+             ┌ / filter ─────────── 25 / 61 ┐   full-width field, count inside
+             [ALL] [CHAT] [CODE] [SEARCH] →     one row, scrolls sideways
+           The prompt keeps its "$ rank …" without the host so it stays on
+           one line for every default state. */
+        @media (max-width: 767px) {
+          .aib-prompt-host {
+            display: none;
+          }
+          .aib-controls {
+            margin-top: calc(16 * var(--u));
+          }
+          .aib-controls-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            gap: calc(10 * var(--u));
+          }
+          .aib-toggles {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0;
+            border: 1px solid rgb(var(--aib-ink) / 0.22);
+          }
+          .aib-toggle {
+            height: calc(40 * var(--u));
+            padding: 0;
+            font-size: calc(12 * var(--u));
+            letter-spacing: 0.16em;
+            text-align: center;
+          }
+          .aib-toggle + .aib-toggle {
+            border-left: 1px solid rgb(var(--aib-ink) / 0.22);
+          }
+          .aib-toggle[aria-selected='true'] {
+            background: rgb(var(--aib-amber));
+            color: rgb(var(--aib-bg));
+          }
+          .aib-toggle-bracket {
+            display: none;
+          }
+          .aib-filter-row {
+            display: flex;
+            align-items: center;
+            height: calc(40 * var(--u));
+            border: 1px solid rgb(var(--aib-ink) / 0.22);
+          }
+          .aib-filter-row:focus-within {
+            border-color: rgb(var(--aib-amber));
+          }
+          .aib-filter {
+            flex: 1;
+            min-width: 0;
+            height: 100%;
+            margin-left: 0;
+            border: 0;
+          }
+          .aib-filter input {
+            flex: 1;
+            width: auto;
+            min-width: 0;
+            /* iOS zooms the page into any focused input under 16px */
+            font-size: 16px;
+          }
+          .aib-count {
+            flex: none;
+            padding-right: calc(12 * var(--u));
+          }
+          /* a full-bleed lane: chips run under the card's padding so the cut
+             chip at the edge is the scroll affordance; the mask softens it */
+          .aib-chips {
+            flex-wrap: nowrap;
+            gap: calc(8 * var(--u));
+            margin: calc(10 * var(--u)) calc(-1 * var(--aib-pad)) 0;
+            padding: 0 calc(var(--aib-pad) + 28 * var(--u)) 0 var(--aib-pad);
+            overflow-x: auto;
+            scroll-snap-type: x proximity;
+            /* snap targets align to the content edge, not the bleed edge */
+            scroll-padding-left: var(--aib-pad);
+            scrollbar-width: none;
+            -webkit-mask-image: linear-gradient(
+              to right,
+              #000 calc(100% - 28 * var(--u)),
+              transparent
+            );
+            mask-image: linear-gradient(to right, #000 calc(100% - 28 * var(--u)), transparent);
+          }
+          .aib-chips::-webkit-scrollbar {
+            display: none;
+          }
+          .aib-chip {
+            flex: none;
+            height: calc(34 * var(--u));
+            padding: 0 calc(14 * var(--u));
+            border: 1px solid rgb(var(--aib-ink) / 0.22);
+            font-size: calc(11 * var(--u));
+            scroll-snap-align: start;
+          }
+          .aib-chip[aria-pressed='true'] {
+            border-color: rgb(var(--aib-amber));
+            background: rgb(var(--aib-amber));
+            color: rgb(var(--aib-bg));
+            text-decoration: none;
+          }
         }
 
         /* ================= table: one grid, five tracks =================

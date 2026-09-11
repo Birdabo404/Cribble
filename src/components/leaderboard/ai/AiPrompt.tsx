@@ -84,8 +84,11 @@ export function AiPrompt({
 
   return (
     <div className="aib-prompt">
+      {/* The host folds away on phones — `$ rank …` keeps the line whole. */}
       <p className="aib-prompt-line">
-        <span className="aib-prompt-user">cribble@arena:~$</span>{' '}
+        <span className="aib-prompt-user">
+          <span className="aib-prompt-host">cribble@arena:~</span>$
+        </span>{' '}
         <span className="aib-prompt-cmd">rank</span>{' '}
         <span key={tail} ref={tailRef} className="aib-prompt-tail">
           {tail}
@@ -93,6 +96,10 @@ export function AiPrompt({
         <span ref={cursorRef} className="aib-cursor" aria-hidden />
       </p>
 
+      {/* One row on desktop: bracketed toggles, the filter box, the count.
+          On phones the same DOM becomes a deck of equal-height framed
+          rows — a segmented window switch, a full-width filter with the
+          count inside it — see .aib-controls-row under 768. */}
       <div className="aib-controls">
         <div className="aib-controls-row">
           {hasSeason && (
@@ -108,31 +115,39 @@ export function AiPrompt({
                     className="aib-toggle"
                     onClick={() => onWindow(item.id)}
                   >
-                    [ {item.label} ]
+                    <span className="aib-toggle-bracket" aria-hidden>
+                      [{' '}
+                    </span>
+                    {item.label}
+                    <span className="aib-toggle-bracket" aria-hidden>
+                      {' '}]
+                    </span>
                   </button>
                 )
               })}
             </div>
           )}
 
-          <label className="aib-filter">
-            <span className="aib-filter-mark" aria-hidden>
-              /
-            </span>
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => onQuery(e.target.value)}
-              placeholder="filter"
-              aria-label="Filter machines by name or organization"
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </label>
+          <div className="aib-filter-row">
+            <label className="aib-filter">
+              <span className="aib-filter-mark" aria-hidden>
+                /
+              </span>
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => onQuery(e.target.value)}
+                placeholder="filter"
+                aria-label="Filter machines by name or organization"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
 
-          <output className="aib-count" aria-live="polite">
-            {shown === matched ? `${shown} SHOWN` : `TOP ${shown} OF ${matched}`}
-          </output>
+            <output className="aib-count" aria-live="polite">
+              {shown === matched ? `${shown} SHOWN` : `TOP ${shown} OF ${matched}`}
+            </output>
+          </div>
         </div>
 
         <div className="aib-chips" role="group" aria-label="Category">
