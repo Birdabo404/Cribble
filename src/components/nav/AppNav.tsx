@@ -19,6 +19,7 @@ import { NavRail } from './NavRail'
 import { NavTopBar } from './NavTopBar'
 import { useNavPrefs } from './NavPrefsContext'
 import { useNavUser } from './useNavUser'
+import { shouldLoadAccountQueries } from '@/lib/client/accountQueryPolicy'
 
 // Tracks Tailwind's `md` breakpoint (min-width: 768px) — the same cut the
 // chrome's hidden/md:flex + md:hidden classes key off. `null` until the
@@ -54,7 +55,11 @@ export function AppNav() {
   const topBarVisible = isDesktop !== null && !railVisible
 
   return (
-    <NotificationsProvider>
+    <NotificationsProvider
+      enabled={shouldLoadAccountQueries(
+        !navUser.loaded ? 'loading' : navUser.user ? 'signed-in' : 'anonymous'
+      )}
+    >
       {left && <NavRail navUser={navUser} markStill={!railVisible} />}
       <NavTopBar
         navUser={navUser}
