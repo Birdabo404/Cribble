@@ -1,90 +1,98 @@
 'use client'
 
-// THE AI LEADERBOARD — the arena's second board, played as a faction
-// war. Not pilots but the machines themselves, ranked by every pilot's
-// combined verified usage (via /api/leaderboard/ai, one cached
-// site-wide aggregate). Each tool is a house: brand hue, epithet, a
-// podium of thrones for the top three, and rows that open a
-// holographic ToolCard. The viewer's most-used AI is their team —
-// docked bar, brand-tinted row, YOUR TEAM chips. The payload is
-// identical for every viewer and refreshes server-side every 5
-// minutes, so there is no 15s poll: fetch on mount and when the tab
-// regains focus. It embeds BOTH ranking windows (current season +
-// all-time); the SEASON/ALL-TIME pills toggle locally with no refetch.
+// THE AI LEADERBOARD — the arena's second board: not pilots but the
+// machines themselves, ranked by every pilot's combined verified usage
+// (via /api/leaderboard/ai, one cached site-wide aggregate). Two slabs
+// in the register of the AGI Bar drinks menu that inspired it: a deep
+// navy sheet inside a clean amber frame, the title bar across the top,
+// and — on desktop — the house machine on the left, centred on its own
+// axis with air between its blocks, beside the list on the right. One
+// accent (amber) for structure and figures, orange only where the menu
+// puts it (the mark, the cursor, the top three), white for names, grey
+// for labels. No green, no glow, no radius. All-mono type at sizes a
+// leaderboard can be read at, on rows tall enough to breathe.
+//
+// The machine list is the top 25 of whatever the controls leave in. The
+// second slab, AGENTS, ranks the coding harnesses the extension never
+// sees (Codex, Claude Code, OpenCode…) by the USD their opted-in
+// collectors report — a separate currency, so a separate list.
+//
+// The viewer's most-used AI is their machine: an orange rail on its row,
+// a YOU tag, and the docked strip below. The payload is identical for
+// every viewer and refreshes server-side every 5 minutes, so there is no
+// poll: fetch on mount and when the tab regains focus. It embeds BOTH
+// ranking windows (season + all-time); the toggles switch locally.
+//
+// This file is composition, state and the stylesheet. The pieces live
+// in ./ai: title bars, featured panel, prompt + controls, table + rows +
+// spec sheet, agents slab, dock, and the motion module.
 
+import { useGSAP } from '@gsap/react'
+import gsap from 'gsap'
+import { Flip } from 'gsap/Flip'
 import {
   useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
-  useReducer,
   useRef,
   useState
 } from 'react'
-import AnimatedCounter from '@/components/AnimatedCounter'
 import {
-  formatCompact,
-  formatDuration,
-  formatNumber,
-  formatScore
-} from '@/components/dashboard-v2/format'
-import { AiPodium } from '@/components/leaderboard/AiPodium'
+  sortTools,
+  TOP_N,
+  windowLabel,
+  type AiCategoryFilter,
+  type AiSortDir,
+  type AiSortKey,
+  type AiStatus,
+  type AiWindowId
+} from '@/components/leaderboard/ai/aiBoardState'
 import {
-  IconCrown,
-  IconFlame,
-  IconRefresh,
-  IconSearch,
-  IconSwords,
-  IconTrophy,
-  IconUsers,
-  ToolIcon
-} from '@/components/leaderboard/icons'
+  flipRows,
+  mountChrome,
+  mountContent,
+  snapshotRows,
+  type RowsSnapshot
+} from '@/components/leaderboard/ai/aiMotion'
+import { AiAgents } from '@/components/leaderboard/ai/AiAgents'
+import { AiDock } from '@/components/leaderboard/ai/AiDock'
+import { AiFeatured, AiFeaturedSkeleton } from '@/components/leaderboard/ai/AiFeatured'
+import { AiPrompt } from '@/components/leaderboard/ai/AiPrompt'
+import { AiTable, type AiTableState } from '@/components/leaderboard/ai/AiTable'
+import { AiTitleBar } from '@/components/leaderboard/ai/AiTitleBar'
 import { leaderboardScrollTo } from '@/components/leaderboard/LeaderboardScrollRuntime'
-import { ToolCard } from '@/components/leaderboard/ToolCard'
-import { medalA, medalFor, medalGlow } from '@/components/leaderboard/types'
-import type { AiBoards, AiToolRow } from '@/lib/aiLeaderboard'
-import { identityForTool, toolInkRgb } from '@/lib/aiToolIdentity'
-import { usdDisplayParts } from '@/lib/tokenLeaderboard'
+import type { AiBoards } from '@/lib/aiLeaderboard'
+import {
+  AI_CATEGORY_LABEL,
+  AI_CATEGORY_ORDER,
+  aiToolMeta,
+  type AiToolMeta
+} from '@/lib/aiToolOrgs'
+import { SCORE_POLICY } from '@/lib/scoring'
 
-const ROW_GRID =
-  'grid grid-cols-[3.6rem_minmax(0,1fr)_auto] md:grid-cols-[4.2rem_minmax(0,1fr)_6.5rem_6.5rem_5.5rem_6.5rem_10.5rem] items-center gap-3 px-4 md:px-5'
-
-/** The two embedded ranking windows. SEASON only exists while a season
- *  is live — the API sends boards.season: null otherwise. */
-type AiWindowId = 'season' | 'alltime'
-
-const AI_WINDOWS: { id: AiWindowId; label: string }[] = [
-  { id: 'season', label: 'SEASON' },
-  { id: 'alltime', label: 'ALL-TIME' }
-]
-
-/** Theme split for the house hue: --tb (text/borders/fills) flips to
- *  ink under html.light; washes read the raw --tb-d so light mode gets
- *  pastel tints, not mud. Paired with the .lbai-hue rules below. */
-const hueVars = (rgb: string) => ({
-  ['--tb-d' as string]: rgb,
-  ['--tb-i' as string]: toolInkRgb(rgb)
-})
+gsap.registerPlugin(useGSAP, Flip)
 
 export function AiBoard({
   viewerUserId = null,
-  viewerTopTool,
-  onInspectChange
+  viewerTopTool
 }: {
   viewerUserId?: number | null
   /** Viewer's #1 tool from the standings payload. undefined = unknown
-   *  yet (render no bar); null = known-empty (AiBoard falls back to the
-   *  profile endpoint when a viewer id exists). */
+   *  yet (render no dock); null = known-empty (AiBoard falls back to
+   *  the profile endpoint when a viewer id exists). */
   viewerTopTool?: string | null
-  /** Fires when the ToolCard opens/closes so the arena can lb4-freeze. */
-  onInspectChange?: (open: boolean) => void
 }) {
   const [boards, setBoards] = useState<AiBoards | null>(null)
-  const [windowId, setWindowId] = useState<AiWindowId>('season')
+  const [seasonNumber, setSeasonNumber] = useState<number | null>(null)
   const [generatedAt, setGeneratedAt] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
+  const [windowId, setWindowId] = useState<AiWindowId>('season')
   const [query, setQuery] = useState('')
-  const [selectedName, setSelectedName] = useState<string | null>(null)
+  const [category, setCategory] = useState<AiCategoryFilter>('all')
+  const [sort, setSort] = useState<AiSortKey>('score')
+  const [sortDir, setSortDir] = useState<AiSortDir>('desc')
+  const [openName, setOpenName] = useState<string | null>(null)
 
   // Once the player picks a window, focus-refetches must not yank the
   // toggle back to the default.
@@ -113,6 +121,8 @@ export function AiBoard({
         if (!nextBoards.season) return 'alltime'
         return userPicked.current ? current : 'season'
       })
+      const number = data.season?.current?.number
+      setSeasonNumber(typeof number === 'number' ? number : null)
       setGeneratedAt(
         typeof data.generatedAt === 'string' ? data.generatedAt : null
       )
@@ -135,10 +145,10 @@ export function AiBoard({
     }
   }, [load])
 
-  // ---- the viewer's faction --------------------------------------
+  // ---- the viewer's machine ---------------------------------------
   // A ranked viewer arrives with topTools on the standings payload; an
   // unranked one (null + a viewer id) resolves through the profile
-  // endpoint. undefined = still unknown → no bar, no flash.
+  // endpoint. undefined = still unknown → no dock, no flash.
   const [fallbackTool, setFallbackTool] = useState<string | null | undefined>(undefined)
 
   useEffect(() => {
@@ -170,19 +180,9 @@ export function AiBoard({
         ? fallbackTool
         : undefined
 
-  // ---- ToolCard wiring -------------------------------------------
-  const onInspectRef = useRef(onInspectChange)
-  onInspectRef.current = onInspectChange
-
-  useEffect(() => {
-    onInspectRef.current?.(selectedName !== null)
-  }, [selectedName])
-
-  // Unmounting mid-inspect (board tab switch) must release the freeze.
-  useEffect(() => () => onInspectRef.current?.(false), [])
-
-  // The active window's board. A stale 'season' pick after the season
-  // board vanished falls back to all-time.
+  // ---- the active window ------------------------------------------
+  // A stale 'season' pick after the season board vanished falls back
+  // to all-time.
   const board =
     boards === null
       ? null
@@ -193,33 +193,62 @@ export function AiBoard({
     windowId === 'season' && boards?.season ? 'season' : 'alltime'
   const tools = board?.tools ?? null
   const totals = board?.totals ?? null
+  // A cached pre-agents payload may still be in flight for a few minutes.
+  const agents = board?.agents ?? []
 
   const loading = boards === null && !failed
-  const apex = tools?.[0] ?? null
-  const topScore = apex?.score ?? 0
+  const status: AiStatus = boards
+    ? failed
+      ? 'stale'
+      : 'live'
+    : failed
+      ? 'offline'
+      : 'sync'
 
-  // Hottest machine this week — one HEAT pip on the board, tiny.
-  const maxWeekScore = useMemo(
-    () => tools?.reduce((max, tool) => Math.max(max, tool.weekScore), 0) ?? 0,
-    [tools]
+  // Org + category per tool, resolved once per payload for both windows.
+  const metaByName = useMemo(() => {
+    const map = new Map<string, AiToolMeta>()
+    for (const list of [boards?.alltime.tools, boards?.season?.tools]) {
+      for (const tool of list ?? []) {
+        if (!map.has(tool.name)) map.set(tool.name, aiToolMeta(tool.name))
+      }
+    }
+    return map
+  }, [boards])
+  const metaFor = useCallback(
+    (name: string) => metaByName.get(name) ?? aiToolMeta(name),
+    [metaByName]
   )
 
-  const filtered = useMemo(() => {
-    if (!tools) return []
+  // Category chips only offer what this window actually holds; a pick
+  // that vanished with a window switch reads as ALL rather than empty.
+  const categories = useMemo(() => {
+    const present = new Set((tools ?? []).map((tool) => metaFor(tool.name).category))
+    return AI_CATEGORY_ORDER.filter((id) => present.has(id))
+  }, [tools, metaFor])
+  const activeCategory: AiCategoryFilter =
+    category !== 'all' && !categories.includes(category) ? 'all' : category
+
+  // Filter and sort over the whole window, then the top-25 cut.
+  const { visible, matched } = useMemo(() => {
+    if (!tools) return { visible: [], matched: 0 }
     const q = query.trim().toLowerCase()
-    if (!q) return tools
-    return tools.filter((tool) => tool.name.toLowerCase().includes(q))
-  }, [tools, query])
+    const filtered = tools.filter((tool) => {
+      const meta = metaFor(tool.name)
+      if (activeCategory !== 'all' && meta.category !== activeCategory) return false
+      if (!q) return true
+      return (
+        tool.name.toLowerCase().includes(q) || meta.org.toLowerCase().includes(q)
+      )
+    })
+    return {
+      visible: sortTools(filtered, sort, sortDir).slice(0, TOP_N),
+      matched: filtered.length
+    }
+  }, [tools, query, activeCategory, sort, sortDir, metaFor])
 
-  // Selected tool resolves from the ACTIVE window's FULL list so an
-  // in-flight search can't orphan the open card.
-  const selectedTool = useMemo(
-    () =>
-      selectedName === null || !tools
-        ? null
-        : tools.find((tool) => tool.name === selectedName) ?? null,
-    [tools, selectedName]
-  )
+  const featured = tools?.[0] ?? null
+  const runnerUp = tools?.[1] ?? null
 
   const yourRow = useMemo(
     () =>
@@ -229,7 +258,110 @@ export function AiBoard({
     [tools, viewerFaction]
   )
 
-  // ---- your-team jump: scroll the row into view, open its card ----
+  const tableState: AiTableState = loading
+    ? 'loading'
+    : failed && !boards
+      ? 'error'
+      : visible.length === 0
+        ? 'empty'
+        : 'ready'
+
+  const emptyLabel = query.trim()
+    ? `no machines match "${query.trim()}"`
+    : activeCategory !== 'all'
+      ? `no machines in ${AI_CATEGORY_LABEL[activeCategory]}`
+      : 'no machines on the board yet'
+
+  // ---- motion -------------------------------------------------------
+  const rootRef = useRef<HTMLElement>(null)
+
+  // Chrome draws once on mount, around the skeleton.
+  useGSAP(
+    () => {
+      if (rootRef.current) mountChrome(rootRef.current)
+    },
+    { scope: rootRef }
+  )
+
+  // Content cascades once, the first time rows exist.
+  const contentPlayed = useRef(false)
+  const ready = tableState === 'ready'
+  useGSAP(
+    () => {
+      if (!ready || contentPlayed.current || !rootRef.current) return
+      contentPlayed.current = true
+      mountContent(rootRef.current)
+    },
+    { scope: rootRef, dependencies: [ready] }
+  )
+
+  // Re-sort: a control handler snapshots the rows before it commits;
+  // the layout effect after that commit flips them into place. The nonce
+  // (not the row order) drives the effect so a snapshot never goes stale
+  // behind a change that happened to leave the order alone.
+  const flipSnap = useRef<RowsSnapshot | null>(null)
+  const [flipNonce, setFlipNonce] = useState(0)
+  const reflow = useCallback((mutate: () => void) => {
+    if (rootRef.current) flipSnap.current = snapshotRows(rootRef.current)
+    mutate()
+    setFlipNonce((n) => n + 1)
+  }, [])
+  const { contextSafe } = useGSAP({ scope: rootRef })
+  const runFlip = useMemo(
+    () =>
+      contextSafe((snap: RowsSnapshot) => {
+        if (rootRef.current) flipRows(snap, rootRef.current)
+      }),
+    [contextSafe]
+  )
+  useLayoutEffect(() => {
+    const snap = flipSnap.current
+    if (!snap) return
+    flipSnap.current = null
+    runFlip(snap)
+  }, [flipNonce, runFlip])
+
+  const onWindow = useCallback(
+    (next: AiWindowId) =>
+      reflow(() => {
+        userPicked.current = true
+        setWindowId(next)
+      }),
+    [reflow]
+  )
+  const onCategory = useCallback(
+    (next: AiCategoryFilter) => reflow(() => setCategory(next)),
+    [reflow]
+  )
+  const onQuery = useCallback((next: string) => reflow(() => setQuery(next)), [reflow])
+  const onSort = useCallback(
+    (key: AiSortKey) =>
+      reflow(() => {
+        if (key === sort) {
+          setSortDir((dir) => (dir === 'desc' ? 'asc' : 'desc'))
+        } else {
+          setSort(key)
+          setSortDir('desc')
+        }
+      }),
+    [reflow, sort]
+  )
+
+  // ---- spec sheet: one open at a time, Esc closes -----------------
+  const onToggle = useCallback(
+    (name: string) => setOpenName((current) => (current === name ? null : name)),
+    []
+  )
+  useEffect(() => {
+    if (openName === null) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenName(null)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [openName])
+
+  // ---- your-machine jump: scroll the row into view, open its sheet --
   const rowRefs = useRef(new Map<string, HTMLLIElement>())
   const setRowRef = useCallback((name: string, el: HTMLLIElement | null) => {
     if (el) rowRefs.current.set(name, el)
@@ -239,13 +371,17 @@ export function AiBoard({
   const pendingJump = useRef<string | null>(null)
   const [jumpNonce, setJumpNonce] = useState(0)
 
-  const jumpToYourTeam = useCallback(() => {
+  const jumpToYourMachine = useCallback(() => {
     const target = yourRow
-    if (!target) return
+    if (!target || target.rank > TOP_N) return
     pendingJump.current = target.name
-    setSelectedName(target.name)
-    // A live search may be hiding the row we're about to scroll to.
+    setOpenName(target.name)
+    // A live filter, category pick or sort may be hiding the row we're
+    // about to scroll to; the official order always seats a top-25 rank.
     setQuery('')
+    setCategory('all')
+    setSort('score')
+    setSortDir('desc')
     setJumpNonce((n) => n + 1)
   }, [yourRow])
 
@@ -255,771 +391,1101 @@ export function AiBoard({
     const el = rowRefs.current.get(name)
     if (!el) return // row still filtered out — the next commit retries
     pendingJump.current = null
-    // Instant, not smooth: the ToolCard opens in the same commit and its
-    // scroll-lock would cut a smooth glide off mid-flight. Routed through
-    // the leaderboard smoother when it's live (a native scrollIntoView
-    // would fight the transform-based smoothing), scrollIntoView otherwise.
+    // Instant, not smooth: the sheet expands in the same commit. Routed
+    // through the leaderboard smoother when it's live (a native
+    // scrollIntoView would fight the transform-based smoothing),
+    // scrollIntoView otherwise.
     leaderboardScrollTo(el, false)
-  }, [filtered, jumpNonce])
+  }, [visible, jumpNonce])
+
+  const retry = useCallback(() => {
+    setFailed(false)
+    setBoards(null)
+    void load()
+  }, [load])
+
+  const windowName = windowLabel(activeWindow, seasonNumber)
+
+  const hasFeatured = featured !== null || loading
 
   return (
-    <>
-      {/* ---------- stat strip ---------- */}
-      <section className="lbai-reveal">
-        <div className="lb-panel grid grid-cols-2 overflow-hidden md:grid-cols-4">
-          <StatCell divider={0} icon={<IconSwords size={11} className="text-zinc-600" />} label="TOOLS RANKED">
-            <AnimatedCounter
-              value={tools?.length ?? 0}
-              duration={1100}
-              formatter={(v) => formatNumber(Math.round(v))}
-            />
-          </StatCell>
+    <section ref={rootRef} className="aib" aria-label="AI leaderboard">
+      {/* ---------------- the header strip ---------------- */}
+      <div className="aib-slab aib-head">
+        <AiTitleBar
+          machines={tools?.length ?? 0}
+          players={totals?.pilots ?? 0}
+          points={totals?.score ?? 0}
+          windowLabel={windowName}
+          generatedAt={generatedAt}
+          status={status}
+        />
+      </div>
 
-          <StatCell divider={1} icon={<IconUsers size={11} className="text-zinc-600" />} label="PLAYERS TRACKED">
-            <AnimatedCounter
-              value={totals?.pilots ?? 0}
-              duration={1100}
-              formatter={(v) => formatNumber(Math.round(v))}
-            />
-          </StatCell>
-
-          <StatCell
-            divider={2}
-            icon={<IconTrophy size={11} className="text-[rgb(var(--lb-gold)/0.8)]" />}
-            label="COMBINED SCORE"
-            valueStyle={{
-              color: 'rgb(var(--lb-score))',
-              textShadow: '0 0 14px rgb(var(--lb-score) / calc(0.4 * var(--lb-glow, 1)))'
-            }}
-            hint="every player, every tool"
-          >
-            <AnimatedCounter
-              value={totals?.score ?? 0}
-              duration={1100}
-              formatter={(v) => formatCompact(Math.round(v))}
-            />
-          </StatCell>
-
-          <StatCell
-            divider={3}
-            icon={<IconCrown size={11} className="text-[rgb(var(--lb-gold)/0.8)]" />}
-            label="APEX TOOL"
-            hint={apex ? `${apex.percent}% of the board` : undefined}
-          >
-            {apex ? (
-              <span
-                className="lbai-hue flex items-center justify-center gap-2"
-                style={{ ...hueVars(identityForTool(apex.name).rgb), color: 'rgb(var(--tb))' }}
-              >
-                <ToolIcon name={apex.name} size={14} className="shrink-0" />
-                <span className="truncate">{apex.name.toUpperCase()}</span>
-              </span>
-            ) : (
-              <span className="text-zinc-700">—</span>
-            )}
-          </StatCell>
-        </div>
-      </section>
-
-      {/* ---------- faction standings ---------- */}
-      <section
-        className={`lbai-reveal relative ${selectedTool ? 'lbai-freeze' : ''}`}
-        style={{ ['--rv' as string]: '120ms' }}
-      >
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-baseline gap-3">
-            <h2 className="font-display text-[11px] font-semibold tracking-[0.45em] text-zinc-300">
-              FACTION STANDINGS
-            </h2>
-            {!loading && !failed && (tools?.length ?? 0) > 0 && (
-              <span className="text-[10px] tracking-[0.2em] text-zinc-600 tabular-nums">
-                {tools!.length} MACHINES
-              </span>
-            )}
-          </div>
-          <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
-            {/* SEASON / ALL-TIME — same nested-pill dialect as the
-                standings-window pills; toggles the embedded boards
-                locally, no refetch. Hidden while no season is live. */}
-            {boards?.season && (
-              <div
-                className="lb-inset flex items-center gap-0.5 rounded-lg p-0.5"
-                role="tablist"
-                aria-label="AI leaderboard window"
-              >
-                {AI_WINDOWS.map((item) => {
-                  const active = activeWindow === item.id
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={active}
-                      onClick={() => {
-                        userPicked.current = true
-                        setWindowId(item.id)
-                      }}
-                      className={`rounded-md px-2.5 py-1.5 text-[9px] tracking-[0.2em] transition-colors ${
-                        active ? '' : 'text-zinc-600 hover:text-zinc-300'
-                      }`}
-                      style={
-                        active
-                          ? {
-                              border: '1px solid rgb(var(--lb-gold) / 0.5)',
-                              color: 'rgb(var(--lb-gold))',
-                              background: 'rgb(var(--lb-gold) / 0.07)'
-                            }
-                          : { border: '1px solid transparent' }
-                      }
-                    >
-                      {item.label}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-            <SearchBar value={query} onChange={setQuery} />
-            <UpdatedStamp generatedAt={generatedAt} />
-          </div>
-        </div>
-
-        {/* podium — always the field's top 3, never the hunt's */}
-        {!loading && !failed && (tools?.length ?? 0) > 0 && (
-          <AiPodium
-            top3={tools!.slice(0, 3)}
-            viewerTopTool={typeof viewerFaction === 'string' ? viewerFaction : null}
-            onSelect={(tool) => setSelectedName(tool.name)}
-          />
-        )}
-
-        <div className="lb-panel relative overflow-hidden">
-          <div
-            className={`${ROW_GRID} border-b border-[rgb(var(--lb-panel-edge)/0.08)] py-3 text-[9px] tracking-[0.35em] text-zinc-500`}
-          >
-            <div>RANK</div>
-            <div>TOOL</div>
-            <div className="hidden text-right md:block">PLAYERS</div>
-            <div className="hidden text-right md:block">TIME</div>
-            <div className="hidden text-right md:block">7D</div>
-            <div className="hidden text-right md:block">BURN</div>
-            <div className="text-right text-zinc-300">SCORE</div>
-          </div>
-
-          <ul className="relative">
-            {loading &&
-              Array.from({ length: 6 }, (_, i) => <SkeletonRow key={i} index={i} />)}
-
-            {failed && (
-              <li className="flex flex-col items-center gap-4 py-14 text-center">
-                <span className="text-xs tracking-[0.15em] text-zinc-500">
-                  The machine standings failed to load.
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFailed(false)
-                    setBoards(null)
-                    void load()
-                  }}
-                  className="lb-inset flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100"
-                >
-                  <IconRefresh size={11} />
-                  RETRY
-                </button>
-              </li>
-            )}
-
-            {!loading && !failed && filtered.length === 0 && (
-              <li className="py-14 text-center text-xs tracking-[0.15em] text-zinc-500">
-                {query
-                  ? 'No machines match that callsign.'
-                  : 'The machines await their first players.'}
-              </li>
-            )}
-
-            {!loading &&
-              !failed &&
-              filtered.map((tool, i) => (
-                <ToolRow
-                  key={tool.name}
-                  tool={tool}
-                  index={i}
-                  topScore={topScore}
-                  hottest={tool.weekScore > 0 && tool.weekScore === maxWeekScore}
-                  isYourTeam={tool.name === viewerFaction}
-                  onSelect={setSelectedName}
-                  setRef={setRowRef}
+      {/* ---------------- the cards: [featured + agents] | machines ---------------- */}
+      <div className="aib-body" data-featured={hasFeatured || undefined}>
+        <div className="aib-side">
+          {hasFeatured && (
+            <div className="aib-slab aib-house">
+              {featured ? (
+                <AiFeatured
+                  tool={featured}
+                  meta={metaFor(featured.name)}
+                  runnerUp={runnerUp}
+                  windowLabel={windowName}
+                  machines={tools?.length ?? 0}
                 />
-              ))}
-          </ul>
+              ) : (
+                <AiFeaturedSkeleton />
+              )}
+            </div>
+          )}
+          {board && <AiAgents agents={agents} windowLabel={windowName} />}
         </div>
 
-        <p className="mt-3 text-center text-[9px] tracking-[0.3em] text-zinc-600">
-          {activeWindow === 'season'
-            ? 'RANKED BY EVERY PLAYER’S COMBINED CURRENT-SEASON SCORE'
-            : 'RANKED BY EVERY PLAYER’S COMBINED LIFETIME SCORE'}
-        </p>
-        <p className="mt-1 text-center text-[9px] tracking-[0.22em] text-zinc-700">
-          BURN = OPT-IN AGENT ESTIMATES · NEVER RANKS A MACHINE
-        </p>
+        <div className="aib-slab aib-machines">
+          <AiPrompt
+            window={activeWindow}
+            hasSeason={Boolean(boards?.season)}
+            onWindow={onWindow}
+            sort={sort}
+            sortDir={sortDir}
+            category={activeCategory}
+            categories={categories}
+            onCategory={onCategory}
+            query={query}
+            onQuery={onQuery}
+            shown={visible.length}
+            matched={matched}
+          />
+          <AiTable
+            state={tableState}
+            rows={visible}
+            tools={tools ?? []}
+            metaFor={metaFor}
+            sort={sort}
+            sortDir={sortDir}
+            onSort={onSort}
+            openName={openName}
+            onToggle={onToggle}
+            viewerFaction={typeof viewerFaction === 'string' ? viewerFaction : null}
+            setRowRef={setRowRef}
+            emptyLabel={emptyLabel}
+            onRetry={retry}
+          />
+          <p className="aib-foot">
+            SCORE = VERIFIED ACTIVE SECONDS + {SCORE_POLICY.visitPoints} / VISIT · TOP {TOP_N}
+            {tools ? ` OF ${tools.length}` : ''} MACHINES · REFRESHES EVERY 5 MIN
+          </p>
+        </div>
+      </div>
 
-        {/* ---------- sticky YOUR TEAM / recruit bar ---------- */}
-        {/* data-lb-dock: docked by LeaderboardScrollRuntime while the
-            scroll smoother is live; CSS sticky is the native fallback. */}
-        {!loading && !failed && tools !== null && viewerFaction !== undefined && (
-          <div
-            data-lb-dock
-            className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 mt-4"
-          >
-            {yourRow ? (
-              <YourFactionBar tool={yourRow} onJump={jumpToYourTeam} />
-            ) : (
-              <RecruitBar />
-            )}
-          </div>
-        )}
-      </section>
-
-      {selectedTool && tools && (
-        <ToolCard
-          tool={selectedTool}
-          tools={tools}
-          windowLabel={activeWindow === 'season' ? 'SEASON' : 'ALL-TIME'}
-          isYourTeam={selectedTool.name === viewerFaction}
-          onClose={() => setSelectedName(null)}
+      {/* Docked strip: only once the viewer's machine is known and the
+          board has rows to jump to (stale rows still count). */}
+      {tools !== null && viewerFaction !== undefined && (
+        <AiDock
+          tool={yourRow}
+          org={yourRow ? metaFor(yourRow.name).org : '—'}
+          onJump={jumpToYourMachine}
         />
       )}
 
       <style jsx global>{`
-        .lbai-hue {
-          --tb: var(--tb-d);
+        /* ================= tokens =================
+           The slab is dark in both themes. Every length is written in
+           --u, which folds two things together: the page's md+ zoom (0.9),
+           undone so a nominal 16px is not silently 14.4; and the board's
+           own scale, 0.92 — the design was drawn at 100% and tuned down a
+           notch, so a "16px" name renders at ~14.7px everywhere. */
+        .aib {
+          --aib-scale: 0.92;
+          --u: calc(var(--aib-scale) * 1px);
+          --aib-bg: 10 13 22;
+          --aib-bg-2: 14 18 30;
+          --aib-edge: 214 218 228;
+          --aib-ink: 241 240 235;
+          --aib-ink-2: 156 163 178;
+          --aib-amber: 246 196 66;
+          --aib-orange: 249 130 30;
+          --aib-cream: 247 240 216;
+          --aib-frame: rgb(var(--aib-amber) / 0.85);
+          --aib-rule: rgb(var(--aib-amber) / 0.32);
+          --aib-hair: rgb(var(--aib-ink) / 0.1);
+          --aib-mono: var(--font-data), ui-monospace, 'SF Mono', Menlo, monospace;
+          --aib-pixel: var(--font-pixel), ui-monospace, monospace;
+          --aib-feat-w: calc(340 * var(--u));
+          --aib-pad: calc(24 * var(--u));
+          --aib-gap: calc(20 * var(--u));
+          position: relative;
+          color: rgb(var(--aib-ink));
+          color-scheme: dark;
+          font-family: var(--aib-mono);
+          font-size: calc(14 * var(--u));
+          line-height: 1.45;
+          font-variant-numeric: tabular-nums;
+          /* the typewriter splits characters; kerning would shift them */
+          font-kerning: none;
         }
-        html.light .lbai-hue {
-          --tb: var(--tb-i);
-        }
-
-        .lbai-reveal {
-          animation: lbai-reveal-in 640ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
-          animation-delay: var(--rv, 0ms);
-        }
-        @keyframes lbai-reveal-in {
-          from {
-            opacity: 0;
-            transform: translateY(14px);
+        @media (min-width: 768px) {
+          .aib {
+            --u: calc(var(--aib-scale) * 1px / 0.9);
           }
         }
-        .lbai-row-in {
-          animation: lbai-row-enter 480ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
-          animation-delay: var(--rd, 0ms);
+        @media (min-width: 1280px) {
+          .aib {
+            --aib-feat-w: calc(380 * var(--u));
+          }
         }
-        @keyframes lbai-row-enter {
-          from {
-            opacity: 0;
-            transform: translateY(8px);
+        .aib,
+        .aib * {
+          border-radius: 0;
+        }
+        .aib :focus-visible {
+          outline: 1px solid rgb(var(--aib-amber));
+          outline-offset: -1px;
+        }
+        /* :where() keeps this reset at class-level specificity, so the
+           margins the components set on their own <p>/<dl>/<dd> (.aib-spec,
+           .aib-sheet-grid, .aib-sheet-cell dd, .aib-featured-meta…) win
+           over it instead of being silently zeroed. */
+        .aib :where(p, dl, dd, h2) {
+          margin: 0;
+        }
+        .aib-amber {
+          color: rgb(var(--aib-amber));
+        }
+
+        /* the frame: one clean amber line, a navy sheet inside. Every
+           component is its own framed card; --aib-gap is the air between. */
+        .aib-slab {
+          background: rgb(var(--aib-bg));
+          border: 1px solid var(--aib-frame);
+        }
+        .aib-head + .aib-body,
+        .aib-body + .aib-dock {
+          margin-top: var(--aib-gap);
+        }
+
+        /* rules are real elements so the mount cascade can draw them */
+        .aib-rule-x {
+          display: block;
+          height: 1px;
+          background: var(--aib-rule);
+        }
+
+        .aib-tag {
+          display: inline-block;
+          padding: calc(5 * var(--u)) calc(10 * var(--u));
+          border: 1px solid currentColor;
+          font-size: calc(11 * var(--u));
+          line-height: 1.2;
+          letter-spacing: 0.2em;
+          text-transform: uppercase;
+          white-space: nowrap;
+        }
+        .aib-cursor {
+          display: inline-block;
+          width: 0.6em;
+          height: 0.95em;
+          margin-left: 0.3em;
+          vertical-align: -0.1em;
+          background: rgb(var(--aib-orange));
+        }
+
+        /* ================= title bar ================= */
+        .aib-titlebar {
+          display: flex;
+          align-items: center;
+          gap: calc(12 * var(--u));
+          min-height: calc(52 * var(--u));
+          padding: calc(12 * var(--u)) var(--aib-pad);
+          font-size: calc(14 * var(--u));
+          color: rgb(var(--aib-ink-2));
+        }
+        .aib-titlebar-dot {
+          font-size: calc(11 * var(--u));
+          color: rgb(var(--aib-amber));
+        }
+        .aib-titlebar-text {
+          flex: 1;
+          min-width: 0;
+          overflow: hidden;
+          white-space: nowrap;
+          text-overflow: ellipsis;
+        }
+        .aib-titlebar-name {
+          font-weight: 600;
+          letter-spacing: 0.1em;
+          color: rgb(var(--aib-ink));
+        }
+        .aib-titlebar-num {
+          color: rgb(var(--aib-ink));
+        }
+        .aib-titlebar-sep {
+          margin: 0 calc(10 * var(--u));
+        }
+        .aib-titlebar-stamp {
+          flex: none;
+          font-size: calc(11 * var(--u));
+          letter-spacing: 0.18em;
+          white-space: nowrap;
+        }
+        .aib-titlebar-stamp[data-status='stale'],
+        .aib-titlebar-stamp[data-status='offline'] {
+          color: rgb(var(--aib-amber));
+        }
+        /* phones keep the name, the window and the stamp; figures go and
+           the bar tightens a notch so "CRIBBLE AI // SEASON 01" stays whole */
+        @media (max-width: 767px) {
+          .aib-titlebar {
+            padding-left: calc(16 * var(--u));
+            padding-right: calc(16 * var(--u));
+            font-size: calc(13 * var(--u));
+          }
+          .aib-titlebar-sep {
+            margin: 0 calc(6 * var(--u));
+          }
+          .aib-titlebar-stamp {
+            letter-spacing: 0.12em;
+          }
+          .aib-titlebar-num-opt,
+          .aib-titlebar-verb {
+            display: none;
+          }
+        }
+        /* players + pts only once the bar is a full desktop width */
+        @media (max-width: 1023px) {
+          .aib-titlebar-opt {
+            display: none;
           }
         }
 
-        /* jersey rows — the hover/focus wash and rail wear the house hue */
-        .lbai-rowbtn {
+        /* ================= body: [house + agents] | machines =================
+           Below lg the side column dissolves (display: contents) and its
+           cards join the one-column stack in reading order: house,
+           machines, agents. */
+        .aib-body {
+          position: relative;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr);
+          gap: var(--aib-gap);
+        }
+        .aib-side {
+          display: contents;
+        }
+        .aib-house {
+          order: 1;
+        }
+        .aib-machines {
+          order: 2;
+          min-width: 0;
+        }
+        .aib-agents {
+          order: 3;
+        }
+        @media (min-width: 1024px) {
+          .aib-body[data-featured] {
+            grid-template-columns: var(--aib-feat-w) minmax(0, 1fr);
+            align-items: start;
+          }
+          .aib-body[data-featured] > .aib-side {
+            display: flex;
+            flex-direction: column;
+            gap: var(--aib-gap);
+            min-width: 0;
+          }
+        }
+
+        /* ================= featured (rank 1) =================
+           One centre axis, generous vertical rhythm — the house pour. */
+        .aib-featured {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: calc(18 * var(--u));
+          padding: calc(36 * var(--u)) calc(28 * var(--u)) calc(30 * var(--u));
+          text-align: center;
+        }
+        .aib-featured-tag {
+          color: rgb(var(--aib-amber));
+        }
+        .aib-featured-mark {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin: calc(6 * var(--u)) 0;
+          color: rgb(var(--aib-orange));
+        }
+        .aib-featured-mark-lg,
+        .aib-featured-mark-sm {
+          display: block;
+          line-height: 0;
+        }
+        /* CSS beats the SVG's size attributes, so the mark scales with --u */
+        .aib-featured-mark-lg > * {
+          width: calc(120 * var(--u));
+          height: calc(120 * var(--u));
+        }
+        .aib-featured-mark-sm > * {
+          width: calc(40 * var(--u));
+          height: calc(40 * var(--u));
+        }
+        .aib-featured-mark-sm {
+          display: none;
+        }
+        .aib-featured-name {
+          font-family: var(--aib-pixel);
+          font-size: calc(28 * var(--u));
+          line-height: 1.3;
+          color: rgb(var(--aib-ink));
+          overflow-wrap: anywhere;
+        }
+        .aib-featured-name[data-scale='md'] {
+          font-size: calc(20 * var(--u));
+        }
+        .aib-featured-name[data-scale='sm'] {
+          font-size: calc(15 * var(--u));
+        }
+        .aib-featured-meta {
+          margin-top: calc(-8 * var(--u));
+          font-size: calc(15 * var(--u));
+          color: rgb(var(--aib-ink) / 0.88);
+        }
+        .aib-featured-caps {
+          margin-top: calc(-6 * var(--u));
+          font-size: calc(11 * var(--u));
+          letter-spacing: 0.2em;
+          color: rgb(var(--aib-ink-2));
+        }
+        .aib-featured-foot {
+          font-size: calc(11 * var(--u));
+          letter-spacing: 0.24em;
+          color: rgb(var(--aib-ink-2));
+        }
+
+        /* the spec box — base / key / model / ctx / rig, but ours. Framed
+           in cream rather than amber so it reads as the one white-bordered
+           element inside the amber card, and set in the pixel face: the
+           read-out is the machine's nameplate, same voice as the name. */
+        .aib-spec {
+          width: 100%;
+          margin-top: calc(6 * var(--u));
+          border: 1px solid rgb(var(--aib-cream) / 0.9);
+          text-align: left;
+        }
+        .aib-spec-row {
+          display: grid;
+          grid-template-columns: calc(80 * var(--u)) minmax(0, 1fr);
+          align-items: baseline;
+          gap: calc(12 * var(--u));
+          padding: calc(14 * var(--u)) calc(16 * var(--u));
+          border-top: 1px solid rgb(var(--aib-cream) / 0.28);
+        }
+        .aib-spec-row:first-child {
+          border-top: 0;
+        }
+        .aib-spec-row dt {
+          font-family: var(--aib-pixel);
+          font-size: calc(8 * var(--u));
+          line-height: 1.4;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: rgb(var(--aib-ink-2));
+        }
+        .aib-spec-row dd {
+          font-family: var(--aib-pixel);
+          font-size: calc(14 * var(--u));
+          font-weight: 400;
+          line-height: 1.3;
+          color: rgb(var(--aib-amber));
+          overflow-wrap: anywhere;
+        }
+
+        /* md–lg: the panel sits above the list, so it goes wide — the
+           identity centred in the left half, the spec box on the right */
+        @media (min-width: 768px) and (max-width: 1023px) {
+          .aib-featured {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, calc(360 * var(--u)));
+            grid-auto-rows: min-content;
+            column-gap: calc(32 * var(--u));
+            row-gap: calc(14 * var(--u));
+            align-items: start;
+            justify-items: center;
+            padding: calc(32 * var(--u)) calc(28 * var(--u));
+          }
+          .aib-featured-mark {
+            margin: 0;
+          }
+          .aib-spec {
+            grid-column: 2;
+            grid-row: 1 / span 6;
+            align-self: center;
+            justify-self: stretch;
+            margin-top: 0;
+          }
+        }
+
+        /* < md: compact band — mark, headline, org, three values */
+        @media (max-width: 767px) {
+          .aib-featured {
+            display: grid;
+            grid-template-columns: calc(56 * var(--u)) minmax(0, 1fr);
+            column-gap: calc(16 * var(--u));
+            row-gap: calc(4 * var(--u));
+            align-items: center;
+            justify-items: start;
+            padding: calc(20 * var(--u)) calc(16 * var(--u));
+            text-align: left;
+          }
+          .aib-featured-tag,
+          .aib-featured-caps,
+          .aib-featured-foot {
+            display: none;
+          }
+          .aib-featured-mark {
+            grid-row: 1 / span 2;
+            margin: 0;
+          }
+          .aib-featured-mark-lg {
+            display: none;
+          }
+          .aib-featured-mark-sm {
+            display: block;
+          }
+          .aib-featured-name {
+            grid-column: 2;
+            font-size: calc(18 * var(--u));
+          }
+          .aib-featured-name[data-scale='md'],
+          .aib-featured-name[data-scale='sm'] {
+            font-size: calc(15 * var(--u));
+          }
+          .aib-featured-meta {
+            grid-column: 2;
+            margin-top: 0;
+            font-size: calc(13 * var(--u));
+          }
+          .aib-spec {
+            display: grid;
+            grid-column: 1 / -1;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 1px;
+            margin-top: calc(14 * var(--u));
+            background: rgb(var(--aib-cream) / 0.28);
+          }
+          .aib-spec-row {
+            display: flex;
+            flex-direction: column;
+            gap: calc(4 * var(--u));
+            padding: calc(10 * var(--u)) calc(12 * var(--u));
+            border-top: 0;
+            background: rgb(var(--aib-bg));
+          }
+          .aib-spec-row dd {
+            font-size: calc(12 * var(--u));
+          }
+          .aib-spec-row[data-compact-hide] {
+            display: none;
+          }
+        }
+
+        /* ================= prompt + controls ================= */
+        .aib-prompt {
+          padding: var(--aib-pad) var(--aib-pad) 0;
+        }
+        /* The tail is the board's state readout: --sort=players
+           --category=code is what a control just changed. A terminal wraps
+           a long command rather than cutting it, and at 1440 the machines
+           card is only ~420px, so nowrap + ellipsis hid exactly those
+           flags. The typewriter splits words around chars, so a break
+           lands between flags, never inside one. */
+        .aib-prompt-line {
+          font-size: calc(15 * var(--u));
+          line-height: 1.5;
+          overflow-wrap: break-word;
+          color: rgb(var(--aib-ink));
+        }
+        .aib-prompt-user {
+          color: rgb(var(--aib-ink-2));
+        }
+        .aib-prompt-cmd {
+          font-weight: 500;
+          color: rgb(var(--aib-amber));
+        }
+        .aib-controls {
+          margin-top: calc(18 * var(--u));
+        }
+        .aib-controls-row {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: calc(10 * var(--u)) calc(16 * var(--u));
+        }
+        .aib-toggles {
+          display: flex;
+          gap: calc(10 * var(--u));
+        }
+        .aib-toggle {
+          padding: calc(6 * var(--u)) 0;
+          border: 0;
+          background: none;
+          font: inherit;
+          font-size: calc(13 * var(--u));
+          letter-spacing: 0.1em;
+          color: rgb(var(--aib-ink-2));
+          white-space: nowrap;
           cursor: pointer;
-          transition: background-color 200ms ease;
         }
-        .lbai-rowbtn:hover,
-        .lbai-rowbtn:focus-visible {
-          background: rgb(var(--tb-d) / 0.06);
-          box-shadow: inset 2px 0 0 rgb(var(--tb));
+        .aib-toggle:hover {
+          color: rgb(var(--aib-ink));
         }
-        .lbai-rowbtn:focus-visible {
-          outline: 2px solid rgb(var(--tb) / 0.6);
-          outline-offset: -2px;
+        .aib-toggle[aria-selected='true'] {
+          color: rgb(var(--aib-amber));
         }
-        /* your-team row rests tinted; hover lifts it a step */
-        .lbai-yours .lbai-rowbtn {
-          background: rgb(var(--tb-d) / 0.05);
-          box-shadow: inset 2px 0 0 rgb(var(--tb));
+        .aib-filter {
+          display: inline-flex;
+          align-items: center;
+          gap: calc(8 * var(--u));
+          height: calc(38 * var(--u));
+          margin-left: auto;
+          padding: 0 calc(12 * var(--u));
+          border: 1px solid rgb(var(--aib-ink) / 0.22);
         }
-        .lbai-yours .lbai-rowbtn:hover,
-        .lbai-yours .lbai-rowbtn:focus-visible {
-          background: rgb(var(--tb-d) / 0.1);
+        .aib-filter:focus-within {
+          border-color: rgb(var(--aib-amber));
         }
-
-        /* pause the podium's infinite FX while the ToolCard covers them */
-        .lbai-freeze * {
-          animation-play-state: paused !important;
+        .aib-filter-mark {
+          color: rgb(var(--aib-amber));
         }
-
-        @media (prefers-reduced-motion: reduce) {
-          .lbai-reveal,
-          .lbai-row-in {
-            animation: none;
+        .aib-filter input {
+          width: calc(120 * var(--u));
+          border: 0;
+          background: transparent;
+          font: inherit;
+          font-size: calc(14 * var(--u));
+          color: rgb(var(--aib-ink));
+          outline: none;
+        }
+        .aib-filter input::placeholder {
+          color: rgb(var(--aib-ink-2));
+          opacity: 1;
+        }
+        /* iOS zooms the page into any focused input under 16px */
+        @media (max-width: 767px) {
+          .aib-filter input {
+            font-size: 16px;
           }
-          .lbai-rowbtn {
-            transition: none;
+        }
+        .aib-count {
+          font-size: calc(11 * var(--u));
+          letter-spacing: 0.16em;
+          color: rgb(var(--aib-ink-2));
+          white-space: nowrap;
+        }
+        /* spaced, not separated: glyph dividers leave orphans when the row
+           wraps, so the rhythm here is gap alone and the active chip's rule */
+        .aib-chips {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 0 calc(26 * var(--u));
+          margin-top: calc(10 * var(--u));
+        }
+        .aib-chip {
+          padding: calc(6 * var(--u)) 0;
+          border: 0;
+          background: none;
+          font: inherit;
+          font-size: calc(12 * var(--u));
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          color: rgb(var(--aib-ink-2));
+          cursor: pointer;
+        }
+        .aib-chip:hover {
+          color: rgb(var(--aib-ink));
+        }
+        .aib-chip[aria-pressed='true'] {
+          color: rgb(var(--aib-amber));
+          text-decoration: underline;
+          text-decoration-thickness: 1px;
+          text-underline-offset: calc(5 * var(--u));
+        }
+
+        /* ================= table: one grid, five tracks =================
+           Fixed tracks sized to their widest real value ("1,994,145",
+           "$167,816", "PLAYERS▾", "100%"); TOOL takes the rest. */
+        .aib-table {
+          margin-top: calc(22 * var(--u));
+        }
+        .aib-agents .aib-table {
+          margin-top: 0;
+        }
+        .aib-grid {
+          display: grid;
+          grid-template-columns: calc(42 * var(--u)) minmax(0, 1fr) calc(96 * var(--u));
+          align-items: center;
+          column-gap: calc(12 * var(--u));
+          padding: 0 calc(16 * var(--u));
+        }
+        .aib-cell {
+          min-width: 0;
+        }
+        .aib-col-players,
+        .aib-col-share {
+          display: none;
+        }
+        @media (min-width: 768px) {
+          .aib-grid {
+            grid-template-columns:
+              calc(52 * var(--u)) minmax(0, 1fr) calc(108 * var(--u)) calc(72 * var(--u))
+              calc(84 * var(--u));
+            column-gap: calc(14 * var(--u));
+            padding: 0 var(--aib-pad);
+          }
+          .aib-col-players,
+          .aib-col-share {
+            display: block;
+          }
+          /* Only the data cell stacks percent over its bar. The SHARE
+             header and the skeleton cell share the column class and must
+             stay block so text-align: right still pins them to the column
+             (a flex header parks its label at the left edge). */
+          .aib-share {
+            display: flex;
+          }
+        }
+        /* The AGENTS card lives in the 340–380px side column on lg+, so it
+           folds to three tracks there — pilots and share move under burn
+           (.aib-asub), exactly as they do on phones. Only the md band, where
+           the card runs full width with all five columns, hides that line. */
+        @media (min-width: 768px) and (max-width: 1023px) {
+          .aib-agents .aib-asub {
+            display: none;
+          }
+        }
+        @media (min-width: 1024px) {
+          .aib-agents .aib-grid {
+            grid-template-columns: calc(42 * var(--u)) minmax(0, 1fr) calc(104 * var(--u));
+            column-gap: calc(12 * var(--u));
+            padding: 0 calc(16 * var(--u));
+          }
+          .aib-agents .aib-tool {
+            gap: calc(10 * var(--u));
+          }
+          .aib-agents .aib-col-players,
+          .aib-agents .aib-col-share {
+            display: none;
+          }
+          .aib-agents .aib-name {
+            font-size: calc(15 * var(--u));
+          }
+          .aib-agents .aib-titlebar-opt,
+          .aib-agents .aib-titlebar-num-opt {
+            display: none;
+          }
+          .aib-agents .aib-foot,
+          .aib-agents .aib-line {
+            padding-left: calc(16 * var(--u));
+            padding-right: calc(16 * var(--u));
+          }
+          .aib-agents .aib-titlebar {
+            padding-left: calc(16 * var(--u));
+            padding-right: calc(16 * var(--u));
+          }
+        }
+        /* Between lg and xl the side column is 340 wide and the machine card
+           ~560: the agents stamp yields to the burn headline (the footnote
+           carries the opt-in note), and the machine tracks tighten so the
+           TOOL column keeps whole names. */
+        @media (max-width: 767px), (min-width: 1024px) and (max-width: 1279px) {
+          .aib-agents .aib-titlebar-stamp {
+            display: none;
+          }
+        }
+        @media (min-width: 1024px) and (max-width: 1279px) {
+          .aib-machines {
+            --aib-pad: calc(20 * var(--u));
+          }
+          /* PLAYERS must hold its own header ("▾PLAYERS" ≈ 70u at 11px /
+             0.18em); SHARE only needs "100%" and "▾SHARE" (≈ 53u), so the
+             12u move between them, not out of TOOL. */
+          .aib-machines .aib-grid {
+            grid-template-columns:
+              calc(48 * var(--u)) minmax(0, 1fr) calc(100 * var(--u)) calc(72 * var(--u))
+              calc(60 * var(--u));
+            column-gap: calc(12 * var(--u));
+          }
+        }
+
+        .aib-thead {
+          min-height: calc(40 * var(--u));
+          border-bottom: 1px solid var(--aib-rule);
+        }
+        .aib-th {
+          font-size: calc(11 * var(--u));
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+          text-align: right;
+          color: rgb(var(--aib-ink-2));
+          white-space: nowrap;
+        }
+        .aib-th-left {
+          text-align: left;
+        }
+        .aib-th-sort {
+          padding: calc(10 * var(--u)) 0;
+          border: 0;
+          background: none;
+          font: inherit;
+          letter-spacing: inherit;
+          text-transform: inherit;
+          color: inherit;
+          cursor: pointer;
+        }
+        .aib-th-sort:hover,
+        .aib-th-sort[data-active] {
+          color: rgb(var(--aib-ink));
+        }
+        /* The glyph sits LEFT of the label (see AiTable) so a right-aligned
+           header's text edge lands on its numeric column whether or not it
+           is the active sort — the reserved 1ch never pushes the label
+           inboard. */
+        .aib-th-glyph {
+          display: inline-block;
+          width: 1ch;
+          margin-right: calc(3 * var(--u));
+          color: rgb(var(--aib-amber));
+          visibility: hidden;
+        }
+        .aib-th-sort[data-active] .aib-th-glyph {
+          visibility: visible;
+        }
+
+        .aib-rows {
+          position: relative;
+          margin: 0;
+          padding: 0;
+          list-style: none;
+        }
+        .aib-row {
+          border-bottom: 1px solid var(--aib-hair);
+        }
+        .aib-row:last-child {
+          border-bottom: 0;
+        }
+        .aib-rowbtn {
+          position: relative;
+          width: 100%;
+          min-height: calc(60 * var(--u));
+          padding-top: calc(10 * var(--u));
+          padding-bottom: calc(10 * var(--u));
+          border: 0;
+          background: none;
+          color: inherit;
+          font: inherit;
+          text-align: left;
+          cursor: pointer;
+        }
+        .aib-rowflat {
+          cursor: default;
+        }
+        /* the rail: 2px of amber, no shadow, no transition */
+        .aib-rowbtn::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          bottom: 0;
+          left: 0;
+          width: 2px;
+          background: rgb(var(--aib-amber));
+          opacity: 0;
+        }
+        /* the selected band, the way the menu fills its picked row */
+        button.aib-rowbtn:hover,
+        button.aib-rowbtn:focus-visible,
+        .aib-row[data-open] .aib-rowbtn {
+          background: rgb(var(--aib-amber) / 0.06);
+        }
+        button.aib-rowbtn:hover::before,
+        button.aib-rowbtn:focus-visible::before,
+        .aib-row[data-open] .aib-rowbtn::before {
+          opacity: 1;
+        }
+        .aib-row[data-yours] .aib-rowbtn::before {
+          background: rgb(var(--aib-orange));
+          opacity: 1;
+        }
+        button.aib-rowbtn:hover .aib-tool-mark,
+        button.aib-rowbtn:focus-visible .aib-tool-mark {
+          color: rgb(var(--aib-amber));
+        }
+
+        .aib-idx {
+          display: inline-block;
+          font-size: calc(15 * var(--u));
+          font-weight: 500;
+          line-height: 1;
+          color: rgb(var(--aib-amber));
+          white-space: nowrap;
+        }
+        .aib-idx[data-top] {
+          color: rgb(var(--aib-orange));
+        }
+        .aib-tool {
+          display: flex;
+          align-items: center;
+          gap: calc(14 * var(--u));
+        }
+        .aib-tool-mark {
+          flex: none;
+          color: rgb(var(--aib-ink));
+        }
+        .aib-tool-text {
+          display: flex;
+          min-width: 0;
+          flex-direction: column;
+          gap: calc(3 * var(--u));
+        }
+        .aib-tool-line {
+          display: flex;
+          min-width: 0;
+          align-items: center;
+          gap: calc(10 * var(--u));
+        }
+        .aib-name {
+          overflow: hidden;
+          font-size: calc(16 * var(--u));
+          font-weight: 600;
+          line-height: 1.25;
+          color: rgb(var(--aib-ink));
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .aib-tag-you {
+          flex: none;
+          padding: calc(3 * var(--u)) calc(7 * var(--u));
+          font-size: calc(10 * var(--u));
+          color: rgb(var(--aib-orange));
+        }
+        .aib-sub {
+          display: block;
+          overflow: hidden;
+          font-size: calc(12 * var(--u));
+          font-weight: 400;
+          line-height: 1.3;
+          color: rgb(var(--aib-ink-2));
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .aib-num {
+          font-size: calc(15 * var(--u));
+          text-align: right;
+          white-space: nowrap;
+        }
+        .aib-score {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: calc(3 * var(--u));
+        }
+        .aib-score-main {
+          font-size: calc(16 * var(--u));
+          font-weight: 500;
+          line-height: 1.25;
+          color: rgb(var(--aib-ink));
+        }
+        .aib-share {
+          flex-direction: column;
+          align-items: flex-end;
+          gap: calc(7 * var(--u));
+        }
+        .aib-sharebar {
+          display: block;
+          width: 100%;
+          height: 2px;
+          background: rgb(var(--aib-ink) / 0.1);
+        }
+        .aib-sharebar-fill {
+          display: block;
+          height: 2px;
+          background: rgb(var(--aib-ink) / 0.55);
+          transform-origin: 0 50%;
+        }
+        .aib-row[data-rank='1'] .aib-sharebar-fill {
+          background: rgb(var(--aib-amber));
+        }
+
+        /* ================= expanded spec sheet ================= */
+        .aib-sheet {
+          overflow: hidden;
+        }
+        .aib-sheet-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          /* the hairlines are this gap showing through: size it in --u so
+             it stays one whole device pixel under the page's 0.9 zoom
+             (a 1px gap between two opaque cells can snap to nothing) */
+          gap: calc(1 * var(--u));
+          margin: 0 calc(16 * var(--u)) calc(20 * var(--u));
+          border: 1px solid rgb(var(--aib-amber) / 0.26);
+          background: rgb(var(--aib-amber) / 0.26);
+        }
+        @media (min-width: 640px) {
+          .aib-sheet-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+          }
+        }
+        @media (min-width: 768px) {
+          .aib-sheet-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            margin: 0 var(--aib-pad) calc(22 * var(--u));
+          }
+        }
+        .aib-sheet-cell {
+          padding: calc(12 * var(--u)) calc(14 * var(--u)) calc(13 * var(--u));
+          background: rgb(var(--aib-bg));
+        }
+        .aib-sheet-cell dt {
+          font-size: calc(11 * var(--u));
+          letter-spacing: 0.12em;
+          color: rgb(var(--aib-ink-2));
+        }
+        .aib-sheet-cell dd {
+          margin-top: calc(5 * var(--u));
+          font-size: calc(14 * var(--u));
+          line-height: 1.4;
+          color: rgb(var(--aib-ink));
+          overflow-wrap: anywhere;
+        }
+        .aib-sheet-line {
+          display: block;
+        }
+
+        /* ================= states ================= */
+        .aib-line {
+          padding: calc(28 * var(--u)) var(--aib-pad);
+          font-size: calc(14 * var(--u));
+          color: rgb(var(--aib-ink-2));
+        }
+        .aib-error {
+          color: rgb(var(--aib-ink));
+        }
+        .aib-error .aib-toggle {
+          margin-left: calc(8 * var(--u));
+          color: rgb(var(--aib-amber));
+        }
+        .aib-skel {
+          color: rgb(var(--aib-edge) / 0.4);
+          opacity: 0.5;
+        }
+        .aib-skelrow {
+          width: 100%;
+          min-height: calc(60 * var(--u));
+        }
+        .aib-skelrow .aib-skel {
+          overflow: hidden;
+          font-size: calc(13 * var(--u));
+          letter-spacing: -0.05em;
+          white-space: nowrap;
+        }
+        .aib-skel-block {
+          display: block;
+          border: 1px solid rgb(var(--aib-edge) / 0.25);
+        }
+        .aib-featured-skel .aib-spec-row dd {
+          color: rgb(var(--aib-edge) / 0.4);
+        }
+
+        /* ================= footer ================= */
+        .aib-foot {
+          padding: calc(14 * var(--u)) var(--aib-pad);
+          border-top: 1px solid var(--aib-rule);
+          font-size: calc(11 * var(--u));
+          line-height: 1.7;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          color: rgb(var(--aib-ink-2));
+        }
+
+        /* ================= dock: sticky strip, near-opaque, no blur ================= */
+        .aib-dock-btn {
+          display: flex;
+          align-items: center;
+          gap: calc(14 * var(--u));
+          width: 100%;
+          min-height: calc(52 * var(--u));
+          padding: 0 var(--aib-pad);
+          border: 1px solid rgb(var(--aib-amber) / 0.7);
+          background: rgb(var(--aib-bg) / 0.97);
+          color: rgb(var(--aib-ink));
+          font: inherit;
+          font-size: calc(14 * var(--u));
+          text-align: left;
+          cursor: pointer;
+        }
+        button.aib-dock-btn:hover {
+          border-color: rgb(var(--aib-amber));
+          background: rgb(var(--aib-bg));
+        }
+        .aib-dock-static {
+          cursor: default;
+        }
+        .aib-dock-k {
+          flex: none;
+          font-size: calc(11 * var(--u));
+          letter-spacing: 0.18em;
+          color: rgb(var(--aib-orange));
+          white-space: nowrap;
+        }
+        .aib-dock-name {
+          min-width: 0;
+          overflow: hidden;
+          font-weight: 600;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .aib-dock-org {
+          font-weight: 400;
+          color: rgb(var(--aib-ink-2));
+        }
+        .aib-dock-dots {
+          flex: 1;
+          min-width: calc(12 * var(--u));
+          overflow: hidden;
+          color: rgb(var(--aib-ink-2));
+          text-align: center;
+          white-space: nowrap;
+        }
+        .aib-dock-note {
+          flex: none;
+          font-size: calc(11 * var(--u));
+          letter-spacing: 0.16em;
+          color: rgb(var(--aib-ink-2));
+          white-space: nowrap;
+        }
+        .aib-dock-score {
+          flex: none;
+          font-weight: 500;
+        }
+        .aib-dock-delta {
+          flex: none;
+          color: rgb(var(--aib-ink-2));
+        }
+        .aib-dock-recruit .aib-dock-name {
+          font-weight: 400;
+          color: rgb(var(--aib-ink-2));
+        }
+        @media (max-width: 639px) {
+          .aib-dock-org,
+          .aib-dock-delta,
+          .aib-dock-note {
+            display: none;
           }
         }
       `}</style>
-    </>
-  )
-}
-
-/* ================= stat strip cell ================= */
-
-function StatCell({
-  divider,
-  icon,
-  label,
-  hint,
-  valueStyle,
-  children
-}: {
-  divider: number
-  icon: React.ReactNode
-  label: string
-  hint?: string
-  valueStyle?: React.CSSProperties
-  children: React.ReactNode
-}) {
-  const divCls = (() => {
-    if (divider === 0) return ''
-    if (divider === 1) return 'border-l border-[rgb(var(--lb-panel-edge)/0.08)]'
-    if (divider === 2)
-      return 'border-t border-[rgb(var(--lb-panel-edge)/0.08)] md:border-t-0 md:border-l'
-    return 'border-t border-l border-[rgb(var(--lb-panel-edge)/0.08)] md:border-t-0'
-  })()
-
-  return (
-    <div className={`flex min-w-0 flex-col items-center overflow-hidden px-4 py-4 text-center ${divCls}`}>
-      <div className="flex flex-wrap items-center justify-center gap-1.5 text-[9px] tracking-[0.16em] sm:tracking-[0.28em] text-zinc-500">
-        {icon}
-        {label}
-      </div>
-      <div
-        className="mt-2.5 max-w-full text-[clamp(11px,2.6vw,16px)] text-zinc-50 tabular-nums [font-family:var(--font-pixel)]"
-        style={valueStyle}
-      >
-        {children}
-      </div>
-      {hint && (
-        <div className="mt-1 max-w-full truncate text-[9px] tracking-[0.2em] text-zinc-600">{hint}</div>
-      )}
-    </div>
-  )
-}
-
-/* ================= burn read-out ================= */
-
-/** Same USD markup the Burn Board uses: optional "<" for sub-cent
- *  values, green dollar mark, exact-decimal display parts. */
-function BurnValue({ value }: { value: string }) {
-  const display = usdDisplayParts(value)
-  return (
-    <>
-      {display.tiny ? '<' : null}
-      <span className="text-[#39ff88]">$</span>
-      {display.number}
-    </>
-  )
-}
-
-/* ================= standings rows ================= */
-
-function ToolRow({
-  tool,
-  index,
-  topScore,
-  hottest,
-  isYourTeam,
-  onSelect,
-  setRef
-}: {
-  tool: AiToolRow
-  index: number
-  topScore: number
-  hottest: boolean
-  isYourTeam: boolean
-  onSelect: (name: string) => void
-  setRef: (name: string, el: HTMLLIElement | null) => void
-}) {
-  const medal = medalFor(tool.rank)
-  const identity = identityForTool(tool.name)
-  const pct = topScore > 0 ? Math.max(2, Math.round((tool.score / topScore) * 100)) : 0
-
-  return (
-    <li
-      ref={(el) => setRef(tool.name, el)}
-      className={`lbai-row-in lbai-hue border-b border-[rgb(var(--lb-panel-edge)/0.05)] last:border-b-0 ${
-        isYourTeam ? 'lbai-yours' : ''
-      }`}
-      style={{
-        ...hueVars(identity.rgb),
-        ['--rd' as string]: `${Math.min(index, 12) * 34}ms`
-      }}
-    >
-      <button
-        type="button"
-        onClick={() => onSelect(tool.name)}
-        aria-label={`Open faction card — ${tool.name}, rank ${tool.rank}`}
-        className={`${ROW_GRID} lbai-rowbtn w-full py-4 text-left focus-visible:outline-none`}
-      >
-        {/* rank — medal chrome on the podium, quiet brand box below it */}
-        <div className="flex items-center">
-          {medal ? (
-            <span
-              className="inline-flex h-8 w-8 items-center justify-center text-[11px] [font-family:var(--font-pixel)]"
-              style={{
-                color: medal.fg,
-                border: `1px solid ${medalA(medal.rgb, 0.5)}`,
-                background: medalA(medal.rgb, 0.08),
-                textShadow: `0 0 10px ${medalGlow(medal.rgb, 0.55)}`
-              }}
-            >
-              {tool.rank}
-            </span>
-          ) : (
-            <span
-              className="inline-flex h-8 w-8 items-center justify-center text-[11px] tabular-nums text-zinc-500 [font-family:var(--font-pixel)]"
-              style={{
-                border: '1px solid rgb(var(--tb) / 0.15)',
-                background: 'rgb(var(--tb-d) / 0.04)'
-              }}
-            >
-              {tool.rank}
-            </span>
-          )}
-        </div>
-
-        {/* house identity — square crest, name, epithet */}
-        <div className="flex min-w-0 items-center gap-3">
-          <span
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
-            style={{
-              color: 'rgb(var(--tb))',
-              background: 'rgb(var(--tb-d) / 0.08)',
-              border: '1px solid rgb(var(--tb) / 0.3)'
-            }}
-          >
-            <ToolIcon name={tool.name} size={17} />
-          </span>
-          <span className="flex min-w-0 flex-col gap-0.5">
-            <span className="flex min-w-0 items-center gap-2">
-              <span
-                className="truncate font-display text-[13px] font-medium tracking-tight"
-                style={{ color: 'rgb(var(--z100))' }}
-              >
-                {tool.name}
-              </span>
-              <span
-                className="shrink-0 text-[9px] tabular-nums"
-                style={{ color: 'rgb(var(--tb) / 0.85)' }}
-              >
-                {tool.percent}%
-              </span>
-              {hottest && (
-                <span
-                  className="shrink-0"
-                  style={{ color: 'rgb(var(--lb-delta))' }}
-                  title="Biggest 7-day gain on the board"
-                >
-                  <IconFlame size={10} />
-                </span>
-              )}
-              {isYourTeam && (
-                <span
-                  className="shrink-0 border px-1 py-px text-[7px] tracking-[0.2em]"
-                  style={{
-                    color: 'rgb(var(--tb))',
-                    borderColor: 'rgb(var(--tb) / 0.4)',
-                    background: 'rgb(var(--tb-d) / 0.08)'
-                  }}
-                >
-                  YOUR TEAM
-                </span>
-              )}
-            </span>
-            <span
-              className="hidden truncate text-[7px] font-semibold tracking-[0.3em] sm:block"
-              style={{ color: 'rgb(var(--tb) / 0.8)' }}
-            >
-              {identity.epithet}
-            </span>
-          </span>
-        </div>
-
-        {/* pilots */}
-        <div className="hidden text-right text-[11px] tabular-nums text-zinc-400 md:block">
-          {formatNumber(tool.pilots)}
-        </div>
-
-        {/* verified active time */}
-        <div className="hidden text-right text-[11px] tabular-nums text-zinc-400 md:block">
-          {tool.active_ms > 0 ? formatDuration(tool.active_ms) : <span className="text-zinc-700">·</span>}
-        </div>
-
-        {/* 7d gain */}
-        <div className="hidden text-right text-[11px] tabular-nums md:block">
-          {tool.weekScore > 0 ? (
-            <span style={{ color: 'rgb(var(--lb-up))' }}>+{formatCompact(tool.weekScore)}</span>
-          ) : (
-            <span className="text-zinc-700">·</span>
-          )}
-        </div>
-
-        {/* opt-in USD burn — display-only, never a rank input */}
-        <div
-          className="hidden text-right text-[11px] tabular-nums text-zinc-400 md:block"
-          title="Estimated agent spend from opted-in players — display only"
-        >
-          {tool.burnUsd !== '0' ? (
-            <BurnValue value={tool.burnUsd} />
-          ) : (
-            <span className="text-zinc-700">—</span>
-          )}
-        </div>
-
-        {/* SCORE — the main thing */}
-        <div className="text-right">
-          <div
-            className="text-[13px] leading-none tabular-nums [font-family:var(--font-pixel)]"
-            style={{
-              color: 'rgb(var(--lb-score))',
-              textShadow: medal
-                ? '0 0 12px rgb(var(--lb-score) / calc(0.4 * var(--lb-glow, 1)))'
-                : '0 0 10px rgb(var(--lb-score) / calc(0.22 * var(--lb-glow, 1)))'
-            }}
-          >
-            {formatScore(tool.score)}
-          </div>
-          <div className="mt-1.5 h-[3px] overflow-hidden rounded-full bg-[rgb(var(--lb-panel-edge)/0.07)]">
-            <div
-              className="ml-auto h-full rounded-full"
-              style={{
-                width: `${pct}%`,
-                background: medal
-                  ? `linear-gradient(90deg, ${medalA(medal.rgb, 0.4)}, ${medal.fg})`
-                  : 'linear-gradient(90deg, rgb(var(--tb) / 0.35), rgb(var(--tb) / 0.9))'
-              }}
-            />
-          </div>
-        </div>
-      </button>
-    </li>
-  )
-}
-
-function SkeletonRow({ index }: { index: number }) {
-  return (
-    <li
-      className="lbai-row-in border-b border-[rgb(var(--lb-panel-edge)/0.05)]"
-      style={{ ['--rd' as string]: `${index * 50}ms` }}
-    >
-      {/* mirrors the live row geometry (py-4 + h-10 crest + two-line
-          identity) so the table doesn't jump; shimmer blocks ride the
-          panel-edge ink so they read on the white panel too */}
-      <div className={`${ROW_GRID} animate-pulse py-4`}>
-        <span className="h-8 w-8 bg-[rgb(var(--lb-panel-edge)/0.05)]" />
-        <span className="flex items-center gap-3">
-          <span className="h-10 w-10 rounded-xl bg-[rgb(var(--lb-panel-edge)/0.05)]" />
-          <span className="flex flex-col gap-1.5">
-            <span className="h-3 w-28 rounded bg-[rgb(var(--lb-panel-edge)/0.05)]" />
-            <span className="hidden h-2 w-16 rounded bg-[rgb(var(--lb-panel-edge)/0.04)] sm:block" />
-          </span>
-        </span>
-        <span className="hidden h-3 w-10 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:block" />
-        <span className="hidden h-3 w-12 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:block" />
-        <span className="hidden h-3 w-10 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:block" />
-        <span className="hidden h-3 w-12 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:block" />
-        <span className="h-3.5 w-20 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.06)]" />
-      </div>
-    </li>
-  )
-}
-
-/* ================= sticky YOUR TEAM bar ================= */
-
-/** Docked strip of the viewer's faction row — brand wash and rail in
- *  the tool's own hue, so ChatGPT mains see teal and Claude mains see
- *  orange. Click scrolls the row into view and opens the ToolCard. */
-function YourFactionBar({ tool, onJump }: { tool: AiToolRow; onJump: () => void }) {
-  const medal = medalFor(tool.rank)
-  const identity = identityForTool(tool.name)
-
-  return (
-    <button
-      type="button"
-      onClick={onJump}
-      aria-label={`Open your faction card — ${tool.name}, rank ${tool.rank}`}
-      // blur-md, same budget note as the pilots' YouBar: this sticky bar
-      // re-samples whatever scrolls under it every frame.
-      className="lbai-hue block w-full text-left backdrop-blur-md"
-      style={{
-        ...hueVars(identity.rgb),
-        background: `linear-gradient(0deg, rgb(var(--tb-d) / 0.05), rgb(var(--tb-d) / 0.05)), rgb(var(--lb-panel-bg) / 0.88)`,
-        border: '1px solid rgb(var(--tb) / 0.25)',
-        boxShadow: 'inset 2px 0 0 rgb(var(--tb)), 0 16px 36px -20px rgb(0 0 0 / 0.5)'
-      }}
-    >
-      <div className="flex items-center gap-3 px-4 py-3 md:gap-4 md:px-5">
-        {medal ? (
-          <span
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-[11px] [font-family:var(--font-pixel)]"
-            style={{
-              color: medal.fg,
-              border: `1px solid ${medalA(medal.rgb, 0.5)}`,
-              background: medalA(medal.rgb, 0.08),
-              textShadow: `0 0 10px ${medalGlow(medal.rgb, 0.55)}`
-            }}
-          >
-            {tool.rank}
-          </span>
-        ) : (
-          <span
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-[11px] tabular-nums text-zinc-500 [font-family:var(--font-pixel)]"
-            style={{
-              border: '1px solid rgb(var(--tb) / 0.2)',
-              background: 'rgb(var(--tb-d) / 0.05)'
-            }}
-          >
-            {tool.rank}
-          </span>
-        )}
-
-        <span
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
-          style={{
-            color: 'rgb(var(--tb))',
-            background: 'rgb(var(--tb-d) / 0.08)',
-            border: '1px solid rgb(var(--tb) / 0.3)'
-          }}
-        >
-          <ToolIcon name={tool.name} size={16} />
-        </span>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span
-              className="truncate font-display text-[13px] font-medium tracking-tight"
-              style={{ color: 'rgb(var(--tb))' }}
-            >
-              {tool.name}
-            </span>
-            <span
-              className="shrink-0 border px-1.5 py-[3px] text-[8px] leading-none tracking-[0.2em]"
-              style={{
-                color: 'rgb(var(--tb))',
-                borderColor: 'rgb(var(--tb) / 0.4)',
-                background: 'rgb(var(--tb-d) / 0.08)'
-              }}
-            >
-              YOUR TEAM
-            </span>
-          </div>
-          <div
-            className="mt-1 hidden truncate text-[7px] font-semibold tracking-[0.3em] sm:block"
-            style={{ color: 'rgb(var(--tb) / 0.8)' }}
-          >
-            {identity.epithet}
-          </div>
-        </div>
-
-        <span
-          className="shrink-0 text-[15px] leading-none tabular-nums [font-family:var(--font-pixel)]"
-          style={{
-            color: 'rgb(var(--lb-score))',
-            textShadow: '0 0 10px rgb(var(--lb-score) / calc(0.22 * var(--lb-glow, 1)))'
-          }}
-        >
-          {formatScore(tool.score)}
-        </span>
-      </div>
-    </button>
-  )
-}
-
-/* ================= sticky recruit bar ================= */
-
-/** The docked slot for signed-in viewers with no faction yet — quiet
- *  gold, no CTA: the seat fills itself once they play. */
-function RecruitBar() {
-  return (
-    <div
-      className="w-full backdrop-blur-md"
-      style={{
-        background:
-          'linear-gradient(0deg, rgb(var(--lb-gold) / 0.05), rgb(var(--lb-gold) / 0.05)), rgb(var(--lb-panel-bg) / 0.88)',
-        border: '1px solid rgb(var(--lb-gold) / 0.2)',
-        boxShadow: 'inset 2px 0 0 rgb(var(--lb-gold)), 0 16px 36px -20px rgb(0 0 0 / 0.5)'
-      }}
-    >
-      <div className="flex items-center gap-3 px-4 py-3 md:gap-4 md:px-5">
-        <IconSwords size={16} className="shrink-0 text-[rgb(var(--lb-gold))]" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[9px] leading-4 tracking-[0.18em] text-zinc-400">
-            YOUR MOST-USED AI IS YOUR TEAM
-          </p>
-          <p className="mt-0.5 truncate text-[10px] text-zinc-600">
-            Keep playing. The machine you live in will take this seat.
-          </p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ================= search ================= */
-
-function SearchBar({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <div className="lb-inset flex w-full sm:max-w-xs items-center overflow-hidden rounded-lg">
-      <span className="pl-3 pr-1 text-zinc-600">
-        <IconSearch size={12} />
-      </span>
-      <input
-        type="text"
-        placeholder="hunt a machine…"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="flex-1 bg-transparent px-2 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
-      />
-      {value && (
-        <button
-          type="button"
-          onClick={() => onChange('')}
-          className="border-l border-[rgb(var(--lb-panel-edge)/0.08)] px-3 py-2 text-[10px] tracking-[0.2em] text-zinc-500 hover:text-zinc-200"
-        >
-          CLEAR
-        </button>
-      )}
-    </div>
-  )
-}
-
-/* ================= freshness stamp ================= */
-
-/** Self-ticking "updated Xm ago" so only this leaf re-renders. The board
- *  is a 5-minute server cache, so a 30s tick is plenty. */
-function UpdatedStamp({ generatedAt }: { generatedAt: string | null }) {
-  const [, tick] = useReducer((n: number) => n + 1, 0)
-
-  useEffect(() => {
-    if (!generatedAt) return
-    const id = setInterval(tick, 30_000)
-    return () => clearInterval(id)
-  }, [generatedAt])
-
-  const label = (() => {
-    if (!generatedAt) return 'connecting'
-    const mins = Math.floor((Date.now() - new Date(generatedAt).getTime()) / 60_000)
-    return mins <= 0 ? 'updated just now' : `updated ${mins}m ago`
-  })()
-
-  return (
-    <span
-      className="text-[10px] tracking-[0.2em] text-zinc-600 tabular-nums"
-      suppressHydrationWarning
-    >
-      {label}
-      <span className="mx-2 text-zinc-800">·</span>
-      refreshes every 5 min
-    </span>
+    </section>
   )
 }

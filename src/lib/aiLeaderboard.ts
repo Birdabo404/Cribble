@@ -14,8 +14,11 @@ import type { SeasonState } from '@/lib/season'
 import {
   AGENT_AI_TOOL_NAMES,
   addExactDecimals,
+  compareExactDecimals,
+  decimalToApproxNumber,
   exactDecimal,
-  normalizeAgentId
+  normalizeAgentId,
+  tokenAgentLabel
 } from '@/lib/tokenLeaderboard'
 import { resolveToolName } from '@/lib/toolNames'
 
@@ -63,9 +66,28 @@ export interface AiBoardTotals {
   pilots: number
 }
 
+/** One coding harness on the AGENTS panel. Agents are not machines: the
+ *  extension never sees them, so they have no verified-seconds score.
+ *  Their currency is the opt-in USD estimate cribble-agent collectors
+ *  report, and that is what ranks them — a separate list, never a row
+ *  on the machine board. */
+export interface AiAgentRow {
+  rank: number
+  /** Canonical harness label (tokenAgentLabel): "Codex", "Claude Code"… */
+  name: string
+  /** Exact-decimal USD, never '0' (zero-burn agents are dropped). */
+  burnUsd: string
+  /** Distinct opted-in users on this harness. */
+  pilots: number
+  /** Share of the summed agent burn (0–100). */
+  percent: number
+}
+
 export interface AiBoard {
   tools: AiToolRow[]
   totals: AiBoardTotals
+  /** Coding harnesses ranked by opt-in burn — same window as `tools`. */
+  agents: AiAgentRow[]
 }
 
 /**
@@ -114,16 +136,63 @@ export function burnByToolName(rows: AgentBurnRpcRow[]): Map<string, string> {
 }
 
 /**
+ * Rank coding harnesses by opt-in burn for the AGENTS panel. Every
+ * collector id resolves through tokenAgentLabel, so aliases of one
+ * harness (claude + claude-code, copilot + github-copilot) fold onto one
+ * row with their USD summed exactly. Pilots across aliases may overlap
+ * (one user, two ids), so the row keeps the largest alias count — a
+ * floor, never an over-count. Zero-burn ids are dropped: a harness that
+ * reported nothing has no seat. Ties fall to pilots, then name.
+ */
+export function buildAiAgents(rows: AgentBurnRpcRow[]): AiAgentRow[] {
+  const byLabel = new Map<string, { burn: string; pilots: number }>()
+  for (const row of rows) {
+    const label = tokenAgentLabel(row.agent)
+    if (!label) continue
+    const entry = byLabel.get(label) ?? { burn: '0', pilots: 0 }
+    entry.burn = addExactDecimals(entry.burn, exactDecimal(row.cost_usd))
+    entry.pilots = Math.max(entry.pilots, toCount(row.pilots))
+    byLabel.set(label, entry)
+  }
+
+  const ranked = [...byLabel.entries()]
+    .filter(([, entry]) => compareExactDecimals(entry.burn, '0') > 0)
+    .sort(
+      ([nameA, a], [nameB, b]) =>
+        compareExactDecimals(b.burn, a.burn) ||
+        b.pilots - a.pilots ||
+        nameA.localeCompare(nameB)
+    )
+
+  const total = ranked.reduce((sum, [, entry]) => addExactDecimals(sum, entry.burn), '0')
+  const totalApprox = decimalToApproxNumber(total)
+
+  return ranked.map(([name, entry], idx) => ({
+    rank: idx + 1,
+    name,
+    burnUsd: entry.burn,
+    pilots: entry.pilots,
+    // Display-only share; an approximate ratio of exact totals is fine here.
+    percent:
+      totalApprox > 0
+        ? Math.round((decimalToApproxNumber(entry.burn) / totalApprox) * 100)
+        : 0
+  }))
+}
+
+/**
  * Fold one window's RPC rows into a ranked board. Week rows only
  * decorate (weekScore); ranking is that window's score, tiebroken by
  * pilots then name so equal scores never flip-flop between reads.
  * burnByTool only attaches to tools already on the board — burn is a
- * column, never a sort key, and never invents a row.
+ * column, never a sort key, and never invents a row. `agents` is the
+ * separately ranked harness list for the same window (buildAiAgents).
  */
 export function buildAiBoard(
   windowRows: AiToolTotalsRow[],
   weekRows: AiToolTotalsRow[] = [],
-  burnByTool: ReadonlyMap<string, string> = new Map()
+  burnByTool: ReadonlyMap<string, string> = new Map(),
+  agents: AiAgentRow[] = []
 ): AiBoard {
   const weekScoreByTool = new Map<string, number>()
   for (const row of weekRows) {
@@ -170,7 +239,8 @@ export function buildAiBoard(
       // Percent is recomputed per window over THIS window's score sum.
       percent: scoreSum > 0 ? Math.round((tool.score / scoreSum) * 100) : 0
     })),
-    totals
+    totals,
+    agents
   }
 }
 
@@ -203,18 +273,22 @@ export function assembleAiBoards(input: {
     input.seasonState.phase === 'active' &&
     input.seasonState.current !== null &&
     Array.isArray(input.seasonRows)
+  const allTimeBurn = input.allTimeBurnRows ?? []
+  const seasonBurn = input.seasonBurnRows ?? []
 
   return {
     alltime: buildAiBoard(
       input.allTimeRows,
       weekRows,
-      burnByToolName(input.allTimeBurnRows ?? [])
+      burnByToolName(allTimeBurn),
+      buildAiAgents(allTimeBurn)
     ),
     season: seasonRankable
       ? buildAiBoard(
           input.seasonRows!,
           weekRows,
-          burnByToolName(input.seasonBurnRows ?? [])
+          burnByToolName(seasonBurn),
+          buildAiAgents(seasonBurn)
         )
       : null
   }

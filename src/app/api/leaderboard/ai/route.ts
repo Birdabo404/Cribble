@@ -106,9 +106,9 @@ const loadAiBoard = unstable_cache(
 
     return { boards, season: seasonState, generatedAt: new Date().toISOString() }
   },
-  // v2: the payload shape changed (embedded season/all-time boards) —
-  // a fresh key prevents serving a stale single-board cache entry.
-  ['ai-leaderboard-v2'],
+  // v3: each board now carries its ranked `agents` list — a fresh key
+  // prevents serving a cached v2 entry without it.
+  ['ai-leaderboard-v3'],
   { revalidate: REVALIDATE_SECONDS }
 )
 

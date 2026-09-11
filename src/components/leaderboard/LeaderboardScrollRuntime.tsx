@@ -27,13 +27,15 @@
 //     sections' TOP edges. The runtime instead docks [data-lb-dock]
 //     bars with a per-frame translate reproducing the sticky-bottom
 //     contract; native modes keep the untouched CSS sticky.
-//   · Modals holding the body scroll-lock (PlayerCard, ToolCard,
-//     TokenPlayerCard, ShareSheet, CursorOptInModal, Settings — all
-//     write body.style.overflow = 'hidden') pause the smoother via a
+//   · Modals holding the body scroll-lock (PlayerCard, TokenPlayerCard,
+//     ShareSheet, CursorOptInModal, Settings — all write
+//     body.style.overflow = 'hidden') pause the smoother via a
 //     MutationObserver on that style attribute, so a glide can't keep
 //     running under an open dialog. Watching the body catches the
 //     modals whose open state never reaches the arena (ShareSheet,
-//     TokenPlayerCard) without prop-drilling.
+//     TokenPlayerCard) without prop-drilling. The AI board has no modal:
+//     its rows expand an inline spec sheet, and the content
+//     ResizeObserver below absorbs that height change.
 //   · A ResizeObserver on the content keeps measurements honest through
 //     the 15s poll, tab swaps, pagination, search filtering and the
 //     billboard's 560ms expand/collapse: shrinks refresh immediately
@@ -115,8 +117,9 @@ let activeSmoother: ScrollSmoother | null = null
  *  live — native scrollIntoView writes scrollTop the smoother would
  *  immediately fight — and falls back to the boards' original
  *  scrollIntoView behavior otherwise. `smooth: false` is an instant
- *  jump on both paths (AiBoard needs that: its ToolCard opens in the
- *  same commit and the body scroll-lock would cut a glide mid-flight). */
+ *  jump on both paths (AiBoard needs that: the row's inline spec sheet
+ *  expands in the same commit, and a glide would land on a target
+ *  whose height is still tweening). */
 export function leaderboardScrollTo(el: Element, smooth: boolean): void {
   if (activeSmoother) {
     activeSmoother.scrollTo(el, smooth, 'center center')

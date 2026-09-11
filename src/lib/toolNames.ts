@@ -149,6 +149,13 @@ const TOOL_NAME_MAP: Record<string, string> = {
   'runpod.io': 'RunPod'
 }
 
+/** Deduped display names resolveToolName can serve, in map order. The
+ *  AI-board meta registry test (aiToolOrgs.test.ts) checks coverage
+ *  against this list so a new domain cannot land without an org row. */
+export function listToolDisplayNames(): string[] {
+  return [...new Set(Object.values(TOOL_NAME_MAP))]
+}
+
 export function resolveToolName(rawDomain: string): string {
   let host = (rawDomain || '').toLowerCase().trim()
   if (!host) return 'Unknown'

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   assembleAiBoards,
+  buildAiAgents,
   buildAiBoard,
   buildAiToolDomainMap,
   burnByToolName,
@@ -153,10 +154,68 @@ describe('buildAiBoard', () => {
   })
 })
 
-const burnRow = (agent: string, cost: string): AgentBurnRpcRow => ({
+const burnRow = (agent: string, cost: string, pilots = 1): AgentBurnRpcRow => ({
   agent,
   cost_usd: cost,
-  pilots: 1
+  pilots
+})
+
+describe('buildAiAgents', () => {
+  it('ranks harnesses by exact burn with 1-based ranks and a burn share', () => {
+    const agents = buildAiAgents([
+      burnRow('claude', '74732.1086', 30),
+      burnRow('codex', '167816.30', 42),
+      burnRow('cursor', '20664.614584', 6)
+    ])
+
+    expect(agents.map((a) => a.name)).toEqual(['Codex', 'Claude Code', 'Cursor'])
+    expect(agents.map((a) => a.rank)).toEqual([1, 2, 3])
+    expect(agents[0].burnUsd).toBe('167816.3')
+    expect(agents[0].pilots).toBe(42)
+    expect(agents.map((a) => a.percent)).toEqual([64, 28, 8])
+  })
+
+  it('folds aliases of one harness: burn summed exactly, pilots kept as a floor', () => {
+    const agents = buildAiAgents([
+      burnRow('claude', '0.1', 3),
+      burnRow('claude-code', '0.2', 2),
+      burnRow('copilot', '1', 1),
+      burnRow('github-copilot', '2', 4)
+    ])
+
+    const claude = agents.find((a) => a.name === 'Claude Code')!
+    expect(claude.burnUsd).toBe('0.3')
+    expect(claude.pilots).toBe(3)
+    const copilot = agents.find((a) => a.name === 'GitHub Copilot')!
+    expect(copilot.burnUsd).toBe('3')
+    expect(copilot.pilots).toBe(4)
+  })
+
+  it('keeps harnesses the machine board drops (codex, opencode) and title-cases unknown ids', () => {
+    const agents = buildAiAgents([
+      burnRow('codex', '500'),
+      burnRow('opencode', '400'),
+      burnRow('some-new-agent', '300')
+    ])
+
+    expect(agents.map((a) => a.name)).toEqual(['Codex', 'OpenCode', 'Some New Agent'])
+  })
+
+  it('drops zero-burn and null ids and breaks ties by pilots then name', () => {
+    const agents = buildAiAgents([
+      burnRow('dsh', '0', 1),
+      { agent: null, cost_usd: '9', pilots: 1 },
+      burnRow('pi', '5', 2),
+      burnRow('hermes', '5', 2),
+      burnRow('opencode', '5', 9)
+    ])
+
+    expect(agents.map((a) => a.name)).toEqual(['OpenCode', 'Hermes', 'Pi'])
+  })
+
+  it('returns an empty list for no rows', () => {
+    expect(buildAiAgents([])).toEqual([])
+  })
 })
 
 describe('burnByToolName', () => {
@@ -296,6 +355,31 @@ describe('assembleAiBoards', () => {
     expect(boards.alltime.tools.find((t) => t.name === 'Cursor')!.burnUsd).toBe('40')
     expect(boards.season!.tools.find((t) => t.name === 'Claude')!.burnUsd).toBe('2.5')
     expect(boards.season!.tools.find((t) => t.name === 'Cursor')!.burnUsd).toBe('0')
+  })
+
+  it('ranks each window’s agents from that window’s burn rows', () => {
+    const boards = assembleAiBoards({
+      seasonState: calendar('active'),
+      allTimeRows,
+      seasonRows,
+      allTimeBurnRows: [burnRow('codex', '900'), burnRow('claude', '100')],
+      seasonBurnRows: [burnRow('claude', '2.5')]
+    })
+
+    expect(boards.alltime.agents.map((a) => a.name)).toEqual(['Codex', 'Claude Code'])
+    expect(boards.alltime.agents.map((a) => a.percent)).toEqual([90, 10])
+    expect(boards.season!.agents.map((a) => a.name)).toEqual(['Claude Code'])
+    expect(boards.season!.agents[0].percent).toBe(100)
+  })
+
+  it('serves an empty agents list when burn rows are absent', () => {
+    const boards = assembleAiBoards({
+      seasonState: calendar('active'),
+      allTimeRows,
+      seasonRows
+    })
+    expect(boards.alltime.agents).toEqual([])
+    expect(boards.season!.agents).toEqual([])
   })
 
   it('serves no season board during intermission or without a calendar', () => {
