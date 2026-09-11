@@ -60,27 +60,42 @@ function isSuspiciousUserAgent(userAgent: string): boolean {
   return suspiciousPatterns.some(pattern => lowerAgent.includes(pattern))
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const { email } = await request.json()
+function storageUnavailableResponse() {
+  return NextResponse.json(
+    { error: 'Service unavailable' },
+    {
+      status: 503,
+      headers: { 'Cache-Control': 'no-store' }
+    }
+  )
+}
 
-    if (!email) {
+export async function POST(request: NextRequest) {
+  let email: unknown
+
+  try {
+    const body: unknown = await request.json()
+    email = body && typeof body === 'object' && 'email' in body
+      ? body.email
+      : undefined
+  } catch {
+    return NextResponse.json(
+      { error: 'Invalid request body' },
+      { status: 400 }
+    )
+  }
+
+  try {
+    if (typeof email !== 'string' || !isValidEmail(email)) {
       return NextResponse.json(
-        { error: 'Email is required' },
+        { error: 'Please enter a valid email address' },
         { status: 400 }
       )
     }
 
-    // If not configured, return mock success
+    // A deployment without storage must not claim to have accepted PII.
     if (!isConfigured()) {
-      console.log('🔧 Database not configured, simulating waitlist signup for:', email)
-      return NextResponse.json(
-        { 
-          message: 'Successfully added to waitlist (DEMO MODE)', 
-          data: { email, demo_mode: true }
-        },
-        { status: 201 }
-      )
+      return storageUnavailableResponse()
     }
 
     // Get IP address for rate limiting
@@ -114,14 +129,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Automated requests are not allowed' },
         { status: 403 }
-      )
-    }
-
-    // Enhanced email validation
-    if (!isValidEmail(email)) {
-      return NextResponse.json(
-        { error: 'Please enter a valid email address' },
-        { status: 400 }
       )
     }
 
@@ -194,10 +201,9 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   try {
-    // If not configured, return mock count
+    // A missing storage dependency cannot provide a trustworthy count.
     if (!isConfigured()) {
-      console.log('🔧 Database not configured, returning mock waitlist count')
-      return NextResponse.json({ count: 42 })
+      return storageUnavailableResponse()
     }
 
     // Get waitlist count

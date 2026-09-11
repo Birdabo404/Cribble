@@ -95,6 +95,14 @@ describe('middleware site lock', () => {
     expect(rewriteTarget('/roadmap')).toBe('/maintenance')
   })
 
+  it('leaves unknown routes for the global 404 boundary while locked', () => {
+    vi.stubEnv('SITE_LOCKED', '1')
+
+    expect(rewriteTarget('/definitely-not-a-cribble-route')).toBeNull()
+    expect(rewriteTarget('/DEFINITELY-NOT-A-CRIBBLE-ROUTE')).toBeNull()
+    expect(middleware(request('/definitely-not-a-cribble-route')).status).toBe(200)
+  })
+
   it('keeps dashboard and settings APIs reachable while the app shell is session-gated', () => {
     vi.stubEnv('SITE_LOCKED', '1')
     // Pages are session-gated (below); the data lanes still need to answer
@@ -205,9 +213,9 @@ describe('middleware site lock', () => {
     // the CSS fallback disc instead of the planet.
     expect(rewriteTarget('/geo/countries-110m.geojson')).toBeNull()
     expect(middleware(request('/geo/countries-110m.geojson')).status).toBe(200)
-    // The GLB prop models retired with the old renderer — .glb no longer
-    // rides the static-asset allowance.
-    expect(rewriteTarget('/models/clouds-puffy.glb')).toBe('/maintenance')
+    // Retired GLB props are unknown paths: they must 404 instead of
+    // masquerading as the locked maintenance screen.
+    expect(rewriteTarget('/models/clouds-puffy.glb')).toBeNull()
   })
 
   it('walls /shop /bag /settings behind sign-in while locked', () => {

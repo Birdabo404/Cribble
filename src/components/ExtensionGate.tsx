@@ -129,6 +129,14 @@ export function ExtensionGate({ children }: { children: React.ReactNode }) {
     }
 
     const check = async () => {
+      // Reuse the nav's shared session probe. Public app pages must not hit
+      // the account-only onboarding route unless authentication is positive.
+      const session = await fetchMe()
+      if (cancelled) return
+      if (!session.ok) {
+        releaseCover()
+        return
+      }
       const res = await fetch('/api/user/onboarding', {
         credentials: 'include'
       })
