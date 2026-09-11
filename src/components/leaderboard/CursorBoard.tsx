@@ -3,24 +3,60 @@
 // The CURSOR source of THE BURN board: opted-in users ranked by the token
 // sums of their scraped public cursor.com profile — the no-CLI path onto
 // the board. Data comes from /api/leaderboard/cursor-agents with the token
-// board's window semantics; the visual system (row grid, medals, pixel
-// numerals, stat strip) mirrors TokenBoard so flipping the source toggle
-// reads as the same board wearing different fuel.
+// board's window semantics; the chrome (ember frame, `[01]` indices, the
+// pager, the fuse-draw mount) is the shared burn/ module, so flipping the
+// source toggle reads as the same board wearing different fuel. Tokens
+// are this source's sort key, so they take the ember hero slot — green
+// stays reserved for the CLI board's dollars. A row opens the player's
+// Cribble profile (the same /u/ page the CLI burn card links out to);
+// the @handle under the name is the one link that leaves for cursor.com.
 
+import { useGSAP } from '@gsap/react'
+import gsap from 'gsap'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AnimatedCounter from '@/components/AnimatedCounter'
 import { formatNumber } from '@/components/dashboard-v2/format'
-import { Avatar } from '@/components/leaderboard/Avatar'
+import { motionReduced } from '@/components/leaderboard/ai/aiMotion'
+import { BurnAvatar } from '@/components/leaderboard/burn/BurnAvatar'
+import { BurnCrown } from '@/components/leaderboard/burn/BurnCrown'
+import { BurnEmpty } from '@/components/leaderboard/burn/BurnEmpty'
+import { BurnIndex } from '@/components/leaderboard/burn/BurnIndex'
+import { BurnPager, type BurnPagerYou } from '@/components/leaderboard/burn/BurnPager'
+import { BurnSeg } from '@/components/leaderboard/burn/BurnSeg'
+import {
+  BurnSlab,
+  type BurnColumn,
+  type BurnSlabState
+} from '@/components/leaderboard/burn/BurnSlab'
+import { BurnStat } from '@/components/leaderboard/burn/BurnStat'
+import { BurnTip } from '@/components/leaderboard/burn/BurnTip'
+import {
+  igniteRow,
+  mountChrome,
+  mountRows,
+  turnPage
+} from '@/components/leaderboard/burn/burnMotion'
+import {
+  PAGE_SIZE,
+  pageOf,
+  rangeLabel,
+  usePagedRows
+} from '@/components/leaderboard/burn/burnPaging'
+import { burnTitle } from '@/components/leaderboard/burn/burnTitles'
 import type { BoardFeedReport } from '@/components/leaderboard/burnSource'
+import { cursorProfileUrl } from '@/components/leaderboard/crtFeeds'
 import { CursorOptInModal } from '@/components/leaderboard/CursorOptInModal'
 import {
   IconBolt,
-  IconCrown,
+  IconCrownSolid,
   IconFlame,
   IconRefresh,
   IconUsers
 } from '@/components/leaderboard/icons'
-import { medalA, medalFor, medalGlow, type Medal } from '@/components/leaderboard/types'
+import { leaderboardScrollTo } from '@/components/leaderboard/LeaderboardScrollRuntime'
+import { medalFor } from '@/components/leaderboard/types'
 import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { useSettingsModal } from '@/components/settings/SettingsModalContext'
@@ -39,17 +75,43 @@ import {
   formatExactInteger
 } from '@/lib/tokenLeaderboard'
 
+gsap.registerPlugin(useGSAP)
+
 const WINDOWS: { id: CursorBoardWindowId; label: string }[] = [
   { id: 'season', label: 'SEASON' },
   { id: '7d', label: '7D' },
   { id: 'all', label: 'ALL' }
 ]
 
-// Two-zone mobile layout like TokenBoard: identity left, metrics right.
-// Desktop: RANK | PLAYER | TOP MODELS | AGENTS | STREAK | TOKENS, with the
-// sort key (tokens) rightmost, matching the CLI board's money column.
-const ROW_GRID =
-  'grid grid-cols-[2.5rem_minmax(0,1fr)_auto] md:grid-cols-[4.2rem_minmax(0,1fr)_minmax(0,9.5rem)_6.5rem_5.5rem_8.5rem] items-center gap-2.5 px-3.5 md:gap-3 md:px-5'
+// One header for both breakpoints: the three md-only columns fold away
+// (header, skeleton and row cells alike) on phones, leaving the mobile
+// grid's three tracks. Every figure here is a compact count or a unit
+// figure (20, 4, 95B) under a header wider than itself, so the numeric
+// columns centre: header and figure share the track's midline. Skeleton
+// runs are widthed to each column's typical value.
+const COLUMNS: readonly BurnColumn[] = [
+  { label: 'RANK', align: 'left', skeleton: '░░░░' },
+  { label: 'PLAYER', align: 'left', skeleton: '░░░░░░░░░░░░░░' },
+  { label: 'TOP MODELS', align: 'left', className: 'bb-md-only', skeleton: '░░░░░░░░░░░░' },
+  {
+    label: 'AGENTS',
+    align: 'center',
+    className: 'bb-md-only',
+    title: 'local + cloud agents run',
+    skeleton: '░░░'
+  },
+  {
+    label: 'STREAK',
+    align: 'center',
+    className: 'bb-md-only',
+    title: 'current streak, days',
+    skeleton: '░░'
+  },
+  { label: 'TOKENS BURNED', align: 'center', sortKey: true, skeleton: '░░░░░░' }
+]
+
+const FOOTNOTE =
+  'RANKED BY CURSOR.COM PROFILE TOKENS · OPT-IN · SCRAPED FROM PUBLIC PROFILES · NO CLI NEEDED'
 
 // The settings agent registers a 'cursor-profile' section; until that id
 // lands in SETTINGS_SECTION_IDS the CTA falls back to the account tab.
@@ -128,6 +190,7 @@ export function CursorBoard({
   const fetchSeq = useRef(0)
   const { openSettings } = useSettingsModal()
 
+  // The CRT gets every row, never the paged slice.
   useEffect(() => {
     onFeed?.({ rows, failed })
   }, [rows, failed, onFeed])
@@ -246,20 +309,114 @@ export function CursorBoard({
     setRefreshing(false)
   }, [load, windowId])
 
-  const loading = rows === null && !failed
+  const retry = useCallback(() => {
+    setFailed(false)
+    setRows(null)
+    void load(windowId)
+  }, [load, windowId])
+
+  const state: BurnSlabState = failed
+    ? 'error'
+    : rows === null
+      ? 'loading'
+      : !schemaReady || rows.length === 0
+        ? 'empty'
+        : 'ready'
+  const ready = state === 'ready'
   const leader = rows?.[0] ?? null
-  const onBoard =
-    currentUserId !== null && (rows?.some((row) => row.userId === currentUserId) ?? false)
+  const myIndex =
+    rows && currentUserId !== null ? rows.findIndex((row) => row.userId === currentUserId) : -1
+  const myRow = rows && myIndex >= 0 ? rows[myIndex] : null
   const agentsTotal = (totals?.agentsLocal ?? 0) + (totals?.agentsCloud ?? 0)
   const canJoin = (viewer === 'signedOut' || viewer === 'unlinked') && schemaReady
 
+  // ---- paging ---------------------------------------------------------
+  // Retune (rows → null) reopens on page one and a shrinking refetch
+  // clamps — both inside the hook. The refs below only mark *pager-driven*
+  // turns so neither of those plays the page-turn motion.
+  const { page, setPage, totalPages, paged } = usePagedRows(rows)
+  const pendingTurn = useRef<1 | -1 | null>(null)
+  const pendingJump = useRef(false)
+  const [jumpNonce, setJumpNonce] = useState(0)
+
+  const goToPage = useCallback(
+    (next: number) => {
+      if (next === page) return
+      pendingTurn.current = next > page ? 1 : -1
+      setPage(next)
+    },
+    [page, setPage]
+  )
+
+  const jumpToYou = useCallback(() => {
+    if (myIndex < 0) return
+    pendingJump.current = true
+    goToPage(pageOf(myIndex))
+    setJumpNonce((n) => n + 1)
+  }, [goToPage, myIndex])
+
+  const pagerYou: BurnPagerYou | null =
+    ready && myRow
+      ? { rank: myRow.rank, onPage: pageOf(myIndex) === page, onJump: jumpToYou }
+      : null
+
+  // ---- motion ---------------------------------------------------------
+  // One root over both slabs (stat strip + list) so the chrome cascade
+  // settles them together; the toolbar between them keeps its CSS reveal.
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useGSAP(
+    () => {
+      if (rootRef.current) mountChrome(rootRef.current)
+    },
+    { scope: rootRef }
+  )
+
+  const rowsPlayed = useRef(false)
+  useGSAP(
+    () => {
+      if (!ready || rowsPlayed.current || !rootRef.current) return
+      rowsPlayed.current = true
+      mountRows(rootRef.current)
+    },
+    { scope: rootRef, dependencies: [ready] }
+  )
+
+  // useGSAP is a layout effect: this runs after the commit that swapped
+  // the page's rows in, before paint, so the new rows start off-screen.
+  useGSAP(
+    () => {
+      const dir = pendingTurn.current
+      if (dir === null) return
+      pendingTurn.current = null
+      if (rootRef.current) turnPage(rootRef.current, dir)
+    },
+    { scope: rootRef, dependencies: [page] }
+  )
+
+  // JUMP: after the viewer's page commits, scroll their row into view and
+  // light it. The row is the one wearing data-yours — the same attribute
+  // that paints its rail — so no ref threading through CursorRow.
+  useGSAP(
+    () => {
+      if (!pendingJump.current) return
+      const el = rootRef.current?.querySelector<HTMLElement>('.bb-row[data-yours]')
+      if (!el) return // page still turning over — the next commit retries
+      pendingJump.current = false
+      leaderboardScrollTo(el, !motionReduced())
+      igniteRow(el)
+    },
+    { scope: rootRef, dependencies: [paged, jumpNonce] }
+  )
+
   return (
     <>
-      <section className="lbc-reveal" style={{ ['--rv' as string]: '90ms' }}>
-        <div className="lb-panel grid grid-cols-2 overflow-hidden md:grid-cols-4">
-          <StatCell
-            divider={0}
-            icon={<IconUsers size={11} className="text-zinc-600" />}
+      {/* .bb on the root so the stat strip and the toolbar resolve the same
+          tokens as the slab — one register for all three bands. */}
+      <div ref={rootRef} className="bb space-y-4">
+        <section className="bb-slab bb-stats">
+          <BurnStat
+            icon={<IconUsers size={11} className="bb-ink-2" />}
             label="PLAYERS"
             hint="linked profiles"
           >
@@ -268,20 +425,18 @@ export function CursorBoard({
               duration={1000}
               formatter={(value) => formatNumber(Math.round(value))}
             />
-          </StatCell>
+          </BurnStat>
 
-          <StatCell
-            divider={1}
-            icon={<IconFlame size={11} className="text-orange-400" />}
+          <BurnStat
+            icon={<IconFlame size={11} className="bb-ember" />}
             label="TOKENS TORCHED"
             hint={windowMeta?.label.toLowerCase()}
           >
             <TokenValue value={totals?.totalTokens ?? '0'} animated />
-          </StatCell>
+          </BurnStat>
 
-          <StatCell
-            divider={2}
-            icon={<IconBolt size={11} className="text-orange-400" />}
+          <BurnStat
+            icon={<IconBolt size={11} className="bb-ember" />}
             label="AGENTS RUN"
             hint={
               totals
@@ -294,11 +449,10 @@ export function CursorBoard({
               duration={1000}
               formatter={(value) => formatNumber(Math.round(value))}
             />
-          </StatCell>
+          </BurnStat>
 
-          <StatCell
-            divider={3}
-            icon={<IconCrown size={11} className="text-[rgb(var(--lb-gold)/0.8)]" />}
+          <BurnStat
+            icon={<IconCrownSolid size={11} className="text-[rgb(var(--lb-gold))]" />}
             label="TOP BURNER"
             hint={leader ? `${formatCompactTokenCount(leader.tokens)} tokens` : undefined}
             valueStyle={
@@ -310,198 +464,131 @@ export function CursorBoard({
                 : undefined
             }
           >
-            {leader ? (
-              <span className="block truncate">@{leader.cursorUsername.toUpperCase()}</span>
-            ) : (
-              <span className="text-zinc-700">—</span>
-            )}
-          </StatCell>
-        </div>
-      </section>
+            {leader ? `@${leader.cursorUsername.toUpperCase()}` : <span className="bb-ink-2">—</span>}
+          </BurnStat>
+        </section>
 
-      {/* The one toolbar row (GLOBAL's pattern): the page's board tabs on
-          the left; fuel toggle, window pills, refresh and JOIN ride the
-          right side, wrapping under the tabs on phones. */}
-      <div
-        className="lbc-reveal !mt-3 flex flex-wrap items-center justify-between gap-2"
-        style={{ ['--rv' as string]: '140ms' }}
-      >
-        {toolbar}
+        {/* The one toolbar row (GLOBAL's pattern): the page's board tabs on
+            the left; fuel, window, refresh and JOIN ride the right side,
+            and under sm every group flows left with the same gap. */}
+        <div className="bb-bar bb-reveal" style={{ ['--rv' as string]: '140ms' }}>
+          {toolbar}
 
-        <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-1">
-          {sourceToggle}
+          <div className="bb-bar-tools">
+            {sourceToggle}
 
-          <div
-            className="lb-inset flex items-center gap-0.5 rounded-lg p-0.5"
-            role="tablist"
-            aria-label="Cursor leaderboard period"
-          >
-            {WINDOWS.map((item) => {
-              const active = item.id === windowId
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => {
-                    if (item.id === windowId) return
-                    setRows(null)
-                    setFailed(false)
-                    onWindowChange(item.id)
-                  }}
-                  className={`rounded-md px-2.5 py-1.5 text-[9px] tracking-[0.2em] transition-colors ${
-                    active ? 'text-orange-300' : 'text-zinc-600 hover:text-zinc-300'
-                  }`}
-                  style={
-                    active
-                      ? {
-                          border: '1px solid rgb(251 146 60 / 0.35)',
-                          background: 'rgb(251 146 60 / 0.06)'
-                        }
-                      : { border: '1px solid transparent' }
-                  }
-                >
-                  {item.label}
-                </button>
-              )
-            })}
-          </div>
+            <BurnSeg
+              items={WINDOWS}
+              value={windowId}
+              onChange={(next) => {
+                if (next === windowId) return
+                setRows(null)
+                setFailed(false)
+                onWindowChange(next)
+              }}
+              ariaLabel="Cursor leaderboard period"
+            />
 
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            disabled={refreshing}
-            className="lb-inset flex items-center gap-2 rounded-lg px-3 py-2 text-[9px] tracking-[0.2em] text-zinc-500 transition-colors hover:text-zinc-100 disabled:cursor-wait"
-            aria-label="Refresh cursor leaderboard"
-          >
-            <IconRefresh size={11} className={refreshing ? 'animate-spin' : ''} />
-            <span className="hidden sm:inline">{refreshing ? 'SYNCING' : 'REFRESH'}</span>
-          </button>
-
-          {canJoin && (
-            <button
-              type="button"
-              onClick={openOptIn}
-              className="flex items-center gap-2 rounded-lg border border-orange-400/40 bg-orange-400/[0.08] px-3 py-2 text-[9px] tracking-[0.2em] text-orange-300 transition-colors hover:bg-orange-400/[0.16]"
-            >
-              <IconFlame size={11} />
-              <span>
-                JOIN<span className="hidden sm:inline"> THE BOARD</span>
-              </span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      <section className="lbc-reveal relative" style={{ ['--rv' as string]: '190ms' }}>
-        <div className="lb-panel relative overflow-hidden">
-          {/* header strip folded into the panel's top edge, like STANDINGS */}
-          <div className="flex items-baseline justify-between gap-3 border-b border-[rgb(var(--lb-panel-edge)/0.08)] px-4 py-3 md:px-5">
-            <h2 className="font-display text-[11px] font-semibold tracking-[0.45em] text-zinc-300">
-              BURN BOARD
-            </h2>
-            {!loading && !failed && (rows?.length ?? 0) > 0 && (
-              <span className="text-[10px] tracking-[0.2em] text-zinc-500 tabular-nums">
-                {rows!.length} PLAYERS
-              </span>
-            )}
-          </div>
-          <div
-            className={`${ROW_GRID} border-b border-[rgb(var(--lb-panel-edge)/0.08)] py-3 text-[9px] tracking-[0.3em] text-zinc-500`}
-          >
-            <div>
-              <span className="md:hidden">#</span>
-              <span className="hidden md:inline">RANK</span>
+            <div className="bb-seg">
+              <button
+                type="button"
+                className="bb-segbtn"
+                onClick={() => void refresh()}
+                disabled={refreshing}
+                aria-label="Refresh cursor leaderboard"
+              >
+                <IconRefresh size={11} className={refreshing ? 'animate-spin' : ''} />
+                {refreshing ? 'SYNCING' : 'REFRESH'}
+              </button>
             </div>
-            <div>PLAYER</div>
-            <div className="hidden md:block">TOP MODELS</div>
-            <div className="hidden text-right md:block">AGENTS</div>
-            <div className="hidden text-right md:block">STREAK</div>
-            <div className="text-right text-orange-300">TOKENS BURNED</div>
-          </div>
 
-          <ul className="relative">
-            {loading && Array.from({ length: 7 }, (_, index) => <SkeletonRow key={index} index={index} />)}
-
-            {failed && (
-              <li className="flex flex-col items-center gap-4 py-14 text-center">
-                <span className="text-xs tracking-[0.15em] text-zinc-500">
-                  The Cursor board failed to load.
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFailed(false)
-                    setRows(null)
-                    void load(windowId)
-                  }}
-                  className="lb-inset flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] tracking-[0.3em] text-zinc-400 transition-colors hover:text-zinc-100"
-                >
-                  <IconRefresh size={11} />
-                  RETRY
+            {canJoin && (
+              <div className="bb-seg">
+                <button type="button" className="bb-segbtn" data-ember onClick={openOptIn}>
+                  <IconFlame size={11} />
+                  JOIN THE BOARD
                 </button>
-              </li>
+              </div>
             )}
+          </div>
+        </div>
 
-            {!loading && !failed && !schemaReady && (
-              <EmptyState
-                title="BOARD WARMING UP"
-                body="The page is ready, but the cursor profile migration has not been installed yet."
-              />
-            )}
-
-            {!loading && !failed && schemaReady && (rows?.length ?? 0) === 0 && (
-              <EmptyState
-                title="NO CURSOR PROFILES ON THE BOARD YET"
-                body="Set your cursor.com profile to public, claim your handle, and your burn shows up instantly. Works from any machine — no CLI needed."
-                onLink={viewer === 'linked' ? undefined : openOptIn}
-              />
-            )}
-
-            {!loading &&
-              !failed &&
-              schemaReady &&
-              rows?.map((row, index) => (
+        <section className="relative">
+          <BurnSlab
+            title="BURN BOARD"
+            rangeLabel={
+              ready && rows ? `${rangeLabel(page, PAGE_SIZE, rows.length)} players` : null
+            }
+            stamp={windowMeta?.label ?? null}
+            columns={COLUMNS}
+            gridClassName="bb-grid-cursor"
+            state={state}
+            ariaLabel="Cursor burn board"
+            errorNode={
+              <p className="bb-line bb-error" role="alert">
+                The Cursor board failed to load.
+                <button type="button" className="bb-toggle" onClick={retry}>
+                  [ RETRY ]
+                </button>
+              </p>
+            }
+            emptyNode={
+              schemaReady ? (
+                <BurnEmpty
+                  title="NO CURSOR PROFILES ON THE BOARD YET"
+                  body="Set your cursor.com profile to public, claim your handle, and your burn shows up instantly. Works from any machine — no CLI needed."
+                  action={viewer === 'linked' ? undefined : { label: LINK_CTA, onClick: openOptIn }}
+                />
+              ) : (
+                <BurnEmpty
+                  title="BOARD WARMING UP"
+                  body="The page is ready, but the cursor profile migration has not been installed yet."
+                />
+              )
+            }
+            footer={
+              ready ? (
+                <BurnPager page={page} totalPages={totalPages} onPage={goToPage} you={pagerYou} />
+              ) : null
+            }
+            footnote={FOOTNOTE}
+          >
+            <ol className="bb-rows">
+              {paged.map((row) => (
                 <CursorRow
                   key={row.userId}
                   row={row}
-                  index={index}
                   isMe={row.userId === currentUserId}
                   justLinked={linkedStamp !== null && row.userId === currentUserId}
                 />
               ))}
-          </ul>
-        </div>
+            </ol>
+          </BurnSlab>
 
-        {!loading && !failed && schemaReady && (rows?.length ?? 0) > 0 && currentUserId !== null && !onBoard && viewer !== 'loading' && (
-          <div className="mt-3 flex justify-center">
-            {viewer === 'linked' ? (
-              // Linked but not ranked: visibility is off or the last sync
-              // failed — that is managed in settings, not re-claimed.
-              <button
-                type="button"
-                onClick={() => openSettings(cursorProfileSection())}
-                className="border border-orange-400/30 bg-orange-400/[0.05] px-3 py-2 text-[9px] tracking-[0.2em] text-orange-300 transition-colors hover:bg-orange-400/[0.1]"
-              >
-                LINKED, BUT NOT RANKED — CHECK YOUR PROFILE SETTINGS
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={openOptIn}
-                className="border border-orange-400/30 bg-orange-400/[0.05] px-3 py-2 text-[9px] tracking-[0.2em] text-orange-300 transition-colors hover:bg-orange-400/[0.1]"
-              >
-                {LINK_CTA}
-              </button>
-            )}
-          </div>
-        )}
-
-        <p className="mt-3 text-center text-[9px] leading-5 tracking-[0.22em] text-zinc-600">
-          RANKED BY CURSOR.COM PROFILE TOKENS · OPT-IN · SCRAPED FROM PUBLIC PROFILES · NO CLI NEEDED
-        </p>
-      </section>
+          {ready && currentUserId !== null && myIndex < 0 && viewer !== 'loading' && (
+            <div className="bb-cta">
+              <div className="bb-seg">
+                {viewer === 'linked' ? (
+                  // Linked but not ranked: visibility is off or the last sync
+                  // failed — that is managed in settings, not re-claimed.
+                  <button
+                    type="button"
+                    className="bb-segbtn"
+                    data-ember
+                    onClick={() => openSettings(cursorProfileSection())}
+                  >
+                    LINKED, BUT NOT RANKED — CHECK YOUR PROFILE SETTINGS
+                  </button>
+                ) : (
+                  <button type="button" className="bb-segbtn" data-ember onClick={openOptIn}>
+                    {LINK_CTA}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
 
       {optInOpen && (
         <CursorOptInModal
@@ -515,40 +602,70 @@ export function CursorBoard({
       )}
 
       <style jsx global>{`
-        .lbc-reveal {
-          animation: lbc-reveal-in 640ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
-          animation-delay: var(--rv, 0ms);
+        /* CURSOR's tracks — RANK · PLAYER · TOP MODELS · AGENTS · STREAK ·
+           TOKENS on desktop, index · identity · tokens on phones. Tracks
+           and gap only: the slab pads every band through --bb-pad. The
+           numeric tracks are sized to the wider of their widest pixel-font
+           value and their header (▾ TOKENS BURNED runs ~122px) so the
+           right-aligned header edge lands on the numeral edge. */
+        .bb-grid-cursor {
+          display: grid;
+          grid-template-columns: 40px minmax(0, 1fr) auto;
+          column-gap: 12px;
+          align-items: center;
         }
-        .lbc-row-in {
-          animation: lbc-row-enter 480ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
-          animation-delay: var(--rd, 0ms);
-        }
-        @keyframes lbc-reveal-in {
-          from { opacity: 0; transform: translateY(14px); }
-        }
-        @keyframes lbc-row-enter {
-          from { opacity: 0; transform: translateY(8px); }
-        }
-        html.light .lbc-flame { color: rgb(234 88 12); }
-        /* Arrival flash for a freshly claimed row — one ember pulse on
-           top of the entrance, then the row settles into its YOU wash. */
-        .lbc-row-claimed {
-          animation:
-            lbc-row-enter 480ms cubic-bezier(0.22, 1, 0.36, 1) backwards,
-            lbc-claim-flash 2.2s ease-out backwards;
-          animation-delay: var(--rd, 0ms);
-        }
-        @keyframes lbc-claim-flash {
-          0%, 100% { box-shadow: inset 0 0 0 0 rgb(251 146 60 / 0); }
-          18% {
-            background-color: rgb(251 146 60 / 0.14);
-            box-shadow: inset 0 0 0 1px rgb(251 146 60 / 0.55);
+        @media (min-width: 768px) {
+          .bb-grid-cursor {
+            grid-template-columns: 56px minmax(0, 1fr) minmax(0, 220px) 88px 80px 132px;
+            column-gap: 20px;
           }
         }
+
+        /* The sub-line is a flex line — podium title, the @handle, and on
+           phones the model — so the ellipsis can only ever land on the
+           model: the title and the handle (the one link out to cursor.com)
+           never shrink. */
+        .lbc-subline {
+          display: flex;
+          align-items: baseline;
+        }
+        .lbc-subline > .bb-title {
+          margin-right: 8px;
+        }
+        .lbc-subline > .lbc-handle {
+          flex: none;
+          transition: color 120ms;
+        }
+        /* On a phone the podium title takes a line of its own — THE
+           MONARCH and a handle don't share 140px — and the handle and
+           model drop under it with the room every other row gives them.
+           The metrics zone is three lines tall, so the row doesn't grow. */
+        @media (max-width: 767px) {
+          .lbc-subline:has(.bb-title) {
+            flex-wrap: wrap;
+          }
+          .lbc-subline > .bb-title {
+            flex-basis: 100%;
+            margin-right: 0;
+          }
+          /* a zero basis keeps the model on the handle's line, shrinking
+             to its ellipsis instead of wrapping under */
+          .lbc-subline:has(.bb-title) > .bb-mobile-only {
+            flex: 1 1 0;
+          }
+        }
+        .lbc-handle:hover,
+        .lbc-handle:focus-visible {
+          color: rgb(var(--bb-ember));
+        }
+        /* a streak of zero prints in ink-2 — no heat to show */
+        .lbc-cold {
+          color: rgb(var(--bb-ink-2));
+        }
         @media (prefers-reduced-motion: reduce) {
-          .lbc-reveal,
-          .lbc-row-in,
-          .lbc-row-claimed { animation: none; }
+          .lbc-subline > .lbc-handle {
+            transition: none;
+          }
         }
       `}</style>
     </>
@@ -557,17 +674,18 @@ export function CursorBoard({
 
 function CursorRow({
   row,
-  index,
   isMe,
   justLinked = false
 }: {
   row: CursorBoardRow
-  index: number
   isMe: boolean
   /** One-shot arrival flash for a row that just claimed its handle. */
   justLinked?: boolean
 }) {
+  const ref = useRef<HTMLLIElement>(null)
+  const router = useRouter()
   const medal = medalFor(row.rank)
+  const title = burnTitle(row.rank)
   const agentsTotal = row.agentsLocal + row.agentsCloud
   const models = row.topModels.slice(0, 2)
   const extraModels = row.topModels.length - models.length
@@ -575,291 +693,128 @@ function CursorRow({
     row.topModels.length > 0 ? `Top models: ${row.topModels.join(', ')}` : 'No models reported'
   const agentsTitle = `${formatNumber(row.agentsLocal)} local · ${formatNumber(row.agentsCloud)} cloud agents`
   const streakTitle = `Current streak ${formatNumber(row.currentStreak)} days · longest ${formatNumber(row.longestStreak)}`
-  const profileUrl = `https://cursor.com/@${encodeURIComponent(row.cursorUsername)}`
-
-  return (
-    <li
-      className={`lbc-row-in ${ROW_GRID} relative border-b border-[rgb(var(--lb-panel-edge)/0.05)] transition-colors last:border-b-0 hover:bg-orange-400/[0.03] ${
-        medal ? 'py-[1.15rem]' : 'py-4'
-      } ${isMe ? 'bg-orange-400/[0.035]' : ''} ${justLinked ? 'lbc-row-claimed' : ''}`}
-      style={{
-        ['--rd' as string]: `${Math.min(index, 12) * 34}ms`,
-        ...(medal
-          ? {
-              background: `linear-gradient(90deg, ${medalA(medal.rgb, 0.09)}, ${medalA(medal.rgb, 0.03)} 22%, transparent 45%)`,
-              boxShadow: `inset 2px 0 0 ${medalA(medal.rgb, 0.7)}`
-            }
-          : null)
-      }}
-    >
-      <div className="flex items-center">
-        {medal ? (
-          <span
-            className={`relative inline-flex items-center justify-center overflow-hidden [font-family:var(--font-pixel)] ${
-              row.rank === 1 ? 'h-9 w-9 text-[14px]' : 'h-8 w-8 text-[13px]'
-            }`}
-            style={{
-              color: medal.fg,
-              border: `1px solid ${medalA(medal.rgb, 0.5)}`,
-              background: medalA(medal.rgb, 0.08),
-              textShadow: `0 0 10px ${medalGlow(medal.rgb, 0.65)}, 0 0 24px ${medalGlow(medal.rgb, 0.3)}`
-            }}
-          >
-            {row.rank}
-          </span>
-        ) : (
-          <span className="inline-flex h-8 w-8 items-center justify-center text-[11px] tabular-nums text-zinc-500 [font-family:var(--font-pixel)]">
-            {row.rank}
-          </span>
-        )}
-      </div>
-
-      <div className="flex min-w-0 items-center gap-2.5 md:gap-3">
-        <CursorRankAvatar row={row} medal={medal} />
-        <span className="min-w-0">
-          <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-display text-[13px] font-medium tracking-tight text-zinc-100">
-              {row.displayName}
-            </span>
-            {isProTier(row.tier) && <VerifiedBadge size={14} />}
-            {row.team && <TeamMiniLogo team={row.team} size={14} />}
-            {isMe && <span className="text-[8px] tracking-[0.16em] text-orange-400">YOU</span>}
-          </span>
-          <span className="mt-1 flex min-w-0 items-center gap-1.5">
-            <a
-              href={profileUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={`Open cursor.com/@${row.cursorUsername}`}
-              className="shrink-0 truncate text-[10px] leading-none text-zinc-500 transition-colors hover:text-orange-300"
-            >
-              @{row.cursorUsername}
-            </a>
-            {models[0] && (
-              <span
-                className="min-w-0 truncate text-[10px] leading-none text-zinc-600 md:hidden"
-                title={modelsTitle}
-              >
-                · {models[0]}
-              </span>
-            )}
-          </span>
-        </span>
-      </div>
-
-      <div className="hidden min-w-0 flex-wrap items-center gap-1 md:flex" title={modelsTitle}>
-        {models.length > 0 ? (
-          <>
-            {models.map((model) => (
-              <span
-                key={model}
-                className="max-w-full truncate border border-[rgb(var(--lb-panel-edge)/0.12)] bg-[rgb(var(--lb-panel-edge)/0.04)] px-1.5 py-0.5 text-[8px] tracking-[0.08em] text-zinc-400"
-              >
-                {model}
-              </span>
-            ))}
-            {extraModels > 0 && (
-              <span className="shrink-0 text-[8px] tracking-[0.08em] text-zinc-600">
-                +{extraModels}
-              </span>
-            )}
-          </>
-        ) : (
-          <span className="text-zinc-800">—</span>
-        )}
-      </div>
-
-      <div className="hidden text-right md:block" title={agentsTitle}>
-        <div className="text-[13px] leading-none tabular-nums text-zinc-100 [font-family:var(--font-pixel)]">
-          {formatNumber(agentsTotal)}
-        </div>
-        <div className="mt-1 text-[7px] tracking-[0.12em] text-zinc-600 tabular-nums">
-          {formatNumber(row.agentsLocal)}L · {formatNumber(row.agentsCloud)}C
-        </div>
-      </div>
-
-      <div className="hidden text-right md:block" title={streakTitle}>
-        <div
-          className={`flex items-center justify-end gap-1 text-[13px] leading-none tabular-nums [font-family:var(--font-pixel)] ${
-            row.currentStreak > 0 ? 'text-orange-300' : 'text-zinc-600'
-          }`}
-        >
-          {row.currentStreak > 0 && (
-            <IconFlame size={10} className="lbc-flame shrink-0 text-orange-400/70" />
-          )}
-          {formatNumber(row.currentStreak)}
-        </div>
-        <div className="mt-1 text-[7px] tracking-[0.16em] text-zinc-600">DAYS</div>
-      </div>
-
-      {/* On mobile this cell is the whole metrics zone: glowing token count
-          on top, agents + streak beneath. */}
-      <div className="text-right" title={`${formatExactInteger(row.tokens)} tokens`}>
-        <div
-          className="text-[15px] leading-none tabular-nums [font-family:var(--font-pixel)]"
-          style={{
-            color: 'rgb(251 146 60)',
-            textShadow: medal
-              ? '0 0 12px rgb(249 115 22 / calc(0.42 * var(--lb-glow, 1)))'
-              : '0 0 9px rgb(249 115 22 / calc(0.2 * var(--lb-glow, 1)))'
-          }}
-        >
-          {formatCompactTokenCount(row.tokens)}
-        </div>
-        <div className="mt-1 hidden text-[7px] tracking-[0.16em] text-orange-400/45 md:block">
-          TOKENS
-        </div>
-        <div className="mt-1 flex items-center justify-end gap-1 text-[7px] tracking-[0.1em] text-zinc-600 tabular-nums md:hidden">
-          <span title={agentsTitle}>{formatNumber(agentsTotal)} AGENTS</span>
-          <span>·</span>
-          <span title={streakTitle}>{formatNumber(row.currentStreak)}D STREAK</span>
-        </div>
-      </div>
-    </li>
-  )
-}
-
-/** Row avatar with a static medal ring for the top three — the burn
- *  palette's medal hues without TokenBoard's animated regalia, which
- *  lives in CSS that only mounts with the CLI board. */
-function CursorRankAvatar({ row, medal }: { row: CursorBoardRow; medal: Medal | null }) {
+  const exactTokens = `${formatExactInteger(row.tokens)} tokens`
+  const profileHref = `/u/${encodeURIComponent(row.username)}`
   const char = (row.displayName || row.cursorUsername).charAt(0).toUpperCase()
 
-  if (!medal) {
-    return (
-      <span className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full border border-zinc-800 bg-zinc-900 md:h-9 md:w-9">
-        <Avatar
-          src={row.avatarUrl}
-          char={char}
-          imgClassName="h-full w-full object-cover"
-          fallbackClassName="flex h-full w-full items-center justify-center text-[11px] font-semibold text-zinc-400"
-        />
-      </span>
-    )
+  useGSAP(
+    () => {
+      if (justLinked && ref.current) igniteRow(ref.current)
+    },
+    { scope: ref }
+  )
+
+  // The name is the row's link (focusable, labelled); the rest of the row
+  // is a mouse convenience for it. Clicks that land on another control —
+  // the @handle out to cursor.com, the team logo, the badge caption — or
+  // on a text selection are theirs, and a modified click opens a new tab
+  // the way the link itself would.
+  const openProfile = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || event.button !== 0) return
+    if (event.target instanceof Element && event.target.closest('a, button, .bb-tip')) return
+    if (window.getSelection()?.toString()) return
+    if (event.metaKey || event.ctrlKey || event.shiftKey) {
+      window.open(profileHref, '_blank', 'noopener')
+      return
+    }
+    router.push(profileHref)
   }
 
   return (
-    <span className="relative h-8 w-8 shrink-0 md:h-9 md:w-9">
-      <span
-        aria-hidden
-        className="absolute -inset-[2px] rounded-full"
-        style={{
-          border: `2px solid ${medalA(medal.rgb, 0.65)}`,
-          boxShadow: `0 0 10px ${medalGlow(medal.rgb, row.rank === 1 ? 0.45 : 0.28)}`
-        }}
-      />
-      <Avatar
-        src={row.avatarUrl}
-        char={char}
-        imgClassName="absolute inset-0 h-full w-full rounded-full object-cover"
-        fallbackClassName="absolute inset-0 flex items-center justify-center rounded-full bg-zinc-900 text-[11px] font-semibold text-zinc-400"
-      />
-      {row.rank === 1 && (
-        <span
-          aria-hidden
-          className="lbc-flame absolute -right-[6px] -top-[9px] text-orange-400"
-          style={{ filter: 'drop-shadow(0 0 4px rgb(249 115 22 / calc(0.8 * var(--lb-glow, 1))))' }}
-        >
-          <IconFlame size={11} className="block" />
+    <li ref={ref} className="bb-row" data-yours={isMe || undefined}>
+      <div className="bb-rowbtn bb-grid-cursor" onClick={openProfile}>
+        <span className="bb-cell">
+          <BurnIndex rank={row.rank} />
         </span>
-      )}
-    </span>
-  )
-}
 
-function EmptyState({
-  title,
-  body,
-  onLink
-}: {
-  title: string
-  body: string
-  /** Opt-in trigger; omitted when the viewer is already linked or the
-   *  schema is not installed yet. */
-  onLink?: () => void
-}) {
-  return (
-    <li className="flex flex-col items-center px-5 py-14 text-center">
-      <IconFlame size={24} className="text-orange-400/55" />
-      <p className="mt-4 text-[10px] tracking-[0.22em] text-zinc-400">{title}</p>
-      <p className="mt-2 max-w-md text-[11px] leading-5 text-zinc-600">{body}</p>
-      {onLink && (
-        <button
-          type="button"
-          onClick={onLink}
-          className="mt-5 border border-orange-400/30 bg-orange-400/[0.05] px-3 py-2 text-[9px] tracking-[0.2em] text-orange-300 transition-colors hover:bg-orange-400/[0.1]"
-        >
-          {LINK_CTA}
-        </button>
-      )}
-    </li>
-  )
-}
+        <div className="bb-cell bb-player">
+          <BurnAvatar src={row.avatarUrl} char={char} rank={row.rank} />
+          <div className="bb-stack">
+            <span className="bb-nameline">
+              <Link
+                href={profileHref}
+                className="bb-name bb-rowlink"
+                aria-label={`Open profile for ${row.displayName} (rank ${row.rank}${title ? ` — ${title}` : ''}, ${formatCompactTokenCount(row.tokens)} tokens burned)`}
+              >
+                {row.displayName}
+              </Link>
+              {isProTier(row.tier) && (
+                <BurnTip text="Verified · Cribble Premium" focusable>
+                  <VerifiedBadge size={14} />
+                </BurnTip>
+              )}
+              {row.team && (
+                <BurnTip text={`Team · ${row.team.name}`}>
+                  <TeamMiniLogo team={row.team} size={14} />
+                </BurnTip>
+              )}
+              {isMe && <span className="bb-tag bb-tag-you">YOU</span>}
+            </span>
+            <span className="bb-sub lbc-subline">
+              {title && medal && (
+                <span className="bb-title" style={{ color: medal.fg }}>
+                  {row.rank === 1 && <BurnCrown />}
+                  <span>{title}</span>
+                </span>
+              )}
+              <a
+                href={cursorProfileUrl(row.cursorUsername)}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={`Open cursor.com/@${row.cursorUsername}`}
+                className="lbc-handle"
+              >
+                @{row.cursorUsername}
+              </a>
+              {models[0] && (
+                <span className="bb-sub bb-mobile-only" title={modelsTitle}>
+                  {'\u00A0·\u00A0'}
+                  {models[0]}
+                </span>
+              )}
+            </span>
+          </div>
+        </div>
 
-function SkeletonRow({ index }: { index: number }) {
-  return (
-    <li
-      className="lbc-row-in border-b border-[rgb(var(--lb-panel-edge)/0.05)]"
-      style={{ ['--rd' as string]: `${index * 45}ms` }}
-    >
-      <div className={`${ROW_GRID} animate-pulse py-4`}>
-        <span className="h-8 w-8 bg-[rgb(var(--lb-panel-edge)/0.05)]" />
-        <span className="flex items-center gap-2.5 md:gap-3">
-          <span className="h-8 w-8 shrink-0 rounded-full bg-[rgb(var(--lb-panel-edge)/0.05)] md:h-9 md:w-9" />
-          <span className="flex min-w-0 flex-col gap-1.5">
-            <span className="h-3 w-28 rounded bg-[rgb(var(--lb-panel-edge)/0.05)]" />
-            <span className="h-2.5 w-20 rounded bg-[rgb(var(--lb-panel-edge)/0.04)]" />
+        <span className="bb-cell bb-sub bb-md-only" title={modelsTitle}>
+          {models.length > 0 ? (
+            <>
+              {models.join(' · ')}
+              {extraModels > 0 && ` +${extraModels}`}
+            </>
+          ) : (
+            '—'
+          )}
+        </span>
+
+        <span className="bb-cell bb-num bb-num-center bb-md-only" title={agentsTitle}>
+          {formatNumber(agentsTotal)}
+          <span className="bb-sub">
+            {formatNumber(row.agentsLocal)}L · {formatNumber(row.agentsCloud)}C
           </span>
         </span>
-        <span className="hidden h-5 w-24 rounded bg-[rgb(var(--lb-panel-edge)/0.04)] md:block" />
-        <span className="hidden h-4 w-12 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.05)] md:block" />
-        <span className="hidden h-4 w-10 justify-self-end rounded bg-[rgb(var(--lb-panel-edge)/0.05)] md:block" />
-        <span className="flex flex-col items-end gap-1.5 justify-self-end">
-          <span className="h-4 w-16 rounded bg-[rgb(var(--lb-panel-edge)/0.06)] md:w-20" />
-          <span className="h-2.5 w-24 rounded bg-[rgb(var(--lb-panel-edge)/0.05)] md:hidden" />
+
+        <span className="bb-cell bb-num bb-num-center bb-md-only" title={streakTitle}>
+          <span className={row.currentStreak > 0 ? undefined : 'lbc-cold'}>
+            {formatNumber(row.currentStreak)}
+          </span>
+          <span className="bb-sub">DAYS</span>
+        </span>
+
+        {/* On phones this cell is the whole metrics zone: ember tokens on
+            top, agents and streak stacked beneath — one line each, so the
+            auto-sized zone stays as narrow as its widest figure and the
+            name beside it keeps its room on a 375px screen. */}
+        <span className="bb-cell bb-num bb-num-center" title={exactTokens}>
+          <span className="bb-tokens bb-ember">{formatCompactTokenCount(row.tokens)}</span>
+          <span className="bb-sub bb-mobile-only" title={agentsTitle}>
+            {formatNumber(agentsTotal)} AGENTS
+          </span>
+          <span className="bb-sub bb-mobile-only" title={streakTitle}>
+            {formatNumber(row.currentStreak)}D STREAK
+          </span>
         </span>
       </div>
     </li>
-  )
-}
-
-function StatCell({
-  divider,
-  icon,
-  label,
-  hint,
-  valueStyle,
-  children
-}: {
-  divider: number
-  icon: React.ReactNode
-  label: string
-  hint?: string
-  valueStyle?: React.CSSProperties
-  children: React.ReactNode
-}) {
-  const divClass = (() => {
-    if (divider === 0) return ''
-    if (divider === 1) return 'border-l border-[rgb(var(--lb-panel-edge)/0.08)]'
-    if (divider === 2) {
-      return 'border-t border-[rgb(var(--lb-panel-edge)/0.08)] md:border-l md:border-t-0'
-    }
-    return 'border-l border-t border-[rgb(var(--lb-panel-edge)/0.08)] md:border-t-0'
-  })()
-
-  return (
-    <div className={`flex min-w-0 flex-col items-center overflow-hidden px-4 py-4 text-center ${divClass}`}>
-      <div className="flex flex-wrap items-center justify-center gap-1.5 text-[9px] tracking-[0.16em] sm:tracking-[0.28em] text-zinc-500">
-        {icon}
-        {label}
-      </div>
-      <div
-        className="mt-2.5 max-w-full truncate text-[clamp(11px,2.6vw,16px)] text-zinc-50 tabular-nums [font-family:var(--font-pixel)]"
-        style={valueStyle}
-      >
-        {children}
-      </div>
-      {hint && <div className="mt-1 max-w-full truncate text-[9px] tracking-[0.16em] text-zinc-600">{hint}</div>}
-    </div>
   )
 }

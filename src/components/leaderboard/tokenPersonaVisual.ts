@@ -6,14 +6,14 @@
 // identical danger chips. Behavior personas keep their existing tone hues.
 //
 // Every visual carries a bright triplet for dark panels and a deeper ink
-// for light panels. Styles author --pv-hue/--pv-ink (and --pv2-*) inline;
-// consumers read rgb(var(--pv)) etc., and the `lbt-pv` class in
-// TokenBoard's global CSS maps --pv to the hue by default and to the ink
-// under html.light. The indirection matters: an inline --pv could never
-// lose to a stylesheet override, so the theme swap has to happen in CSS.
-// Text-shadow glows ride --lb-glow, which light mode zeroes. The scrim
-// variant is for chips sitting on the player card's dark banner scrim,
-// which stays dark in both themes.
+// for light panels. Styles author --pv-hue/--pv-ink inline; consumers
+// read rgb(var(--pv)), and the `lbt-pv` class in burn/BurnStyles maps
+// --pv to the hue by default and to the ink under html.light. The
+// indirection matters: an inline --pv could never lose to a stylesheet
+// override, so the theme swap has to happen in CSS. Text-shadow glows
+// ride --lb-glow, which light mode zeroes. The scrim variant is for chips
+// sitting on the player card's dark banner scrim, which stays dark in
+// both themes.
 
 import type { CSSProperties } from 'react'
 import type { TokenPersona, TokenPersonaTone } from '@/lib/tokenLeaderboard'
@@ -25,8 +25,6 @@ export interface TokenPersonaVisual {
   ink: string
   /** second hue for the top-tier gradient border, or null for a flat border */
   rgb2: string | null
-  /** light-mode ink for rgb2 */
-  ink2: string | null
   /** text-shadow glow alpha — scales up the tier ladder; rides --lb-glow */
   glow: number
   /** spend tiers wear the tiny flame glyph on their chips */
@@ -45,7 +43,6 @@ const SPEND_TIER_VISUALS: Record<SpendTierId, TokenPersonaVisual> = {
     rgb: '239 68 68',
     ink: '185 28 28',
     rgb2: null,
-    ink2: null,
     glow: 0,
     flame: true
   },
@@ -53,7 +50,6 @@ const SPEND_TIER_VISUALS: Record<SpendTierId, TokenPersonaVisual> = {
     rgb: '251 146 60',
     ink: '194 65 12',
     rgb2: null,
-    ink2: null,
     glow: 0.22,
     flame: true
   },
@@ -61,7 +57,6 @@ const SPEND_TIER_VISUALS: Record<SpendTierId, TokenPersonaVisual> = {
     rgb: '251 191 36',
     ink: '161 98 7',
     rgb2: null,
-    ink2: null,
     glow: 0.34,
     flame: true
   },
@@ -69,7 +64,6 @@ const SPEND_TIER_VISUALS: Record<SpendTierId, TokenPersonaVisual> = {
     rgb: '237 242 248',
     ink: '71 85 105',
     rgb2: '216 228 242',
-    ink2: '100 116 139',
     glow: 0.55,
     flame: true
   },
@@ -77,18 +71,17 @@ const SPEND_TIER_VISUALS: Record<SpendTierId, TokenPersonaVisual> = {
     rgb: '125 211 252',
     ink: '29 78 216',
     rgb2: '224 242 254',
-    ink2: '2 132 199',
     glow: 0.72,
     flame: true
   }
 }
 
 const TONE_VISUALS: Record<TokenPersonaTone, TokenPersonaVisual> = {
-  danger: { rgb: '248 113 113', ink: '185 28 28', rgb2: null, ink2: null, glow: 0, flame: false },
-  hot: { rgb: '251 146 60', ink: '194 65 12', rgb2: null, ink2: null, glow: 0, flame: false },
-  cache: { rgb: '52 211 153', ink: '4 120 87', rgb2: null, ink2: null, glow: 0, flame: false },
-  output: { rgb: '192 132 252', ink: '126 34 206', rgb2: null, ink2: null, glow: 0, flame: false },
-  neutral: { rgb: '161 161 170', ink: '82 82 91', rgb2: null, ink2: null, glow: 0, flame: false }
+  danger: { rgb: '248 113 113', ink: '185 28 28', rgb2: null, glow: 0, flame: false },
+  hot: { rgb: '251 146 60', ink: '194 65 12', rgb2: null, glow: 0, flame: false },
+  cache: { rgb: '52 211 153', ink: '4 120 87', rgb2: null, glow: 0, flame: false },
+  output: { rgb: '192 132 252', ink: '126 34 206', rgb2: null, glow: 0, flame: false },
+  neutral: { rgb: '161 161 170', ink: '82 82 91', rgb2: null, glow: 0, flame: false }
 }
 
 function isSpendTier(id: TokenPersona['id']): id is SpendTierId {
@@ -97,31 +90,6 @@ function isSpendTier(id: TokenPersona['id']): id is SpendTierId {
 
 export function tokenPersonaVisual(persona: TokenPersona): TokenPersonaVisual {
   return isSpendTier(persona.id) ? SPEND_TIER_VISUALS[persona.id] : TONE_VISUALS[persona.tone]
-}
-
-/** Chip style for board rows — theme-aware via the `lbt-pv` var swap. */
-export function personaChipStyle(visual: TokenPersonaVisual): CSSProperties {
-  return {
-    ['--pv-hue' as string]: visual.rgb,
-    ['--pv-ink' as string]: visual.ink,
-    color: 'rgb(var(--pv))',
-    background: 'linear-gradient(135deg, rgb(var(--pv) / 0.13), rgb(var(--pv) / 0.03))',
-    borderWidth: 1,
-    borderStyle: 'solid',
-    ...(visual.rgb2
-      ? {
-          ['--pv2-hue' as string]: visual.rgb2,
-          ['--pv2-ink' as string]: visual.ink2 ?? visual.ink,
-          borderColor: 'transparent',
-          borderImageSource:
-            'linear-gradient(135deg, rgb(var(--pv) / 0.75), rgb(var(--pv2) / 0.95))',
-          borderImageSlice: 1
-        }
-      : { borderColor: 'rgb(var(--pv) / 0.38)' }),
-    ...(visual.glow > 0
-      ? { textShadow: `0 0 9px rgb(var(--pv) / calc(${visual.glow} * var(--lb-glow, 1)))` }
-      : null)
-  }
 }
 
 /** Chip style for the player card's dark banner scrim — the scrim stays
@@ -144,7 +112,18 @@ export function personaChipScrimStyle(visual: TokenPersonaVisual): CSSProperties
   }
 }
 
-/** The mobile rows' 5px persona dot — same var swap as the chips. */
+/** Plain text in the persona's hue — the burn board's row label under
+ *  the name: no chip box, no glow, just the flame-temperature colour
+ *  through the same `lbt-pv` var swap. */
+export function personaTextStyle(visual: TokenPersonaVisual): CSSProperties {
+  return {
+    ['--pv-hue' as string]: visual.rgb,
+    ['--pv-ink' as string]: visual.ink,
+    color: 'rgb(var(--pv))'
+  }
+}
+
+/** The mobile rows' 5px persona dot — same var swap as the text. */
 export function personaDotStyle(visual: TokenPersonaVisual): CSSProperties {
   return {
     ['--pv-hue' as string]: visual.rgb,

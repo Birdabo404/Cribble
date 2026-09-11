@@ -119,9 +119,13 @@ let activeSmoother: ScrollSmoother | null = null
  *  scrollIntoView behavior otherwise. `smooth: false` is an instant
  *  jump on both paths (AiBoard needs that: the row's inline spec sheet
  *  expands in the same commit, and a glide would land on a target
- *  whose height is still tweening). */
+ *  whose height is still tweening). The refresh first: a jump issued in
+ *  the commit that grew the board (a welcome landing straight onto
+ *  page 2) would otherwise clamp to the max scroll measured off the
+ *  skeleton, since the growth refresh below is debounced. */
 export function leaderboardScrollTo(el: Element, smooth: boolean): void {
   if (activeSmoother) {
+    ScrollTrigger.refresh()
     activeSmoother.scrollTo(el, smooth, 'center center')
   } else {
     el.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'center' })
