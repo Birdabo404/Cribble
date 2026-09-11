@@ -45,6 +45,8 @@ import {
 } from '@/components/leaderboard/icons'
 import { PlateLayer } from '@/components/cosmetics/PlateLayer'
 import { AiBoard } from '@/components/leaderboard/AiBoard'
+import { BurnSeg } from '@/components/leaderboard/burn/BurnSeg'
+import { BurnStyles } from '@/components/leaderboard/burn/BurnStyles'
 import { CrtAttract, HeroTitle } from '@/components/leaderboard/CrtAttract'
 import { CursorClaimPrompt } from '@/components/leaderboard/CursorClaimPrompt'
 import { LeaderboardScrollRuntime } from '@/components/leaderboard/LeaderboardScrollRuntime'
@@ -367,40 +369,24 @@ function LeaderboardArena() {
   )
 
   // Board switch — pilots, the burn, the machines, or the teams. One
-  // tablist, rendered in the page's toolbar row on every view except
-  // TOKENS, where TokenBoard seats it in its own row under the burn CRT.
+  // tablist in the burn board's hairline-cell register (BurnStyles is
+  // mounted below for it), rendered in the page's toolbar row on every
+  // view except TOKENS, where TokenBoard seats it in its own row under
+  // the burn CRT. The GLOBAL tab fronts both standings windows; the
+  // nested SEASON / ALL-TIME toggle on its right picks between them.
   const boardTabs = (
-    <div
-      className="lb-inset flex min-w-0 max-w-full flex-nowrap items-center gap-0.5 overflow-x-auto overscroll-x-contain rounded-lg p-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      role="tablist"
-      aria-label="Leaderboard view"
-    >
-      {BOARD_TABS.map((tab) => {
-        // The GLOBAL top tab fronts both standings windows; the nested
-        // pills on its right pick between them.
-        const active = tab.id === 'season' ? isStandings : view === tab.id
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() =>
-              handleViewChange(tab.id === 'season' ? lastStandingsView.current : tab.id)
-            }
-            className={`lb-pill shrink-0 rounded-md px-2.5 py-2 sm:px-3 sm:py-1 text-[10px] tracking-[0.2em] sm:tracking-[0.3em] transition-colors ${
-              active ? 'lb-pill-active' : 'text-zinc-500 hover:text-zinc-100'
-            }`}
-          >
-            {tab.label}
-          </button>
-        )
-      })}
-    </div>
+    <BurnSeg
+      items={BOARD_TABS}
+      value={isStandings ? 'season' : view}
+      onChange={(id) => handleViewChange(id === 'season' ? lastStandingsView.current : id)}
+      ariaLabel="Leaderboard view"
+    />
   )
 
   return (
     <>
+      <BurnStyles />
+
       {/* Scroll friction (desktop fine-pointer only; native fallback
           otherwise). The asteroid shower that used to render here is
           hoisted to AppShell — its fixed layers must stay outside the
@@ -473,38 +459,19 @@ function LeaderboardArena() {
               its list, mirroring this row's place under the GLOBAL hero. */}
           {view !== 'tokens' && (
           <div
-            className={`lb4-reveal flex flex-wrap items-center justify-between gap-2 ${
-              isStandings ? '!mt-3' : ''
-            }`}
+            className={`lb4-reveal bb-bar ${isStandings ? '!mt-3' : ''}`}
             style={{ ['--rv' as string]: '190ms' }}
           >
             {boardTabs}
 
             {isStandings && (
-              <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-1">
-                <div
-                  className="lb-inset flex items-center gap-0.5 rounded-lg p-0.5"
-                  role="tablist"
-                  aria-label="Standings window"
-                >
-                  {STANDINGS_WINDOWS.map((item) => {
-                    const active = view === item.id
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        onClick={() => handleViewChange(item.id)}
-                        className={`lb-pill rounded-md px-2.5 py-1.5 text-[9px] tracking-[0.2em] transition-colors ${
-                          active ? 'lb-pill-active' : 'text-zinc-500 hover:text-zinc-200'
-                        }`}
-                      >
-                        {item.label}
-                      </button>
-                    )
-                  })}
-                </div>
+              <div className="bb-bar-tools">
+                <BurnSeg
+                  items={STANDINGS_WINDOWS}
+                  value={view}
+                  onChange={handleViewChange}
+                  ariaLabel="Standings window"
+                />
                 <SearchBar value={query} onChange={setQuery} />
               </div>
             )}
@@ -1683,22 +1650,20 @@ function YouBar({
 
 function SearchBar({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
-    <div className="lb-inset lb-search flex w-full sm:max-w-xs items-center overflow-hidden rounded-lg">
-      <span className="pl-3 pr-1 text-zinc-500">
-        <IconSearch size={12} />
+    <div className="bb-seg bb-search">
+      <span className="bb-search-icon">
+        <IconSearch size={11} />
       </span>
       <input
         type="text"
         placeholder="hunt a player…"
+        aria-label="Search players"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="flex-1 bg-transparent px-2 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
+        className="bb-search-input"
       />
       {value && (
-        <button
-          onClick={() => onChange('')}
-          className="border-l border-[rgb(var(--lb-panel-edge)/0.08)] px-3 py-2 text-[10px] tracking-[0.2em] text-zinc-500 hover:text-zinc-200"
-        >
+        <button type="button" onClick={() => onChange('')} className="bb-segbtn">
           CLEAR
         </button>
       )}

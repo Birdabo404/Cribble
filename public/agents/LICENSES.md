@@ -61,3 +61,41 @@ Policy:
 Codex (OpenAI), Claude Code, Cursor, Gemini CLI and GitHub Copilot render
 from Simple Icons path data (CC0 1.0) embedded in
 `src/lib/harnessBrands.ts` — no binary asset to pin.
+
+### Monochrome harness marks (`HARNESS_MARKS` in `src/lib/aiToolMarks.ts`)
+
+The AI board and Burn Board draw every mark as single-fill `currentColor`
+geometry on a 24-unit grid. Three harness marks are traced onto that grid
+from the harness's own published mark; the path data lives in
+`src/lib/aiToolMarks.ts`, provenance is recorded here.
+
+- **Hermes** — derived from `hermes.png` above (same MIT license and
+  hash). Auto-traced (potrace) after a 64×64 Lanczos downsample, threshold
+  128, speckles under 3px dropped; rescaled 64 → 24 and clamped to the
+  box. Ink is the fill; the white tile is left open. 11 subpaths, evenodd.
+- **Pi** — derived from `pi.svg` above (same MIT license and revision).
+  The two glyph paths are lifted verbatim and rescaled from the 800-unit
+  tile to a 22-unit box with a 1-unit margin; the `#09090b` tile rect is
+  dropped. 3 subpaths, evenodd.
+- **OpenCode** — derived from `opencode.svg` above (same MIT license and
+  revision). The white frame path is lifted and the grey `#5A5858` block
+  is merged into it as ink (single colour has no mid-tone), leaving the
+  upper third of the counter as the one cut; the `#131010` tile rect is
+  dropped. Rescaled from the 512 tile so the 320-tall frame spans the
+  same 22-unit height / 1-unit margin as Pi (cell = 4.4), centred
+  horizontally. 2 subpaths, evenodd.
+- **oh-my-pi (OMP)** — hand-traced from the project's own icon.
+  - Source: oh-my-pi brand icon (π with a plug connector on the right leg)
+  - Repository: https://github.com/can1357/oh-my-pi — `assets/icon.svg`
+  - Pinned revision: `2be354322dee0cdd95bc42fc61c72ef9767b653b`
+  - Direct file: https://raw.githubusercontent.com/can1357/oh-my-pi/2be354322dee0cdd95bc42fc61c72ef9767b653b/assets/icon.svg
+  - SHA-256 (upstream file): `727019727006f26fe3d1f187d3fe9830f26213733a51721096a2044ab059cf61`
+  - License: MIT (repository license)
+  - Fetched: 2026-09-12
+  - Modifications: bar, legs and connector body unioned into one outline;
+    the two connector prongs cut as counters (widened 0.66 → 0.8 units so
+    they register at 24px); the two orange accent dots on the bar omitted
+    (sub-pixel at board sizes); brand colours dropped for `currentColor`.
+    Rescaled from the 120×90 art box to a 22-unit width, centred
+    vertically. 3 subpaths, evenodd. The upstream file itself is not
+    shipped.

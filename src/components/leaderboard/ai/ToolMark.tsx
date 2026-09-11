@@ -1,10 +1,10 @@
 // Monochrome brand mark for one AI tool on the board. Renders the official
-// Simple Icons geometry from src/lib/aiToolMarks as a single-fill SVG that
-// inherits `currentColor`, so the parent decides ink vs amber. Tools with
-// no faithful mark get a two-letter monogram in a 1px hairline square —
-// square corners are a hard rule for this board, no radius anywhere.
-// Decorative only (aria-hidden): the tool name is always rendered as text
-// beside it.
+// geometry from src/lib/aiToolMarks (Simple Icons, or a harness mark traced
+// onto the same grid) as a single-fill SVG that inherits `currentColor`,
+// so the parent decides ink vs amber. Tools with no faithful mark get a
+// two-letter monogram in a 1px hairline square — square corners are a
+// hard rule for this board, no radius anywhere. Decorative only
+// (aria-hidden): the tool name is always rendered as text beside it.
 
 import type { CSSProperties } from 'react'
 import { aiToolMark, aiToolMonogram } from '@/lib/aiToolMarks'
@@ -30,7 +30,7 @@ export function ToolMark({
         aria-hidden
         className={className}
       >
-        <path d={mark.path} />
+        <path d={mark.path} fillRule={mark.fillRule} />
       </svg>
     )
   }
@@ -49,7 +49,6 @@ export function ToolMark({
     fontSize: Math.round(size * 0.42),
     lineHeight: 1,
     letterSpacing: 0,
-    color: 'currentColor',
     userSelect: 'none',
     borderRadius: 0
   }
