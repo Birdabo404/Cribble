@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from 'react'
 import AnimatedCounter from '@/components/AnimatedCounter'
 import { IconGoatCounter } from '@/components/analytics/IconGoatCounter'
 import { formatNumber } from '@/components/dashboard-v2/format'
+import { presentLiveCount } from '@/components/leaderboard/visitorPresent'
 import { goatcounterStatsUrl } from '@/lib/goatcounterPublic'
 
 const POLL_MS = 30_000
@@ -75,7 +76,7 @@ export function VisitorTicker() {
     }
   }, [load])
 
-  const live = pulse?.live ?? null
+  const live = pulse ? presentLiveCount(pulse.live) : null
   const last12h = pulse?.last12h ?? null
   const countsLabel =
     live === null || last12h === null
