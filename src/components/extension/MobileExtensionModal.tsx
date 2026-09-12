@@ -11,8 +11,9 @@ import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { installableBrowserNames } from '@/lib/extensionInstall'
 
-// "Chrome" today, "Chrome or Firefox" once the AMO listing ships — the
-// URLs are build-time constants, so module scope is safe.
+// "Chrome (or any Chromium browser)" today, "… or Firefox" once the AMO
+// listing ships — the URLs are build-time constants, so module scope is
+// safe. Every sentence below drops it in after "desktop".
 const BROWSER_NAMES = installableBrowserNames()
 
 export function MobileExtensionModal({ onClose }: { onClose: () => void }) {

@@ -12,19 +12,23 @@ import type { CountMode } from '@/lib/countMode'
 import { parseCountMode } from '@/lib/countMode'
 import { ROLE_OPTIONS } from '@/lib/roles'
 import {
-  EXTENSION_INSTALL_URL,
-  FIREFOX_EXTENSION_INSTALL_URL,
+  currentChromiumForkName,
   currentExtensionBrowserFamily,
   evaluateExtensionGate,
-  installableBrowserNames,
   isExtensionCapableBrowser,
   isExtensionInstallEnabled,
+  type ChromiumForkName,
   type ExtensionBrowserFamily
 } from '@/lib/extensionInstall'
 import { TEAM_TERMS, type BillingTerm } from '@/lib/planTerms'
 import { useExtensionDetection } from '@/hooks/useExtensionDetection'
 import { AgentLinkStage } from '@/components/welcome/AgentLinkStage'
 import { CountStage } from '@/components/welcome/CountStage'
+import { ExtensionStage } from '@/components/welcome/ExtensionStage'
+import {
+  isLinked,
+  type ExtensionPhase
+} from '@/components/welcome/extensionPhase'
 import {
   CardIcon,
   ChoiceCard,
@@ -41,21 +45,21 @@ import {
 } from '@/components/welcome/welcomeMotion'
 import {
   EMPTY_AGENT_PROGRESS,
+  EMPTY_EXTENSION_PROGRESS,
   clearWelcomeProgress,
   isProgressFresh,
   loadWelcomeProgress,
   saveWelcomeProgress,
   type AgentProgressSnapshot,
+  type ExtensionProgressSnapshot,
   type WelcomeProgress
 } from '@/components/welcome/welcomeProgress'
 import {
   BrandBolt,
-  BrandChrome,
   BrandClaude,
   BrandCopilot,
   BrandCursor,
   BrandDeepSeek,
-  BrandFirefox,
   BrandGemini,
   BrandGrok,
   BrandLovable,
@@ -66,7 +70,6 @@ import {
   BrandV0,
   BrandWindsurf,
   IconActivity,
-  IconArrowRight,
   IconAsterisk,
   IconBookOpen,
   IconCheck,
@@ -155,43 +158,6 @@ const DEV_STAGES: Stage[] = [
  *  used sparingly here as an accent inside the wizard's own language. */
 const GOLD = 'var(--lb-gold)'
 
-type ExtensionStore = {
-  family: ExtensionBrowserFamily
-  storeName: string
-  cta: string
-  icon: IconComponent
-  url: string
-}
-
-// One card per live store listing — no empty slot for a store that isn't
-// live. Today that's Chrome alone; the Firefox card appears the moment
-// NEXT_PUBLIC_FIREFOX_EXTENSION_STORE_URL ships, the same switch that
-// turns on the Firefox gate and nudge.
-const EXTENSION_STORES: ExtensionStore[] = [
-  ...(EXTENSION_INSTALL_URL !== null
-    ? [
-        {
-          family: 'chrome' as const,
-          storeName: 'Chrome Web Store',
-          cta: 'Add to Chrome',
-          icon: BrandChrome,
-          url: EXTENSION_INSTALL_URL
-        }
-      ]
-    : []),
-  ...(FIREFOX_EXTENSION_INSTALL_URL !== null
-    ? [
-        {
-          family: 'firefox' as const,
-          storeName: 'Firefox Add-ons',
-          cta: 'Add to Firefox',
-          icon: BrandFirefox,
-          url: FIREFOX_EXTENSION_INSTALL_URL
-        }
-      ]
-    : [])
-]
-
 // Shared vocabulary (src/lib/roles.ts) + glyphs — the same list the
 // profile editor offers, so a role picked here can always be changed later.
 const ROLES: { id: string; label: string; hint: string; icon: IconComponent }[] =
@@ -268,13 +234,19 @@ const ONBOARDING_STATUS_TIMEOUT_MS = 10_000
 
 // The brand moment's floor. Both intro timers respect it: the main timer
 // fires at exactly this point, and the safety re-check (signals settling
-// late) waits out whatever remains of it before advancing.
+// late) waits out whatever remains of it before advancing. A resume the
+// extension stage triggered itself (fastResume) drops the floor to zero:
+// that reload should read as one dark beat, not a replayed brand moment.
 const MIN_INTRO_MS = 1800
 const INTRO_RECHECK_MS = 200
 
-// Dwell on the "EXTENSION DETECTED" confirmation before auto-forwarding,
-// long enough to read as a state change instead of a flicker.
-const EXTENSION_DETECTED_PAUSE_MS = 900
+// metadata.top_tools as the onboarding POST stored it — the ids the tools
+// stage validates against, nothing else.
+function parseSavedTools(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((t): t is string => typeof t === 'string')
+    : []
+}
 
 export default function WelcomePage() {
   const router = useRouter()
@@ -298,6 +270,12 @@ export default function WelcomePage() {
   const [alreadyOnboarded, setAlreadyOnboarded] = useState(false)
   const [statusKnown, setStatusKnown] = useState(false)
   const [extensionLinked, setExtensionLinked] = useState(false)
+  // The account's numeric id, from the onboarding GET. The extension
+  // stage registers the device against it; null until the status lands.
+  const [userId, setUserId] = useState<number | null>(null)
+  // metadata.top_tools for a returning user, who never walks the tools
+  // stage this session — seeds the extension stage's FIRST SIGNAL grid.
+  const [savedTopTools, setSavedTopTools] = useState<string[]>([])
   // From saved onboarding metadata; team buyers pass the extension gate.
   // Anything that is not strictly 'team' counts as solo.
   const [accountType, setAccountType] = useState<'solo' | 'team'>('solo')
@@ -307,13 +285,25 @@ export default function WelcomePage() {
   // Which store card the extension stage highlights; null highlights none.
   const [browserFamily, setBrowserFamily] =
     useState<ExtensionBrowserFamily | null>(null)
+  // The running Chromium fork (Brave, Edge, Arc…) for that card's sublabel.
+  const [forkName, setForkName] = useState<ChromiumForkName | null>(null)
   const [devMode, setDevMode] = useState(false)
+  // ?dev=1 only: the extension stage's phase jumper.
+  const [devExtensionPhase, setDevExtensionPhase] =
+    useState<ExtensionPhase | null>(null)
   // The agent stage's phase booleans, lifted here so session resume can
   // persist and restore them across a reload.
   const [agentProgress, setAgentProgress] =
     useState<AgentProgressSnapshot>(EMPTY_AGENT_PROGRESS)
+  // The extension stage's memory (store visit, self-reloads, pin ack),
+  // lifted for the same reason — its own reconnect reload depends on it.
+  const [extensionProgress, setExtensionProgress] =
+    useState<ExtensionProgressSnapshot>(EMPTY_EXTENSION_PROGRESS)
   const devRequestedRef = useRef(false)
   const nextPathRef = useRef<string | null>(null)
+  // True when the saved snapshot was written by the extension stage right
+  // before it reloaded: both intro timers then skip the brand moment.
+  const fastResumeRef = useRef(false)
   // When the intro was first painted — the safety timer below measures its
   // remaining minimum against this.
   const introStartedAtRef = useRef(Date.now())
@@ -321,9 +311,11 @@ export default function WelcomePage() {
   const rootRef = useRef<HTMLDivElement>(null)
   const swapRef = useRef<HTMLDivElement>(null)
   // One detection loop for the whole page: the intro verdict and the
-  // extension stage both read it, and it keeps polling until detected —
-  // which is what lets a mid-stage install unlock the CTA by itself.
-  const { detected, checked } = useExtensionDetection(EXTENSION_STEP_ENABLED)
+  // extension stage both read it, and it keeps polling until detected.
+  // The identity it returns is what tells "installed" from "linked to this
+  // account"; refresh() re-asks after the stage registers the device.
+  const { detected, checked, identity, refresh } =
+    useExtensionDetection(EXTENSION_STEP_ENABLED)
 
   const goTo = useCallback((next: Stage) => setPendingStage(next), [])
 
@@ -432,8 +424,11 @@ export default function WelcomePage() {
     const params = new URLSearchParams(window.location.search)
     devRequestedRef.current = params.has('dev')
     nextPathRef.current = sanitizeNextPath(params.get('next'))
+    // Read once, before the intro timers below are armed (effect order).
+    fastResumeRef.current = loadWelcomeProgress()?.fastResume === true
     setCapableBrowser(isExtensionCapableBrowser())
     setBrowserFamily(currentExtensionBrowserFamily())
+    setForkName(currentChromiumForkName())
   }, [])
 
   useEffect(() => {
@@ -468,8 +463,10 @@ export default function WelcomePage() {
         setDevMode(dev)
         if (data?.onboarded && !dev) setAlreadyOnboarded(true)
         setExtensionLinked(data?.extensionLinked === true)
+        setUserId(typeof data?.userId === 'number' ? data.userId : null)
         setAccountType(data?.metadata?.account_type === 'team' ? 'team' : 'solo')
         setSavedCountMode(parseCountMode(data?.metadata?.count_mode))
+        setSavedTopTools(parseSavedTools(data?.metadata?.top_tools))
         setStatusKnown(true)
       })
       .catch(() => {
@@ -523,7 +520,9 @@ export default function WelcomePage() {
   )
 
   // Restore a saved session: answers first, then the jump — the steps memo
-  // recomputes from the restored count mode before the swap lands.
+  // recomputes from the restored count mode before the swap lands. The
+  // fastResume flag is consumed here: it bought this one intro-less
+  // resume and must not buy the next reload one too.
   const resumeFrom = useCallback(
     (saved: WelcomeProgress) => {
       setMode(saved.mode)
@@ -532,6 +531,8 @@ export default function WelcomePage() {
       setGoal(saved.goal)
       setTopTools(saved.topTools)
       setAgentProgress(saved.agent)
+      setExtensionProgress(saved.extension)
+      if (saved.fastResume) saveWelcomeProgress({ ...saved, fastResume: false })
       goTo(saved.stage)
     },
     [goTo]
@@ -539,12 +540,16 @@ export default function WelcomePage() {
 
   // Where the user goes once the intro settles. Resume beats replay: a
   // reload mid-flow restores the saved answers and lands back on the saved
-  // stage. Dev mode always replays from scratch.
+  // stage. Dev mode replays from scratch — except after a reload the
+  // extension stage triggered itself (fastResume), which has to land back
+  // on the stage or the reconnect could never be exercised with ?dev=1.
   const leaveIntro = useCallback(() => {
-    const saved = devMode ? null : loadWelcomeProgress()
+    const saved = loadWelcomeProgress()
     // A saved extension stage is only real while the store listing is live.
     const resumable =
-      saved !== null && (saved.stage !== 'extension' || EXTENSION_STEP_ENABLED)
+      saved !== null &&
+      (!devMode || saved.fastResume) &&
+      (saved.stage !== 'extension' || EXTENSION_STEP_ENABLED)
         ? saved
         : null
     if (!alreadyOnboarded) {
@@ -581,12 +586,14 @@ export default function WelcomePage() {
   }, [alreadyOnboarded, devMode, verdict, finish, goTo, resumeFrom])
 
   // After the intro moment, branch on onboarding status + gate verdict.
+  // A self-triggered resume skips the moment entirely.
   useEffect(() => {
     if (stage !== 'intro') return
+    const minMs = fastResumeRef.current ? 0 : MIN_INTRO_MS
     const id = setTimeout(() => {
       if (!gateReady) return // signals haven't settled yet — retry tick below
       leaveIntro()
-    }, MIN_INTRO_MS)
+    }, minMs)
     return () => clearTimeout(id)
   }, [stage, gateReady, leaveIntro])
 
@@ -597,13 +604,17 @@ export default function WelcomePage() {
   useEffect(() => {
     if (stage !== 'intro' || !gateReady) return
     const elapsed = Date.now() - introStartedAtRef.current
-    const wait = Math.max(INTRO_RECHECK_MS, MIN_INTRO_MS - elapsed)
+    const wait = fastResumeRef.current
+      ? 0
+      : Math.max(INTRO_RECHECK_MS, MIN_INTRO_MS - elapsed)
     const t = setTimeout(leaveIntro, wait)
     return () => clearTimeout(t)
   }, [stage, gateReady, leaveIntro])
 
   // Persist every answer and the current stage as they change, so nothing
   // ever restarts from scratch. Session-scoped; the intro saves nothing.
+  // fastResume is only ever written by reconnect() below, right before
+  // its reload — a normal save always clears it.
   useEffect(() => {
     if (devMode || stage === 'intro') return
     saveWelcomeProgress({
@@ -614,9 +625,21 @@ export default function WelcomePage() {
       goal,
       topTools,
       agent: agentProgress,
+      extension: extensionProgress,
+      fastResume: false,
       savedAt: Date.now()
     })
-  }, [devMode, stage, mode, countMode, role, goal, topTools, agentProgress])
+  }, [
+    devMode,
+    stage,
+    mode,
+    countMode,
+    role,
+    goal,
+    topTools,
+    agentProgress,
+    extensionProgress
+  ])
 
   // Active path. The `stage === 'team'` clause keeps the team list in
   // force during the leave animation after "Continue solo instead" flips
@@ -763,7 +786,7 @@ export default function WelcomePage() {
 
   // A first-run 'both' user continues from the wall to the agent stage; an
   // onboarded user bounced here by the gate goes straight through to the
-  // app once the extension is detected. Only meaningful while the active
+  // app once the extension is linked. Only meaningful while the active
   // list actually contains the wall.
   const extensionIdx = steps.indexOf('extension')
   const extensionNext =
@@ -776,11 +799,34 @@ export default function WelcomePage() {
     else finish()
   }, [extensionNext, goTo, finish])
 
+  // Linked, not merely detected: a detected-but-unregistered extension
+  // never syncs, and letting it through is how "onboarded" came to mean
+  // nothing. Non-capable browsers pass as before — the wall isn't theirs.
+  // If the onboarding GET settled without a user id (5xx, network), no
+  // link can be verified from here; fall open on detected exactly as the
+  // (app) ExtensionGate does, and let the dashboard's useExtensionSync
+  // register the device — the alternative is a CTA locked for good.
+  const extensionIsLinked = isLinked(identity, userId)
+  const linkVerifiable = !statusKnown || userId !== null
+  const canEnterFromExtension =
+    verdict === 'allow' &&
+    (!capableBrowser || (linkVerifiable ? extensionIsLinked : detected))
+
+  const patchExtensionProgress = useCallback(
+    (patch: Partial<ExtensionProgressSnapshot>) => {
+      setExtensionProgress((current) => ({ ...current, ...patch }))
+    },
+    []
+  )
+
   // The extension can't reach a tab that was already open when it was
-  // installed, so one reload is genuinely required for the handshake.
-  // Persist first: resume lands right back on this stage.
-  const reloadAndCheck = useCallback(() => {
-    if (!devMode && stage !== 'intro') {
+  // installed, so after a store visit one reload is genuinely required
+  // for the handshake. The stage decides when; this persists first (with
+  // the intro told to stand down and the reload counted) so resume lands
+  // right back on the stage. Saved even in dev mode — leaveIntro honors
+  // a fastResume snapshot there — so the flow can be walked with ?dev=1.
+  const reconnect = useCallback(() => {
+    if (stage !== 'intro') {
       saveWelcomeProgress({
         stage,
         mode,
@@ -789,11 +835,25 @@ export default function WelcomePage() {
         goal,
         topTools,
         agent: agentProgress,
+        extension: {
+          ...extensionProgress,
+          autoReconnects: extensionProgress.autoReconnects + 1
+        },
+        fastResume: true,
         savedAt: Date.now()
       })
     }
     window.location.reload()
-  }, [devMode, stage, mode, countMode, role, goal, topTools, agentProgress])
+  }, [
+    stage,
+    mode,
+    countMode,
+    role,
+    goal,
+    topTools,
+    agentProgress,
+    extensionProgress
+  ])
 
   return (
     <div
@@ -901,13 +961,25 @@ export default function WelcomePage() {
               {stage === 'extension' && (
                 <ExtensionStage
                   step={stepNumber ?? 7}
+                  userId={userId}
+                  statusKnown={statusKnown}
+                  identity={identity}
                   detected={detected}
+                  checked={checked}
+                  refresh={refresh}
                   capableBrowser={capableBrowser}
                   browserFamily={browserFamily}
-                  canEnter={verdict === 'allow'}
+                  forkName={forkName}
+                  alreadyLinked={alreadyOnboarded && extensionLinked}
                   finalStep={extensionNext === null}
+                  topTools={topTools.length > 0 ? topTools : savedTopTools}
+                  progress={extensionProgress}
+                  onProgress={patchExtensionProgress}
+                  canEnter={canEnterFromExtension}
                   onDone={extensionDone}
-                  onReloadCheck={reloadAndCheck}
+                  onReconnect={reconnect}
+                  devPhaseOverride={devMode ? devExtensionPhase : null}
+                  onDevPhaseOverride={devMode ? setDevExtensionPhase : undefined}
                 />
               )}
               {stage === 'agent' && (
@@ -1716,160 +1788,5 @@ function ToolsStage({
         </PrimaryButton>
       </StageActions>
     </StageShell>
-  )
-}
-
-/* ============================================================
-   Install the extension (only when the store listing is live)
-   ============================================================ */
-
-function ExtensionStage({
-  step,
-  detected,
-  capableBrowser,
-  browserFamily,
-  canEnter,
-  finalStep,
-  onDone,
-  onReloadCheck
-}: {
-  step: number
-  detected: boolean
-  capableBrowser: boolean
-  /** Store card to highlight — null (Safari, Edge, mobile, SSR)
-   *  highlights none. Cosmetic only: every card stays a plain link
-   *  either way. */
-  browserFamily: ExtensionBrowserFamily | null
-  /** Gate verdict for the current inputs — the CTA stays locked until it
-   *  passes. Detection landing mid-stage unlocks it by itself, since the
-   *  page-level hook keeps polling. */
-  canEnter: boolean
-  /** False on the 'both' lane, where the agent-link stage still follows. */
-  finalStep: boolean
-  onDone: () => void
-  /** Persists progress, then reloads — session resume lands right back
-   *  here, so the required post-install reload costs nothing. */
-  onReloadCheck: () => void
-}) {
-  // Detection landing forwards on its own after a short confirmation beat;
-  // the button below stays as the manual fallback.
-  useEffect(() => {
-    if (!detected || !canEnter) return
-    const id = window.setTimeout(onDone, EXTENSION_DETECTED_PAUSE_MS)
-    return () => window.clearTimeout(id)
-  }, [detected, canEnter, onDone])
-
-  return (
-    <StageShell
-      step={step}
-      stage="extension"
-      title="Install cribble-engine."
-      subtitle="Cribble cannot count browser time until this is on. It measures which tools you open and for how long. Not what you type."
-    >
-      <div
-        className={`mt-9 grid grid-cols-1 gap-3 ${
-          EXTENSION_STORES.length > 1 ? 'md:grid-cols-2' : ''
-        }`}
-      >
-        {EXTENSION_STORES.map((store) => (
-          <StoreCard
-            key={store.family}
-            store={store}
-            highlighted={store.family === browserFamily}
-          />
-        ))}
-      </div>
-
-      <div
-        className="card-enter glass-lite mt-3 rounded-2xl px-6 py-5"
-        style={{
-          borderColor: detected ? 'rgb(var(--accent-rgb) / 0.5)' : undefined
-        }}
-      >
-        {detected ? (
-          <div className="flex items-center gap-3">
-            <span className="check-pop phos-check inline-flex h-5 w-5 items-center justify-center rounded-full border border-accent/40 bg-zinc-950 text-accent">
-              <IconCheck size={11} />
-            </span>
-            <span className="font-mono text-[10px] tracking-[0.3em] text-accent">
-              EXTENSION DETECTED
-            </span>
-          </div>
-        ) : capableBrowser ? (
-          <div>
-            <div className="flex items-center gap-3">
-              <span className="inline-flex h-5 w-5 items-center justify-center">
-                <span className="h-1.5 w-1.5 rounded-full bg-zinc-600 animate-pulse" />
-              </span>
-              <span className="font-mono text-[10px] tracking-[0.3em] text-zinc-500">
-                WAITING FOR INSTALL…
-              </span>
-            </div>
-            <p className="mt-2 pl-8 text-xs leading-relaxed text-zinc-600">
-              Installed but not detected? The extension can&apos;t reach a
-              tab that was already open. One reload connects it.
-            </p>
-            <button
-              type="button"
-              onClick={onReloadCheck}
-              className="press-scale mt-3 ml-8 inline-flex items-center gap-2 rounded-full border border-zinc-800 px-4 py-2 font-mono text-[9px] tracking-[0.25em] text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-100"
-            >
-              RELOAD AND CHECK
-            </button>
-          </div>
-        ) : (
-          <p className="text-xs leading-relaxed text-zinc-500">
-            The extension isn&apos;t available for this browser yet. Open
-            Cribble on desktop {installableBrowserNames()} to install.
-          </p>
-        )}
-      </div>
-
-      <StageActions>
-        <PrimaryButton onClick={onDone} disabled={!canEnter} emphasized={canEnter}>
-          {finalStep ? 'Enter dashboard' : 'Continue'}
-        </PrimaryButton>
-      </StageActions>
-    </StageShell>
-  )
-}
-
-/** Store link card — a plain external link, never a radio: installing is
- *  proven by the detection handshake, not by clicking. The highlight marks
- *  the card matching the running browser. */
-function StoreCard({
-  store,
-  highlighted
-}: {
-  store: ExtensionStore
-  highlighted: boolean
-}) {
-  return (
-    <a
-      href={store.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={`card-enter press-scale relative block rounded-2xl border bg-zinc-950/70 p-5 transition-[border-color,background-color,box-shadow,color] duration-300 ${
-        highlighted
-          ? 'phos-selected border-accent/25'
-          : 'border-zinc-800 hover:border-zinc-600'
-      }`}
-    >
-      {highlighted && (
-        <span className="absolute top-3 right-3 rounded-full border border-accent/40 bg-accent/10 px-2 py-1 font-mono text-[9px] tracking-[0.25em] text-accent">
-          THIS BROWSER
-        </span>
-      )}
-      <div className="flex items-center gap-4">
-        <CardIcon icon={store.icon} selected={highlighted} />
-        <div>
-          <div className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
-            {store.cta}
-            <IconArrowRight size={13} className="text-zinc-500" />
-          </div>
-          <div className="mt-0.5 text-xs text-zinc-500">{store.storeName}</div>
-        </div>
-      </div>
-    </a>
   )
 }

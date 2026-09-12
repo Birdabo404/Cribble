@@ -193,3 +193,105 @@ export function ChoiceCard({
     </button>
   )
 }
+
+/** The hue a setup stage's phase cards ride: ember on token surfaces
+ *  (the agent link), phosphor accent on browser ones (the extension). */
+export type PhaseTone = 'ember' | 'accent'
+
+const PHASE_TONE: Record<
+  PhaseTone,
+  { activeBorder: string; doneChip: string }
+> = {
+  ember: {
+    activeBorder: 'rgb(var(--ember-rgb) / 0.4)',
+    doneChip: 'border-transparent bg-ember text-black'
+  },
+  accent: {
+    activeBorder: 'rgb(var(--accent-rgb) / 0.4)',
+    // The CRT status light, not a filled sticker — the same idiom as the
+    // selected-card check.
+    doneChip: 'phos-check border-accent/40 bg-zinc-950 text-accent'
+  }
+}
+
+/** One phase of a setup sequence: numbered chip, mono label, title, and
+ *  a body. `data-phase={id}` lets a stage scroll a card into view. Pass
+ *  no children to render a collapsed header alone. */
+export function PhaseCard({
+  id,
+  index,
+  label,
+  title,
+  done,
+  active,
+  tone = 'accent',
+  status,
+  children
+}: {
+  id: string
+  index: string
+  label: string
+  title: React.ReactNode
+  done: boolean
+  active: boolean
+  tone?: PhaseTone
+  /** Right-aligned mono status word for the header row (LINKED,
+   *  EXTENSION DETECTED…) — the ladder a user reads at a glance. */
+  status?: React.ReactNode
+  children?: React.ReactNode
+}) {
+  const hue = PHASE_TONE[tone]
+  return (
+    <div
+      data-phase={id}
+      className="card-enter glass-lite rounded-2xl p-5 transition-colors duration-300"
+      style={{
+        borderColor: active ? hue.activeBorder : undefined
+      }}
+    >
+      {/* Wraps so a long status (EXTENSION DETECTED) drops to its own
+          right-aligned line on narrow screens instead of crushing the
+          title into one word per line. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <span
+          className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border font-mono text-[9px] transition-colors duration-300 ${
+            done
+              ? hue.doneChip
+              : active
+              ? 'border-zinc-600 text-zinc-200'
+              : 'border-zinc-800 text-zinc-600'
+          }`}
+        >
+          {done ? <IconCheck size={10} /> : index}
+        </span>
+        <span className="font-mono text-[9px] tracking-[0.3em] text-zinc-500">
+          {label}
+        </span>
+        <span className="text-sm font-semibold text-zinc-100">{title}</span>
+        {status !== undefined && (
+          <span className="ml-auto shrink-0 pl-3 text-right">{status}</span>
+        )}
+      </div>
+      {children ? <div className="mt-4 pl-8">{children}</div> : null}
+    </div>
+  )
+}
+
+/** The one user-claimed step in a setup sequence, as a mono pill. */
+export function MarkDoneButton({
+  onClick,
+  children
+}: {
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="press-scale mt-3 inline-flex items-center gap-2 rounded-full border border-zinc-800 px-4 py-2 font-mono text-[9px] tracking-[0.25em] text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-100"
+    >
+      {children}
+    </button>
+  )
+}

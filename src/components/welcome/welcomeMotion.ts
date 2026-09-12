@@ -28,3 +28,41 @@ export function welcomeMotionReduced(): boolean {
     document.documentElement.dataset.motion === 'reduced'
   )
 }
+
+/** Playback surface shared by GSAP animations and anime instances, so
+ *  one parking helper covers both. Same shape as aiMotion's Loop; the
+ *  welcome folder keeps its own copy rather than reaching into the
+ *  leaderboard's motion module. */
+export type Loop = {
+  pause: () => unknown
+  resume: () => unknown
+  revert: () => unknown
+}
+
+export const IDLE_LOOP: Loop = { pause() {}, resume() {}, revert() {} }
+
+export function gsapLoop(anim: gsap.core.Animation): Loop {
+  return {
+    pause: () => anim.pause(),
+    resume: () => anim.resume(),
+    revert: () => anim.revert()
+  }
+}
+
+/** Run loops under the tab-visibility contract: a hidden tab parks them
+ *  (synced up front — the effect may run while already hidden), a visible
+ *  one resumes, and the returned cleanup reverts every one of them. */
+export function parkOnHidden(loops: Loop[]): () => void {
+  const sync = () => {
+    for (const loop of loops) {
+      if (document.hidden) loop.pause()
+      else loop.resume()
+    }
+  }
+  sync()
+  document.addEventListener('visibilitychange', sync)
+  return () => {
+    document.removeEventListener('visibilitychange', sync)
+    for (const loop of loops) loop.revert()
+  }
+}

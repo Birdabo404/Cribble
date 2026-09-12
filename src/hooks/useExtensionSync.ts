@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatNumber } from '@/components/dashboard-v2/format'
 import { toast } from '@/components/Toaster'
 import { requestNotificationsRefresh } from '@/hooks/useNotifications'
+import { registerDeviceWithBackend } from '@/lib/client/deviceRegistration'
 import {
   forceExtensionSync,
   notifyDeviceRegistered,
@@ -69,53 +70,6 @@ function canStartHandshake(phase: ExtensionLinkPhase): boolean {
     case 'linking':
     case 'syncing':
       return false
-  }
-}
-
-interface RegistrationResult {
-  ok: boolean
-  syncToken: string | null
-}
-
-// Coarse cohort dimension for aggregate insights. Guarded because some
-// embedders/browsers throw on Intl access; registration must never fail
-// over a missing timezone.
-function detectTimezone(): string | null {
-  try {
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-    return typeof timezone === 'string' && timezone.length > 0 ? timezone : null
-  } catch {
-    return null
-  }
-}
-
-async function registerDeviceWithBackend(
-  userId: number,
-  deviceUuid: string
-): Promise<RegistrationResult> {
-  const timezone = detectTimezone()
-  const res = await fetch('/api/extension/sync', {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      deviceUuid,
-      userId,
-      events: [],
-      batchId: crypto.randomUUID(),
-      ...(timezone ? { timezone } : {})
-    })
-  })
-  if (!res.ok) return { ok: false, syncToken: null }
-
-  try {
-    const body = await res.json()
-    return {
-      ok: true,
-      syncToken: typeof body.syncToken === 'string' ? body.syncToken : null
-    }
-  } catch {
-    return { ok: true, syncToken: null }
   }
 }
 

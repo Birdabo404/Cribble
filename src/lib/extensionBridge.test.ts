@@ -210,4 +210,62 @@ describe('extensionBridge wire contract', () => {
     vi.advanceTimersByTime(IDENTITY_MS)
     await expect(promise).resolves.toBeNull()
   })
+
+  // The standing listener is what lets the welcome stage react to pushes
+  // (REGISTRATION_CHANGED relays, CRIBBLE_POINTS_EARNED) without polling.
+  // Unlike the RPCs it never settles on its own, so the unsubscribe is
+  // the only thing keeping a dead stage from receiving messages.
+  it('subscribeExtensionMessages delivers same-origin extension messages until unsubscribed', async () => {
+    const { subscribeExtensionMessages } = await import('./extensionBridge')
+    const handler = vi.fn()
+    const unsubscribe = subscribeExtensionMessages(handler)
+
+    expect(fake.__listeners.size).toBe(1)
+    expect(fake.__sentPayloads).toEqual([])
+
+    fake.__reply({ type: 'CRIBBLE_POINTS_EARNED', points: 40, domain: 'chatgpt.com' })
+    fake.__reply({ type: 'CRIBBLE_EXTENSION_DETECTED', uuid: 'dev-1', isRegistered: true })
+
+    expect(handler).toHaveBeenCalledTimes(2)
+    expect(handler).toHaveBeenNthCalledWith(1, {
+      type: 'CRIBBLE_POINTS_EARNED',
+      points: 40,
+      domain: 'chatgpt.com'
+    })
+    expect(handler).toHaveBeenNthCalledWith(2, {
+      type: 'CRIBBLE_EXTENSION_DETECTED',
+      uuid: 'dev-1',
+      isRegistered: true
+    })
+
+    unsubscribe()
+    expect(fake.__listeners.size).toBe(0)
+    fake.__reply({ type: 'CRIBBLE_POINTS_EARNED' })
+    expect(handler).toHaveBeenCalledTimes(2)
+  })
+
+  it('subscribeExtensionMessages drops foreign-origin and shapeless messages', async () => {
+    const { subscribeExtensionMessages } = await import('./extensionBridge')
+    const handler = vi.fn()
+    const unsubscribe = subscribeExtensionMessages(handler)
+
+    for (const l of Array.from(fake.__listeners)) {
+      l({ origin: 'http://evil.example', data: { type: 'CRIBBLE_EXTENSION_DETECTED', uuid: 'attacker' } })
+    }
+    fake.__reply('not-an-object')
+    fake.__reply(null)
+    fake.__reply({ notType: 'CRIBBLE_POINTS_EARNED' })
+
+    expect(handler).not.toHaveBeenCalled()
+    unsubscribe()
+  })
+
+  it('subscribeExtensionMessages is a no-op without a window (SSR)', async () => {
+    uninstallWindow()
+    const { subscribeExtensionMessages } = await import('./extensionBridge')
+    const handler = vi.fn()
+    const unsubscribe = subscribeExtensionMessages(handler)
+    expect(typeof unsubscribe).toBe('function')
+    expect(() => unsubscribe()).not.toThrow()
+  })
 })

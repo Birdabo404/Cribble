@@ -80,6 +80,9 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     onboarded: !!user.onboarded_at,
+    // The welcome wizard registers the extension device itself now, and
+    // /api/extension/sync wants the numeric owner id in the body.
+    userId: user.id,
     username: user.twitter_username || null,
     role: user.user_type || null,
     metadata: user.metadata || {},

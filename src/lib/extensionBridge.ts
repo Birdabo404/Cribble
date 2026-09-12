@@ -34,8 +34,16 @@ interface ExtensionErrorMessage {
   error?: unknown
 }
 
+// Pushed by content.js after each scoring tick. The RPCs below ignore it;
+// the welcome stage's FIRST SIGNAL listener reads the fields to show
+// "+40 · chatgpt.com". Untyped on the wire like every other inbound
+// field — the page validates before it renders.
 interface PointsEarnedMessage {
   type: 'CRIBBLE_POINTS_EARNED'
+  points?: unknown
+  domain?: unknown
+  newScore?: unknown
+  todayScore?: unknown
 }
 
 export type ExtensionIncomingMessage =
@@ -114,6 +122,31 @@ function postMessageRpc<T>(opts: PostMessageRpcOptions<T>): Promise<T> {
       settle(fallback)
     }
   })
+}
+
+// Standing listener for messages the extension pushes on its own — a
+// REGISTRATION_CHANGED relayed as CRIBBLE_EXTENSION_DETECTED, or a
+// CRIBBLE_POINTS_EARNED tick — as opposed to the one-shot replies the
+// RPCs above wait for. Same origin check and the same shape guard as
+// postMessageRpc, so a foreign frame can't feed the page a fake
+// detection. Returns the unsubscribe; a no-op on the server, where
+// there is no window to listen on.
+export function subscribeExtensionMessages(
+  handler: (msg: ExtensionIncomingMessage) => void
+): () => void {
+  if (typeof window === 'undefined') return () => {}
+
+  const handle = (event: MessageEvent) => {
+    if (event.origin !== window.location.origin) return
+    const data = event.data as ExtensionIncomingMessage | undefined
+    if (!data || typeof data !== 'object' || typeof data.type !== 'string') return
+    handler(data)
+  }
+
+  window.addEventListener('message', handle)
+  return () => {
+    window.removeEventListener('message', handle)
+  }
 }
 
 export function requestExtensionIdentity(): Promise<ExtensionIdentity | null> {

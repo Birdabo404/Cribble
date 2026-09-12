@@ -25,6 +25,8 @@ import {
 import {
   ChoiceCard,
   GhostButton,
+  MarkDoneButton,
+  PhaseCard,
   PrimaryButton,
   StageActions,
   StageShell
@@ -351,7 +353,7 @@ export function AgentLinkStage({
       if (!mintedKey) return
       const reduced = welcomeMotionReduced()
       rootRef.current
-        ?.querySelector('[data-agent-phase="connect"]')
+        ?.querySelector('[data-phase="connect"]')
         ?.scrollIntoView({
           block: 'nearest',
           behavior: reduced ? 'auto' : 'smooth'
@@ -510,11 +512,13 @@ export function AgentLinkStage({
 
         <div className="mt-3 space-y-3">
           <PhaseCard
+            id="install"
             index="01"
             label="INSTALL"
             title="Install the CLI"
             done={phaseDone.install}
             active={activePhase === 'install'}
+            tone="ember"
           >
             <PlatformPicker selected={platform} onSelect={setPlatform} />
             <div className="agent-install mt-3">
@@ -534,16 +538,20 @@ export function AgentLinkStage({
               </p>
             </div>
             {!phaseDone.install && (
-              <MarkDoneButton onClick={() => setInstallDone(true)} />
+              <MarkDoneButton onClick={() => setInstallDone(true)}>
+                RAN IT
+              </MarkDoneButton>
             )}
           </PhaseCard>
 
           <PhaseCard
+            id="key"
             index="02"
             label="KEY"
             title="Mint a key for this machine"
             done={phaseDone.key}
             active={activePhase === 'key'}
+            tone="ember"
           >
             {mintedKey ? (
               <div className="agent-key-reveal space-y-3">
@@ -630,11 +638,13 @@ export function AgentLinkStage({
           </PhaseCard>
 
           <PhaseCard
+            id="connect"
             index="03"
             label="CONNECT"
             title="Bind the key"
             done={phaseDone.connect}
             active={activePhase === 'connect'}
+            tone="ember"
           >
             <CommandBlock
               id="connect"
@@ -646,16 +656,20 @@ export function AgentLinkStage({
               Paste the key when it prompts you.
             </p>
             {!phaseDone.connect && (
-              <MarkDoneButton onClick={() => setConnectDone(true)} />
+              <MarkDoneButton onClick={() => setConnectDone(true)}>
+                RAN IT
+              </MarkDoneButton>
             )}
           </PhaseCard>
 
           <PhaseCard
+            id="sync"
             index="04"
             label="SYNC"
             title="Send the first burn"
             done={phaseDone.sync}
             active={activePhase === 'sync'}
+            tone="ember"
           >
             <CommandBlock
               id="sync"
@@ -837,51 +851,6 @@ export function AgentLinkStage({
   )
 }
 
-function PhaseCard({
-  index,
-  label,
-  title,
-  done,
-  active,
-  children
-}: {
-  index: string
-  label: string
-  title: string
-  done: boolean
-  active: boolean
-  children: React.ReactNode
-}) {
-  return (
-    <div
-      data-agent-phase={label.toLowerCase()}
-      className="card-enter glass-lite rounded-2xl p-5 transition-colors duration-300"
-      style={{
-        borderColor: active ? 'rgb(var(--ember-rgb) / 0.4)' : undefined
-      }}
-    >
-      <div className="flex items-center gap-3">
-        <span
-          className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border font-mono text-[9px] transition-colors duration-300 ${
-            done
-              ? 'border-transparent bg-ember text-black'
-              : active
-              ? 'border-zinc-600 text-zinc-200'
-              : 'border-zinc-800 text-zinc-600'
-          }`}
-        >
-          {done ? <IconCheck size={10} /> : index}
-        </span>
-        <span className="font-mono text-[9px] tracking-[0.3em] text-zinc-500">
-          {label}
-        </span>
-        <span className="text-sm font-semibold text-zinc-100">{title}</span>
-      </div>
-      <div className="mt-4 pl-8">{children}</div>
-    </div>
-  )
-}
-
 /**
  * OS chips above the install command. Detection picks the opening chip,
  * so most people never touch this — it exists so a Linux or Windows
@@ -928,18 +897,6 @@ function PlatformPicker({
         )
       })}
     </div>
-  )
-}
-
-function MarkDoneButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="press-scale mt-3 inline-flex items-center gap-2 rounded-full border border-zinc-800 px-4 py-2 font-mono text-[9px] tracking-[0.25em] text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-100"
-    >
-      RAN IT
-    </button>
   )
 }
 

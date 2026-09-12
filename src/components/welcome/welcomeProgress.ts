@@ -1,7 +1,10 @@
 // Session resume for the welcome wizard. Every answer and the current
-// stage persist to sessionStorage as they change, so a reload (or the
-// extension stage's RELOAD AND CHECK) never restarts the flow from
-// scratch. sessionStorage scopes the snapshot to the tab and the sitting;
+// stage persist to sessionStorage as they change, so a reload never
+// restarts the flow from scratch. The extension stage leans on this
+// hardest: a content script can't reach a tab that was open when the
+// extension was installed, so after a store install the stage persists
+// its state, reloads once on its own, and resumes here with the intro
+// skipped. sessionStorage scopes the snapshot to the tab and the sitting;
 // closing the tab forgets everything by itself.
 import type { Stage } from '@/components/welcome/shared'
 import type { CountMode } from '@/lib/countMode'
@@ -22,6 +25,24 @@ export const EMPTY_AGENT_PROGRESS: AgentProgressSnapshot = {
   keySkipped: false
 }
 
+/** The extension stage's memory across its own reload. storeOpenedAt is
+ *  when the store card was clicked (null if never) — the auto-reconnect
+ *  only fires after a store visit. autoReconnects counts reloads the
+ *  stage triggered itself, capped at one so a broken install can't spin
+ *  the tab. pinAcknowledged is the one user-claimed step: pinning is
+ *  invisible to the handshake, so it has to be remembered here. */
+export interface ExtensionProgressSnapshot {
+  storeOpenedAt: number | null
+  autoReconnects: number
+  pinAcknowledged: boolean
+}
+
+export const EMPTY_EXTENSION_PROGRESS: ExtensionProgressSnapshot = {
+  storeOpenedAt: null,
+  autoReconnects: 0,
+  pinAcknowledged: false
+}
+
 export interface WelcomeProgress {
   stage: Exclude<Stage, 'intro'>
   mode: string | null
@@ -30,6 +51,11 @@ export interface WelcomeProgress {
   goal: string | null
   topTools: string[]
   agent: AgentProgressSnapshot
+  extension: ExtensionProgressSnapshot
+  /** Set right before a self-triggered reload so the resume skips the
+   *  intro's minimum hold: the reconnect should read as one dark beat,
+   *  not a replayed brand moment. The page clears it on resume. */
+  fastResume: boolean
   savedAt: number
 }
 
@@ -64,6 +90,26 @@ function parseNullableString(value: unknown): string | null {
   return typeof value === 'string' ? value : null
 }
 
+function parseNullableTimestamp(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+// A reload counter: anything that isn't a whole non-negative number
+// reads as zero. That re-arms one auto-reconnect, which is harmless —
+// the stage writes a proper integer before it reloads, so a malformed
+// value can only come from outside and can't recur on its own.
+function parseCount(value: unknown): number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+    ? value
+    : 0
+}
+
+function parseRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
 export function saveWelcomeProgress(progress: WelcomeProgress): void {
   try {
     window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(progress))
@@ -87,10 +133,8 @@ export function loadWelcomeProgress(): WelcomeProgress | null {
     if (typeof record.savedAt !== 'number' || !Number.isFinite(record.savedAt)) {
       return null
     }
-    const agent =
-      typeof record.agent === 'object' && record.agent !== null
-        ? (record.agent as Record<string, unknown>)
-        : {}
+    const agent = parseRecord(record.agent)
+    const extension = parseRecord(record.extension)
     return {
       stage,
       mode: parseNullableString(record.mode),
@@ -105,6 +149,12 @@ export function loadWelcomeProgress(): WelcomeProgress | null {
         connectDone: agent.connectDone === true,
         keySkipped: agent.keySkipped === true
       },
+      extension: {
+        storeOpenedAt: parseNullableTimestamp(extension.storeOpenedAt),
+        autoReconnects: parseCount(extension.autoReconnects),
+        pinAcknowledged: extension.pinAcknowledged === true
+      },
+      fastResume: record.fastResume === true,
       savedAt: record.savedAt
     }
   } catch {

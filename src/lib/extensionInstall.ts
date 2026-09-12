@@ -19,12 +19,18 @@ export function isExtensionInstallEnabled(): boolean {
   return EXTENSION_INSTALL_URL !== null || FIREFOX_EXTENSION_INSTALL_URL !== null
 }
 
-// "Chrome", "Firefox", or "Chrome or Firefox" — the desktop browsers with
-// a live store listing right now. Copy on the welcome step and the mobile
-// notice reads this so it can never name a store that isn't live.
+// The desktop browsers with a live store listing right now, as a phrase
+// copy can drop into a sentence ("Open Cribble on desktop … to install").
+// The Chrome entry spells out that any Chromium browser qualifies: Brave,
+// Edge, Arc, Opera and Vivaldi all install from the Chrome Web Store, and
+// a bare "Chrome" read as an exclusion to users on those. Copy on the
+// welcome step and the mobile notice reads this so it can never name a
+// store that isn't live.
 export function installableBrowserNames(): string {
   const names: string[] = []
-  if (EXTENSION_INSTALL_URL !== null) names.push('Chrome')
+  if (EXTENSION_INSTALL_URL !== null) {
+    names.push('Chrome (or any Chromium browser)')
+  }
   if (FIREFOX_EXTENSION_INSTALL_URL !== null) names.push('Firefox')
   return names.join(' or ')
 }
@@ -43,42 +49,47 @@ export function isExtensionUnlinked(
 
 export type ExtensionBrowserFamily = 'chrome' | 'firefox'
 
-// Chromium forks that name themselves in the UA on top of the "Chrome/"
-// token they all inherit: Edge, Opera, Yandex, and pre-2020 Brave. None of
-// them is Google Chrome, and the extension is only published and tested
-// for Chrome, so they read as no family. Current Brave ships a UA
-// identical to Chrome's and is told apart by Client Hints brands instead.
-const CHROMIUM_FORK_TOKENS = /Edg\/|OPR\/|YaBrowser\/|Brave\//
-
-// The Client Hints brand Google Chrome reports. Every other Chromium
-// browser that exposes brands names itself instead ("Microsoft Edge",
-// "Brave", "Opera") or reports bare "Chromium".
-const CHROME_BRAND = 'Google Chrome'
-
-// Which desktop browser the extension ships for, or null for anything
-// else. Only Google Chrome and Firefox proper count — the store listings
-// are for those two, so Edge, Opera, Brave, Safari, and every other
-// desktop browser pass through exactly like mobile does. Mobile is out
+// Which store the extension installs from on this browser, or null for
+// anything else. The 'chrome' family is every desktop Chromium browser,
+// not just Google Chrome: Brave, Edge, Arc, Opera, Vivaldi and the rest
+// all inherit the "Chrome/" UA token and all install from the Chrome Web
+// Store, so they take the same install wall and the same store card.
+// Treating them as "not capable" used to drop a signed-in Brave or Edge
+// user straight onto a dashboard with nothing tracking. Mobile is out
 // wholesale: mobile Chromium and mobile Firefox carry "Mobile"/"Android",
 // and the iOS shells (CriOS, FxiOS) are WebKit underneath and carry
 // "Mobile" too. Desktop Safari matches neither engine token — its "like
 // Gecko" boilerplate (also in every Chrome UA) is not the "Firefox/"
-// token. `brands` is navigator.userAgentData.brands when the browser
-// exposes it (Chromium only) and empty otherwise; a populated list that
-// lacks Chrome's own brand is a fork hiding behind Chrome's UA. Pure so
-// tests can pin the classification without stubbing navigator or the
-// build env.
-export function extensionBrowserFamily(
+// token. Client Hints brands are deliberately not consulted: no brand
+// list changes which store a "Chrome/" browser installs from, and reading
+// them is what used to demote Brave. Pure so tests can pin the
+// classification without stubbing navigator or the build env.
+export function extensionBrowserFamily(ua: string): ExtensionBrowserFamily | null {
+  if (/Mobi|Android/i.test(ua)) return null
+  if (/Chrome\//.test(ua)) return 'chrome'
+  if (/Firefox\//.test(ua)) return 'firefox'
+  return null
+}
+
+export type ChromiumForkName = 'Brave' | 'Edge' | 'Arc' | 'Opera' | 'Vivaldi'
+
+// The Chromium fork's own name, for the store card's sublabel only
+// ("Chrome Web Store · works in Brave") — never for capability, which is
+// extensionBrowserFamily's job. Edge, Opera and Vivaldi append their own
+// token to the inherited "Chrome/" UA. Brave and Arc ship a UA identical
+// to Chrome's and only give themselves away through Client Hints brands.
+// Google Chrome itself and any fork not listed here read as null, which
+// the card renders as plain Chrome. Pure for the same reason as the
+// classifier above.
+export function chromiumForkName(
   ua: string,
   brands: readonly string[] = []
-): ExtensionBrowserFamily | null {
-  if (/Mobi|Android/i.test(ua)) return null
-  if (/Chrome\//.test(ua)) {
-    if (CHROMIUM_FORK_TOKENS.test(ua)) return null
-    if (brands.length > 0 && !brands.includes(CHROME_BRAND)) return null
-    return 'chrome'
-  }
-  if (/Firefox\//.test(ua)) return 'firefox'
+): ChromiumForkName | null {
+  if (brands.includes('Brave')) return 'Brave'
+  if (/Edg\//.test(ua)) return 'Edge'
+  if (/OPR\//.test(ua)) return 'Opera'
+  if (/Vivaldi\//.test(ua)) return 'Vivaldi'
+  if (brands.includes('Arc')) return 'Arc'
   return null
 }
 
@@ -112,7 +123,20 @@ export function currentExtensionBrowserFamily(): ExtensionBrowserFamily | null {
   ) {
     return null
   }
-  return extensionBrowserFamily(navigator.userAgent, currentBrands())
+  return extensionBrowserFamily(navigator.userAgent)
+}
+
+// The running Chromium fork's name for the store card, or null on SSR,
+// on Google Chrome itself, and on anything that isn't a listed fork.
+// Reads navigator like currentExtensionBrowserFamily, so effect-only.
+export function currentChromiumForkName(): ChromiumForkName | null {
+  if (
+    typeof navigator === 'undefined' ||
+    typeof navigator.userAgent !== 'string'
+  ) {
+    return null
+  }
+  return chromiumForkName(navigator.userAgent, currentBrands())
 }
 
 // The store listing for a browser family — null while that listing isn't
@@ -185,12 +209,12 @@ export interface ExtensionGateInput {
 // need it. Capable browsers must pass the live handshake
 // (this is what catches "I removed the extension"; past linkage doesn't
 // count). Browsers that can't install the extension are never gated:
-// capable means a desktop browser whose store listing is live (Google
-// Chrome today, Firefox once its AMO URL ships), so an install wall would
-// hand everyone else — Safari, Edge and the other Chromium forks, mobile,
-// a desktop Firefox before its listing exists — a task the extension
-// isn't published for: a signed-in user who never linked would be locked
-// on /welcome forever behind a dead CTA. They pass through instead; phone
+// capable means a desktop browser whose store listing is live (any
+// desktop Chromium browser today, Firefox once its AMO URL ships), so an
+// install wall would hand everyone else — Safari, mobile, a desktop
+// Firefox before its listing exists — a task the extension isn't
+// published for: a signed-in user who never linked would be locked on
+// /welcome forever behind a dead CTA. They pass through instead; phone
 // users get the one-time desktop-only notice
 // (shouldShowMobileExtensionNotice below) so they know why nothing is
 // tracking.
