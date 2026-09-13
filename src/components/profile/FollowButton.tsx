@@ -29,7 +29,7 @@ export interface FollowChange {
 }
 
 export type FollowVariant = 'glass' | 'paper'
-type FollowSize = 'md' | 'sm'
+type FollowSize = 'md' | 'sm' | 'xs'
 
 interface FollowSkin {
   /** FOLLOW / FOLLOW BACK. */
@@ -41,7 +41,8 @@ interface FollowSkin {
 }
 
 /** md carries a 44px floor and an 11px type floor below sm — it's the
- *  profile hero CTA. */
+ *  profile hero CTA. xs is the 20px control row of the leaderboard
+ *  player card, sized to sit beside its 20px tags and share bars. */
 function skinFor(variant: FollowVariant): FollowSkin {
   switch (variant) {
     case 'glass':
@@ -52,7 +53,8 @@ function skinFor(variant: FollowVariant): FollowSkin {
           'group inline-flex items-center justify-center rounded-lg border border-zinc-700 font-semibold text-zinc-300 transition-colors [@media(hover:hover)]:hover:border-rose-400/50 [@media(hover:hover)]:hover:bg-rose-500/10 [@media(hover:hover)]:hover:text-rose-300 disabled:opacity-60',
         size: {
           md: 'min-h-11 px-5 py-2 text-[11px] sm:text-[10px] tracking-[0.3em] sm:min-h-0',
-          sm: 'px-3 py-1.5 text-[9px] tracking-[0.25em]'
+          sm: 'px-3 py-1.5 text-[9px] tracking-[0.25em]',
+          xs: 'h-5 whitespace-nowrap px-2 text-[9px] leading-none tracking-[0.25em]'
         }
       }
     case 'paper':
@@ -65,7 +67,8 @@ function skinFor(variant: FollowVariant): FollowSkin {
           // 0.18em: the dossier's stencil tracking (dossier.css), so
           // FOLLOWING + the FOLLOWS YOU stamp share one spine row
           md: 'min-h-11 px-5 text-[11px] tracking-[0.18em] lg:min-h-10',
-          sm: 'h-9 px-3 text-[10px] tracking-[0.18em]'
+          sm: 'h-9 px-3 text-[10px] tracking-[0.18em]',
+          xs: 'h-5 whitespace-nowrap px-2 text-[9px] tracking-[0.18em]'
         }
       }
     default: {

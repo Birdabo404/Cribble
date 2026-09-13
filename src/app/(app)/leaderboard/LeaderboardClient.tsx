@@ -12,6 +12,7 @@
 // server-persisted rank movement arrows (migration 012), score-gain pops,
 // and chase/defend gap read-outs on the sticky "you" bar.
 
+import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import {
   Suspense,
@@ -733,6 +734,37 @@ function LeaderboardArena() {
             }
           }
 
+          /* Stock row — your own unplated row. At rest it is deliberately
+             boring: a hairline dashed vacancy frame and the dim □ STOCK
+             caption (same register as .lb4-cap). The board never sells at
+             rest; leaning in — hover, or keyboard focus anywhere in the row
+             (the row button or the link itself) — lifts the frame and
+             crossfades the caption into the GET A PLATE → door. Opacity
+             only: no transform, no bounce. The CTA span is the in-flow one,
+             so the link keeps one width through the swap. */
+          .lb4-stock-frame {
+            transition: border-color 160ms ease;
+          }
+          .lb4-stock:hover .lb4-stock-frame,
+          .lb4-stock:focus-within .lb4-stock-frame {
+            border-color: rgb(var(--lb-panel-edge) / 0.22);
+          }
+          .lb4-stock-rest,
+          .lb4-stock-cta {
+            transition: opacity 160ms ease;
+          }
+          .lb4-stock-cta {
+            opacity: 0;
+          }
+          .lb4-stock:hover .lb4-stock-rest,
+          .lb4-stock:focus-within .lb4-stock-rest {
+            opacity: 0;
+          }
+          .lb4-stock:hover .lb4-stock-cta,
+          .lb4-stock:focus-within .lb4-stock-cta {
+            opacity: 1;
+          }
+
           /* Plated rows are physical nameplates, and the art is a fixed dark
              product (authored against the dark arena panel). In light mode a
              plated row is a RUNWAY DISSOLVE: a single long two-hue ramp —
@@ -960,6 +992,13 @@ function LeaderboardArena() {
             .lb4-row-in,
             .lb4-live-dot {
               animation: none;
+            }
+            /* the stock tag swaps instantly — the crossfade is the only
+               motion on that row */
+            .lb4-stock-frame,
+            .lb4-stock-rest,
+            .lb4-stock-cta {
+              transition: none;
             }
           }
         `}</style>
@@ -1249,6 +1288,13 @@ function Row({
   const topTool = user.topTools?.[0]
   const pct = topScore > 0 ? Math.max(2, Math.round((user.score / topScore) * 100)) : 0
   const plated = Boolean(user.plate)
+  // Stock row: your own unplated row. It is pixel-identical to every other
+  // plain row — no wash, no rail (the 2px rail is the bag's EQUIPPED mark,
+  // and nothing is mounted here). The absence itself is what gets marked:
+  // a dashed vacancy frame and a STOCK tag, rendered as siblings of the row
+  // button below. You still find yourself via text (accent name, YOU tag)
+  // and the sticky YouBar.
+  const stock = isYou && !plated
   // Per-plate hues driving the light-mode runway dissolve: --pa (signature
   // accent) opens the ramp as a pastel blush, --pb (deep scene hue) carries
   // the descent into the art. image-kind renders carry neither in the
@@ -1265,13 +1311,11 @@ function Row({
       ref={(el) => setRef(user.userId, el)}
       className={`lb4-row-in relative border-b border-[rgb(var(--lb-panel-edge)/0.05)] last:border-b-0 ${
         plated ? 'lb4-plated' : ''
-      } ${flash ? 'lb4-row-flash' : ''}`}
+      } ${stock ? 'lb4-stock' : ''} ${flash ? 'lb4-row-flash' : ''}`}
       style={{
         ['--rd' as string]: `${Math.min(index, 12) * 34}ms`,
         ['--pb' as string]: plated ? plateBleed : undefined,
-        ['--pa' as string]: plated ? plateAccent : undefined,
-        background: isYou && !plated ? 'rgb(var(--accent-rgb) / 0.045)' : undefined,
-        boxShadow: isYou && !plated ? 'inset 2px 0 0 rgb(var(--accent-rgb))' : undefined
+        ['--pa' as string]: plated ? plateAccent : undefined
       }}
     >
       {/* Row geometry: py-4 padding + h-9 avatar ⇒ ~68px rows. The plate
@@ -1335,9 +1379,11 @@ function Row({
               <>
                 {/* the YOU marker stays OFF the art: an accent keyline plus
                     a short wash over the left identity zone (dark panel in
-                    dark mode, the white half in light — reads like the
-                    non-plated YOU treatment there), replacing the full-row
-                    accent wash that muddied the plate colors */}
+                    dark mode, the white half in light), replacing the
+                    full-row accent wash that muddied the plate colors. The
+                    2px rail is the bag's EQUIPPED mark, so here it reads as
+                    "mounted" — the unplated (stock) YOU row wears no rail
+                    and no wash, only the dashed vacancy frame. */}
                 <div
                   className="pointer-events-none absolute inset-y-0 left-0 w-36 max-w-[45%]"
                   style={{
@@ -1380,8 +1426,10 @@ function Row({
         </div>
 
         {/* pilot — top three wear rank regalia; companies (tier TEAM) get
-            the square avatar */}
-        <div className="relative flex min-w-0 items-center gap-3">
+            the square avatar. The stock row reserves trailing space for the
+            STOCK / GET A PLATE tag (right-aligned to this cell on md+) so a
+            truncating name never runs under it. */}
+        <div className={`relative flex min-w-0 items-center gap-3${stock ? ' md:pr-24' : ''}`}>
           <RankAvatar user={user} />
           <span className="flex min-w-0 items-center gap-2">
             <span
@@ -1508,6 +1556,42 @@ function Row({
           )}
         </div>
       </button>
+
+      {stock && (
+        <>
+          {/* Vacancy frame — a hairline dashed inset, the universal "nothing
+              here yet" (empty inventory slot, layout placeholder). Square
+              corners, panel-edge ink so it renders dark-on-white in light
+              mode. Shows at every width; the tag below is desktop-only. */}
+          <div
+            aria-hidden
+            className="lb4-stock-frame pointer-events-none absolute inset-[5px_6px] border border-dashed border-[rgb(var(--lb-panel-edge)/0.10)]"
+          />
+          {/* STOCK tag — a SIBLING of the row <button> (a link can't nest in
+              a button), laid on a ROW_GRID overlay so it right-aligns to the
+              pilot cell without hardcoded rems. The overlay is click-through;
+              only the link takes the pointer, so the row still opens the
+              PlayerCard everywhere else. Two stacked spans crossfade
+              (.lb4-stock rules): the dim □ STOCK caption at rest, GET A
+              PLATE → in accent on hover / focus-within. The CTA span is the
+              in-flow one so the link is sized to the wider label and nothing
+              shifts on hover. */}
+          <div className={`${ROW_GRID} pointer-events-none absolute inset-0`}>
+            <Link
+              href="/shop"
+              aria-label="Get a nameplate for your row"
+              className="pointer-events-auto relative col-start-2 hidden justify-self-end whitespace-nowrap text-[8px] uppercase tracking-[0.25em] [font-family:var(--font-data)] focus-visible:outline-none md:inline-flex"
+            >
+              <span className="lb4-stock-rest absolute inset-0 inline-flex items-center justify-end text-zinc-600">
+                □ STOCK
+              </span>
+              <span className="lb4-stock-cta inline-flex items-center text-accent">
+                GET A PLATE →
+              </span>
+            </Link>
+          </div>
+        </>
+      )}
     </li>
   )
 }
@@ -1558,8 +1642,11 @@ function YouBar({
       // it every frame, so the kernel size directly prices every scroll.
       className="block w-full text-left backdrop-blur-md"
       style={{
-        // A docked strip of your own table row: the same flat accent wash
-        // and 2px rail the isYou Row wears, on a translucent arena panel.
+        // A docked HUD strip of your own row, on a translucent arena panel.
+        // It keeps the flat accent wash and 2px rail even though the table
+        // row itself is now stock (plain — no wash, no rail): the bar is
+        // wayfinding chrome, not a row, so the accent lives here and in the
+        // row's text (name, YOU tag), never in row paint.
         background:
           'linear-gradient(0deg, rgb(var(--accent-rgb) / 0.045), rgb(var(--accent-rgb) / 0.045)), rgb(var(--lb-panel-bg) / 0.88)',
         border: '1px solid rgb(var(--accent-rgb) / 0.18)',

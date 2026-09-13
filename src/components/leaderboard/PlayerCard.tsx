@@ -1,29 +1,29 @@
 'use client'
 
-// Animated player profile card. Opens from any leaderboard row with a
-// zoom-in spring, then behaves like a holographic trading card: pointer
-// tilt and medal theming for the podium ranks. Identity/tools render
-// instantly from the standings row; badges hydrate from
-// /api/leaderboard/profile.
+// Player profile card, laid out as a pilot license: a 640px landscape
+// card whose zones (chrome / identity / telemetry / MRZ footer) sit on a
+// 1px hairline grid and read in one glance. Every control row is 20px —
+// tags, the follow control, share bars, the chase line — so the card has
+// one rhythm. GSAP choreographs the reveal (playerCardMotion.ts) and the
+// holographic tilt. Identity and tools render from the standings row;
+// badges, agentic mix, hangar and the follow context hydrate from
+// /api/profile into slots reserved at mount, so nothing shifts.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
+import { useGSAP } from '@gsap/react'
+import gsap from 'gsap'
 import AnimatedCounter from '@/components/AnimatedCounter'
 import { PixelIcon } from '@/components/achievements/PixelIcon'
-import { FollowButton, FollowsYouChip, type FollowChange } from '@/components/profile/FollowButton'
-import {
-  formatNumber,
-  formatRelative,
-  formatScore
-} from '@/components/dashboard-v2/format'
+import { FollowButton, type FollowChange } from '@/components/profile/FollowButton'
+import { formatNumber, formatRelative, formatScore } from '@/components/dashboard-v2/format'
 import { TeamBadge } from '@/components/premium/TeamBadge'
 import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
 import { ACHIEVEMENTS } from '@/lib/achievements'
 import { isProTier } from '@/lib/entitlements'
-import { prefersReducedMotion } from '@/lib/motion'
 import { useSfx } from '@/components/sfx/SfxProvider'
 import { tokenAgentLabel } from '@/lib/tokenLeaderboard'
 import { Avatar, SafeBannerImg } from './Avatar'
@@ -41,6 +41,9 @@ import {
   ToolIcon
 } from './icons'
 import type { ShareCardData } from './share/ShareCard'
+import { ShareRow } from './playerCard/ShareRow'
+import { buildMrz, mrzPlainText, type MrzInput } from './playerCard/mrz'
+import { bindTilt, enterCard, exitCard, hydrateIn } from './playerCard/playerCardMotion'
 import {
   medalA,
   medalFor,
@@ -51,22 +54,68 @@ import {
   type PlayerProfile
 } from './types'
 
-const rarityColorA = (rarity: string, alpha: number) =>
-  `rgb(var(--r-${rarity}) / ${alpha})`
+gsap.registerPlugin(useGSAP)
 
-const monthYear = (iso: string | null | undefined) => {
-  if (!iso) return '—'
-  return new Date(iso)
-    .toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-    .toUpperCase()
+const rarityColorA = (rarity: string, alpha: number) => `rgb(var(--r-${rarity}) / ${alpha})`
+
+// Type ramp: five sizes plus the rank plate. Colour rides separately.
+const LABEL = 'text-[9px] tracking-[0.32em] uppercase'
+const DATA = 'text-[10.5px] tabular-nums tracking-[0.04em]'
+const BODY = 'font-display text-[12px] font-medium'
+const NAME = 'font-display text-[17px] font-semibold leading-none tracking-[-0.01em] text-zinc-50'
+const MACRO = '[font-family:var(--font-pixel)] text-[24px] leading-none tabular-nums sm:text-[28px]'
+const PLATE = '[font-family:var(--font-pixel)] text-[12px]'
+
+/** The one control height: every tag, chip and row in the identity zone. */
+const ROW = 'flex h-5 items-center'
+const TAG = `${ROW} gap-1 rounded-[6px] border px-2 ${LABEL}`
+const CHIP = {
+  className: `${ROW} w-5 shrink-0 justify-center rounded-[6px]`,
+  style: {
+    background: 'rgb(var(--lb-panel-edge) / 0.045)',
+    border: '1px solid rgb(var(--lb-panel-edge) / 0.1)'
+  }
+} as const
+
+// Banner controls: the scrim stays dark in both themes, so the glyph
+// colour is a literal too (.pc-ctl) — Tailwind's zinc scale re-pins under
+// html.light and text-zinc-300 would land dark-on-dark.
+const SCRIM = {
+  background: 'rgb(0 0 0 / 0.55)',
+  border: '1px solid rgb(255 255 255 / 0.14)'
+} as const
+const CONTROL =
+  'pc-ctl flex h-10 w-10 items-center justify-center rounded-full transition-colors sm:h-8 sm:w-8'
+
+/** 1px rule between / inside zones — an element, not a grid gap, so the
+ *  entrance can draw it. `late` marks hydration-only rules. */
+function Hair({ late, className = '' }: { late?: boolean; className?: string }) {
+  return (
+    <div
+      data-pc="hair"
+      data-pc-late={late ? '' : undefined}
+      aria-hidden
+      className={`h-px ${className}`}
+      style={{ background: 'rgb(var(--lb-panel-edge) / 0.09)' }}
+    />
+  )
+}
+
+function Delta({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <span className={`${ROW} gap-1`}>
+      <span className={`text-zinc-500 ${LABEL}`}>{label}</span>
+      <span className={DATA} style={{ color }}>
+        +{formatNumber(value)}
+      </span>
+    </span>
+  )
 }
 
 export interface ChaseInfo {
   gap: number
   username: string
 }
-
-const CLOSE_MS = 220
 
 // Lazy: keeps html-to-image + qrcode out of the leaderboard bundle until
 // someone actually opens the share sheet.
@@ -89,7 +138,9 @@ export function PlayerCard({
   const [profileFailed, setProfileFailed] = useState(false)
   const [closing, setClosing] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
   const tiltRef = useRef<HTMLDivElement>(null)
+  const enterTl = useRef<gsap.core.Timeline | null>(null)
   const { play } = useSfx()
 
   // Latest onClose without re-wiring listeners when the parent re-renders.
@@ -102,28 +153,19 @@ export function PlayerCard({
   // ---- graceful close: play the exit animation, then unmount ---------
   // No `open` counterpart here: the CRT screen click plays its own
   // pressStart confirm, and other open paths keep the default tap.
-  const requestClose = useCallback(() => {
-    if (prefersReducedMotion()) {
-      play('close')
-      onCloseRef.current()
-      return
-    }
-    setClosing(true)
-  }, [play])
+  const requestClose = useCallback(() => setClosing(true), [])
 
   useEffect(() => {
     if (!closing) return
     // Sound lives on the state transition, not in requestClose, so
     // mashing Escape during the exit animation plays it only once.
     play('close')
-    const t = setTimeout(() => onCloseRef.current(), CLOSE_MS)
-    return () => clearTimeout(t)
+    exitCard(rootRef.current!, enterTl.current, () => onCloseRef.current())
   }, [closing, play])
 
   // ---- extended profile hydration ----------------------------------
-  // Hydrates from the profile endpoint: same payload as the leaderboard
-  // profile plus follow counts and the viewer relationship, so the card
-  // can offer FOLLOW right at the point of discovery.
+  // Same payload as the leaderboard profile plus follow counts and the
+  // viewer relationship, so the card can offer FOLLOW at discovery.
   const loadProfile = useCallback(async (isCancelled?: () => boolean) => {
     try {
       const res = await fetch(`/api/profile/${encodeURIComponent(row.username)}`, {
@@ -162,60 +204,35 @@ export function PlayerCard({
     }
   }, [requestClose])
 
-  // ---- holographic tilt ----------------------------------------------
-  // Writes are coalesced to one per frame (pointermove can fire at 240Hz on
-  // gaming mice), and the tilt is a pure transform — the effect stays on
-  // the compositor.
-  const pointerPos = useRef<{ x: number; y: number } | null>(null)
-  const tiltRaf = useRef(0)
-
-  const onTiltMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.pointerType !== 'mouse') return
-    pointerPos.current = { x: e.clientX, y: e.clientY }
-    if (tiltRaf.current) return
-    tiltRaf.current = requestAnimationFrame(() => {
-      tiltRaf.current = 0
-      const el = tiltRef.current
-      const p = pointerPos.current
-      if (!el || !p || prefersReducedMotion()) return
-      const r = el.getBoundingClientRect()
-      const x = (p.x - r.left) / r.width
-      const y = (p.y - r.top) / r.height
-      el.style.setProperty('--rx', `${((0.5 - y) * 5).toFixed(2)}deg`)
-      el.style.setProperty('--ry', `${((x - 0.5) * 7).toFixed(2)}deg`)
-    })
-  }, [])
-
-  const onTiltLeave = useCallback(() => {
-    if (tiltRaf.current) {
-      cancelAnimationFrame(tiltRaf.current)
-      tiltRaf.current = 0
-    }
-    const el = tiltRef.current
-    if (!el) return
-    el.style.setProperty('--rx', '0deg')
-    el.style.setProperty('--ry', '0deg')
-  }, [])
-
-  useEffect(
-    () => () => {
-      if (tiltRaf.current) cancelAnimationFrame(tiltRaf.current)
+  // ---- motion --------------------------------------------------------
+  useGSAP(
+    () => {
+      enterTl.current = enterCard(rootRef.current!, {
+        mobile: window.matchMedia('(max-width: 639px)').matches
+      })
     },
-    []
+    { scope: rootRef }
   )
+
+  useGSAP(
+    () => {
+      if (profile || profileFailed) hydrateIn(rootRef.current!)
+    },
+    { dependencies: [profile, profileFailed], scope: rootRef }
+  )
+
+  useEffect(() => bindTilt(tiltRef.current!), [])
 
   // ---- merged data (row renders instantly, profile enriches) --------
   const tools = profile?.topTools?.length ? profile.topTools : row.topTools || []
-  // No LeaderRow fallback here: /api/leaderboard carries no agent data,
-  // so the AGENTIC block simply appears on profile hydration.
+  // /api/leaderboard carries no agent data: AGENTIC appears on hydration.
   const agents = profile?.topAgents ?? []
   const todayScore = profile?.todayScore ?? row.todayScore
   const weekScore = profile?.weekScore ?? row.weekScore
   const badges = profile?.badges ?? null
 
-  // HANGAR pointer under the NOW BUILDING pill: inFlight is the server's
-  // "this pin is the project" (urlKey match against project_url), so the
-  // pinned copy of the pill is the one card not counted again.
+  // inFlight is the server's "this pin is the project", so the pinned
+  // copy of the project is the one hangar card not counted again.
   const hangar = profile?.hangar ?? []
   const hangarBeyondPill = hangar.filter((card) => !card.inFlight).length
 
@@ -223,13 +240,11 @@ export function PlayerCard({
   const RoleIcon = roleKey ? ROLE_ICONS[roleKey] : undefined
   const roleLabel = roleKey ? ROLE_META[roleKey] : null
 
-  // Team surfaces: the affiliation mini-logo renders straight off the
-  // standings row (hydration only refreshes it); the gold badge waits
-  // for the profile payload — isTeam is the server-verified
+  // The affiliation mini-logo renders straight off the standings row; the
+  // gold badge waits for the profile — isTeam is the server-verified
   // "tier TEAM AND review approved" gate, tier alone must not light it.
   // The square avatar keys off the raw tier only until the profile
-  // answers; once hydrated its verdict is authoritative, so an
-  // unapproved or suspended team snaps back to the round shape.
+  // answers; once hydrated its verdict is authoritative.
   const team = profile?.team ?? row.team ?? null
   const isTeamAccount = profile?.isTeam === true
   const squareAvatar = profile ? isTeamAccount : row.tier === 'TEAM'
@@ -239,8 +254,23 @@ export function PlayerCard({
   // ---- follow context (arrives with the profile hydration) ----------
   const viewer = profile?.viewer ?? null
   const followerCount = profile?.followers ?? null
+  // The follow slot is reserved from the first frame with a pulsing ghost
+  // that hydrateIn fades out, so the control fades into a place that was
+  // already there (or, signed out, the pulse simply fades to nothing).
+  const canFollow = !isYou && viewer !== null && !viewer.isYou
 
   const isPrivateAccount = profile?.isPrivate === true
+
+  const mrzInput: MrzInput = {
+    username: row.username,
+    rank: row.rank,
+    score: row.score,
+    joined: profile?.memberSince ?? row.memberSince,
+    isActive: row.isActive,
+    seenLabel: formatRelative(row.lastSeen),
+    role: roleLabel
+  }
+  const [mrz1, mrz2] = buildMrz(mrzInput)
 
   // ---- share card mapping --------------------------------------------
   // viewer is non-null exactly when the profile request carried a valid
@@ -288,20 +318,26 @@ export function PlayerCard({
 
   return createPortal(
     <div
-      className="pc-root fixed inset-0 z-[70] flex items-end justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center sm:p-6 sm:pb-[max(1.5rem,env(safe-area-inset-bottom))] font-mono"
+      ref={rootRef}
+      className={`fixed inset-0 z-[70] flex items-end justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] font-mono sm:items-center sm:p-6 sm:pb-[max(1.5rem,env(safe-area-inset-bottom))] ${
+        closing ? 'pointer-events-none' : ''
+      }`}
       role="dialog"
       aria-modal="true"
       aria-label={`Player profile — @${row.username}`}
-      data-closing={closing ? '' : undefined}
     >
-      <div className="pc-backdrop absolute inset-0" onClick={requestClose} aria-hidden />
+      <div
+        data-pc="backdrop"
+        className="pc-backdrop absolute inset-0"
+        onClick={requestClose}
+        aria-hidden
+      />
 
-      <div className="pc-card relative w-full max-w-[420px]">
+      <div data-pc="card" className="relative w-full max-w-[640px]">
         <div
           ref={tiltRef}
-          className="pc-tilt relative max-h-[calc(100svh-2rem)] overflow-y-auto overscroll-contain rounded-3xl"
-          onPointerMove={onTiltMove}
-          onPointerLeave={onTiltLeave}
+          data-pc="tilt"
+          className="pc-tilt relative max-h-[calc(100svh-2rem)] overflow-y-auto overscroll-contain rounded-[20px] [--pc-pad:10px] sm:[--pc-pad:14px]"
           style={{
             background: `linear-gradient(180deg, rgb(255 255 255 / 0.04), transparent 30%), rgb(var(--lb-panel-bg))`,
             border: `1px solid ${medal ? medalA(medal.rgb, 0.45) : 'rgb(var(--lb-panel-edge) / 0.14)'}`,
@@ -310,9 +346,20 @@ export function PlayerCard({
               : '0 30px 80px -30px rgb(0 0 0 / 0.95)'
           }}
         >
-          {/* ---------- banner ---------- */}
-          <div className="relative h-28 overflow-hidden">
-            {/* default banner always paints; a live banner_image covers it */}
+          {/* holographic sheen follows the pointer via --mx/--my */}
+          <div
+            aria-hidden
+            className="pc-sheen pointer-events-none absolute inset-0 z-10 rounded-[20px]"
+            style={{
+              background: `radial-gradient(420px circle at var(--mx, 50%) var(--my, 50%), ${
+                medal ? medalA(medal.rgb, 0.07) : 'rgb(255 255 255 / 0.07)'
+              }, transparent 60%)`,
+              mixBlendMode: 'soft-light'
+            }}
+          />
+
+          {/* ---------- chrome ---------- */}
+          <div data-pc="zone" className="relative h-14 overflow-hidden sm:h-20">
             <div aria-hidden className="absolute inset-0">
               <div
                 className="absolute inset-0"
@@ -326,7 +373,7 @@ export function PlayerCard({
                 }}
               />
               <span
-                className="absolute -bottom-2 right-3 select-none text-[46px] leading-none opacity-[0.13] [font-family:var(--font-pixel)]"
+                className="absolute -bottom-3 right-3 select-none text-[56px] leading-none opacity-[0.13] [font-family:var(--font-pixel)]"
                 style={{ color: medal ? medal.fg : 'rgb(var(--lb-panel-edge))' }}
               >
                 #{row.rank}
@@ -339,22 +386,19 @@ export function PlayerCard({
                 className="absolute inset-0 h-full w-full object-cover"
               />
             )}
-            {/* fade into the card body */}
             <div
               aria-hidden
-              className="absolute inset-x-0 bottom-0 h-14"
-              style={{
-                background: 'linear-gradient(180deg, transparent, rgb(var(--lb-panel-bg)))'
-              }}
+              className="absolute inset-x-0 bottom-0 h-10"
+              style={{ background: 'linear-gradient(180deg, transparent, rgb(var(--lb-panel-bg)))' }}
             />
 
             {/* rank plate — bright literals: the pill scrim stays dark in both themes */}
             <div className="absolute left-3 top-3 flex items-center gap-2">
               <span
-                className="rounded-lg px-2.5 py-1.5 text-[13px] leading-none [font-family:var(--font-pixel)]"
+                className={`${ROW} rounded-[6px] px-2 ${PLATE}`}
                 style={{
                   color: medal ? `rgb(${medal.plate})` : 'rgb(244 244 245)',
-                  background: 'rgb(0 0 0 / 0.55)',
+                  background: SCRIM.background,
                   border: `1px solid ${medal ? `rgb(${medal.plate} / 0.5)` : 'rgb(255 255 255 / 0.14)'}`,
                   textShadow: medal ? `0 0 14px rgb(${medal.plate} / 0.6)` : undefined
                 }}
@@ -363,10 +407,10 @@ export function PlayerCard({
               </span>
               {row.rankDelta !== 0 && (
                 <span
-                  className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold tabular-nums"
+                  className={`${ROW} gap-1 rounded-[6px] px-2 ${DATA}`}
                   style={{
                     color: row.rankDelta > 0 ? `rgb(${PLATE_UP})` : `rgb(${PLATE_DOWN})`,
-                    background: 'rgb(0 0 0 / 0.55)',
+                    background: SCRIM.background,
                     border: '1px solid rgb(255 255 255 / 0.1)'
                   }}
                 >
@@ -376,10 +420,10 @@ export function PlayerCard({
               )}
               {row.isNew && row.rankDelta === 0 && (
                 <span
-                  className="rounded-md px-1.5 py-1 text-[9px] font-semibold tracking-[0.2em]"
+                  className={`${ROW} rounded-[6px] px-2 ${LABEL}`}
                   style={{
                     color: 'rgb(255 214 68)',
-                    background: 'rgb(0 0 0 / 0.55)',
+                    background: SCRIM.background,
                     border: '1px solid rgb(255 214 68 / 0.4)'
                   }}
                 >
@@ -394,11 +438,8 @@ export function PlayerCard({
                 onClick={() => setShareOpen(true)}
                 aria-label="Share card"
                 title="Share card"
-                className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-300 transition-colors hover:text-zinc-50 sm:h-8 sm:w-8"
-                style={{
-                  background: 'rgb(0 0 0 / 0.55)',
-                  border: '1px solid rgb(255 255 255 / 0.14)'
-                }}
+                className={CONTROL}
+                style={SCRIM}
               >
                 <IconShare size={14} />
               </button>
@@ -406,11 +447,8 @@ export function PlayerCard({
                 href={`/u/${encodeURIComponent(row.username)}`}
                 aria-label="Open full profile"
                 title="Open full profile"
-                className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-300 transition-colors hover:text-zinc-50 sm:h-8 sm:w-8"
-                style={{
-                  background: 'rgb(0 0 0 / 0.55)',
-                  border: '1px solid rgb(255 255 255 / 0.14)'
-                }}
+                className={CONTROL}
+                style={SCRIM}
               >
                 <IconExpand size={14} />
               </Link>
@@ -420,27 +458,36 @@ export function PlayerCard({
                 data-sfx="off"
                 autoFocus
                 aria-label="Close profile"
-                className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-300 transition-colors hover:text-zinc-50 sm:h-8 sm:w-8"
-                style={{
-                  background: 'rgb(0 0 0 / 0.55)',
-                  border: '1px solid rgb(255 255 255 / 0.14)'
-                }}
+                className={CONTROL}
+                style={SCRIM}
               >
                 <IconClose size={14} />
               </button>
             </div>
           </div>
 
-          {/* ---------- identity ---------- */}
-          <div className="relative -mt-11 flex flex-col items-center px-6">
-            <div className="relative">
+          <Hair />
+
+          {/* ---------- identity: 20px rows on a 4px pitch ----------
+              mobile:  avatar | name      desktop: avatar | name    | score
+                       avatar | meta               avatar | meta    | score
+                       actions                     avatar | actions | score
+                       score                       chase            | score
+                       chase                                                 */}
+          <div
+            data-pc="zone"
+            className="grid grid-cols-[auto_1fr] items-start gap-x-3 gap-y-1 p-[var(--pc-pad)] sm:grid-cols-[auto_1fr_auto]"
+          >
+            <div className="relative -mt-5 row-span-2 sm:row-span-3">
               {row.rank === 1 && (
-                <span aria-hidden className="pc-crown absolute -top-7 left-1/2 -translate-x-1/2 text-[rgb(var(--lb-gold))]">
-                  <IconCrown size={20} />
+                <span
+                  aria-hidden
+                  className="pc-crown absolute -top-6 left-1/2 -translate-x-1/2 text-[rgb(var(--lb-gold))]"
+                >
+                  <IconCrown size={18} />
                 </span>
               )}
-              {/* spinning conic ring for the champion, static ring otherwise */}
-              <div className="relative h-[84px] w-[84px]">
+              <div className="relative h-14 w-14 sm:h-16 sm:w-16">
                 {medal && row.rank === 1 ? (
                   <span
                     aria-hidden
@@ -471,12 +518,12 @@ export function PlayerCard({
                   src={row.profile_image}
                   char={row.username[0]?.toUpperCase() ?? '?'}
                   handle={row.username}
-                  imgClassName={`absolute inset-[3px] h-[78px] w-[78px] ${avatarImgRound} object-cover`}
-                  fallbackClassName={`absolute inset-[3px] flex items-center justify-center ${avatarImgRound} bg-zinc-900 text-2xl text-zinc-300 font-display`}
+                  imgClassName={`absolute inset-[3px] h-[50px] w-[50px] sm:h-[58px] sm:w-[58px] ${avatarImgRound} object-cover`}
+                  fallbackClassName={`absolute inset-[3px] flex items-center justify-center ${avatarImgRound} bg-zinc-900 font-display text-xl text-zinc-300`}
                 />
                 {row.isActive && (
                   <span
-                    className="absolute bottom-1 right-1 h-3 w-3 rounded-full"
+                    className="absolute bottom-0.5 right-0.5 h-2.5 w-2.5 rounded-full"
                     style={{
                       background: 'rgb(var(--lb-up))',
                       boxShadow: '0 0 8px rgb(var(--lb-up) / 0.8), inset 0 0 0 2px rgb(var(--lb-panel-bg))'
@@ -487,55 +534,38 @@ export function PlayerCard({
               </div>
             </div>
 
-            <div className="mt-3 flex max-w-full items-center gap-2">
-              <span className="truncate font-display text-lg font-semibold tracking-tight text-zinc-50">
-                {row.display_name || `@${row.username}`}
-              </span>
+            {/* name */}
+            <div className={`${ROW} min-w-0 gap-2 sm:col-start-2 sm:row-start-1`}>
+              <span className={`truncate ${NAME}`}>{row.display_name || `@${row.username}`}</span>
               {isProTier(row.tier) && <VerifiedBadge size={15} />}
               {isTeamAccount && <TeamBadge size={15} />}
               {team && <TeamMiniLogo team={team} size={15} />}
               {isYou && (
-                <span className="shrink-0 rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-[8px] tracking-[0.25em] text-accent">
-                  YOU
-                </span>
+                <span className={`${TAG} shrink-0 border-accent/40 bg-accent/10 text-accent`}>YOU</span>
               )}
             </div>
-            <span className="mt-0.5 flex items-center gap-2 text-[11px] text-zinc-500">
-              @{row.username}
+
+            {/* meta */}
+            <div className={`${ROW} min-w-0 gap-2 text-zinc-500 sm:col-start-2 sm:row-start-2`}>
+              <span className={`truncate ${DATA}`}>@{row.username}</span>
               {(profile?.isPrivate ?? row.isPrivate) && (
-                <span className="text-zinc-600" title="Private account">
+                <span className="shrink-0 text-zinc-600" title="Private account">
                   <IconLock size={10} />
                 </span>
               )}
-              {viewer?.followsYou && !isYou && <FollowsYouChip />}
-            </span>
+              {viewer?.followsYou && !isYou && (
+                <span data-pc-late="" className={`${ROW} shrink-0 gap-2`}>
+                  <span className="text-zinc-700">·</span>
+                  <span className={LABEL}>FOLLOWS YOU</span>
+                </span>
+              )}
+            </div>
 
-            {/* follow at the point of discovery — the whole reason the card exists */}
-            {!isYou && viewer && !viewer.isYou && (
-              <div className="mt-3 flex items-center gap-3">
-                <FollowButton
-                  targetUserId={row.userId}
-                  following={viewer.isFollowing}
-                  followsYou={viewer.followsYou}
-                  signedIn
-                  size="sm"
-                  onChange={handleFollowChange}
-                />
-                {followerCount !== null && (
-                  <span className="text-[9px] tracking-[0.25em] text-zinc-500">
-                    <span className="tabular-nums text-zinc-300 [font-family:var(--font-pixel)]">
-                      {formatNumber(followerCount)}
-                    </span>{' '}
-                    {followerCount === 1 ? 'FOLLOWER' : 'FOLLOWERS'}
-                  </span>
-                )}
-              </div>
-            )}
-
-            <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5">
+            {/* actions: tags + the follow control (slot reserved from mount) */}
+            <div className={`${ROW} col-span-2 gap-2 sm:col-span-1 sm:col-start-2 sm:row-start-3`}>
               {medal && (
                 <span
-                  className="flex items-center gap-1.5 rounded border px-2 py-0.5 text-[9px] tracking-[0.25em]"
+                  className={`${TAG} hidden shrink-0 md:flex`}
                   style={{
                     color: medal.fg,
                     borderColor: medalA(medal.rgb, 0.45),
@@ -546,309 +576,312 @@ export function PlayerCard({
                 </span>
               )}
               {roleLabel && (
-                <span className="flex items-center gap-1.5 rounded border border-zinc-700/70 bg-[rgb(var(--lb-panel-edge)/0.03)] px-2 py-0.5 text-[9px] tracking-[0.25em] text-zinc-400">
+                <span
+                  className={`${TAG} shrink-0 border-zinc-700/70 bg-[rgb(var(--lb-panel-edge)/0.03)] text-zinc-400`}
+                >
                   {RoleIcon && <RoleIcon size={10} />}
                   {roleLabel}
                 </span>
               )}
-            </div>
-          </div>
-
-          {/* ---------- score hero ---------- */}
-          <div className="mt-5 flex flex-col items-center px-6">
-            <span className="text-[9px] tracking-[0.4em] text-zinc-500">LIFETIME SCORE</span>
-            <span
-              title={`${formatNumber(row.score)} pts`}
-              className="mt-2 text-[26px] leading-none tabular-nums [font-family:var(--font-pixel)]"
-              style={{
-                color: 'rgb(var(--lb-score))',
-                textShadow: medal
-                  ? '0 0 18px rgb(var(--lb-score) / calc(0.55 * var(--lb-glow, 1))), 0 0 44px rgb(var(--lb-score) / calc(0.22 * var(--lb-glow, 1)))'
-                  : '0 0 18px rgb(var(--lb-score) / calc(0.28 * var(--lb-glow, 1)))'
-              }}
-            >
-              <AnimatedCounter
-                value={row.score}
-                duration={900}
-                formatter={(v) => formatScore(Math.round(v))}
-              />
-            </span>
-            <div className="mt-2.5 flex items-center gap-3 text-[10px] tabular-nums">
-              <span style={{ color: todayScore > 0 ? 'rgb(var(--lb-delta))' : 'rgb(var(--z600))' }}>
-                +{formatNumber(todayScore)} today
-              </span>
-              <span className="text-zinc-700">·</span>
-              <span className="text-zinc-500">+{formatNumber(weekScore)} this week</span>
-            </div>
-
-            {(chase || row.rank === 1) && (
-              <div
-                className="mt-3 flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] tracking-[0.12em]"
-                style={{
-                  border: `1px solid ${medal ? medalA(medal.rgb, 0.3) : 'rgb(var(--lb-panel-edge) / 0.12)'}`,
-                  background: medal ? medalA(medal.rgb, 0.05) : 'rgb(var(--lb-panel-edge) / 0.03)'
-                }}
-              >
-                {row.rank === 1 ? (
-                  <>
-                    <IconCrown size={11} className="text-[rgb(var(--lb-gold))]" />
-                    <span className="text-zinc-300">
-                      HOLDING THE THRONE
-                      {chase && (
-                        <span className="text-zinc-500"> · {formatNumber(chase.gap)} PTS AHEAD</span>
+              {!isYou && (
+                <span className="relative inline-flex h-5 min-w-[88px]">
+                  <span
+                    data-pc="ghost"
+                    aria-hidden
+                    className="pc-ghost absolute inset-0 rounded-[6px]"
+                  />
+                  {canFollow && (
+                    <span data-pc-late="" className="relative inline-flex h-5">
+                      <FollowButton
+                        targetUserId={row.userId}
+                        following={viewer.isFollowing}
+                        followsYou={viewer.followsYou}
+                        signedIn
+                        size="xs"
+                        className="rounded-l-[6px] rounded-r-none"
+                        onChange={handleFollowChange}
+                      />
+                      {followerCount !== null && (
+                        <span
+                          className={`${ROW} rounded-r-[6px] border border-l-0 border-zinc-700/70 px-2 text-zinc-300 ${DATA}`}
+                          title={`${formatNumber(followerCount)} ${followerCount === 1 ? 'follower' : 'followers'}`}
+                        >
+                          {formatNumber(followerCount)}
+                        </span>
                       )}
                     </span>
-                  </>
+                  )}
+                </span>
+              )}
+            </div>
+
+            {/* score: right column on desktop, a two-column row on mobile */}
+            <div className="col-span-2 flex items-start justify-between gap-3 sm:col-span-1 sm:col-start-3 sm:row-span-4 sm:row-start-1 sm:flex-col sm:items-end sm:justify-start sm:gap-1">
+              <div className="flex flex-col gap-1 sm:items-end">
+                <span className={`${ROW} text-zinc-500 ${LABEL}`}>LIFETIME SCORE</span>
+                <span
+                  title={`${formatNumber(row.score)} pts`}
+                  className={`flex h-6 items-center sm:h-8 ${MACRO}`}
+                  style={{
+                    color: 'rgb(var(--lb-score))',
+                    textShadow: medal
+                      ? '0 0 18px rgb(var(--lb-score) / calc(0.55 * var(--lb-glow, 1))), 0 0 44px rgb(var(--lb-score) / calc(0.22 * var(--lb-glow, 1)))'
+                      : '0 0 18px rgb(var(--lb-score) / calc(0.28 * var(--lb-glow, 1)))'
+                  }}
+                >
+                  <AnimatedCounter
+                    value={row.score}
+                    duration={900}
+                    formatter={(v) => formatScore(Math.round(v))}
+                  />
+                </span>
+              </div>
+              <div className="flex flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-2">
+                <Delta
+                  label="TODAY"
+                  value={todayScore}
+                  color={todayScore > 0 ? 'rgb(var(--lb-delta))' : 'rgb(var(--z600))'}
+                />
+                <span className="hidden text-zinc-700 sm:inline">·</span>
+                <Delta label="7D" value={weekScore} color="rgb(var(--z400))" />
+              </div>
+            </div>
+
+            {/* chase / throne: rhymes with the ShareRows below */}
+            {(chase || row.rank === 1) && (
+              <div className={`${ROW} col-span-2 min-w-0 gap-2 sm:row-start-4 ${DATA}`}>
+                <span className={CHIP.className} style={CHIP.style}>
+                  {row.rank === 1 ? (
+                    <IconCrown size={12} className="text-[rgb(var(--lb-gold))]" />
+                  ) : (
+                    <IconTarget size={12} className="text-zinc-500" />
+                  )}
+                </span>
+                {row.rank === 1 ? (
+                  <span className="truncate text-zinc-300">
+                    HOLDING THE THRONE
+                    {chase && <span className="text-zinc-500"> · {formatNumber(chase.gap)} PTS AHEAD</span>}
+                  </span>
                 ) : (
                   chase && (
-                    <>
-                      <IconTarget size={11} className="text-zinc-500" />
-                      <span className="text-zinc-400">
-                        <span className="text-zinc-100">{formatNumber(chase.gap)} PTS</span> TO
-                        OVERTAKE <span className="text-zinc-200">@{chase.username}</span>
-                      </span>
-                    </>
+                    <span className="truncate text-zinc-400">
+                      <span className="text-zinc-100">{formatNumber(chase.gap)} PTS</span> TO OVERTAKE{' '}
+                      <span className="text-zinc-200">@{chase.username}</span>
+                    </span>
                   )
                 )}
               </div>
             )}
           </div>
 
-          {/* ---------- top tools ---------- */}
-          <div className="mt-5 px-6">
-            <div className="flex items-center justify-between text-[9px] tracking-[0.35em] text-zinc-500">
-              <span>TOP TOOLS</span>
-              <span className="text-zinc-700">SHARE OF SCORE</span>
-            </div>
-            <div className="mt-2.5 space-y-2">
-              {tools.length === 0 &&
-                (profile?.restricted ? (
-                  <div className="flex items-center justify-center gap-1.5 py-2 text-[10px] tracking-[0.2em] text-zinc-600">
-                    <IconLock size={10} />
-                    FOLLOWERS ONLY
-                  </div>
-                ) : (
-                  <div className="py-2 text-center text-[10px] tracking-[0.2em] text-zinc-600">
-                    NO FIELD DATA YET
-                  </div>
+          <Hair />
+
+          {/* ---------- telemetry: tools | badges ---------- */}
+          <div className="grid sm:grid-cols-[1fr_1px_1fr]">
+            <div data-pc="zone" className="min-w-0 p-[var(--pc-pad)]">
+              <div className={`${ROW} justify-between text-zinc-500 ${LABEL}`}>
+                <span>TOP TOOLS</span>
+                <span className="text-zinc-700">SHARE OF SCORE</span>
+              </div>
+              <div className="mt-2 flex flex-col gap-2">
+                {tools.length === 0 &&
+                  (profile?.restricted ? (
+                    <div className={`${ROW} gap-2 text-zinc-600 ${LABEL}`}>
+                      <IconLock size={10} />
+                      FOLLOWERS ONLY
+                    </div>
+                  ) : (
+                    <div className={`${ROW} text-zinc-600 ${LABEL}`}>NO FIELD DATA YET</div>
+                  ))}
+                {tools.slice(0, 3).map((tool, i) => (
+                  <ShareRow
+                    key={tool.name}
+                    icon={<ToolIcon name={tool.name} size={12} />}
+                    label={tool.name}
+                    percent={tool.percent}
+                    fill={i === 0 && medal ? { medalRgb: medal.rgb, medalFg: medal.fg } : 'neutral'}
+                    iconColor={i === 0 && medal ? medal.fg : undefined}
+                  />
                 ))}
-              {tools.slice(0, 3).map((tool, i) => (
-                <div key={tool.name} className="flex items-center gap-3">
-                  <span
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
-                    style={{
-                      color: i === 0 && medal ? medal.fg : 'rgb(var(--z300))',
-                      background: 'rgb(var(--lb-panel-edge) / 0.045)',
-                      border: '1px solid rgb(var(--lb-panel-edge) / 0.1)'
-                    }}
-                  >
-                    <ToolIcon name={tool.name} size={14} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="truncate font-display text-xs font-medium text-zinc-200">
-                        {tool.name}
-                      </span>
-                      <span className="shrink-0 text-[10px] tabular-nums text-zinc-500">
-                        {tool.percent}%
-                      </span>
-                    </div>
-                    <div className="mt-1 h-1 overflow-hidden rounded-full bg-[rgb(var(--lb-panel-edge)/0.06)]">
-                      <div
-                        className="pc-bar h-full rounded-full"
-                        style={{
-                          width: `${Math.max(3, tool.percent)}%`,
-                          background:
-                            i === 0 && medal
-                              ? `linear-gradient(90deg, ${medalA(medal.rgb, 0.55)}, ${medal.fg})`
-                              : 'linear-gradient(90deg, rgb(var(--z600)), rgb(var(--z400)))',
-                          animationDelay: `${180 + i * 110}ms`
-                        }}
-                      />
-                    </div>
+              </div>
+              {agents.length > 0 && (
+                <>
+                  <Hair late className="mt-3" />
+                  <div data-pc-late="" className={`${ROW} mt-3 justify-between text-zinc-500 ${LABEL}`}>
+                    <span>AGENTIC</span>
+                    <span className="text-zinc-700">SHARE OF TOKENS</span>
                   </div>
-                </div>
-              ))}
+                  {/* Only the #1 agent — the full mix lives on the profile page.
+                      Ember, the Burn Board's hue: tokens are a different
+                      currency than the score bars above. */}
+                  <div data-pc-late="" className="mt-2 flex flex-col gap-2">
+                    {agents.slice(0, 1).map((agent) => (
+                      <ShareRow
+                        key={agent.name}
+                        icon={<TokenAgentIcon agent={agent.name} bare size={12} />}
+                        label={tokenAgentLabel(agent.name) ?? agent.name}
+                        percent={agent.percent}
+                        fill="ember"
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
-            {agents.length > 0 && (
-              <>
-                <div className="mt-4 h-px bg-[rgb(var(--lb-panel-edge)/0.08)]" />
-                <div className="mt-4 flex items-center justify-between text-[9px] tracking-[0.35em] text-zinc-500">
-                  <span>AGENTIC</span>
-                  <span className="text-zinc-700">SHARE OF TOKENS</span>
-                </div>
-                {/* Only the #1 agent — the card is already tall, and the
-                    full mix lives on the profile page. */}
-                <div className="mt-2.5 space-y-2">
-                  {agents.slice(0, 1).map((agent) => (
-                    <div key={agent.name} className="flex items-center gap-3">
-                      <span
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+
+            <Hair className="sm:hidden" />
+            <div
+              data-pc="hair-v"
+              aria-hidden
+              className="hidden w-px self-stretch sm:block"
+              style={{ background: 'rgb(var(--lb-panel-edge) / 0.09)' }}
+            />
+
+            <div data-pc="zone" className="min-w-0 p-[var(--pc-pad)]">
+              <div className={`${ROW} justify-between text-zinc-500 ${LABEL}`}>
+                <span>BADGES</span>
+                {profile?.restricted ? (
+                  <span className={`${ROW} gap-1 text-zinc-600`}>
+                    <IconLock size={9} />
+                    PRIVATE
+                  </span>
+                ) : (
+                  badges !== null && (
+                    <span data-pc-late="" className="tabular-nums text-zinc-600">
+                      {badges.length}
+                      <span className="text-zinc-700">/{ACHIEVEMENTS.length}</span>
+                    </span>
+                  )
+                )}
+              </div>
+              <div className="mt-2">
+                {badges === null && !profileFailed && (
+                  <div className="grid grid-cols-8 gap-1">
+                    {Array.from({ length: 16 }, (_, i) => (
+                      <div
+                        key={i}
+                        className="aspect-square animate-pulse rounded-[6px] bg-[rgb(var(--lb-panel-edge)/0.05)]"
+                      />
+                    ))}
+                  </div>
+                )}
+                {badges === null && profileFailed && (
+                  <div className={`${ROW} text-zinc-600 ${LABEL}`}>RECORD UNAVAILABLE</div>
+                )}
+                {badges !== null &&
+                  badges.length === 0 &&
+                  (profile?.restricted ? (
+                    <div className={`${ROW} gap-2 text-zinc-600 ${LABEL}`}>
+                      <IconLock size={10} />
+                      FOLLOWERS ONLY
+                    </div>
+                  ) : (
+                    <div className={`${ROW} text-zinc-600 ${LABEL}`}>NO DECORATIONS YET</div>
+                  ))}
+                {badges !== null && badges.length > 0 && (
+                  <div className="grid grid-cols-8 gap-1">
+                    {badges.slice(0, 15).map((badge) => (
+                      <div
+                        key={badge.id}
+                        data-pc="badge"
+                        data-pc-late=""
+                        title={`${badge.name} — ${badge.description}`}
+                        className="flex aspect-square items-center justify-center rounded-[6px]"
                         style={{
-                          background: 'rgb(var(--lb-panel-edge) / 0.045)',
-                          border: '1px solid rgb(var(--lb-panel-edge) / 0.1)'
+                          background: rarityColorA(badge.rarity, 0.07),
+                          border: `1px solid ${rarityColorA(badge.rarity, 0.3)}`
                         }}
                       >
-                        <TokenAgentIcon agent={agent.name} bare size={14} />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <span className="truncate font-display text-xs font-medium text-zinc-200">
-                            {tokenAgentLabel(agent.name)}
-                          </span>
-                          <span className="shrink-0 text-[10px] tabular-nums text-zinc-500">
-                            {agent.percent}%
-                          </span>
-                        </div>
-                        <div className="mt-1 h-1 overflow-hidden rounded-full bg-[rgb(var(--lb-panel-edge)/0.06)]">
-                          <div
-                            className="pc-bar h-full rounded-full"
-                            style={{
-                              width: `${Math.max(3, agent.percent)}%`,
-                              // Ember, the Burn Board's hue — tokens are a
-                              // different currency than the score bars above.
-                              background:
-                                'linear-gradient(90deg, rgb(var(--ember-rgb) / 0.55), rgb(var(--ember-rgb)))',
-                              animationDelay: '180ms'
-                            }}
-                          />
-                        </div>
+                        <PixelIcon name={badge.icon} size={18} />
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </>
+                    ))}
+                    {badges.length > 15 && (
+                      <div
+                        data-pc="badge"
+                        data-pc-late=""
+                        className={`flex aspect-square items-center justify-center rounded-[6px] text-zinc-400 ${LABEL}`}
+                        style={{
+                          background: 'rgb(var(--lb-panel-edge) / 0.04)',
+                          border: '1px solid rgb(var(--lb-panel-edge) / 0.1)'
+                        }}
+                        title={`${badges.length - 15} more badges`}
+                      >
+                        +{badges.length - 15}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* One line when the name fits; a long name pushes the hangar
+                  pointer onto its own right-aligned line instead of
+                  truncating to a glyph. */}
+              {(profile?.project || hangarBeyondPill > 0) && (
+                <>
+                  <Hair late className="mt-3" />
+                  <div data-pc-late="" className="mt-3 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                    {profile?.project && (
+                      <a
+                        href={profile.project.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={profile.project.url}
+                        className={`group ${ROW} min-w-0 max-w-full gap-2`}
+                      >
+                        <span className={`shrink-0 text-zinc-500 ${LABEL}`}>NOW BUILDING</span>
+                        <span
+                          className={`flex-[1_1_auto] min-w-[10ch] truncate text-zinc-200 transition-colors group-hover:text-zinc-50 ${BODY}`}
+                        >
+                          {profile.project.name}
+                        </span>
+                      </a>
+                    )}
+                    {hangarBeyondPill > 0 && (
+                      <Link
+                        href={`/u/${encodeURIComponent(row.username)}#hangar`}
+                        className={`${ROW} ml-auto shrink-0 text-zinc-500 transition-colors hover:text-zinc-200 ${LABEL}`}
+                      >
+                        {profile?.project
+                          ? `+${hangarBeyondPill} MORE IN HANGAR →`
+                          : `${hangarBeyondPill} IN HANGAR →`}
+                      </Link>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          <Hair />
+
+          {/* ---------- MRZ footer (min-h-7 = the social anchors' height) ---------- */}
+          <div data-pc="zone" className="flex min-h-7 flex-wrap items-center gap-3 p-[var(--pc-pad)]">
+            <div
+              aria-hidden
+              className="flex min-w-0 select-none flex-col gap-0.5 overflow-hidden whitespace-pre text-[9px] leading-[12px] tracking-[0.18em] [font-family:var(--font-data)]"
+            >
+              <span className="text-zinc-500">
+                {Array.from(mrz1, (ch, i) => (
+                  <span key={i} data-pc="mrz-ch">
+                    {ch}
+                  </span>
+                ))}
+              </span>
+              <span className="text-zinc-600">
+                {Array.from(mrz2, (ch, i) => (
+                  <span key={i} data-pc="mrz-ch">
+                    {ch}
+                  </span>
+                ))}
+              </span>
+            </div>
+            <span className="sr-only">{mrzPlainText(mrzInput)}</span>
+            {profile && (
+              <span data-pc-late="" className="ml-auto flex shrink-0">
+                <SocialLinkRow username={row.username} socials={profile.socials} website={profile.website} />
+              </span>
             )}
           </div>
-
-          {/* ---------- badges ---------- */}
-          <div className="mt-5 px-6">
-            <div className="flex items-center justify-between text-[9px] tracking-[0.35em] text-zinc-500">
-              <span>BADGES</span>
-              {profile?.restricted ? (
-                <span className="flex items-center gap-1 text-zinc-600">
-                  <IconLock size={9} />
-                  PRIVATE
-                </span>
-              ) : (
-                badges !== null && (
-                  <span className="tabular-nums text-zinc-600">
-                    {badges.length}
-                    <span className="text-zinc-700">/{ACHIEVEMENTS.length}</span>
-                  </span>
-                )
-              )}
-            </div>
-            <div className="mt-2.5">
-              {badges === null && !profileFailed && (
-                <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-8">
-                  {Array.from({ length: 8 }, (_, i) => (
-                    <div key={i} className="aspect-square animate-pulse rounded-lg bg-[rgb(var(--lb-panel-edge)/0.05)]" />
-                  ))}
-                </div>
-              )}
-              {badges === null && profileFailed && (
-                <div className="py-2 text-center text-[10px] tracking-[0.2em] text-zinc-600">
-                  RECORD UNAVAILABLE
-                </div>
-              )}
-              {badges !== null &&
-                badges.length === 0 &&
-                (profile?.restricted ? (
-                  <div className="flex items-center justify-center gap-1.5 py-2 text-[10px] tracking-[0.2em] text-zinc-600">
-                    <IconLock size={10} />
-                    FOLLOWERS ONLY
-                  </div>
-                ) : (
-                  <div className="py-2 text-center text-[10px] tracking-[0.2em] text-zinc-600">
-                    NO DECORATIONS YET
-                  </div>
-                ))}
-              {badges !== null && badges.length > 0 && (
-                <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-8">
-                  {badges.slice(0, 15).map((badge) => (
-                    <div
-                      key={badge.id}
-                      title={`${badge.name} — ${badge.description}`}
-                      className="flex aspect-square items-center justify-center rounded-lg"
-                      style={{
-                        background: rarityColorA(badge.rarity, 0.07),
-                        border: `1px solid ${rarityColorA(badge.rarity, 0.3)}`
-                      }}
-                    >
-                      <PixelIcon name={badge.icon} size={20} />
-                    </div>
-                  ))}
-                  {badges.length > 15 && (
-                    <div
-                      className="flex aspect-square items-center justify-center rounded-lg text-[9px] tabular-nums text-zinc-400"
-                      style={{
-                        background: 'rgb(var(--lb-panel-edge) / 0.04)',
-                        border: '1px solid rgb(var(--lb-panel-edge) / 0.1)'
-                      }}
-                      title={`${badges.length - 15} more badges`}
-                    >
-                      +{badges.length - 15}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* ---------- now building + hangar ---------- */}
-          {/* Appears on profile hydration — no skeleton; the card simply
-              gains the pill when the payload lands. The one-line pointer
-              under it deep-links to the profile's HANGAR tab. */}
-          {(profile?.project || hangarBeyondPill > 0) && (
-            <div className="mt-5 flex flex-col items-center gap-2 px-6">
-              {profile?.project && (
-                <a
-                  href={profile.project.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={profile.project.url}
-                  className="group flex max-w-full items-center gap-2 rounded-lg border border-[rgb(var(--lb-panel-edge)/0.12)] bg-[rgb(var(--lb-panel-edge)/0.03)] px-3 py-1.5 transition-colors hover:border-[rgb(var(--lb-panel-edge)/0.3)]"
-                >
-                  <span className="shrink-0 text-[8px] tracking-[0.25em] text-zinc-500">
-                    NOW BUILDING
-                  </span>
-                  <span className="min-w-0 truncate text-[10px] tracking-[0.12em] text-zinc-200 transition-colors group-hover:text-zinc-50">
-                    {profile.project.name}
-                  </span>
-                </a>
-              )}
-              {hangarBeyondPill > 0 && (
-                <Link
-                  href={`/u/${encodeURIComponent(row.username)}#hangar`}
-                  className="text-[8px] tracking-[0.25em] text-zinc-500 transition-colors hover:text-zinc-200"
-                >
-                  {profile?.project
-                    ? `+${hangarBeyondPill} MORE IN HANGAR →`
-                    : `${hangarBeyondPill} IN HANGAR →`}
-                </Link>
-              )}
-            </div>
-          )}
-
-          {/* ---------- footer ---------- */}
-          <div className="mt-5 border-t px-6 pb-5 pt-4" style={{ borderColor: 'rgb(var(--lb-panel-edge) / 0.08)' }}>
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 text-[9px] tracking-[0.25em] text-zinc-600 tabular-nums">
-              <span>JOINED SINCE {monthYear(profile?.memberSince ?? row.memberSince)}</span>
-              {!row.isActive && (
-                <span>SEEN {formatRelative(row.lastSeen).toUpperCase()}</span>
-              )}
-              {profile && (
-                <SocialLinkRow
-                  username={row.username}
-                  socials={profile.socials}
-                  website={profile.website}
-                  className="ml-auto"
-                />
-              )}
-            </div>
-          </div>
-
         </div>
       </div>
 
@@ -867,70 +900,45 @@ export function PlayerCard({
           background: rgb(0 0 0 / 0.78);
           backdrop-filter: blur(10px);
           -webkit-backdrop-filter: blur(10px);
-          animation: pc-backdrop-in 260ms ease backwards;
         }
         html.light .pc-backdrop {
           /* white veil — matches the light canvas instead of dimming it */
           background: rgb(255 255 255 / 0.72);
         }
-        @keyframes pc-backdrop-in {
-          from {
-            opacity: 0;
-          }
+        html.light .pc-sheen {
+          display: none;
         }
 
-        /* zoom-in spring — the card grows out of the row you clicked */
-        .pc-card {
-          animation: pc-card-in 440ms cubic-bezier(0.26, 1.35, 0.45, 1) backwards;
+        .pc-ctl {
+          color: rgb(212 212 216);
         }
-        @keyframes pc-card-in {
-          from {
-            opacity: 0;
-            transform: scale(0.82) translateY(30px);
-          }
-        }
-        @media (max-width: 639px) {
-          .pc-card {
-            animation: pc-card-in-mobile 420ms cubic-bezier(0.22, 1.1, 0.36, 1) backwards;
-          }
-        }
-        @keyframes pc-card-in-mobile {
-          from {
-            opacity: 0;
-            transform: translateY(24px) scale(0.98);
-          }
+        .pc-ctl:hover {
+          color: rgb(250 250 250);
         }
 
-        /* graceful exit — mirrors the entrance, slightly faster */
-        .pc-root[data-closing] {
-          pointer-events: none;
-        }
-        .pc-root[data-closing] .pc-backdrop {
-          animation: pc-backdrop-out ${CLOSE_MS}ms ease forwards;
-        }
-        .pc-root[data-closing] .pc-card {
-          animation: pc-card-out ${CLOSE_MS}ms cubic-bezier(0.5, 0, 0.75, 0.4) forwards;
-        }
-        @keyframes pc-backdrop-out {
-          to {
-            opacity: 0;
-          }
-        }
-        @keyframes pc-card-out {
-          to {
-            opacity: 0;
-            transform: scale(0.92) translateY(16px);
-          }
-        }
-
+        /* GSAP writes --rx/--ry from the pointer; the transform just reads them */
         .pc-tilt {
           transform: perspective(1100px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
-          transition: transform 220ms ease-out;
           will-change: transform;
           scrollbar-width: none;
         }
         .pc-tilt::-webkit-scrollbar {
           display: none;
+        }
+
+        /* follow-slot ghost: pulses the fill, not opacity, so hydrateIn's
+           opacity fade is not overridden by the keyframes */
+        .pc-ghost {
+          animation: pc-ghost-pulse 1.6s ease-in-out infinite;
+        }
+        @keyframes pc-ghost-pulse {
+          0%,
+          100% {
+            background: rgb(var(--lb-panel-edge) / 0.04);
+          }
+          50% {
+            background: rgb(var(--lb-panel-edge) / 0.09);
+          }
         }
 
         .pc-crown {
@@ -956,27 +964,16 @@ export function PlayerCard({
           }
         }
 
-        .pc-bar {
-          transform-origin: left center;
-          animation: pc-bar-grow 700ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
-        }
-        @keyframes pc-bar-grow {
-          from {
-            transform: scaleX(0);
-          }
-        }
-
         @media (prefers-reduced-motion: reduce) {
-          .pc-backdrop,
-          .pc-card,
           .pc-crown,
           .pc-ring-spin,
-          .pc-bar {
+          .pc-ghost {
             animation: none;
           }
+          .pc-ghost {
+            background: rgb(var(--lb-panel-edge) / 0.06);
+          }
           .pc-tilt {
-            transform: none;
-            transition: none;
             will-change: auto;
           }
         }
