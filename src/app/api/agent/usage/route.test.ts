@@ -528,6 +528,77 @@ describe('POST /api/agent/usage — storage and staleness', () => {
       })
     ])
   })
+
+  it('accepts cribble-agent local-runtime events with billed cost zero', async () => {
+    addKey()
+
+    const response = await POST(
+      request(
+        eventPayload({
+          provenance: {
+            source: 'cribble-agent',
+            sources: ['ollama'],
+            cliVersion: '1.4.1'
+          },
+          events: [
+            {
+              eventId: 'ollama:req-1',
+              requestId: 'req-1',
+              occurredAt: '2026-08-21T23:30:00.000Z',
+              agent: 'hermes',
+              provider: 'ollama',
+              runtime: 'ollama',
+              model: 'qwen2.5:3b',
+              provenance: ['local_runtime_ledger'],
+              inputTokens: 11,
+              outputTokens: 7,
+              billedCostUsd: 0
+            }
+          ]
+        })
+      )
+    )
+
+    expect(response.status).toBe(200)
+    expect(state.eventRows).toEqual([
+      expect.objectContaining({
+        event_id: 'ollama:req-1',
+        agent: 'hermes',
+        model: 'qwen2.5:3b',
+        total_tokens: 18
+      })
+    ])
+  })
+
+  it('rejects local-runtime events that invent provider spend', async () => {
+    addKey()
+
+    const response = await POST(
+      request(
+        eventPayload({
+          provenance: {
+            source: 'cribble-agent',
+            sources: ['ollama'],
+            cliVersion: '1.4.1'
+          },
+          events: [
+            {
+              eventId: 'ollama:req-1',
+              occurredAt: '2026-08-21T23:30:00.000Z',
+              agent: 'hermes',
+              model: 'qwen2.5:3b',
+              inputTokens: 11,
+              outputTokens: 7,
+              billedCostUsd: 0.01
+            }
+          ]
+        })
+      )
+    )
+
+    expect(response.status).toBe(400)
+    expect(state.eventRows).toHaveLength(0)
+  })
 })
 
 describe('POST /api/agent/usage — authentication and tenant isolation', () => {

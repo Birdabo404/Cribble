@@ -143,4 +143,15 @@ describe('Agent usage migrations', () => {
     expect(migration071).toContain('from public, anon, authenticated')
     expect(migration071).toContain('to service_role')
   })
+
+  it('accepts cribble-agent as a closed ingest source without rewriting burn-board math', async () => {
+    const migration072 = readFileSync(
+      join(process.cwd(), 'migrations/072_agent_usage_cribble_agent_source.sql'),
+      'utf8'
+    )
+    expect(migration072).toContain("p_source not in ('ccusage', 'cribble-agent')")
+    expect(migration072).toContain("array['ccusage'::text, 'cribble-agent'::text]")
+    expect(migration072).toContain('create or replace function public.ingest_agent_usage')
+    expect(migration072).not.toContain('create or replace function public.agent_token_leaderboard')
+  })
 })

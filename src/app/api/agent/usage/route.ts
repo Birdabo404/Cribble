@@ -127,17 +127,38 @@ const dailyUsageSchema = z
 const eventUsageSchema = z
   .object({
     eventId: z.string().trim().min(1).max(128).regex(/^[A-Za-z0-9._:/-]+$/),
+    requestId: z.string().trim().min(1).max(128).regex(/^[A-Za-z0-9._:/-]+$/).optional(),
     occurredAt: z.string().datetime({ offset: true }),
     agent: usageNameSchema,
+    provider: usageNameSchema.optional(),
+    runtime: usageNameSchema.optional(),
     model: usageNameSchema,
-    ...tokenFields
+    provenance: z.array(usageNameSchema).min(1).max(16).optional(),
+    inputTokens: tokenCountSchema,
+    outputTokens: tokenCountSchema,
+    cacheCreationTokens: tokenCountSchema.optional(),
+    cacheReadTokens: tokenCountSchema.optional(),
+    reasoningTokens: tokenCountSchema.optional(),
+    totalTokens: tokenCountSchema.optional(),
+    costUsd: costUsdSchema.optional(),
+    billedCostUsd: z.literal(0).optional()
   })
   .strict()
-  .superRefine(validateTokenTotal)
 
 const provenanceSchema = z
   .object({
     source: z.literal('ccusage'),
+    cliVersion: z.string().trim().min(1).max(64)
+  })
+  .strict()
+
+const localRuntimeProvenanceSchema = z
+  .object({
+    source: z.literal('cribble-agent'),
+    sources: z
+      .array(z.enum(['ccusage', 'prime-agent', 'ollama', 'hermes', 'opencode']))
+      .min(1)
+      .max(16),
     cliVersion: z.string().trim().min(1).max(64)
   })
   .strict()
@@ -197,7 +218,7 @@ const ingestSchema = z.discriminatedUnion('schemaVersion', [
       clientId: z.string().uuid(),
       machineName: machineNameSchema,
       timezone: timezoneSchema,
-      provenance: provenanceSchema,
+      provenance: z.union([provenanceSchema, localRuntimeProvenanceSchema]),
       events: eventRowsSchema
     })
     .strict()
@@ -417,18 +438,27 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      records = parsed.data.events.map((row) => ({
-        event_id: row.eventId,
-        occurred_at: row.occurredAt,
-        agent: row.agent,
-        model: row.model,
-        input_tokens: row.inputTokens,
-        output_tokens: row.outputTokens,
-        cache_creation_tokens: row.cacheCreationTokens,
-        cache_read_tokens: row.cacheReadTokens,
-        total_tokens: totalTokens(row),
-        cost_usd: row.costUsd
-      }))
+      records = parsed.data.events.map((row) => {
+        const cacheCreationTokens = row.cacheCreationTokens ?? 0
+        const cacheReadTokens = row.cacheReadTokens ?? 0
+        return {
+          event_id: row.eventId,
+          occurred_at: row.occurredAt,
+          agent: row.agent,
+          model: row.model,
+          input_tokens: row.inputTokens,
+          output_tokens: row.outputTokens,
+          cache_creation_tokens: cacheCreationTokens,
+          cache_read_tokens: cacheReadTokens,
+          total_tokens: totalTokens({
+            inputTokens: row.inputTokens,
+            outputTokens: row.outputTokens,
+            cacheCreationTokens,
+            cacheReadTokens
+          }),
+          cost_usd: row.billedCostUsd ?? row.costUsd ?? 0
+        }
+      })
     }
 
     // Burn Board pass, part 1: the burn-club story needs the lifetime
