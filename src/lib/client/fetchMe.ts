@@ -27,7 +27,7 @@ export type MeRequestResult = MeRequestSuccess | MeRequestFailure
 
 const TTL_MS = 12_000
 
-let cached: { at: number; result: MeRequestSuccess } | null = null
+let cached: { at: number; result: MeRequestResult } | null = null
 let inflight: Promise<MeRequestResult> | null = null
 // Bumped by invalidate(). A request that started before the bump must
 // not write its (now stale) response into the cache when it settles.
@@ -43,7 +43,16 @@ export function fetchMe(): Promise<MeRequestResult> {
   const request = (async (): Promise<MeRequestResult> => {
     try {
       const res = await fetch('/api/user/me', { credentials: 'include' })
-      if (!res.ok) return { ok: false, status: res.status }
+      if (!res.ok) {
+        const result: MeRequestFailure = { ok: false, status: res.status }
+        // HTTP auth/error answers are resolved session state too. Cache them
+        // briefly so later shell effects do not repeat the same noisy probe;
+        // network failures remain uncached and retryable.
+        if (startedGeneration === generation) {
+          cached = { at: Date.now(), result }
+        }
+        return result
+      }
       const data = (await res.json()) as MeResponsePayload
       const result: MeRequestSuccess = { ok: true, status: res.status, data }
       if (startedGeneration === generation) {

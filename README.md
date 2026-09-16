@@ -6,9 +6,9 @@
 
 One quiet extension. Dozens of AI tools. One global board.
 
-[**Enter Cribble ↗**](https://cribble.dev) &nbsp;·&nbsp; [Privacy](https://cribble.dev/privacy) &nbsp;·&nbsp; [@cribble_ai](https://x.com/cribble_ai)
+[**Enter Cribble ↗**](https://cribble.dev) &nbsp;·&nbsp; [Create account](https://cribble.dev/login) &nbsp;·&nbsp; [Status](https://cribble.dev/status) &nbsp;·&nbsp; [Privacy](https://cribble.dev/privacy) &nbsp;·&nbsp; [@cribble_ai](https://x.com/cribble_ai)
 
-<sub>PRIVATE BETA · INVITE ONLY</sub>
+<sub>PUBLIC SIGNUP · ACTIVELY SHIPPING</sub>
 
 </div>
 
@@ -40,9 +40,11 @@ This repository is public so anyone can look behind cribble.dev and judge the pr
 
 ## Flight status.
 
-Private beta. Invite only. Actively shipping.
+Public signup. Actively shipping.
 
 `Next.js` · `TypeScript` · `Supabase` · `Chrome`
+
+CI verifies the production dependency audit, lint, types, tests, build, and selected public-page and API contracts. Broader quality and security work is tracked in [issue #3](https://github.com/Birdabo404/Cribble/issues/3).
 
 <div align="center">
 

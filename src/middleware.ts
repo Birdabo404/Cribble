@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { canonicalizeJoinPathname } from '@/lib/joinPath'
-import { isAllowedDuringLock, isSiteLocked } from '@/lib/siteLock'
+import { isAllowedDuringLock, isKnownSealedPage, isSiteLocked } from '@/lib/siteLock'
 
 export function middleware(request: NextRequest) {
   // Create response
@@ -83,12 +83,20 @@ export function middleware(request: NextRequest) {
       return new NextResponse('Not found', { status: 404, headers: response.headers })
     }
 
+    // The lock is not a catch-all error boundary. Unknown page routes must
+    // continue into Next's global not-found boundary so they retain a real
+    // 404 status and ERR_404 copy rather than masquerading as maintenance.
+    const opensWithSession = isAllowedDuringLock(pathname, true)
+    if (!opensWithSession && !isKnownSealedPage(pathname)) {
+      return response
+    }
+
     // Locked sectors render a void screen in place — the URL is preserved
     // so the visitor knows where they are, and refreshing after launch
     // (or after signing in) lands on the real page. Sectors that a session
     // would open get the sign-in wall; everything else is under works.
     const url = request.nextUrl.clone()
-    url.pathname = isAllowedDuringLock(pathname, true) ? '/restricted' : '/maintenance'
+    url.pathname = opensWithSession ? '/restricted' : '/maintenance'
     return NextResponse.rewrite(url, { headers: response.headers })
   }
 

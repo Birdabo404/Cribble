@@ -7,6 +7,7 @@ import { Geist } from 'next/font/google'
 import { AppShell } from '@/components/nav/AppShell'
 import { ExtensionGate } from '@/components/ExtensionGate'
 import { FeedbackLauncher } from '@/components/feedback/FeedbackLauncher'
+import { FeedbackProvider } from '@/components/feedback/FeedbackContext'
 import { SettingsModalHost } from '@/components/settings/SettingsModalHost'
 import { SettingsModalProvider } from '@/components/settings/SettingsModalContext'
 import { Toaster } from '@/components/Toaster'
@@ -25,22 +26,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     // Provider sits OUTSIDE AppShell so the nav chrome it renders
     // (AccountMenu, NotificationBell) can open the settings modal.
     <SettingsModalProvider>
-      <AppShell>
-        {/* Hard extension wall: signed-in users whose extension is required
-            but missing get bounced to the /welcome install stage. Checks once
-            per app entry since this layout persists across (app) routes. */}
-        <ExtensionGate>{children}</ExtensionGate>
-        {/* Mounted once for every (app) route so toasts fired from any page
-            (sync results, achievements, notifications) always render. */}
-        <Toaster />
-        {/* Beta feedback button — floats bottom-left on every (app) page,
-            opposite the Toaster so reports and toasts never collide. */}
-        <FeedbackLauncher />
-        {/* Settings modal — mounted INSIDE AppShell (not next to the
-            provider) so its Appearance section can reach the NavPrefs,
-            BackgroundMusic, and theme providers. */}
-        <SettingsModalHost fontVariable={geist.variable} />
-      </AppShell>
+      <FeedbackProvider>
+        <AppShell>
+          {/* Hard extension wall: signed-in users whose extension is required
+              but missing get bounced to the /welcome install stage. Checks once
+              per app entry since this layout persists across (app) routes. */}
+          <ExtensionGate>{children}</ExtensionGate>
+          {/* Mounted once for every (app) route so toasts fired from any page
+              (sync results, achievements, notifications) always render. */}
+          <Toaster />
+          {/* Floating only for mobile/top-nav; desktop left-nav owns its trigger. */}
+          <FeedbackLauncher />
+          {/* Settings modal — mounted INSIDE AppShell (not next to the
+              provider) so its Appearance section can reach the NavPrefs,
+              BackgroundMusic, and theme providers. */}
+          <SettingsModalHost fontVariable={geist.variable} />
+        </AppShell>
+      </FeedbackProvider>
     </SettingsModalProvider>
   )
 }

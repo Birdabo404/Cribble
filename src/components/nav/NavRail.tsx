@@ -18,6 +18,8 @@ import { AccountMenu } from '@/components/dashboard-v3/AccountMenu'
 import { NotificationBell } from '@/components/dashboard-v3/NotificationBell'
 import { LiquidMark } from '@/components/brand/LiquidMark'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { FeedbackIcon } from '@/components/feedback/FeedbackLauncher'
+import { useFeedback } from '@/components/feedback/FeedbackContext'
 import { animDelay } from '@/components/dashboard-v3/anim'
 import { NavIcon } from './NavIcon'
 import { connectionMeta, useNavStatus, type NavStatus } from './NavStatusContext'
@@ -73,6 +75,27 @@ function SyncRow({ status }: { status: NavStatus }) {
       <RowTip>
         SYNC · {meta.label}
       </RowTip>
+    </button>
+  )
+}
+
+function FeedbackRow() {
+  const { openFeedback } = useFeedback()
+  return (
+    <button
+      type="button"
+      onClick={openFeedback}
+      aria-haspopup="dialog"
+      aria-label="Send feedback"
+      className={`${ROW_BASE} ${ROW_IDLE} w-[calc(100%-16px)]`}
+    >
+      <span className="flex w-12 shrink-0 items-center justify-center text-accent/80">
+        <FeedbackIcon className="h-[17px] w-[17px]" />
+      </span>
+      <span className="nav-label-clip">
+        <span className="nav-label text-[10px] tracking-[0.25em]">FEEDBACK</span>
+      </span>
+      <RowTip>FEEDBACK</RowTip>
     </button>
   )
 }
@@ -203,6 +226,7 @@ export function NavRail({
       {/* utility cluster */}
       <div className="shrink-0 space-y-1 border-t border-white/[0.06] py-2">
         {status && <SyncRow status={status} />}
+        <FeedbackRow />
         <ThemeToggle variant="rail" />
       </div>
     </aside>

@@ -3,6 +3,7 @@ import path from 'node:path'
 import { ImageResponse } from 'next/og'
 import { formatScore } from '@/components/dashboard-v2/format'
 import { inviteKeyCells, normalizeInviteCode } from '@/lib/inviteCodes'
+import { loadInviteLinkState } from '@/lib/inviteLinkState'
 import { gateProfileForViewer, loadPublicProfile } from '@/lib/publicProfile'
 import { createServiceClient } from '@/lib/supabaseServer'
 
@@ -23,7 +24,7 @@ import { createServiceClient } from '@/lib/supabaseServer'
 // medal `plate` literals from src/components/leaderboard/types.ts —
 // the bright variants designed for dark scrims, which this card is.
 
-export const alt = "You're Invited! Join Cribble, the AI coding leaderboard."
+export const alt = 'Check a Cribble invite link.'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
@@ -599,13 +600,19 @@ export default async function OpengraphImage({
 }) {
   const { code } = await params
   const normalized = normalizeInviteCode(code || '')
-  const cells = inviteKeyCells(normalized)
-  const serial = cells ? `${cells.slice(0, 4).join('')}-${cells.slice(4).join('')}` : normalized
+  let valid = false
+  try {
+    valid = (await loadInviteLinkState(createServiceClient(), normalized)).status === 'valid'
+  } catch {
+    valid = false
+  }
+  const cells = valid ? inviteKeyCells(normalized) : null
+  const serial = cells ? `${cells.slice(0, 4).join('')}-${cells.slice(4).join('')}` : 'NOT DISPLAYED'
   const [pixelFont, monoFont, mark, pilot] = await Promise.all([
     loadOptional(PIXEL_FONT_PATH),
     loadOptional(MONO_FONT_PATH),
     loadOptional(MARK_PATH),
-    resolvePilot(normalized)
+    valid ? resolvePilot(normalized) : Promise.resolve(null)
   ])
   // Podium owners tint the panel bloom; everyone else keeps brand lime.
   const bloomTriplet = pilot ? ogMedalFor(pilot.rank)?.triplet ?? LIME_TRIPLET : LIME_TRIPLET
@@ -757,7 +764,7 @@ export default async function OpengraphImage({
                   ...monoFamily
                 }}
               >
-                RECRUIT A PILOT
+                {valid ? 'INVITE VERIFIED' : 'INVITE CHECK'}
               </div>
             </div>
 
@@ -816,7 +823,7 @@ export default async function OpengraphImage({
                     ...pixelFamily
                   }}
                 >
-                  {"YOU'RE"}
+                  {valid ? "YOU'RE" : 'VERIFY'}
                 </div>
                 <div
                   style={{
@@ -829,7 +836,7 @@ export default async function OpengraphImage({
                     ...pixelFamily
                   }}
                 >
-                  INVITED!
+                  {valid ? 'INVITED!' : 'INVITE'}
                 </div>
                 <div
                   style={{
@@ -840,7 +847,7 @@ export default async function OpengraphImage({
                     ...monoFamily
                   }}
                 >
-                  this key skips the gate — the board is open
+                  {valid ? 'this key skips the gate — the board is open' : 'open the link to check its status'}
                 </div>
               </div>
 
@@ -850,7 +857,7 @@ export default async function OpengraphImage({
                   the ticket reads as two halves of one pass */}
               <AccessTray
                 cells={cells}
-                normalized={normalized}
+                normalized={serial}
                 pixelFamily={pixelFamily}
                 monoFamily={monoFamily}
               />

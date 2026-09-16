@@ -11,6 +11,7 @@
 // minute stale is fine for crawlers, not for the follow button.
 
 import type { Metadata } from 'next'
+import { notFound } from 'next/navigation'
 import { formatNumber } from '@/components/dashboard-v2/format'
 import { resolveShareOrigin } from '@/lib/appUrl'
 import {
@@ -162,10 +163,13 @@ export default async function PilotProfilePage({ params }: Props) {
   const { username } = await params
   const snapshot = await snapshotProfile(username)
 
-  // ProfilePage structured data for public profiles only — private and
-  // missing accounts give crawlers nothing to lift. The client renders
-  // its own not-found / error states, so this page never calls
-  // notFound(); the URL keeps resolving exactly as it did before.
+  // Genuine absence is a route-level 404. Transient backend failures keep
+  // the existing client-side retry state instead of being mislabeled as
+  // missing content.
+  if (snapshot.state === 'missing') notFound()
+
+  // ProfilePage structured data for public profiles only — private
+  // accounts give crawlers nothing to lift.
   const publicProfile =
     snapshot.state === 'ok' && !snapshot.profile.isPrivate
       ? snapshot.profile

@@ -15,6 +15,7 @@
     "test": "vitest",
     "test:run": "vitest run",
     "audit:prod": "npm audit --omit=dev",
+    "check:workflows": "bash scripts/check-workflows.sh",
     "setup:polar": "vite-node scripts/setup-polar.ts",
     "setup:polar:check": "vite-node scripts/setup-polar.ts --check",
     "polar:archive-sponsorship": "vite-node scripts/polar-archive-sponsorship.ts"
@@ -25,7 +26,6 @@
     "@polar-sh/nextjs": "^0.9.6",
     "@polar-sh/sdk": "^0.48.1",
     "@supabase/supabase-js": "^2.50.0",
-    "@types/uuid": "^10.0.0",
     "@vercel/analytics": "^1.5.0",
     "animejs": "^4.5.0",
     "clsx": "^2.1.1",
@@ -44,7 +44,6 @@
     "simple-icons": "^16.30.0",
     "tailwind-merge": "^3.6.0",
     "three": "^0.185.1",
-    "uuid": "^11.1.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {
