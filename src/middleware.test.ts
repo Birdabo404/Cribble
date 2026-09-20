@@ -149,15 +149,15 @@ describe('middleware site lock', () => {
     vi.stubEnv('SITE_LOCKED', '1')
     expect(rewriteTarget('/leaderboard')).toBeNull()
     // Payments must survive the lock: the API lanes stay reachable so
-    // Polar webhooks and checkout bounces keep landing.
+    // Dodo webhooks and checkout bounces keep landing.
     // The Team pitch page is publicly shareable while the beta is locked.
     expect(rewriteTarget('/teams')).toBeNull()
-    // The team console is Polar's checkout success URL and its API lanes
+    // The team console is the Dodo checkout return URL and its API lanes
     // back it — a mid-lock Team purchase must not land on /maintenance.
     expect(rewriteTarget('/team')).toBeNull()
     expect(rewriteTarget('/team/invites')).toBeNull()
     expect(middleware(request('/api/team/roster')).status).toBe(200)
-    expect(middleware(request('/api/webhooks/polar')).status).toBe(200)
+    expect(middleware(request('/api/webhooks/dodo')).status).toBe(200)
     expect(middleware(request('/api/user/subscription/sync')).status).toBe(200)
     // The billboard train backs the ticker on allowlisted shell pages.
     expect(middleware(request('/api/billboard')).status).toBe(200)

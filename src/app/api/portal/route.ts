@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { PolarError } from '@polar-sh/sdk/models/errors/polarerror'
 import { resolveAppUrl } from '@/lib/appUrl'
+import { getDodoClient, isDodoConfigured, isDodoMissing } from '@/lib/dodo'
+import { readDodoCustomerId } from '@/lib/dodoCustomer'
 import { houseGrantFor } from '@/lib/houseEntitlements'
-import { getPolarClient, isPolarConfigured } from '@/lib/polar'
 import { getSessionUserId } from '@/lib/sessionAuth'
+import { createServiceClient } from '@/lib/supabaseServer'
 
-// GET route that opens Polar's hosted customer portal (manage/cancel
-// subscription, view orders) for the signed-in user. Customers are keyed
-// by external id = String(users.id), set at checkout time.
+// GET route that opens Dodo's hosted customer portal (manage/cancel
+// subscription, view payments and invoices) for the signed-in user. The
+// customer is the one linked on users.dodo_customer_id — learned from the
+// first fulfilled payment/subscription (webhook or checkout bounce).
 
 export const dynamic = 'force-dynamic'
+
+const supabase = createServiceClient()
 
 export async function GET(request: NextRequest) {
   const appUrl = resolveAppUrl(request)
@@ -24,34 +28,37 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/shop?portal=complimentary', appUrl))
     }
 
-    if (!isPolarConfigured()) {
+    if (!isDodoConfigured()) {
       return NextResponse.json(
         { success: false, error: 'Shop is not configured yet' },
         { status: 503 }
       )
     }
 
-    const polar = getPolarClient()!
+    // A user who never checked out has no Dodo customer to open a portal
+    // for. Send them back to the shop.
+    const customerId = await readDodoCustomerId(supabase, session.userId)
+    if (!customerId) {
+      return NextResponse.redirect(new URL('/shop?portal=none', appUrl))
+    }
+
+    const dodo = getDodoClient()!
 
     try {
-      const portalSession = await polar.customerSessions.create({
-        externalCustomerId: String(session.userId),
-        returnUrl: `${appUrl}/shop`
+      const portalSession = await dodo.customers.customerPortal.create(customerId, {
+        return_url: `${appUrl}/shop`
       })
-      return NextResponse.redirect(portalSession.customerPortalUrl)
+      return NextResponse.redirect(portalSession.link)
     } catch (error) {
-      // A user who never checked out has no Polar customer — Polar answers
-      // 404/422 for the unknown external id. Send them back to the shop.
-      if (
-        error instanceof PolarError &&
-        (error.statusCode === 404 || error.statusCode === 422)
-      ) {
+      // A stale link (customer deleted on Dodo's side) reads the same as
+      // never having checked out.
+      if (isDodoMissing(error)) {
         return NextResponse.redirect(new URL('/shop?portal=none', appUrl))
       }
       throw error
     }
   } catch (error) {
-    console.error('[Portal] Failed to create Polar customer session:', error)
+    console.error('[Portal] Failed to create Dodo customer portal session:', error)
     return NextResponse.redirect(new URL('/shop?portal=error', appUrl))
   }
 }

@@ -101,10 +101,10 @@ export function isAllowedDuringLock(pathname: string, hasSession = false): boole
   // Extension reconcile polling (GET /api/device/verify) must keep working
   // while the site is locked, same as the /api/extension/* sync path.
   if (pathname.startsWith('/api/device/')) return true
-  // Payments must survive a site lock: Polar webhook deliveries, checkout
+  // Payments must survive a site lock: Dodo webhook deliveries, checkout
   // creation, the billing portal, and the shop page checkout bounces land
   // on — plus the cosmetics read and the entitlement sync the shop calls.
-  if (pathname === '/api/webhooks/polar') return true
+  if (pathname === '/api/webhooks/dodo') return true
   if (pathname === '/api/checkout') return true
   if (pathname === '/api/portal') return true
   if (pathname === '/api/user/cosmetics') return true
@@ -118,8 +118,8 @@ export function isAllowedDuringLock(pathname: string, hasSession = false): boole
   // The Cribble Team pitch page is shared with companies while the beta
   // is locked — its checkout/API lanes are already open above.
   if (pathname === '/teams') return true
-  // The team console is Polar's checkout success URL
-  // (/team?checkout=success&checkout_id=...) — a mid-lock Team purchase
+  // The team console is the Dodo checkout return URL
+  // (/team?checkout=success&subscription_id=...) — a mid-lock Team purchase
   // must land on the live page so the entitlement sync runs, and the
   // roster/invite/membership API lanes back that page. Exact match plus
   // the '/team/' prefix, so nothing else under /te… rides along.

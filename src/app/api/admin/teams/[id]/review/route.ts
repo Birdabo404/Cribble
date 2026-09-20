@@ -23,7 +23,7 @@ import { createServiceClient } from '@/lib/supabaseServer'
 //             FREE (guarded on TEAM, so a lapsed subscription is left
 //             alone). Requires a written reason; approving again later
 //             stays possible. Billing is NOT touched here — the caller
-//             is reminded to cancel/refund the Polar subscription
+//             is reminded to cancel/refund the Dodo subscription
 //             manually.
 // Both transitions are guarded on the status we read, so a concurrent
 // decision (or the identity tripwire) can never be silently overwritten.
@@ -33,7 +33,7 @@ export const dynamic = 'force-dynamic'
 const supabase = createServiceClient()
 
 const REFUND_REMINDER =
-  'Rejection does not touch billing — cancel and refund the Polar subscription manually.'
+  'Rejection does not touch billing — cancel and refund the Dodo Payments subscription manually.'
 
 type ReviewAction = 'approve' | 'reject'
 

@@ -1,34 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { CheckoutSessionCreateParams } from 'dodopayments/resources/checkout-sessions'
 import { resolveAppUrl } from '@/lib/appUrl'
 import { getPlate } from '@/lib/cosmetics/plates'
-import { getOwnedPlateIds, isProTier } from '@/lib/entitlements'
-import { houseGrantFor } from '@/lib/houseEntitlements'
 import {
-  getPolarClient,
-  isPolarConfigured,
+  getDodoClient,
+  getProPlateDiscountCode,
+  isDodoConfigured,
   resolvePlateProductId,
   resolveProProductId,
   resolveTeamProductId
-} from '@/lib/polar'
+} from '@/lib/dodo'
+import { readDodoCustomerId } from '@/lib/dodoCustomer'
+import { getOwnedPlateIds, isProTier } from '@/lib/entitlements'
+import { houseGrantFor } from '@/lib/houseEntitlements'
 import { getSessionUserId } from '@/lib/sessionAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
 // GET so the shop can link straight to /api/checkout?type=... — the route
-// resolves the Polar product id server-side (client-supplied product ids
-// are never trusted), creates the checkout, and redirects the browser to
-// Polar's hosted checkout page.
+// resolves the Dodo product id server-side (client-supplied product ids
+// are never trusted), creates the checkout session, and redirects the
+// browser to Dodo's hosted checkout page.
 
 export const dynamic = 'force-dynamic'
 
 const supabase = createServiceClient()
 
-/** Polar discount id auto-attached to plate checkouts for Pro members —
+/** Dodo discount CODE auto-attached to plate checkouts for Pro members —
  *  backs the shop's "-25% PRO" copy. Absent env or a failed tier read
  *  degrades to full price rather than blocking the checkout. */
-async function resolveProPlateDiscountId(userId: number): Promise<string | null> {
-  const discountId = process.env.POLAR_DISCOUNT_PRO_PLATES
-  if (!discountId) return null
+async function resolveProPlateDiscountCode(userId: number): Promise<string | null> {
+  const code = getProPlateDiscountCode()
+  if (!code) return null
 
   const { data: buyer, error } = await supabase
     .from('users')
@@ -37,7 +40,7 @@ async function resolveProPlateDiscountId(userId: number): Promise<string | null>
     .single()
 
   if (error || !buyer) return null
-  return isProTier(buyer.subscription_tier) ? discountId : null
+  return isProTier(buyer.subscription_tier) ? code : null
 }
 
 const querySchema = z
@@ -63,7 +66,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/login', appUrl))
     }
 
-    if (!isPolarConfigured()) {
+    if (!isDodoConfigured()) {
       return NextResponse.json(
         { success: false, error: 'Shop is not configured yet' },
         { status: 503 }
@@ -86,7 +89,7 @@ export async function GET(request: NextRequest) {
     if (type === 'plate') {
       // Catalog is the authority on what's sellable: unpriced plates
       // (champion trophy, pro exclusives, the beta gift) are refused here
-      // even if someone maps them in POLAR_PLATE_PRODUCT_MAP by mistake.
+      // even if someone maps them in DODO_PLATE_PRODUCT_MAP by mistake.
       const plate = getPlate(plateId!)
       if (!plate || plate.priceUsd === null) {
         return NextResponse.json(
@@ -114,7 +117,7 @@ export async function GET(request: NextRequest) {
       }
     } else {
       // House complimentary accounts already have Pro / Team. Sending
-      // them to Polar would put a card on file.
+      // them to Dodo would put a card on file.
       if (houseGrantFor({ id: session.userId })) {
         return NextResponse.redirect(new URL('/shop?checkout=complimentary', appUrl))
       }
@@ -131,36 +134,56 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const polar = getPolarClient()!
+    const dodo = getDodoClient()!
+
+    // metadata.userId is the buyer's identity for fulfillment: it flows
+    // onto the payment and subscription objects, and the webhook trusts
+    // it over the customer record (Dodo attaches same-email checkouts to
+    // an EXISTING customer, which may be another Cribble account).
     const metadata: Record<string, string | number | boolean> = {
       userId: session.userId
     }
     if (type === 'plate') metadata.plateId = plateId!
 
-    const discountId =
-      type === 'plate' ? await resolveProPlateDiscountId(session.userId) : null
+    // A returning buyer checks out as the customer already linked to this
+    // account, so their saved details and portal history line up. First
+    // purchase: Dodo collects the email on the hosted page and the webhook
+    // / return-bounce link the resulting customer id.
+    const customerId = await readDodoCustomerId(supabase, session.userId)
+
+    const discountCode =
+      type === 'plate' ? await resolveProPlateDiscountCode(session.userId) : null
 
     // Team buyers land on the /team console (which runs the same sync ack
     // and then shows the under-review roster); everything else returns to
-    // the shop.
+    // the shop. Dodo appends payment_id / subscription_id and status to the
+    // return URL; the pages pass those to the sync route for the
+    // purchase-ack notification.
     const successPath =
       type === 'team_monthly' || type === 'team_yearly' ? '/team' : '/shop'
 
-    const checkout = await polar.checkouts.create({
-      products: [productId],
-      externalCustomerId: String(session.userId),
+    const params: CheckoutSessionCreateParams = {
+      product_cart: [{ product_id: productId, quantity: 1 }],
       metadata,
-      // {CHECKOUT_ID} is Polar's template token, interpolated at redirect
-      // time — built by string concat so the braces are never URL-encoded.
-      // The success page passes it back to the sync route for the
-      // purchase-ack notification.
-      successUrl: `${appUrl}${successPath}?checkout=success&checkout_id={CHECKOUT_ID}`,
-      ...(discountId ? { discountId } : {})
-    })
+      return_url: `${appUrl}${successPath}?checkout=success`,
+      ...(customerId ? { customer: { customer_id: customerId } } : {}),
+      ...(discountCode ? { discount_codes: [discountCode] } : {})
+    }
+    if (type === 'plate') {
+      // The Pro perk is a plain discount code on Dodo's side. Hiding the
+      // code field on plate checkouts is what keeps it a Pro perk — a
+      // non-Pro buyer who learned the code could otherwise type it in.
+      params.feature_flags = { allow_discount_code: false }
+    }
 
-    return NextResponse.redirect(checkout.url)
+    const checkout = await dodo.checkoutSessions.create(params)
+    if (!checkout.checkout_url) {
+      throw new Error(`Checkout session ${checkout.session_id} returned no checkout_url`)
+    }
+
+    return NextResponse.redirect(checkout.checkout_url)
   } catch (error) {
-    console.error('[Checkout] Failed to create Polar checkout:', error)
+    console.error('[Checkout] Failed to create Dodo checkout session:', error)
     // Browser navigation route — land back on the shop instead of raw JSON.
     return NextResponse.redirect(new URL('/shop?checkout=error', appUrl))
   }

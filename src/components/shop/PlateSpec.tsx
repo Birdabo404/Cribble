@@ -68,7 +68,7 @@ interface VariantChrome {
   skeleton: string
   /** SCENE row: the full `alive` list (drawer) or just the kicker (stage). */
   sceneNotes: boolean
-  /** The `ONE-TIME · YOURS FOREVER · POLAR` stamp closes the drawer only. */
+  /** The `ONE-TIME · YOURS FOREVER · DODO` stamp closes the drawer only. */
   footer: boolean
 }
 
@@ -383,7 +383,7 @@ export function PlateSpec({ plate, variant, loading, isPro, owned, onInspect }: 
 
       {chrome.footer && (
         <p className={`shop-spec-line m-0 border-t ${LINE} pt-3 ${MICRO} ${MUTE}`}>
-          ONE-TIME · YOURS FOREVER · POLAR
+          ONE-TIME · YOURS FOREVER · DODO
         </p>
       )}
 

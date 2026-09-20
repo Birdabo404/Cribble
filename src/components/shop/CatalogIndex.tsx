@@ -5,7 +5,7 @@
 // 1px ink underline that slides between them (GSAP x/width, DUR.indicator).
 // Right: the two doors out of the store — the Team door (`TEAM チーム ·
 // $50/MO →`, the /teams buy page; `COMMAND DECK →` once the account flies
-// colors) and MANAGE (the Polar customer portal, a native navigation,
+// colors) and MANAGE (the Dodo customer portal, a native navigation,
 // hidden for house-complimentary accounts). Both are the same outlined ink
 // chip that inverts on hover: no gold here, so the only lit thing in the
 // bar is the active section's underline — the Team door reads as a price

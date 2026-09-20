@@ -3,9 +3,9 @@ import { grantProEntitlement } from '@/lib/entitlementGrant'
 import { isApprovedTeam, isProTier } from '@/lib/entitlements'
 import { insertMissingNotifications } from '@/lib/notifications'
 
-// House complimentary entitlements — never billed, never Polar-backed.
+// House complimentary entitlements — never billed, never Dodo-backed.
 // @birdabo keeps Cribble Pro and @cribble_ai keeps the approved Team
-// plan even if a Polar subscription lapses, an admin clicks revoke, or
+// plan even if a Dodo subscription lapses, an admin clicks revoke, or
 // the identity tripwire fires. Login and subscription sync re-apply the
 // grant if anything knocks the row off. Match by handle (survives a
 // rebuilt account) and by production user id (survives a rename).
@@ -55,7 +55,7 @@ export function isHouseAccount(user: HouseEntitlementSubject): boolean {
 }
 
 /**
- * Flip a house account to an approved Team plan — no Polar, no review
+ * Flip a house account to an approved Team plan — no Dodo, no review
  * queue. team_since / team_approved_at stamp once. The welcome
  * notification is deduped so login re-applies never re-announce.
  */

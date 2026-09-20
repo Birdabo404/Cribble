@@ -1,22 +1,25 @@
 'use client'
 
-// Shop state machine — cosmetics, Polar sync, query-flag notices, the
+// Shop state machine — cosmetics, Dodo sync, query-flag notices, the
 // Premium welcome and the post-purchase bell nudges. The page is the
 // composition layer; everything that used to be React state in
 // shop/page.tsx lives here so the storefront can be rebuilt around it
 // without touching a single contract.
 //
 // Checkout and the customer portal are plain browser navigations to
-// /api/checkout and /api/portal — those routes resolve Polar products
+// /api/checkout and /api/portal — those routes resolve Dodo products
 // server-side and redirect to the hosted pages. Both bounce back to /shop
 // with query flags (?checkout=success|error|owned|complimentary,
 // ?portal=none|error|complimentary) which this hook captures into
-// `notice` and then scrubs from the URL. Fulfillment normally arrives via
-// webhook, but webhooks can't reach localhost — so both the success
-// bounce and the Re-check control also POST /api/user/subscription/sync,
-// which reconciles the tier straight from Polar. When that call is the
-// one that flips the account to PRO, `welcome` becomes non-null and the
-// page mounts the Premium welcome modal.
+// `notice` and then scrubs from the URL. Dodo appends its own
+// payment_id / subscription_id / status to the checkout return; a
+// failed status turns the success flag into the error notice.
+// Fulfillment normally arrives via webhook, but webhooks can't reach
+// localhost — so both the success bounce and the Re-check control also
+// POST /api/user/subscription/sync, which reconciles the tier straight
+// from Dodo. When that call is the one that flips the account to PRO,
+// `welcome` becomes non-null and the page mounts the Premium welcome
+// modal.
 //
 // The catalog is static (src/lib/cosmetics/plates.ts, sliced into
 // storefront views by components/shop/catalog.ts) so the storefront
@@ -55,22 +58,37 @@ export const NEUTRAL_COSMETICS: CosmeticsData = {
   premiumSince: null
 }
 
-/** POST /api/user/subscription/sync — reconcile tier straight from Polar.
+/** The ids Dodo appends to the checkout return URL — one of the two,
+ *  depending on whether a one-time plate or a subscription was bought. */
+export interface CheckoutReturnRef {
+  paymentId?: string
+  subscriptionId?: string
+}
+
+/** Dodo's `status` on the checkout return. `failed` / `cancelled` mean
+ *  nothing was charged; anything else (succeeded, active, processing…)
+ *  is a purchase in flight that the sync + webhook will finish. */
+export function isFailedCheckoutStatus(status: string | null): boolean {
+  return status === 'failed' || status === 'cancelled'
+}
+
+/** POST /api/user/subscription/sync — reconcile tier straight from Dodo.
  * `changed: true` means this call just flipped the account to PRO.
- * A fresh-from-checkout bounce passes the checkout id so the route can
- * verify the session and drop the purchase-ack notification.
+ * A fresh-from-checkout bounce passes Dodo's payment/subscription id so
+ * the route can verify the object, link the Dodo customer to the account
+ * and drop the purchase-ack notification.
  * Null on any failure; the caller falls back to the plain cosmetics read. */
 async function syncSubscription(
-  checkoutId?: string
+  ref?: CheckoutReturnRef
 ): Promise<{ isPro: boolean; changed: boolean } | null> {
   try {
     const res = await fetch('/api/user/subscription/sync', {
       method: 'POST',
       credentials: 'include',
-      ...(checkoutId
+      ...(ref
         ? {
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ checkoutId })
+            body: JSON.stringify(ref)
           }
         : {})
     })
@@ -124,7 +142,7 @@ export function noticeMeta(notice: ShopNotice): {
       return {
         tone: 'up',
         title: 'Order confirmed',
-        body: 'Polar is processing the purchase — perks unlock in a few seconds. Re-check if nothing has changed yet.'
+        body: 'Dodo Payments is processing the purchase — perks unlock in a few seconds. Re-check if nothing has changed yet.'
       }
     case 'checkout-owned':
       return {
@@ -261,12 +279,12 @@ export function useShopCosmetics(): {
     return () => timers.forEach(clearTimeout)
   }, [])
 
-  // Reconcile with Polar, then re-read cosmetics. Only the call that
+  // Reconcile with Dodo, then re-read cosmetics. Only the call that
   // actually flips the tier (changed && isPro) earns the celebration —
   // a plate purchase by an existing subscriber stays quiet.
   const syncAndLoad = useCallback(
-    async (checkoutId?: string) => {
-      const sync = await syncSubscription(checkoutId)
+    async (ref?: CheckoutReturnRef) => {
+      const sync = await syncSubscription(ref)
       const fresh = await loadCosmetics()
       if (sync?.changed && sync.isPro) {
         setWelcome({ premiumSince: fresh?.premiumSince ?? null })
@@ -296,11 +314,16 @@ export function useShopCosmetics(): {
   // the URL is left alone entirely (the drawer writes it too).
   useEffect(() => {
     const checkout = searchParams.get('checkout')
-    const checkoutId = searchParams.get('checkout_id')
     const portal = searchParams.get('portal')
+    // Dodo's own return params ride along with our ?checkout=success flag.
+    const paymentId = searchParams.get('payment_id')
+    const subscriptionId = searchParams.get('subscription_id')
+    const dodoStatus = searchParams.get('status')
     const next: ShopNotice | null =
       checkout === 'success'
-        ? 'checkout-success'
+        ? isFailedCheckoutStatus(dodoStatus)
+          ? 'checkout-error'
+          : 'checkout-success'
         : checkout === 'owned'
           ? 'checkout-owned'
           : checkout === 'complimentary'
@@ -316,11 +339,17 @@ export function useShopCosmetics(): {
                     : null
     if (!next) return
     setNotice(next)
-    // Fresh from Polar checkout: reconcile immediately instead of waiting
-    // on a webhook that can't reach localhost anyway. The checkout id
-    // rides along so the sync route can drop the purchase-ack
-    // notification; the scrub below removes it with the rest.
-    if (next === 'checkout-success') void syncAndLoad(checkoutId ?? undefined)
+    // Fresh from Dodo checkout: reconcile immediately instead of waiting
+    // on a webhook that can't reach localhost anyway. Dodo's payment /
+    // subscription id rides along so the sync route can link the
+    // customer and drop the purchase-ack notification; the scrub below
+    // removes it with the rest.
+    if (next === 'checkout-success') {
+      void syncAndLoad({
+        ...(paymentId ? { paymentId } : {}),
+        ...(subscriptionId ? { subscriptionId } : {})
+      })
+    }
     const plate = searchParams.get('plate')
     router.replace(plate ? `/shop?plate=${encodeURIComponent(plate)}` : '/shop', {
       scroll: false

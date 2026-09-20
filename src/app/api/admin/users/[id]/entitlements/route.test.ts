@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // The TEAM guard on the owner's Pro actions: grant_pro must not
 // overwrite a paying team's tier (leaving team_review_status behind),
 // and revoke_pro must not FREE a TEAM row — the team tier is only ever
-// reverted by the review queue's reject or the Polar webhook. Both
+// reverted by the review queue's reject or the Dodo webhook. Both
 // refuse TEAM targets with a 400 before any audit row or mutation, and
 // the normal FREE→PRO / PRO→FREE paths stay intact. Staff auth, rate
 // limiting, the audit wrapper and the grant helper are mocked; the

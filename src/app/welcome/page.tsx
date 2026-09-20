@@ -708,8 +708,8 @@ export default function WelcomePage() {
   }, [role, goal, topTools, mode, countMode, saving, devMode, steps, finish, goTo])
 
   // The team lane's CTA: save-first (accountType lands even if the buyer
-  // bails at Polar), then a plain browser navigation to the checkout
-  // route — it redirects to Polar's hosted page, which router.push can't.
+  // bails at Dodo), then a plain browser navigation to the checkout
+  // route — it redirects to Dodo's hosted page, which router.push can't.
   const teamCheckout = useCallback(async () => {
     if (saving) return
     setSaving(true)

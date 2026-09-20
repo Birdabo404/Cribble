@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { PolarError } from '@polar-sh/sdk/models/errors/polarerror'
+import { APIError } from 'dodopayments'
 import {
   afterEach,
   beforeEach,
@@ -10,44 +10,56 @@ import {
   type MockInstance
 } from 'vitest'
 
-// syncSubscriptionFromPolar is the localhost-safe fulfillment path (webhooks
+// syncSubscriptionFromDodo is the localhost-safe fulfillment path (webhooks
 // can't reach dev servers). The invariants under test: upgrade-only (TEAM
 // is never touched, a Pro tier is only ever lifted to TEAM — never
-// re-granted or downgraded), a missing Polar customer is a clean no-op,
-// and only a subscription on one of the configured Team/Pro products
-// triggers the matching shared grant — Team checked first, even for
-// users already sitting on a Pro tier (the misgrant backstop).
+// re-granted or downgraded), an unlinked or missing Dodo customer is a
+// clean no-op, objects stamped with another account's userId never
+// fulfill, and only a subscription on one of the configured Team/Pro
+// products triggers the matching shared grant — Team checked first, even
+// for users already sitting on a Pro tier (the misgrant backstop).
 
 const {
-  getPolarClientMock,
-  getStateExternalMock,
-  ordersListMock,
-  checkoutsGetMock,
+  getDodoClientMock,
+  subscriptionsListMock,
+  subscriptionsRetrieveMock,
+  paymentsListMock,
+  paymentsRetrieveMock,
   grantProEntitlementMock,
   grantTeamEntitlementMock,
   grantHouseTeamEntitlementMock,
   grantPlatePurchaseMock,
   getOwnedPlateIdsMock,
-  insertMissingNotificationsMock
+  insertMissingNotificationsMock,
+  linkDodoCustomerMock
 } = vi.hoisted(() => ({
-  getPolarClientMock: vi.fn(),
-  getStateExternalMock: vi.fn(),
-  ordersListMock: vi.fn(),
-  checkoutsGetMock: vi.fn(),
+  getDodoClientMock: vi.fn(),
+  subscriptionsListMock: vi.fn(),
+  subscriptionsRetrieveMock: vi.fn(),
+  paymentsListMock: vi.fn(),
+  paymentsRetrieveMock: vi.fn(),
   grantProEntitlementMock: vi.fn(),
   grantTeamEntitlementMock: vi.fn(),
   grantHouseTeamEntitlementMock: vi.fn(),
   grantPlatePurchaseMock: vi.fn(),
   getOwnedPlateIdsMock: vi.fn(),
-  insertMissingNotificationsMock: vi.fn()
+  insertMissingNotificationsMock: vi.fn(),
+  linkDodoCustomerMock: vi.fn()
 }))
 
-vi.mock('@/lib/polar', () => ({
-  getPolarClient: getPolarClientMock,
+// The pure helpers (metadata readers, isDodoMissing) stay real; only the
+// client factory and env-backed product lookups are faked.
+vi.mock('@/lib/dodo', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./dodo')>()),
+  getDodoClient: getDodoClientMock,
   // pro_yearly deliberately unset to exercise the skip-null path.
-  resolveProProductId: (key: string) => (key === 'pro_monthly' ? 'prod_monthly' : null),
+  resolveProProductId: (key: string) => (key === 'pro_monthly' ? 'pdt_monthly' : null),
   // Only the monthly team product configured, mirroring the pro setup.
-  getTeamProductIds: () => new Set(['prod_team_monthly'])
+  getTeamProductIds: () => new Set(['pdt_team_monthly'])
+}))
+
+vi.mock('@/lib/dodoCustomer', () => ({
+  linkDodoCustomer: linkDodoCustomerMock
 }))
 
 vi.mock('@/lib/entitlementGrant', () => ({
@@ -73,9 +85,9 @@ vi.mock('@/lib/notifications', () => ({
 }))
 
 import {
-  insertCheckoutAckNotification,
-  syncPlateOrdersFromPolar,
-  syncSubscriptionFromPolar
+  acknowledgeCheckoutReturn,
+  syncPlateOrdersFromDodo,
+  syncSubscriptionFromDodo
 } from './subscriptionSync'
 
 function tierSupabase(result: { data: unknown; error: unknown }): SupabaseClient {
@@ -86,46 +98,62 @@ function tierSupabase(result: { data: unknown; error: unknown }): SupabaseClient
   } as unknown as SupabaseClient
 }
 
-const freeUser = () => tierSupabase({ data: { subscription_tier: 'FREE' }, error: null })
+const linked = (row: Record<string, unknown>) =>
+  tierSupabase({ data: { dodo_customer_id: 'cus_9', ...row }, error: null })
 
-function customerState(subscriptions: Array<{ id: string; productId: string }>) {
-  return { activeSubscriptions: subscriptions }
+const freeUser = () => linked({ subscription_tier: 'FREE' })
+
+/** The SDK's auto-paginating list: an async iterable over items. */
+function pages<T>(...batches: T[][]) {
+  return (async function* () {
+    for (const batch of batches) for (const item of batch) yield item
+  })()
 }
 
-function polarError(statusCode: number): PolarError {
-  return new PolarError('polar says no', {
-    response: new Response('{}', { status: statusCode }),
-    request: new Request('https://sandbox-api.polar.sh/v1/customers/external/9/state'),
-    body: '{}'
-  })
+function activeSub(overrides: Record<string, unknown> = {}) {
+  return {
+    subscription_id: 'sub_1',
+    product_id: 'pdt_monthly',
+    status: 'active',
+    metadata: { userId: 9 },
+    customer: { customer_id: 'cus_9', email: 'a@b.c', name: 'A' },
+    ...overrides
+  }
 }
 
-describe('syncSubscriptionFromPolar', () => {
+function dodoError(status: number): APIError {
+  return new APIError(status, { message: 'dodo says no' }, 'dodo says no', new Headers())
+}
+
+function dodoClient() {
+  return {
+    subscriptions: { list: subscriptionsListMock, retrieve: subscriptionsRetrieveMock },
+    payments: { list: paymentsListMock, retrieve: paymentsRetrieveMock }
+  }
+}
+
+describe('syncSubscriptionFromDodo', () => {
   beforeEach(() => {
-    getStateExternalMock.mockReset()
+    subscriptionsListMock.mockReset()
     grantProEntitlementMock.mockReset()
     grantProEntitlementMock.mockResolvedValue(undefined)
     grantTeamEntitlementMock.mockReset()
     grantTeamEntitlementMock.mockResolvedValue(undefined)
     grantHouseTeamEntitlementMock.mockReset()
     grantHouseTeamEntitlementMock.mockResolvedValue(undefined)
-    getPolarClientMock.mockReset()
-    getPolarClientMock.mockReturnValue({
-      customers: { getStateExternal: getStateExternalMock }
-    })
+    getDodoClientMock.mockReset()
+    getDodoClientMock.mockReturnValue(dodoClient())
   })
 
   it('grants and reports changed for a FREE user with an active Pro subscription', async () => {
-    getStateExternalMock.mockResolvedValue(
-      customerState([{ id: 'sub_1', productId: 'prod_monthly' }])
-    )
+    subscriptionsListMock.mockResolvedValue(pages([activeSub()]))
     const supabase = freeUser()
 
-    const result = await syncSubscriptionFromPolar(supabase, 9)
+    const result = await syncSubscriptionFromDodo(supabase, 9)
 
-    expect(getStateExternalMock).toHaveBeenCalledWith({ externalId: '9' })
+    expect(subscriptionsListMock).toHaveBeenCalledWith({ customer_id: 'cus_9', status: 'active' })
     expect(grantProEntitlementMock).toHaveBeenCalledWith(supabase, 9, {
-      productId: 'prod_monthly',
+      productId: 'pdt_monthly',
       sourceId: 'sub_1'
     })
     expect(grantTeamEntitlementMock).not.toHaveBeenCalled()
@@ -133,15 +161,15 @@ describe('syncSubscriptionFromPolar', () => {
   })
 
   it('grants TEAM from an active team-product subscription', async () => {
-    getStateExternalMock.mockResolvedValue(
-      customerState([{ id: 'sub_t1', productId: 'prod_team_monthly' }])
+    subscriptionsListMock.mockResolvedValue(
+      pages([activeSub({ subscription_id: 'sub_t1', product_id: 'pdt_team_monthly' })])
     )
     const supabase = freeUser()
 
-    const result = await syncSubscriptionFromPolar(supabase, 9)
+    const result = await syncSubscriptionFromDodo(supabase, 9)
 
     expect(grantTeamEntitlementMock).toHaveBeenCalledWith(supabase, 9, {
-      productId: 'prod_team_monthly',
+      productId: 'pdt_team_monthly',
       sourceId: 'sub_t1'
     })
     expect(grantProEntitlementMock).not.toHaveBeenCalled()
@@ -149,104 +177,113 @@ describe('syncSubscriptionFromPolar', () => {
   })
 
   it('prefers the team grant when team and Pro subscriptions are both active', async () => {
-    getStateExternalMock.mockResolvedValue(
-      customerState([
-        { id: 'sub_p', productId: 'prod_monthly' },
-        { id: 'sub_t', productId: 'prod_team_monthly' }
+    subscriptionsListMock.mockResolvedValue(
+      pages([
+        activeSub({ subscription_id: 'sub_p' }),
+        activeSub({ subscription_id: 'sub_t', product_id: 'pdt_team_monthly' })
       ])
     )
 
-    const result = await syncSubscriptionFromPolar(freeUser(), 9)
+    const result = await syncSubscriptionFromDodo(freeUser(), 9)
 
     expect(grantTeamEntitlementMock).toHaveBeenCalledWith(expect.anything(), 9, {
-      productId: 'prod_team_monthly',
+      productId: 'pdt_team_monthly',
       sourceId: 'sub_t'
     })
     expect(grantProEntitlementMock).not.toHaveBeenCalled()
     expect(result).toEqual({ tier: 'TEAM', isPro: false, changed: true })
   })
 
-  it('grants house complimentary Pro without asking Polar', async () => {
-    const result = await syncSubscriptionFromPolar(
-      tierSupabase({ data: { subscription_tier: 'FREE', twitter_username: 'birdabo' }, error: null }),
+  it("ignores a subscription stamped with another account's userId (shared Dodo customer)", async () => {
+    subscriptionsListMock.mockResolvedValue(pages([activeSub({ metadata: { userId: 13 } })]))
+
+    const result = await syncSubscriptionFromDodo(freeUser(), 9)
+
+    expect(result).toEqual({ tier: 'FREE', isPro: false, changed: false })
+    expect(grantProEntitlementMock).not.toHaveBeenCalled()
+  })
+
+  it('accepts an unstamped subscription (dashboard-created for the linked customer)', async () => {
+    subscriptionsListMock.mockResolvedValue(pages([activeSub({ metadata: {} })]))
+
+    const result = await syncSubscriptionFromDodo(freeUser(), 9)
+
+    expect(result.changed).toBe(true)
+    expect(grantProEntitlementMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('grants house complimentary Pro without asking Dodo', async () => {
+    const result = await syncSubscriptionFromDodo(
+      linked({ subscription_tier: 'FREE', twitter_username: 'birdabo' }),
       8
     )
 
     expect(result).toEqual({ tier: 'PRO', isPro: true, changed: true })
     expect(grantProEntitlementMock).toHaveBeenCalledWith(expect.anything(), 8)
-    expect(getStateExternalMock).not.toHaveBeenCalled()
+    expect(subscriptionsListMock).not.toHaveBeenCalled()
     expect(grantTeamEntitlementMock).not.toHaveBeenCalled()
   })
 
-  it('leaves an already-Pro house account alone without asking Polar', async () => {
-    const result = await syncSubscriptionFromPolar(
-      tierSupabase({ data: { subscription_tier: 'PRO', twitter_username: 'birdabo' }, error: null }),
+  it('leaves an already-Pro house account alone without asking Dodo', async () => {
+    const result = await syncSubscriptionFromDodo(
+      linked({ subscription_tier: 'PRO', twitter_username: 'birdabo' }),
       8
     )
 
     expect(result).toEqual({ tier: 'PRO', isPro: true, changed: false })
     expect(grantProEntitlementMock).not.toHaveBeenCalled()
-    expect(getStateExternalMock).not.toHaveBeenCalled()
+    expect(subscriptionsListMock).not.toHaveBeenCalled()
   })
 
-  it('grants house complimentary Team without asking Polar', async () => {
-    const result = await syncSubscriptionFromPolar(
-      tierSupabase({
-        data: { subscription_tier: 'FREE', twitter_username: 'cribble_ai', team_review_status: null },
-        error: null
-      }),
+  it('grants house complimentary Team without asking Dodo', async () => {
+    const result = await syncSubscriptionFromDodo(
+      linked({ subscription_tier: 'FREE', twitter_username: 'cribble_ai', team_review_status: null }),
       19
     )
 
     expect(result).toEqual({ tier: 'TEAM', isPro: false, changed: true })
     expect(grantHouseTeamEntitlementMock).toHaveBeenCalledWith(expect.anything(), 19)
-    expect(getStateExternalMock).not.toHaveBeenCalled()
+    expect(subscriptionsListMock).not.toHaveBeenCalled()
     expect(grantTeamEntitlementMock).not.toHaveBeenCalled()
   })
 
-  it('leaves an approved house Team account alone without asking Polar', async () => {
-    const result = await syncSubscriptionFromPolar(
-      tierSupabase({
-        data: {
-          subscription_tier: 'TEAM',
-          twitter_username: 'cribble_ai',
-          team_review_status: 'approved'
-        },
-        error: null
+  it('leaves an approved house Team account alone without asking Dodo', async () => {
+    const result = await syncSubscriptionFromDodo(
+      linked({
+        subscription_tier: 'TEAM',
+        twitter_username: 'cribble_ai',
+        team_review_status: 'approved'
       }),
       19
     )
 
     expect(result).toEqual({ tier: 'TEAM', isPro: false, changed: false })
     expect(grantHouseTeamEntitlementMock).not.toHaveBeenCalled()
-    expect(getStateExternalMock).not.toHaveBeenCalled()
+    expect(subscriptionsListMock).not.toHaveBeenCalled()
   })
 
-  it('leaves an existing TEAM account alone without calling Polar or any grant', async () => {
-    const result = await syncSubscriptionFromPolar(
-      tierSupabase({ data: { subscription_tier: 'TEAM' }, error: null }),
-      9
-    )
+  it('leaves an existing TEAM account alone without calling Dodo or any grant', async () => {
+    const result = await syncSubscriptionFromDodo(linked({ subscription_tier: 'TEAM' }), 9)
 
     expect(result).toEqual({ tier: 'TEAM', isPro: false, changed: false })
-    expect(getStateExternalMock).not.toHaveBeenCalled()
+    expect(subscriptionsListMock).not.toHaveBeenCalled()
     expect(grantTeamEntitlementMock).not.toHaveBeenCalled()
     expect(grantProEntitlementMock).not.toHaveBeenCalled()
   })
 
-  it('reconciles an existing Pro tier up to TEAM when Polar holds an active team subscription', async () => {
-    // The production incident: the webhook misgranted a Team purchase as
-    // Pro, and the old isPro short-circuit then blocked this sync from
-    // ever correcting it.
-    getStateExternalMock.mockResolvedValue(
-      customerState([{ id: 'sub_t2', productId: 'prod_team_monthly' }])
+  it('reconciles an existing Pro tier up to TEAM when Dodo holds an active team subscription', async () => {
+    // The Polar-era production incident: the webhook misgranted a Team
+    // purchase as Pro, and the old isPro short-circuit then blocked this
+    // sync from ever correcting it.
+    subscriptionsListMock.mockResolvedValue(
+      pages([activeSub({ subscription_id: 'sub_t2', product_id: 'pdt_team_monthly' })])
     )
-    const supabase = tierSupabase({ data: { subscription_tier: 'PRO' }, error: null })
+    const supabase = linked({ subscription_tier: 'PRO' })
 
-    const result = await syncSubscriptionFromPolar(supabase, 9)
+    const result = await syncSubscriptionFromDodo(supabase, 9)
 
     expect(grantTeamEntitlementMock).toHaveBeenCalledWith(supabase, 9, {
-      productId: 'prod_team_monthly',
+      productId: 'pdt_team_monthly',
       sourceId: 'sub_t2'
     })
     expect(grantProEntitlementMock).not.toHaveBeenCalled()
@@ -254,263 +291,248 @@ describe('syncSubscriptionFromPolar', () => {
   })
 
   it('finds the Pro subscription even when it is not first in the list', async () => {
-    getStateExternalMock.mockResolvedValue(
-      customerState([
-        { id: 'sub_other', productId: 'prod_unrelated' },
-        { id: 'sub_2', productId: 'prod_monthly' }
+    subscriptionsListMock.mockResolvedValue(
+      pages([
+        activeSub({ subscription_id: 'sub_other', product_id: 'pdt_unrelated' }),
+        activeSub({ subscription_id: 'sub_2' })
       ])
     )
 
-    const result = await syncSubscriptionFromPolar(freeUser(), 9)
+    const result = await syncSubscriptionFromDodo(freeUser(), 9)
 
     expect(grantProEntitlementMock).toHaveBeenCalledWith(expect.anything(), 9, {
-      productId: 'prod_monthly',
+      productId: 'pdt_monthly',
       sourceId: 'sub_2'
     })
     expect(result.changed).toBe(true)
   })
 
-  it('leaves an already-Pro user alone when Polar shows no team subscription (Pro never re-grants)', async () => {
-    // Polar IS consulted now (the team check must run for Pro users),
-    // but an active Pro-product subscription must not re-run the Pro
-    // grant — that would re-stamp premium_since and re-notify.
-    getStateExternalMock.mockResolvedValue(
-      customerState([{ id: 'sub_1', productId: 'prod_monthly' }])
-    )
+  it('leaves an already-Pro user alone when Dodo shows no team subscription (Pro never re-grants)', async () => {
+    // Dodo IS consulted (the team check must run for Pro users), but an
+    // active Pro-product subscription must not re-run the Pro grant —
+    // that would re-stamp premium_since and re-notify.
+    subscriptionsListMock.mockResolvedValue(pages([activeSub()]))
 
-    const result = await syncSubscriptionFromPolar(
-      tierSupabase({ data: { subscription_tier: 'PRO' }, error: null }),
-      9
-    )
+    const result = await syncSubscriptionFromDodo(linked({ subscription_tier: 'PRO' }), 9)
 
     expect(result).toEqual({ tier: 'PRO', isPro: true, changed: false })
-    expect(getStateExternalMock).toHaveBeenCalledWith({ externalId: '9' })
+    expect(subscriptionsListMock).toHaveBeenCalledWith({ customer_id: 'cus_9', status: 'active' })
     expect(grantProEntitlementMock).not.toHaveBeenCalled()
     expect(grantTeamEntitlementMock).not.toHaveBeenCalled()
   })
 
-  it('treats a missing Polar customer (404/422) as nothing-to-sync', async () => {
+  it('reports unchanged without asking Dodo when the account has no linked customer', async () => {
+    const result = await syncSubscriptionFromDodo(
+      tierSupabase({ data: { subscription_tier: 'FREE', dodo_customer_id: null }, error: null }),
+      9
+    )
+
+    expect(result).toEqual({ tier: 'FREE', isPro: false, changed: false })
+    expect(subscriptionsListMock).not.toHaveBeenCalled()
+  })
+
+  it('treats a customer Dodo no longer knows (404/422) as nothing-to-sync', async () => {
     for (const status of [404, 422]) {
-      getStateExternalMock.mockRejectedValueOnce(polarError(status))
-      const result = await syncSubscriptionFromPolar(freeUser(), 9)
+      subscriptionsListMock.mockRejectedValueOnce(dodoError(status))
+      const result = await syncSubscriptionFromDodo(freeUser(), 9)
       expect(result).toEqual({ tier: 'FREE', isPro: false, changed: false })
     }
     expect(grantProEntitlementMock).not.toHaveBeenCalled()
   })
 
   it('reports unchanged when no active subscription is on a Pro product', async () => {
-    getStateExternalMock.mockResolvedValue(
-      customerState([{ id: 'sub_x', productId: 'prod_unrelated' }])
+    subscriptionsListMock.mockResolvedValue(
+      pages([activeSub({ subscription_id: 'sub_x', product_id: 'pdt_unrelated' })])
     )
 
-    const result = await syncSubscriptionFromPolar(freeUser(), 9)
+    const result = await syncSubscriptionFromDodo(freeUser(), 9)
 
     expect(result).toEqual({ tier: 'FREE', isPro: false, changed: false })
     expect(grantProEntitlementMock).not.toHaveBeenCalled()
   })
 
   it('reports unchanged when the customer has no active subscriptions at all', async () => {
-    getStateExternalMock.mockResolvedValue(customerState([]))
+    subscriptionsListMock.mockResolvedValue(pages([]))
 
-    const result = await syncSubscriptionFromPolar(freeUser(), 9)
+    const result = await syncSubscriptionFromDodo(freeUser(), 9)
 
     expect(result).toEqual({ tier: 'FREE', isPro: false, changed: false })
     expect(grantProEntitlementMock).not.toHaveBeenCalled()
   })
 
-  it('rethrows unexpected Polar errors (scope/permission problems must surface)', async () => {
-    getStateExternalMock.mockRejectedValue(polarError(403))
+  it('rethrows unexpected Dodo errors (auth/permission problems must surface)', async () => {
+    subscriptionsListMock.mockRejectedValue(dodoError(403))
 
-    await expect(syncSubscriptionFromPolar(freeUser(), 9)).rejects.toThrow('polar says no')
+    await expect(syncSubscriptionFromDodo(freeUser(), 9)).rejects.toThrow('dodo says no')
     expect(grantProEntitlementMock).not.toHaveBeenCalled()
   })
 
-  it('degrades to FREE/unchanged when the tier read fails, without calling Polar', async () => {
+  it('degrades to FREE/unchanged when the tier read fails, without calling Dodo', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const result = await syncSubscriptionFromPolar(
+    const result = await syncSubscriptionFromDodo(
       tierSupabase({ data: null, error: { message: 'connection refused' } }),
       9
     )
     errorSpy.mockRestore()
 
     expect(result).toEqual({ tier: 'FREE', isPro: false, changed: false })
-    expect(getStateExternalMock).not.toHaveBeenCalled()
+    expect(subscriptionsListMock).not.toHaveBeenCalled()
     expect(grantProEntitlementMock).not.toHaveBeenCalled()
   })
 
-  it('reports unchanged when Polar is not configured', async () => {
-    getPolarClientMock.mockReturnValue(null)
+  it('reports unchanged when Dodo is not configured', async () => {
+    getDodoClientMock.mockReturnValue(null)
 
-    const result = await syncSubscriptionFromPolar(freeUser(), 9)
+    const result = await syncSubscriptionFromDodo(freeUser(), 9)
 
     expect(result).toEqual({ tier: 'FREE', isPro: false, changed: false })
     expect(grantProEntitlementMock).not.toHaveBeenCalled()
   })
 })
 
-// syncPlateOrdersFromPolar is the durable fix for missed order.paid
-// webhooks: every sync pulls the customer's paid orders and grants any
-// plate that never landed locally. Invariants under test: only paid,
-// non-refunded orders carrying a real catalog plate id grant; owned
-// plates never re-grant; one bad order never blocks the rest.
-describe('syncPlateOrdersFromPolar', () => {
-  const supabase = {} as unknown as SupabaseClient
+// syncPlateOrdersFromDodo is the durable fix for missed payment.succeeded
+// webhooks: every sync pulls the customer's succeeded payments and grants
+// any plate that never landed locally. Invariants under test: only
+// succeeded, non-refunded, non-subscription payments stamped with a real
+// catalog plate id for THIS user grant; owned plates never re-grant; one
+// bad payment never blocks the rest.
+describe('syncPlateOrdersFromDodo', () => {
+  const supabase = freeUser()
 
-  function orderPages(...pages: Array<Array<Record<string, unknown>>>) {
-    return (async function* () {
-      for (const items of pages) yield { result: { items } }
-    })()
-  }
-
-  function paidOrder(overrides: Record<string, unknown> = {}) {
+  function paidPlate(overrides: Record<string, unknown> = {}) {
     return {
-      id: 'order_1',
-      paid: true,
-      status: 'paid',
-      metadata: {},
-      product: { metadata: {} },
+      payment_id: 'pay_1',
+      status: 'succeeded',
+      refund_status: null,
+      subscription_id: null,
+      metadata: { userId: 9 },
+      customer: { customer_id: 'cus_9', email: 'a@b.c', name: 'A' },
       ...overrides
     }
   }
 
   beforeEach(() => {
-    ordersListMock.mockReset()
+    paymentsListMock.mockReset()
     grantPlatePurchaseMock.mockReset()
     grantPlatePurchaseMock.mockResolvedValue(undefined)
     getOwnedPlateIdsMock.mockReset()
     getOwnedPlateIdsMock.mockResolvedValue([])
-    getPolarClientMock.mockReset()
-    getPolarClientMock.mockReturnValue({
-      customers: { getStateExternal: getStateExternalMock },
-      orders: { list: ordersListMock },
-      checkouts: { get: checkoutsGetMock }
-    })
+    getDodoClientMock.mockReset()
+    getDodoClientMock.mockReturnValue(dodoClient())
   })
 
-  it('grants plates from paid orders across pages and reports the count', async () => {
-    ordersListMock.mockResolvedValue(
-      orderPages(
-        [paidOrder({ id: 'order_1', product: { metadata: { plate_id: 'deep-space' } } })],
-        [paidOrder({ id: 'order_2', metadata: { plateId: 'koi-pond' } })]
+  it('grants plates from succeeded payments across pages and reports the count', async () => {
+    paymentsListMock.mockResolvedValue(
+      pages(
+        [paidPlate({ payment_id: 'pay_1', metadata: { userId: 9, plateId: 'deep-space' } })],
+        [paidPlate({ payment_id: 'pay_2', metadata: { userId: '9', plate_id: 'koi-pond' } })]
       )
     )
 
-    const granted = await syncPlateOrdersFromPolar(supabase, 9)
+    const granted = await syncPlateOrdersFromDodo(supabase, 9)
 
-    expect(ordersListMock).toHaveBeenCalledWith({ externalCustomerId: '9', limit: 100 })
+    expect(paymentsListMock).toHaveBeenCalledWith({ customer_id: 'cus_9', status: 'succeeded' })
     expect(grantPlatePurchaseMock).toHaveBeenCalledWith(supabase, 9, {
       plateId: 'deep-space',
-      orderId: 'order_1'
+      orderId: 'pay_1'
     })
     expect(grantPlatePurchaseMock).toHaveBeenCalledWith(supabase, 9, {
       plateId: 'koi-pond',
-      orderId: 'order_2'
+      orderId: 'pay_2'
     })
     expect(granted).toBe(2)
   })
 
-  it('resolves the plate id from all three metadata key variants', async () => {
-    ordersListMock.mockResolvedValue(
-      orderPages([
-        paidOrder({ id: 'o1', product: { metadata: { plate_id: 'deep-space' } } }),
-        paidOrder({ id: 'o2', metadata: { plateId: 'koi-pond' } }),
-        paidOrder({ id: 'o3', metadata: { plate_id: 'terminal-rain' } })
+  it('skips refunded, partially refunded and no-longer-succeeded payments', async () => {
+    paymentsListMock.mockResolvedValue(
+      pages([
+        paidPlate({ payment_id: 'p1', refund_status: 'full', metadata: { plateId: 'deep-space' } }),
+        paidPlate({ payment_id: 'p2', refund_status: 'partial', metadata: { plateId: 'koi-pond' } }),
+        paidPlate({ payment_id: 'p3', status: 'processing', metadata: { plateId: 'terminal-rain' } })
       ])
     )
 
-    const granted = await syncPlateOrdersFromPolar(supabase, 9)
-
-    expect(grantPlatePurchaseMock.mock.calls.map((call) => call[2])).toEqual([
-      { plateId: 'deep-space', orderId: 'o1' },
-      { plateId: 'koi-pond', orderId: 'o2' },
-      { plateId: 'terminal-rain', orderId: 'o3' }
-    ])
-    expect(granted).toBe(3)
-  })
-
-  it('skips refunded, partially refunded and unpaid orders', async () => {
-    ordersListMock.mockResolvedValue(
-      orderPages([
-        paidOrder({
-          id: 'o1',
-          status: 'refunded',
-          product: { metadata: { plate_id: 'deep-space' } }
-        }),
-        paidOrder({
-          id: 'o2',
-          status: 'partially_refunded',
-          product: { metadata: { plate_id: 'koi-pond' } }
-        }),
-        paidOrder({
-          id: 'o3',
-          paid: false,
-          status: 'pending',
-          product: { metadata: { plate_id: 'terminal-rain' } }
-        })
-      ])
-    )
-
-    expect(await syncPlateOrdersFromPolar(supabase, 9)).toBe(0)
+    expect(await syncPlateOrdersFromDodo(supabase, 9)).toBe(0)
     expect(grantPlatePurchaseMock).not.toHaveBeenCalled()
   })
 
-  it('skips subscription-cycle orders (no plate id) and unknown catalog ids', async () => {
-    ordersListMock.mockResolvedValue(
-      orderPages([
-        paidOrder({ id: 'o1' }),
-        paidOrder({ id: 'o2', product: { metadata: { plate_id: 'not-a-real-plate' } } })
+  it('skips subscription-cycle payments, unstamped payments and unknown catalog ids', async () => {
+    paymentsListMock.mockResolvedValue(
+      pages([
+        paidPlate({ payment_id: 'p1', subscription_id: 'sub_1', metadata: { plateId: 'deep-space' } }),
+        paidPlate({ payment_id: 'p2', metadata: {} }),
+        paidPlate({ payment_id: 'p3', metadata: { plateId: 'not-a-real-plate' } })
       ])
     )
 
-    expect(await syncPlateOrdersFromPolar(supabase, 9)).toBe(0)
+    expect(await syncPlateOrdersFromDodo(supabase, 9)).toBe(0)
+    expect(grantPlatePurchaseMock).not.toHaveBeenCalled()
+  })
+
+  it("skips payments stamped with another account's userId (shared Dodo customer)", async () => {
+    paymentsListMock.mockResolvedValue(
+      pages([paidPlate({ metadata: { userId: 13, plateId: 'deep-space' } })])
+    )
+
+    expect(await syncPlateOrdersFromDodo(supabase, 9)).toBe(0)
     expect(grantPlatePurchaseMock).not.toHaveBeenCalled()
   })
 
   it('skips plates already owned locally', async () => {
     getOwnedPlateIdsMock.mockResolvedValue(['deep-space'])
-    ordersListMock.mockResolvedValue(
-      orderPages([paidOrder({ id: 'o1', product: { metadata: { plate_id: 'deep-space' } } })])
+    paymentsListMock.mockResolvedValue(
+      pages([paidPlate({ metadata: { userId: 9, plateId: 'deep-space' } })])
     )
 
-    expect(await syncPlateOrdersFromPolar(supabase, 9)).toBe(0)
+    expect(await syncPlateOrdersFromDodo(supabase, 9)).toBe(0)
     expect(grantPlatePurchaseMock).not.toHaveBeenCalled()
   })
 
-  it('grants a plate once even when several paid orders carry it', async () => {
-    ordersListMock.mockResolvedValue(
-      orderPages([
-        paidOrder({ id: 'o1', product: { metadata: { plate_id: 'deep-space' } } }),
-        paidOrder({ id: 'o2', product: { metadata: { plate_id: 'deep-space' } } })
+  it('grants a plate once even when several succeeded payments carry it', async () => {
+    paymentsListMock.mockResolvedValue(
+      pages([
+        paidPlate({ payment_id: 'p1', metadata: { userId: 9, plateId: 'deep-space' } }),
+        paidPlate({ payment_id: 'p2', metadata: { userId: 9, plateId: 'deep-space' } })
       ])
     )
 
-    expect(await syncPlateOrdersFromPolar(supabase, 9)).toBe(1)
+    expect(await syncPlateOrdersFromDodo(supabase, 9)).toBe(1)
     expect(grantPlatePurchaseMock).toHaveBeenCalledTimes(1)
     expect(grantPlatePurchaseMock).toHaveBeenCalledWith(supabase, 9, {
       plateId: 'deep-space',
-      orderId: 'o1'
+      orderId: 'p1'
     })
   })
 
-  it('returns 0 when Polar is not configured', async () => {
-    getPolarClientMock.mockReturnValue(null)
+  it('returns 0 when Dodo is not configured', async () => {
+    getDodoClientMock.mockReturnValue(null)
 
-    expect(await syncPlateOrdersFromPolar(supabase, 9)).toBe(0)
-    expect(ordersListMock).not.toHaveBeenCalled()
+    expect(await syncPlateOrdersFromDodo(supabase, 9)).toBe(0)
+    expect(paymentsListMock).not.toHaveBeenCalled()
   })
 
-  it('treats a missing Polar customer (404/422) as nothing-to-grant', async () => {
+  it('returns 0 without asking Dodo when the account has no linked customer', async () => {
+    expect(
+      await syncPlateOrdersFromDodo(
+        tierSupabase({ data: { subscription_tier: 'FREE', dodo_customer_id: null }, error: null }),
+        9
+      )
+    ).toBe(0)
+    expect(paymentsListMock).not.toHaveBeenCalled()
+  })
+
+  it('treats a customer Dodo no longer knows (404/422) as nothing-to-grant', async () => {
     for (const status of [404, 422]) {
-      ordersListMock.mockRejectedValueOnce(polarError(status))
-      expect(await syncPlateOrdersFromPolar(supabase, 9)).toBe(0)
+      paymentsListMock.mockRejectedValueOnce(dodoError(status))
+      expect(await syncPlateOrdersFromDodo(supabase, 9)).toBe(0)
     }
     expect(grantPlatePurchaseMock).not.toHaveBeenCalled()
   })
 
-  it('rethrows unexpected Polar errors (scope/permission problems must surface)', async () => {
-    ordersListMock.mockRejectedValue(polarError(403))
+  it('rethrows unexpected Dodo errors (auth/permission problems must surface)', async () => {
+    paymentsListMock.mockRejectedValue(dodoError(403))
 
-    await expect(syncPlateOrdersFromPolar(supabase, 9)).rejects.toThrow('polar says no')
+    await expect(syncPlateOrdersFromDodo(supabase, 9)).rejects.toThrow('dodo says no')
     expect(grantPlatePurchaseMock).not.toHaveBeenCalled()
   })
 
@@ -519,14 +541,14 @@ describe('syncPlateOrdersFromPolar', () => {
     grantPlatePurchaseMock
       .mockRejectedValueOnce(new Error('db exploded'))
       .mockResolvedValueOnce(undefined)
-    ordersListMock.mockResolvedValue(
-      orderPages([
-        paidOrder({ id: 'o1', product: { metadata: { plate_id: 'deep-space' } } }),
-        paidOrder({ id: 'o2', product: { metadata: { plate_id: 'koi-pond' } } })
+    paymentsListMock.mockResolvedValue(
+      pages([
+        paidPlate({ payment_id: 'p1', metadata: { userId: 9, plateId: 'deep-space' } }),
+        paidPlate({ payment_id: 'p2', metadata: { userId: 9, plateId: 'koi-pond' } })
       ])
     )
 
-    const granted = await syncPlateOrdersFromPolar(supabase, 9)
+    const granted = await syncPlateOrdersFromDodo(supabase, 9)
     errorSpy.mockRestore()
 
     expect(granted).toBe(1)
@@ -534,24 +556,25 @@ describe('syncPlateOrdersFromPolar', () => {
   })
 })
 
-// insertCheckoutAckNotification backs the shop's checkout=success bounce:
-// the ack must only land for the user who actually owns the checkout,
-// deduped per checkout id, and must never throw into the sync route.
-describe('insertCheckoutAckNotification', () => {
+// acknowledgeCheckoutReturn backs the shop's checkout=success bounce: the
+// ack must only land for the user whose checkout metadata is on the
+// object, it links the Dodo customer (the first-purchase bootstrap for
+// the syncs above), is deduped per object id, and must never throw into
+// the sync route.
+describe('acknowledgeCheckoutReturn', () => {
   const supabase = {} as unknown as SupabaseClient
   let warnSpy: MockInstance
   let errorSpy: MockInstance
 
   beforeEach(() => {
-    checkoutsGetMock.mockReset()
+    paymentsRetrieveMock.mockReset()
+    subscriptionsRetrieveMock.mockReset()
     insertMissingNotificationsMock.mockReset()
     insertMissingNotificationsMock.mockResolvedValue(undefined)
-    getPolarClientMock.mockReset()
-    getPolarClientMock.mockReturnValue({
-      customers: { getStateExternal: getStateExternalMock },
-      orders: { list: ordersListMock },
-      checkouts: { get: checkoutsGetMock }
-    })
+    linkDodoCustomerMock.mockReset()
+    linkDodoCustomerMock.mockResolvedValue(undefined)
+    getDodoClientMock.mockReset()
+    getDodoClientMock.mockReturnValue(dodoClient())
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
   })
@@ -561,79 +584,116 @@ describe('insertCheckoutAckNotification', () => {
     errorSpy.mockRestore()
   })
 
-  it('inserts the deduped ack for the checkout owner, carrying the plate id', async () => {
-    checkoutsGetMock.mockResolvedValue({
-      id: 'chk_1',
-      externalCustomerId: '9',
-      metadata: { plateId: 'deep-space' }
+  it('acks a plate payment for its owner, links the customer and carries the plate id', async () => {
+    paymentsRetrieveMock.mockResolvedValue({
+      payment_id: 'pay_1',
+      customer: { customer_id: 'cus_9' },
+      metadata: { userId: 9, plateId: 'deep-space' }
     })
 
-    await insertCheckoutAckNotification(supabase, 9, 'chk_1')
+    await acknowledgeCheckoutReturn(supabase, 9, { paymentId: 'pay_1' })
 
-    expect(checkoutsGetMock).toHaveBeenCalledWith({ id: 'chk_1' })
+    expect(paymentsRetrieveMock).toHaveBeenCalledWith('pay_1')
+    expect(linkDodoCustomerMock).toHaveBeenCalledWith(supabase, 9, 'cus_9')
     expect(insertMissingNotificationsMock).toHaveBeenCalledWith(supabase, 9, [
       {
         type: 'shop',
         title: 'THANK YOU FOR YOUR PURCHASE',
         body: 'Order confirmed — we are currently delivering it to your hangar.',
-        data: { kind: 'purchase_ack', checkoutId: 'chk_1', plateId: 'deep-space' },
-        dedupeKey: 'purchase_ack_chk_1'
+        data: { kind: 'purchase_ack', paymentId: 'pay_1', plateId: 'deep-space' },
+        dedupeKey: 'purchase_ack_pay_1'
       }
     ])
   })
 
-  it('omits plateId for checkouts without plate metadata (Pro subscriptions)', async () => {
-    checkoutsGetMock.mockResolvedValue({
-      id: 'chk_2',
-      externalCustomerId: '9',
+  it('acks a subscription for its owner without a plate id', async () => {
+    subscriptionsRetrieveMock.mockResolvedValue({
+      subscription_id: 'sub_2',
+      customer: { customer_id: 'cus_9' },
+      metadata: { userId: '9' }
+    })
+
+    await acknowledgeCheckoutReturn(supabase, 9, { subscriptionId: 'sub_2' })
+
+    expect(subscriptionsRetrieveMock).toHaveBeenCalledWith('sub_2')
+    expect(paymentsRetrieveMock).not.toHaveBeenCalled()
+    expect(linkDodoCustomerMock).toHaveBeenCalledWith(supabase, 9, 'cus_9')
+    const candidates = insertMissingNotificationsMock.mock.calls[0][2] as Array<{
+      data: Record<string, unknown>
+      dedupeKey: string
+    }>
+    expect(candidates[0].data).toEqual({ kind: 'purchase_ack', subscriptionId: 'sub_2' })
+    expect(candidates[0].dedupeKey).toBe('purchase_ack_sub_2')
+  })
+
+  it('prefers the payment id when both are supplied', async () => {
+    paymentsRetrieveMock.mockResolvedValue({
+      payment_id: 'pay_1',
+      customer: { customer_id: 'cus_9' },
       metadata: { userId: 9 }
     })
 
-    await insertCheckoutAckNotification(supabase, 9, 'chk_2')
+    await acknowledgeCheckoutReturn(supabase, 9, { paymentId: 'pay_1', subscriptionId: 'sub_2' })
 
-    const candidates = insertMissingNotificationsMock.mock.calls[0][2] as Array<{
-      data: Record<string, unknown>
-    }>
-    expect(candidates[0].data).toEqual({ kind: 'purchase_ack', checkoutId: 'chk_2' })
+    expect(paymentsRetrieveMock).toHaveBeenCalledWith('pay_1')
+    expect(subscriptionsRetrieveMock).not.toHaveBeenCalled()
   })
 
-  it('skips the ack when the checkout belongs to a different user', async () => {
-    checkoutsGetMock.mockResolvedValue({
-      id: 'chk_3',
-      externalCustomerId: '777',
-      metadata: {}
+  it('skips the ack and the link when the object belongs to a different user', async () => {
+    paymentsRetrieveMock.mockResolvedValue({
+      payment_id: 'pay_3',
+      customer: { customer_id: 'cus_777' },
+      metadata: { userId: 777 }
     })
 
-    await insertCheckoutAckNotification(supabase, 9, 'chk_3')
+    await acknowledgeCheckoutReturn(supabase, 9, { paymentId: 'pay_3' })
 
     expect(insertMissingNotificationsMock).not.toHaveBeenCalled()
+    expect(linkDodoCustomerMock).not.toHaveBeenCalled()
     expect(warnSpy).toHaveBeenCalled()
   })
 
-  it('drops malformed checkout ids without calling Polar', async () => {
-    await insertCheckoutAckNotification(supabase, 9, 'chk_1; DROP TABLE users')
-    await insertCheckoutAckNotification(supabase, 9, 'x'.repeat(65))
-    await insertCheckoutAckNotification(supabase, 9, '')
+  it('skips an unstamped object — the ack needs positive proof of ownership', async () => {
+    paymentsRetrieveMock.mockResolvedValue({
+      payment_id: 'pay_4',
+      customer: { customer_id: 'cus_9' },
+      metadata: {}
+    })
 
-    expect(checkoutsGetMock).not.toHaveBeenCalled()
+    await acknowledgeCheckoutReturn(supabase, 9, { paymentId: 'pay_4' })
+
+    expect(insertMissingNotificationsMock).not.toHaveBeenCalled()
+    expect(linkDodoCustomerMock).not.toHaveBeenCalled()
+  })
+
+  it('drops malformed ids without calling Dodo', async () => {
+    await acknowledgeCheckoutReturn(supabase, 9, { paymentId: 'pay_1; DROP TABLE users' })
+    await acknowledgeCheckoutReturn(supabase, 9, { subscriptionId: 'x'.repeat(65) })
+    await acknowledgeCheckoutReturn(supabase, 9, { paymentId: '' })
+    await acknowledgeCheckoutReturn(supabase, 9, {})
+
+    expect(paymentsRetrieveMock).not.toHaveBeenCalled()
+    expect(subscriptionsRetrieveMock).not.toHaveBeenCalled()
     expect(insertMissingNotificationsMock).not.toHaveBeenCalled()
   })
 
-  it('logs and swallows Polar lookup failures (ack never fails the sync)', async () => {
-    checkoutsGetMock.mockRejectedValue(polarError(500))
+  it('logs and swallows Dodo lookup failures (ack never fails the sync)', async () => {
+    paymentsRetrieveMock.mockRejectedValue(dodoError(500))
 
-    await expect(insertCheckoutAckNotification(supabase, 9, 'chk_4')).resolves.toBeUndefined()
+    await expect(
+      acknowledgeCheckoutReturn(supabase, 9, { paymentId: 'pay_5' })
+    ).resolves.toBeUndefined()
 
     expect(insertMissingNotificationsMock).not.toHaveBeenCalled()
     expect(errorSpy).toHaveBeenCalled()
   })
 
-  it('no-ops when Polar is not configured', async () => {
-    getPolarClientMock.mockReturnValue(null)
+  it('no-ops when Dodo is not configured', async () => {
+    getDodoClientMock.mockReturnValue(null)
 
-    await insertCheckoutAckNotification(supabase, 9, 'chk_5')
+    await acknowledgeCheckoutReturn(supabase, 9, { paymentId: 'pay_6' })
 
-    expect(checkoutsGetMock).not.toHaveBeenCalled()
+    expect(paymentsRetrieveMock).not.toHaveBeenCalled()
     expect(insertMissingNotificationsMock).not.toHaveBeenCalled()
   })
 })

@@ -3,7 +3,7 @@
 // Billing — plan card, the Premium perk list, and cosmetics link-outs,
 // hydrated from /api/user/cosmetics exactly like PremiumSettingsModal.
 // Paid accounts manage their subscription through /api/portal (a plain
-// browser navigation — the route resolves the Polar customer portal and
+// browser navigation — the route resolves the Dodo customer portal and
 // redirects); free accounts upgrade through /shop, where the Premium
 // console runs checkout via /api/checkout?type=pro_monthly|pro_yearly.
 
@@ -152,7 +152,7 @@ export function BillingSection() {
           }
         >
           {state.complimentary ? null : paid ? (
-            // Plain <a>: /api/portal answers with a redirect to Polar's
+            // Plain <a>: /api/portal answers with a redirect to Dodo's
             // hosted customer portal, same navigation the modal used.
             <a href="/api/portal" className={solidLinkCls}>
               Manage subscription

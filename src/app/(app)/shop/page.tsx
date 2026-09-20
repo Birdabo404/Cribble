@@ -4,13 +4,13 @@
 // masthead, season ticker, the sticky catalog index, the five indexed
 // sections (01 FEATURED stage · 02 PRO · 03 MYTHIC · 04 PLATES · 05
 // VAULT), the footer stamp, the Spec drawer and the query-flag notice.
-// State lives in useShopCosmetics (cosmetics, Polar sync, notices, the
+// State lives in useShopCosmetics (cosmetics, Dodo sync, notices, the
 // Premium welcome); the section components own their own chrome; this
 // file owns section order, the `?plate=` deep link, the stage-hold and
 // perf tiers, and the GSAP entrance + scroll reveals.
 //
 // Checkout and the customer portal are plain browser navigations to
-// /api/checkout and /api/portal — those routes resolve Polar products
+// /api/checkout and /api/portal — those routes resolve Dodo products
 // server-side and redirect to the hosted pages. Both bounce back here
 // with query flags which useShopCosmetics captures into a dismissable
 // notice strip and scrubs from the URL (keeping `?plate=`).
@@ -441,7 +441,7 @@ function ShopFloor() {
           {ASCII_SHOP}
         </pre>
         <p className="m-0 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-right">
-          <span>COSMETIC · USD · POLAR · {revStamp(new Date())} ·</span>
+          <span>COSMETIC · USD · DODO · {revStamp(new Date())} ·</span>
           <span lang="ja" className={`${JP} tracking-[0.2em]`}>
             {GLOSSARY.shop}
           </span>
