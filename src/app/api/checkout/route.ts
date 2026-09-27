@@ -148,7 +148,11 @@ export async function GET(request: NextRequest) {
     // A returning buyer checks out as the customer already linked to this
     // account, so their saved details and portal history line up. First
     // purchase: Dodo collects the email on the hosted page and the webhook
-    // / return-bounce link the resulting customer id.
+    // / return-bounce link the resulting customer id. That first customer
+    // must be a NEW one — by default Dodo attaches a session to an
+    // existing customer with the same email, which would let two Cribble
+    // accounts share one Dodo customer (and one billing portal). See
+    // always_create_new_customer below.
     const customerId = await readDodoCustomerId(supabase, session.userId)
 
     const discountCode =
@@ -162,18 +166,28 @@ export async function GET(request: NextRequest) {
     const successPath =
       type === 'team_monthly' || type === 'team_yearly' ? '/team' : '/shop'
 
-    const params: CheckoutSessionCreateParams = {
-      product_cart: [{ product_id: productId, quantity: 1 }],
-      metadata,
-      return_url: `${appUrl}${successPath}?checkout=success`,
-      ...(customerId ? { customer: { customer_id: customerId } } : {}),
-      ...(discountCode ? { discount_codes: [discountCode] } : {})
+    const featureFlags: NonNullable<CheckoutSessionCreateParams['feature_flags']> = {}
+    if (!customerId) {
+      // One Dodo customer per Cribble account, by construction. Without
+      // this, a same-email checkout lands on another account's customer
+      // record and the two accounts would share subscriptions, invoices
+      // and the customer portal.
+      featureFlags.always_create_new_customer = true
     }
     if (type === 'plate') {
       // The Pro perk is a plain discount code on Dodo's side. Hiding the
       // code field on plate checkouts is what keeps it a Pro perk — a
       // non-Pro buyer who learned the code could otherwise type it in.
-      params.feature_flags = { allow_discount_code: false }
+      featureFlags.allow_discount_code = false
+    }
+
+    const params: CheckoutSessionCreateParams = {
+      product_cart: [{ product_id: productId, quantity: 1 }],
+      metadata,
+      return_url: `${appUrl}${successPath}?checkout=success`,
+      ...(customerId ? { customer: { customer_id: customerId } } : {}),
+      ...(discountCode ? { discount_codes: [discountCode] } : {}),
+      ...(Object.keys(featureFlags).length > 0 ? { feature_flags: featureFlags } : {})
     }
 
     const checkout = await dodo.checkoutSessions.create(params)

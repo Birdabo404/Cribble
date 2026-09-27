@@ -122,8 +122,10 @@ describe('GET /api/checkout', () => {
         product_cart: [{ product_id: 'pdt_plate_deep_space', quantity: 1 }],
         metadata: { userId: 9, plateId: 'deep-space' },
         return_url: 'http://cribble.dev/shop?checkout=success',
-        // Plate checkouts hide the code field so the Pro perk stays a perk.
-        feature_flags: { allow_discount_code: false }
+        // Plate checkouts hide the code field so the Pro perk stays a perk;
+        // a first purchase must mint a fresh Dodo customer rather than
+        // attach to another account's same-email record.
+        feature_flags: { allow_discount_code: false, always_create_new_customer: true }
       })
     )
     // No linked customer yet — Dodo collects the email on the hosted page.
@@ -135,13 +137,16 @@ describe('GET /api/checkout', () => {
     )
   })
 
-  it('checks out as the linked Dodo customer when the account has one', async () => {
+  it('checks out as the linked Dodo customer when the account has one (no fresh customer)', async () => {
     readDodoCustomerIdMock.mockResolvedValue('cus_linked')
 
     await GET(plateCheckoutRequest('deep-space'))
 
     expect(checkoutSessionsCreateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ customer: { customer_id: 'cus_linked' } })
+      expect.objectContaining({
+        customer: { customer_id: 'cus_linked' },
+        feature_flags: { allow_discount_code: false }
+      })
     )
   })
 
@@ -173,13 +178,25 @@ describe('GET /api/checkout', () => {
     expect(checkoutSessionsCreateMock).toHaveBeenCalledWith(
       expect.objectContaining({
         product_cart: [{ product_id: 'pdt_team_monthly', quantity: 1 }],
-        return_url: 'http://cribble.dev/team?checkout=success'
+        return_url: 'http://cribble.dev/team?checkout=success',
+        // Subscriptions keep the code field (the perk discount is
+        // restricted to plate products anyway, and future promos may want
+        // it) — only the fresh-customer flag applies to a first purchase.
+        feature_flags: { always_create_new_customer: true }
       })
     )
-    // Subscriptions keep the code field: the perk discount is restricted
-    // to plate products anyway, and future promos may want it.
-    expect(checkoutSessionsCreateMock.mock.calls[0][0]).not.toHaveProperty('feature_flags')
     expect(response.status).toBe(307)
+  })
+
+  it('sends a linked subscriber to checkout with no feature flags at all', async () => {
+    readDodoCustomerIdMock.mockResolvedValue('cus_linked')
+
+    await GET(subscriptionCheckoutRequest('pro_monthly'))
+
+    expect(checkoutSessionsCreateMock.mock.calls[0][0]).not.toHaveProperty('feature_flags')
+    expect(checkoutSessionsCreateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ customer: { customer_id: 'cus_linked' } })
+    )
   })
 
   it('refuses Pro checkout for a house complimentary account — Dodo never sees it', async () => {

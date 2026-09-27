@@ -8,6 +8,13 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // pull-based sync lists that customer's subscriptions and payments, and
 // the billing portal opens for that customer.
 //
+// The link is exclusive — one Dodo customer, one Cribble account
+// (unique index, migration 072). The portal route opens whatever
+// customer is linked to the signed-in user, so a customer shared by two
+// accounts would hand one account's invoices and cancel button to the
+// other. /api/checkout keeps that from arising (always_create_new_customer
+// on first purchase); linkDodoCustomer enforces it if it arises anyway.
+//
 // Every helper here is best-effort by contract: linking is a convenience
 // for those two paths — it must never fail fulfillment.
 
@@ -35,11 +42,13 @@ export async function readDodoCustomerId(
     : null
 }
 
-/** Store the Dodo customer id on a user row — first link wins. A row that
- *  already carries a DIFFERENT id is left alone (logged): Dodo attaches
- *  same-email checkouts to an existing customer, so a second id for one
- *  account is possible; the webhook still fulfills by metadata.userId
- *  regardless. Never throws. */
+/** Store the Dodo customer id on a user row — first link wins, in both
+ *  directions. A row that already carries a DIFFERENT id is left alone
+ *  (logged), and a customer already linked to ANOTHER account is refused
+ *  (the unique index rejects it; logged as a warning — it means a
+ *  same-email checkout got attached to someone else's customer record,
+ *  which /api/checkout is meant to prevent). The webhook still fulfills
+ *  by metadata.userId regardless. Never throws. */
 export async function linkDodoCustomer(
   supabase: SupabaseClient,
   userId: number,
@@ -54,6 +63,12 @@ export async function linkDodoCustomer(
     .select('id')
 
   if (error) {
+    if (error.code === '23505') {
+      console.warn(
+        `[DodoCustomer] Customer ${customerId} is already linked to another account — refusing to link it to user ${userId}`
+      )
+      return
+    }
     console.error(`[DodoCustomer] Failed to link customer ${customerId} to user ${userId}:`, error.message)
     return
   }
