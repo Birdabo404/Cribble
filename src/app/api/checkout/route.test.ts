@@ -156,7 +156,11 @@ describe('GET /api/checkout', () => {
     await GET(plateCheckoutRequest('deep-space'))
 
     expect(checkoutSessionsCreateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ discount_codes: ['PROPLATES'] })
+      expect.objectContaining({
+        discount_codes: ['PROPLATES'],
+        // Dodo 422s if a code is attached while the field is hidden.
+        feature_flags: { always_create_new_customer: true }
+      })
     )
   })
 

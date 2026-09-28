@@ -174,10 +174,13 @@ export async function GET(request: NextRequest) {
       // and the customer portal.
       featureFlags.always_create_new_customer = true
     }
-    if (type === 'plate') {
+    if (type === 'plate' && !discountCode) {
       // The Pro perk is a plain discount code on Dodo's side. Hiding the
       // code field on plate checkouts is what keeps it a Pro perk — a
       // non-Pro buyer who learned the code could otherwise type it in.
+      // Dodo rejects discount_codes while this flag is false, so a Pro
+      // buyer (who gets the code attached) keeps the field. That is also
+      // how a 100% test code can be entered on the hosted page.
       featureFlags.allow_discount_code = false
     }
 
