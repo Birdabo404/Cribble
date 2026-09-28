@@ -299,9 +299,14 @@ function TeamConsole() {
   useEffect(() => {
     if (booted.current) return
     booted.current = true
-    if (searchParams.get('checkout') === 'success') {
+    const checkoutStatus = searchParams.get('status')
+    if (
+      searchParams.get('checkout') === 'success' ||
+      checkoutStatus === 'success' ||
+      checkoutStatus === 'succeeded'
+    ) {
       setGate('confirming')
-      const checkoutId = searchParams.get('checkout_id')
+      const checkoutId = searchParams.get('checkout_id') ?? searchParams.get('session_id')
       void confirmAndLoad(checkoutId ?? undefined)
       // Scrub so a reload or share doesn't replay the confirmation.
       router.replace('/team', { scroll: false })
@@ -397,7 +402,7 @@ function TeamConsole() {
           CONFIRMING PAYMENT…
         </h1>
         <p className="mx-auto mt-4 max-w-sm text-xs leading-relaxed text-zinc-400">
-          Polar has your order — switching this account to a company profile.
+          Payment is confirmed — switching this account to a company profile.
           This takes a few seconds.
         </p>
         <div aria-hidden className="mt-8 flex justify-center gap-1.5">

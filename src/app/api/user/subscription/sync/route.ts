@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { isDodoActive } from '@/lib/dodo'
+import { syncFromDodo } from '@/lib/dodoSync'
 import { isPolarConfigured } from '@/lib/polar'
 import { getSessionUserId } from '@/lib/sessionAuth'
 import {
@@ -45,7 +47,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: session.error }, { status: session.status })
     }
 
-    if (!isPolarConfigured()) {
+    if (!isDodoActive() && !isPolarConfigured()) {
       return NextResponse.json(
         { success: false, error: 'Shop is not configured yet' },
         { status: 503 }
@@ -53,15 +55,28 @@ export async function POST(request: NextRequest) {
     }
 
     // Ack first so the feed reads "order confirmed" -> "delivered".
-    // Best-effort: a bad id, Polar error or ownership mismatch is logged
-    // inside the helper and never fails the sync.
+    // Best-effort: a bad id, provider error or ownership mismatch is logged
+    // inside the helper and never fails the sync. Dodo session ids are
+    // acknowledged inside syncFromDodo; Polar ids stay on the Polar helper.
     const checkoutId = await readCheckoutId(request)
-    if (checkoutId) {
+    if (checkoutId && isPolarConfigured() && !checkoutId.startsWith('cks_')) {
       await insertCheckoutAckNotification(supabase, session.userId, checkoutId)
     }
 
-    const { tier, isPro, changed } = await syncSubscriptionFromPolar(supabase, session.userId)
-    const grantedPlates = await syncPlateOrdersFromPolar(supabase, session.userId)
+    const dodo = isDodoActive()
+      ? await syncFromDodo(supabase, session.userId, checkoutId)
+      : null
+    const polar = isPolarConfigured()
+      ? await syncSubscriptionFromPolar(supabase, session.userId)
+      : null
+    const polarPlates = isPolarConfigured()
+      ? await syncPlateOrdersFromPolar(supabase, session.userId)
+      : 0
+
+    const tier = polar?.tier ?? dodo?.tier ?? 'FREE'
+    const isPro = polar?.isPro ?? dodo?.isPro ?? false
+    const changed = Boolean(dodo?.changed) || Boolean(polar?.changed)
+    const grantedPlates = (dodo?.grantedPlates ?? 0) + polarPlates
     return NextResponse.json({ success: true, tier, isPro, changed, grantedPlates })
   } catch (error) {
     console.error('[SubscriptionSync] POST error:', error)

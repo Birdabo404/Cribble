@@ -124,7 +124,7 @@ export function noticeMeta(notice: ShopNotice): {
       return {
         tone: 'up',
         title: 'Order confirmed',
-        body: 'Polar is processing the purchase — perks unlock in a few seconds. Re-check if nothing has changed yet.'
+        body: 'Payment is processing — perks unlock in a few seconds. Re-check if nothing has changed yet.'
       }
     case 'checkout-owned':
       return {
@@ -296,10 +296,11 @@ export function useShopCosmetics(): {
   // the URL is left alone entirely (the drawer writes it too).
   useEffect(() => {
     const checkout = searchParams.get('checkout')
-    const checkoutId = searchParams.get('checkout_id')
+    const status = searchParams.get('status')
+    const checkoutId = searchParams.get('checkout_id') ?? searchParams.get('session_id')
     const portal = searchParams.get('portal')
     const next: ShopNotice | null =
-      checkout === 'success'
+      checkout === 'success' || status === 'success' || status === 'succeeded'
         ? 'checkout-success'
         : checkout === 'owned'
           ? 'checkout-owned'

@@ -441,7 +441,7 @@ function ShopFloor() {
           {ASCII_SHOP}
         </pre>
         <p className="m-0 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-right">
-          <span>COSMETIC · USD · POLAR · {revStamp(new Date())} ·</span>
+          <span>COSMETIC · USD · DODO · {revStamp(new Date())} ·</span>
           <span lang="ja" className={`${JP} tracking-[0.2em]`}>
             {GLOSSARY.shop}
           </span>

@@ -3,6 +3,14 @@ import { z } from 'zod'
 import { resolveAppUrl } from '@/lib/appUrl'
 import { getPlate } from '@/lib/cosmetics/plates'
 import { getOwnedPlateIds, isProTier } from '@/lib/entitlements'
+import {
+  getDodoClient,
+  getProPlateDiscountCode,
+  isDodoActive,
+  resolvePlateProductId as resolveDodoPlateProductId,
+  resolveProProductId as resolveDodoProProductId,
+  resolveTeamProductId as resolveDodoTeamProductId
+} from '@/lib/dodo'
 import { houseGrantFor } from '@/lib/houseEntitlements'
 import {
   getPolarClient,
@@ -15,29 +23,27 @@ import { getSessionUserId } from '@/lib/sessionAuth'
 import { createServiceClient } from '@/lib/supabaseServer'
 
 // GET so the shop can link straight to /api/checkout?type=... — the route
-// resolves the Polar product id server-side (client-supplied product ids
-// are never trusted), creates the checkout, and redirects the browser to
-// Polar's hosted checkout page.
+// resolves the product id server-side (client-supplied product ids are
+// never trusted) and redirects to hosted checkout. Dodo when configured,
+// otherwise Polar.
 
 export const dynamic = 'force-dynamic'
 
 const supabase = createServiceClient()
 
-/** Polar discount id auto-attached to plate checkouts for Pro members —
- *  backs the shop's "-25% PRO" copy. Absent env or a failed tier read
- *  degrades to full price rather than blocking the checkout. */
-async function resolveProPlateDiscountId(userId: number): Promise<string | null> {
-  const discountId = process.env.POLAR_DISCOUNT_PRO_PLATES
-  if (!discountId) return null
-
+/** True when the buyer is on a Pro tier and a plate discount is configured.
+ *  No discount env, or a failed read, degrades to full price. */
+async function buyerIsPro(userId: number): Promise<boolean> {
+  if (!process.env.POLAR_DISCOUNT_PRO_PLATES && !process.env.DODO_DISCOUNT_PRO_PLATES) {
+    return false
+  }
   const { data: buyer, error } = await supabase
     .from('users')
     .select('subscription_tier')
     .eq('id', userId)
     .single()
-
-  if (error || !buyer) return null
-  return isProTier(buyer.subscription_tier) ? discountId : null
+  if (error || !buyer) return false
+  return isProTier(buyer.subscription_tier)
 }
 
 const querySchema = z
@@ -63,7 +69,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/login', appUrl))
     }
 
-    if (!isPolarConfigured()) {
+    const useDodo = isDodoActive()
+    if (!useDodo && !isPolarConfigured()) {
       return NextResponse.json(
         { success: false, error: 'Shop is not configured yet' },
         { status: 503 }
@@ -105,7 +112,7 @@ export async function GET(request: NextRequest) {
       if (ownedPlateIds.includes(plateId!)) {
         return NextResponse.redirect(new URL('/shop?checkout=owned', appUrl))
       }
-      productId = resolvePlateProductId(plateId!)
+      productId = useDodo ? resolveDodoPlateProductId(plateId!) : resolvePlateProductId(plateId!)
       if (!productId) {
         return NextResponse.json(
           { success: false, error: 'Unknown plate' },
@@ -121,8 +128,12 @@ export async function GET(request: NextRequest) {
 
       productId =
         type === 'team_monthly' || type === 'team_yearly'
-          ? resolveTeamProductId(type)
-          : resolveProProductId(type)
+          ? useDodo
+            ? resolveDodoTeamProductId(type)
+            : resolveTeamProductId(type)
+          : useDodo
+            ? resolveDodoProProductId(type)
+            : resolveProProductId(type)
       if (!productId) {
         return NextResponse.json(
           { success: false, error: 'Shop is not configured yet' },
@@ -131,14 +142,14 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const polar = getPolarClient()!
     const metadata: Record<string, string | number | boolean> = {
       userId: session.userId
     }
     if (type === 'plate') metadata.plateId = plateId!
 
-    const discountId =
-      type === 'plate' ? await resolveProPlateDiscountId(session.userId) : null
+    const proBuyer = type === 'plate' ? await buyerIsPro(session.userId) : false
+    const discountId = proBuyer ? process.env.POLAR_DISCOUNT_PRO_PLATES || null : null
+    const dodoDiscount = proBuyer && useDodo ? getProPlateDiscountCode() : null
 
     // Team buyers land on the /team console (which runs the same sync ack
     // and then shows the under-review roster); everything else returns to
@@ -146,6 +157,37 @@ export async function GET(request: NextRequest) {
     const successPath =
       type === 'team_monthly' || type === 'team_yearly' ? '/team' : '/shop'
 
+    if (useDodo) {
+      try {
+        const dodo = getDodoClient()!
+        const checkout = await dodo.checkoutSessions.create({
+          product_cart: [{ product_id: productId, quantity: 1 }],
+          metadata,
+          return_url: `${appUrl}${successPath}?checkout=success`,
+          cancel_url: `${appUrl}/shop`,
+          feature_flags: { redirect_immediately: true },
+          ...(dodoDiscount ? { discount_codes: [dodoDiscount] } : {})
+        })
+        if (checkout.checkout_url) return NextResponse.redirect(checkout.checkout_url)
+      } catch (error) {
+        console.error('[Checkout] Dodo checkout failed:', error)
+      }
+      if (!isPolarConfigured()) {
+        return NextResponse.redirect(new URL('/shop?checkout=error', appUrl))
+      }
+      const polarProductId =
+        type === 'plate'
+          ? resolvePlateProductId(plateId!)
+          : type === 'team_monthly' || type === 'team_yearly'
+            ? resolveTeamProductId(type)
+            : resolveProProductId(type)
+      if (!polarProductId) {
+        return NextResponse.redirect(new URL('/shop?checkout=error', appUrl))
+      }
+      productId = polarProductId
+    }
+
+    const polar = getPolarClient()!
     const checkout = await polar.checkouts.create({
       products: [productId],
       externalCustomerId: String(session.userId),

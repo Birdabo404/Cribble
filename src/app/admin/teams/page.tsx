@@ -302,7 +302,7 @@ export default function AdminTeamsPage() {
     <div className="space-y-6">
       <AdminPageHeader
         title="Team review"
-        description="Pay-first anti-impersonation gate: badges and affiliate seats stay off until an account is approved here. Rejections revert the tier — refunds are manual in Polar."
+        description="Pay-first anti-impersonation gate: badges and affiliate seats stay off until an account is approved here. Rejections revert the tier — refund the Dodo subscription manually. Older Polar subscriptions still refund in Polar."
       />
 
       <SegmentedControl
@@ -355,7 +355,7 @@ export default function AdminTeamsPage() {
       {rejecting && (
         <ReasonDialog
           title={`Reject team — @${rejecting.username ?? rejecting.userId}`}
-          description="Marks the review as rejected and reverts the tier to FREE. Billing is untouched: cancel and refund the Polar subscription manually."
+          description="Marks the review as rejected and reverts the tier to FREE. Billing is untouched: cancel and refund the Dodo subscription manually. Older Polar subscriptions still refund in Polar."
           confirmLabel="Reject team"
           danger
           onConfirm={(reason) => reject(rejecting, reason)}

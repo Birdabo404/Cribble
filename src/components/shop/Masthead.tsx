@@ -32,7 +32,7 @@ const SURFACE = '[ STOREFRONT ]'
 const SURFACE_LINE = `${SURFACE}\u00a0\u00a0// PLATES FOR THE BOARD`
 const SEASON = 'SEASON 01 · IGNITION'
 const SEASON_SHORT = 'SEASON 01'
-const RAIL = 'USD · POLAR'
+const RAIL = 'USD · DODO'
 
 export function Masthead({ tier, plateCount }: MastheadProps) {
   const count = `${plateCount} PLATES`

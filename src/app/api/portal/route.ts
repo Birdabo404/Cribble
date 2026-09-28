@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { APIError } from 'dodopayments'
 import { PolarError } from '@polar-sh/sdk/models/errors/polarerror'
 import { resolveAppUrl } from '@/lib/appUrl'
+import { getDodoClient, isDodoActive } from '@/lib/dodo'
 import { houseGrantFor } from '@/lib/houseEntitlements'
 import { getPolarClient, isPolarConfigured } from '@/lib/polar'
 import { getSessionUserId } from '@/lib/sessionAuth'
+import { createServiceClient } from '@/lib/supabaseServer'
 
-// GET route that opens Polar's hosted customer portal (manage/cancel
-// subscription, view orders) for the signed-in user. Customers are keyed
-// by external id = String(users.id), set at checkout time.
+// GET route that opens the hosted customer portal (manage/cancel
+// subscription, view orders) for the signed-in user. New checkouts are
+// Dodo customers, stored on users.metadata.dodo_customer_id. Accounts
+// that only exist in Polar still fall through to Polar's portal.
 
 export const dynamic = 'force-dynamic'
 
@@ -24,11 +28,38 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/shop?portal=complimentary', appUrl))
     }
 
-    if (!isPolarConfigured()) {
+    if (!isDodoActive() && !isPolarConfigured()) {
       return NextResponse.json(
         { success: false, error: 'Shop is not configured yet' },
         { status: 503 }
       )
+    }
+
+    if (isDodoActive()) {
+      const supabase = createServiceClient()
+      const { data: user } = await supabase
+        .from('users')
+        .select('metadata')
+        .eq('id', session.userId)
+        .single()
+      const metadata = (user?.metadata ?? {}) as Record<string, unknown>
+      const customerId =
+        typeof metadata.dodo_customer_id === 'string' ? metadata.dodo_customer_id : null
+      if (customerId) {
+        try {
+          const portal = await getDodoClient()!.customers.customerPortal.create(customerId, {
+            return_url: `${appUrl}/shop`
+          })
+          return NextResponse.redirect(portal.link)
+        } catch (error) {
+          if (!(error instanceof APIError && (error.status === 404 || error.status === 422))) {
+            throw error
+          }
+        }
+      }
+      if (!isPolarConfigured()) {
+        return NextResponse.redirect(new URL('/shop?portal=none', appUrl))
+      }
     }
 
     const polar = getPolarClient()!

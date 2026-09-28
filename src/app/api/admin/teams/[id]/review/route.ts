@@ -33,7 +33,7 @@ export const dynamic = 'force-dynamic'
 const supabase = createServiceClient()
 
 const REFUND_REMINDER =
-  'Rejection does not touch billing — cancel and refund the Polar subscription manually.'
+  'Rejection does not touch billing — cancel and refund the Dodo subscription manually. Older Polar subscriptions still refund in Polar.'
 
 type ReviewAction = 'approve' | 'reject'
 
