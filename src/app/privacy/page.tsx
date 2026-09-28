@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     'How Cribble and the Cribble browser extension collect, use, retain, and delete your data. We measure time spent in AI tools — never what you say to them.'
 }
 
-const CONTACT_EMAIL = 'Birdabo@Cribble.dev'
+const CONTACT_EMAIL = 'hello@cribble.dev'
 const LAST_UPDATED = 'August 24, 2026'
 
 export default function PrivacyPage() {

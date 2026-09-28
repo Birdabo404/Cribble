@@ -16,7 +16,6 @@
     "test:run": "vitest run",
     "audit:prod": "npm audit --omit=dev",
     "setup:polar": "vite-node scripts/setup-polar.ts",
-    "setup:dodo": "vite-node scripts/setup-dodo.ts",
     "setup:polar:check": "vite-node scripts/setup-polar.ts --check",
     "polar:archive-sponsorship": "vite-node scripts/polar-archive-sponsorship.ts"
   },
@@ -32,7 +31,6 @@
     "clsx": "^2.1.1",
     "d3-scale": "^4.0.2",
     "d3-shape": "^3.2.0",
-    "dodopayments": "^2.52.0",
     "gsap": "^3.15.0",
     "html-to-image": "^1.11.13",
     "motion": "^13.1.0",

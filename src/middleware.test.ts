@@ -158,7 +158,6 @@ describe('middleware site lock', () => {
     expect(rewriteTarget('/team/invites')).toBeNull()
     expect(middleware(request('/api/team/roster')).status).toBe(200)
     expect(middleware(request('/api/webhooks/polar')).status).toBe(200)
-    expect(middleware(request('/api/webhooks/dodo')).status).toBe(200)
     expect(middleware(request('/api/user/subscription/sync')).status).toBe(200)
     // The billboard train backs the ticker on allowlisted shell pages.
     expect(middleware(request('/api/billboard')).status).toBe(200)
