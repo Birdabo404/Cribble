@@ -159,12 +159,12 @@ export const TICKER_SEGMENTS: readonly string[] = [
   'RANK STAYS EARNED',
   '順位は実力で',
   'COSMETIC ONLY',
-  'USD · POLAR',
+  'USD · DODO',
   'ショップ'
 ]
 
 export const TICKER_SENTENCE =
-  'Season 01 Ignition: plates for the board, rank stays earned, cosmetic only, priced in USD through Polar.'
+  'Season 01 Ignition: plates for the board, rank stays earned, cosmetic only, priced in USD through Dodo Payments.'
 
 /** Rarity in Japanese — the kicker beside every English rarity label. */
 export function rarityJp(rarity: PlateRarity): string {

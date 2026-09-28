@@ -1,23 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { isPolarConfigured } from '@/lib/polar'
+import { z } from 'zod'
+import { isDodoConfigured } from '@/lib/dodo'
 import { getSessionUserId } from '@/lib/sessionAuth'
 import {
-  insertCheckoutAckNotification,
-  syncPlateOrdersFromPolar,
-  syncSubscriptionFromPolar
+  acknowledgeCheckoutReturn,
+  syncPlateOrdersFromDodo,
+  syncSubscriptionFromDodo,
+  type CheckoutReturnRef
 } from '@/lib/subscriptionSync'
 import { createServiceClient } from '@/lib/supabaseServer'
 
 // POST /api/user/subscription/sync — reconcile the signed-in user's tier
-// AND paid plate orders straight from Polar. The shop calls it after
+// AND paid plate purchases straight from Dodo. The shop calls it after
 // checkout=success and from RE-CHECK, since local dev never receives
 // webhooks; in production it backstops missed webhook deliveries.
-// Upgrade-only (see subscriptionSync). Requires the Polar org token to
-// carry the customers:read + orders:read scopes.
+// Upgrade-only (see subscriptionSync).
 //
-// Body (optional): { checkoutId: string } — the Polar checkout the shop
-// just bounced back from; verified against Polar and acknowledged with a
-// deduped "order confirmed" notification. No-body POSTs keep working.
+// Body (optional): { paymentId?: string, subscriptionId?: string } — the
+// ids Dodo appended to the return URL the shop just bounced back from;
+// verified against Dodo, used to link the Dodo customer to this account,
+// and acknowledged with a deduped "order confirmed" notification.
+// No-body POSTs keep working (RE-CHECK).
 //
 // Contract: { success: true, tier, isPro, changed, grantedPlates }
 
@@ -25,14 +28,20 @@ export const dynamic = 'force-dynamic'
 
 const supabase = createServiceClient()
 
-/** The optional { checkoutId } body. Invalid JSON / no body / wrong shape
+const bodySchema = z.object({
+  paymentId: z.string().min(1).optional(),
+  subscriptionId: z.string().min(1).optional()
+})
+
+/** The optional checkout-return body. Invalid JSON / no body / wrong shape
  *  all resolve to null — the historical no-body POST must keep working. */
-async function readCheckoutId(request: NextRequest): Promise<string | null> {
+async function readCheckoutReturnRef(request: NextRequest): Promise<CheckoutReturnRef | null> {
   try {
-    const body: unknown = await request.json()
-    if (!body || typeof body !== 'object' || Array.isArray(body)) return null
-    const raw = (body as Record<string, unknown>).checkoutId
-    return typeof raw === 'string' && raw ? raw : null
+    const parsed = bodySchema.safeParse(await request.json())
+    if (!parsed.success) return null
+    const { paymentId, subscriptionId } = parsed.data
+    if (!paymentId && !subscriptionId) return null
+    return { paymentId, subscriptionId }
   } catch {
     return null
   }
@@ -45,23 +54,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: session.error }, { status: session.status })
     }
 
-    if (!isPolarConfigured()) {
+    if (!isDodoConfigured()) {
       return NextResponse.json(
         { success: false, error: 'Shop is not configured yet' },
         { status: 503 }
       )
     }
 
-    // Ack first so the feed reads "order confirmed" -> "delivered".
-    // Best-effort: a bad id, Polar error or ownership mismatch is logged
-    // inside the helper and never fails the sync.
-    const checkoutId = await readCheckoutId(request)
-    if (checkoutId) {
-      await insertCheckoutAckNotification(supabase, session.userId, checkoutId)
+    // Ack first: it links the Dodo customer (which the syncs below need
+    // on a first purchase) and the feed reads "order confirmed" ->
+    // "delivered". Best-effort: a bad id, Dodo error or ownership
+    // mismatch is logged inside the helper and never fails the sync.
+    const ref = await readCheckoutReturnRef(request)
+    if (ref) {
+      await acknowledgeCheckoutReturn(supabase, session.userId, ref)
     }
 
-    const { tier, isPro, changed } = await syncSubscriptionFromPolar(supabase, session.userId)
-    const grantedPlates = await syncPlateOrdersFromPolar(supabase, session.userId)
+    const { tier, isPro, changed } = await syncSubscriptionFromDodo(supabase, session.userId)
+    const grantedPlates = await syncPlateOrdersFromDodo(supabase, session.userId)
     return NextResponse.json({ success: true, tier, isPro, changed, grantedPlates })
   } catch (error) {
     console.error('[SubscriptionSync] POST error:', error)

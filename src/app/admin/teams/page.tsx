@@ -28,7 +28,7 @@ import { SegmentedControl } from '@/components/settings/SegmentedControl'
 // row surfaces the anti-impersonation signals — OAuth provider identity,
 // account age, claimed website, tier and seat usage — and approving is
 // one click, while rejecting demands a written reason (it reverts the
-// tier; the refund itself happens manually in Polar).
+// tier; the refund itself happens manually in Dodo Payments).
 
 interface TeamRow {
   userId: number
@@ -302,7 +302,7 @@ export default function AdminTeamsPage() {
     <div className="space-y-6">
       <AdminPageHeader
         title="Team review"
-        description="Pay-first anti-impersonation gate: badges and affiliate seats stay off until an account is approved here. Rejections revert the tier — refunds are manual in Polar."
+        description="Pay-first anti-impersonation gate: badges and affiliate seats stay off until an account is approved here. Rejections revert the tier — refunds are manual in Dodo Payments."
       />
 
       <SegmentedControl
@@ -355,7 +355,7 @@ export default function AdminTeamsPage() {
       {rejecting && (
         <ReasonDialog
           title={`Reject team — @${rejecting.username ?? rejecting.userId}`}
-          description="Marks the review as rejected and reverts the tier to FREE. Billing is untouched: cancel and refund the Polar subscription manually."
+          description="Marks the review as rejected and reverts the tier to FREE. Billing is untouched: cancel and refund the Dodo Payments subscription manually."
           confirmLabel="Reject team"
           danger
           onConfirm={(reason) => reject(rejecting, reason)}

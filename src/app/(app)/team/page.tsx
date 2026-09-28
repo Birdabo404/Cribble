@@ -7,12 +7,14 @@
 // see where it stands, but every mutation is disabled (and refused
 // server-side) until the manual anti-impersonation review approves them.
 //
-// It is also the team checkout's success URL (?checkout=success&
-// checkout_id=...): the bounce shows a CONFIRMING PAYMENT state instead
-// of the not-team gate, POSTs /api/user/subscription/sync with the
-// checkout id (the shop's deduped-ack pattern — and, since webhooks
-// can't reach localhost, the call that actually grants TEAM), then loads
-// the roster and scrubs the URL.
+// It is also the team checkout's success URL (?checkout=success plus the
+// subscription_id / status Dodo appends): the bounce shows a CONFIRMING
+// PAYMENT state instead of the not-team gate, POSTs
+// /api/user/subscription/sync with the subscription id (the shop's
+// deduped-ack pattern — it links the Dodo customer and, since webhooks
+// can't reach localhost, is the call that actually grants TEAM), then
+// loads the roster and scrubs the URL. A failed status skips the
+// confirmation and lands on the ordinary not-team gate.
 
 import { Suspense, useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import Link from 'next/link'
@@ -21,6 +23,10 @@ import { Avatar } from '@/components/leaderboard/Avatar'
 import { formatRelative } from '@/components/dashboard-v2/format'
 import { toast } from '@/components/Toaster'
 import { requestNotificationsRefresh } from '@/hooks/useNotifications'
+import {
+  isFailedCheckoutStatus,
+  type CheckoutReturnRef
+} from '@/components/shop/useShopCosmetics'
 
 const GOLD = 'var(--lb-gold)'
 
@@ -262,22 +268,22 @@ function TeamConsole() {
     }
   }, [])
 
-  /** The checkout=success bounce: POST the sync with the checkout id
-   *  (verifies the checkout against Polar, drops the deduped ack, and —
-   *  the part webhooks can't do on localhost — grants TEAM), then let the
-   *  roster read decide the gate. Sync failures are swallowed: a roster
-   *  403 after the sync falls back to the normal not-team gate, and the
-   *  webhook backstops the grant later. */
+  /** The checkout=success bounce: POST the sync with Dodo's subscription
+   *  id (verifies it against Dodo, links the customer, drops the deduped
+   *  ack, and — the part webhooks can't do on localhost — grants TEAM),
+   *  then let the roster read decide the gate. Sync failures are
+   *  swallowed: a roster 403 after the sync falls back to the normal
+   *  not-team gate, and the webhook backstops the grant later. */
   const confirmAndLoad = useCallback(
-    async (checkoutId?: string) => {
+    async (ref?: CheckoutReturnRef) => {
       try {
         await fetch('/api/user/subscription/sync', {
           method: 'POST',
           credentials: 'include',
-          ...(checkoutId
+          ...(ref
             ? {
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ checkoutId })
+                body: JSON.stringify(ref)
               }
             : {})
         })
@@ -299,10 +305,17 @@ function TeamConsole() {
   useEffect(() => {
     if (booted.current) return
     booted.current = true
-    if (searchParams.get('checkout') === 'success') {
+    if (
+      searchParams.get('checkout') === 'success' &&
+      !isFailedCheckoutStatus(searchParams.get('status'))
+    ) {
       setGate('confirming')
-      const checkoutId = searchParams.get('checkout_id')
-      void confirmAndLoad(checkoutId ?? undefined)
+      const subscriptionId = searchParams.get('subscription_id')
+      const paymentId = searchParams.get('payment_id')
+      void confirmAndLoad({
+        ...(subscriptionId ? { subscriptionId } : {}),
+        ...(paymentId ? { paymentId } : {})
+      })
       // Scrub so a reload or share doesn't replay the confirmation.
       router.replace('/team', { scroll: false })
       return
@@ -397,7 +410,7 @@ function TeamConsole() {
           CONFIRMING PAYMENT…
         </h1>
         <p className="mx-auto mt-4 max-w-sm text-xs leading-relaxed text-zinc-400">
-          Polar has your order — switching this account to a company profile.
+          Dodo Payments has your order — switching this account to a company profile.
           This takes a few seconds.
         </p>
         <div aria-hidden className="mt-8 flex justify-center gap-1.5">

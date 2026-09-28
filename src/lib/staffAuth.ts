@@ -52,7 +52,7 @@ export function minRoleFor(action: StaffAction): StaffRole {
     // Team approval is content review work: judging the
     // anti-impersonation signals and handing out (or refusing) the gold
     // badge. Billing is never touched on this path — rejection refunds
-    // happen manually in Polar — so moderators work this queue.
+    // happen manually in Dodo Payments — so moderators work this queue.
     case 'team.review':
       return 'moderator'
     case 'entitlement.grant_pro':

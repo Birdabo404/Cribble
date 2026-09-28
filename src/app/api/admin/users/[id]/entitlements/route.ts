@@ -14,14 +14,14 @@ import {
 import { createServiceClient } from '@/lib/supabaseServer'
 
 // Manual monetization actions — owner only. Pro grants reuse
-// grantProEntitlement, the same fulfillment path as the Polar webhook;
-// revokes mirror the webhook's subscription.revoked handler. Plate
+// grantProEntitlement, the same fulfillment path as the Dodo webhook;
+// revokes mirror the webhook's subscription-ended handler. Plate
 // grants land in user_cosmetics as acquired_via='admin_grant' with no
 // order id, so they are distinguishable from purchases forever.
 //
 // TEAM-tier targets are refused for the Pro actions: the team lifecycle
 // belongs to the review queue (/api/admin/teams/[id]/review) and the
-// Polar webhook, and a Pro grant/revoke here would silently desync
+// Dodo webhook, and a Pro grant/revoke here would silently desync
 // subscription_tier from team_review_status.
 //
 // The no-self-target guardrail applies here too: the owner cannot grant
@@ -134,7 +134,7 @@ export async function POST(
     // overwrite TEAM→PRO while team_review_status stays behind, and
     // revoke_pro would FREE the row out from under the review state
     // machine. The team tier is only ever reverted by the review
-    // queue's reject or the Polar webhook.
+    // queue's reject or the Dodo webhook.
     if (currentTier === 'TEAM' && (action === 'grant_pro' || action === 'revoke_pro')) {
       return NextResponse.json(
         { error: 'This account is on the Team plan — manage it from the team review queue' },

@@ -398,7 +398,7 @@ function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
         return {
           title: `Reject team — ${handle}`,
           description:
-            'Marks the team review as rejected and reverts the tier to FREE. Billing is untouched: cancel and refund the Polar subscription manually.',
+            'Marks the team review as rejected and reverts the tier to FREE. Billing is untouched: cancel and refund the Dodo Payments subscription manually.',
           confirmLabel: 'Reject team',
           danger: true
         }
@@ -682,7 +682,7 @@ function AdminUserDetail({ me, userId }: { me: StaffMe; userId: number }) {
               )}
             </div>
             <p className="mt-2 text-[12px] leading-4 text-[color:var(--st-text-muted)]">
-              Rejecting reverts the tier to FREE — refund the Polar subscription manually.
+              Rejecting reverts the tier to FREE — refund the Dodo Payments subscription manually.
             </p>
           </div>
         )}

@@ -200,7 +200,7 @@ function CheckoutConsole() {
       </a>
 
       <p className="mt-3.5 text-center text-[8px] tracking-[0.25em] text-zinc-600">
-        SECURE CHECKOUT BY POLAR · REVIEWED WITHIN 24 HOURS
+        SECURE CHECKOUT BY DODO PAYMENTS · REVIEWED WITHIN 24 HOURS
       </p>
     </div>
   )

@@ -15,15 +15,12 @@
     "test": "vitest",
     "test:run": "vitest run",
     "audit:prod": "npm audit --omit=dev",
-    "setup:polar": "vite-node scripts/setup-polar.ts",
-    "setup:polar:check": "vite-node scripts/setup-polar.ts --check",
-    "polar:archive-sponsorship": "vite-node scripts/polar-archive-sponsorship.ts"
+    "setup:dodo": "vite-node scripts/setup-dodo.ts",
+    "setup:dodo:check": "vite-node scripts/setup-dodo.ts --check"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",
     "@paper-design/shaders-react": "^0.0.77",
-    "@polar-sh/nextjs": "^0.9.6",
-    "@polar-sh/sdk": "^0.48.1",
     "@supabase/supabase-js": "^2.50.0",
     "@types/uuid": "^10.0.0",
     "@vercel/analytics": "^1.5.0",
@@ -31,6 +28,7 @@
     "clsx": "^2.1.1",
     "d3-scale": "^4.0.2",
     "d3-shape": "^3.2.0",
+    "dodopayments": "^2.51.0",
     "gsap": "^3.15.0",
     "html-to-image": "^1.11.13",
     "motion": "^13.1.0",
@@ -42,6 +40,7 @@
     "resend": "^6.18.1",
     "sharp": "^0.35.4",
     "simple-icons": "^16.30.0",
+    "standardwebhooks": "^1.1.1",
     "tailwind-merge": "^3.6.0",
     "three": "^0.185.1",
     "uuid": "^11.1.1",

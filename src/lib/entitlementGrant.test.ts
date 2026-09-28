@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 
 // grantProEntitlement is the single fulfillment entry point for BOTH the
-// Polar webhook and the sync endpoint, and both callers re-fire it on
+// Dodo webhook and the sync endpoint, and both callers re-fire it on
 // every redelivery/sync — so the idempotency contract is what these tests
 // pin down: premium_since is stamped once and never moved, and metadata
 // is merged (never clobbered).

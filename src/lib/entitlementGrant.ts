@@ -3,7 +3,7 @@ import { getPlate } from '@/lib/cosmetics/plates'
 import { insertMissingNotifications } from '@/lib/notifications'
 
 // The single entry point for Pro and Team fulfillment. Both delivery
-// paths — the Polar webhook (production) and /api/user/subscription/sync
+// paths — the Dodo webhook (production) and /api/user/subscription/sync
 // (local dev, where webhooks can't reach localhost) — funnel through
 // here so tier, premium_since/team_since and the welcome notification
 // always land together.
@@ -11,10 +11,10 @@ import { insertMissingNotifications } from '@/lib/notifications'
 // redelivery, so calling it on every webhook retry / every sync is safe.
 
 export interface GrantProEntitlementOptions {
-  /** Polar product id of the triggering subscription. Context only — the
+  /** Dodo product id of the triggering subscription. Context only — the
    *  grant is identical for every Pro product. */
   productId?: string | null
-  /** Polar subscription id of the triggering subscription. Context only. */
+  /** Dodo subscription id of the triggering subscription. Context only. */
   sourceId?: string | null
 }
 
@@ -146,13 +146,13 @@ export async function grantTeamEntitlement(
 export interface GrantPlatePurchaseOptions {
   /** Catalog plate id resolved from the order/product metadata. */
   plateId: string
-  /** Polar order id — the refund hook deletes by source_order_id. */
+  /** Dodo payment id — the refund hook deletes by source_order_id. */
   orderId: string
 }
 
 /**
- * Deliver a PURCHASED plate. Both fulfillment paths — the order.paid
- * webhook and the pull-based order reconciliation in subscriptionSync —
+ * Deliver a PURCHASED plate. Both fulfillment paths — the payment.succeeded
+ * webhook and the pull-based payment reconciliation in subscriptionSync —
  * funnel through here so the ownership row and the "delivered"
  * notification always land together. Champion/beta/founder gifts have
  * their own grant paths and never come through here.
@@ -160,7 +160,7 @@ export interface GrantPlatePurchaseOptions {
  * insert nothing when a row already exists on the
  * (user_id, item_type, item_id) unique index, so a duplicate order can
  * never rewrite acquired_via/source_order_id — an admin/champion grant
- * can't be turned into a "purchase" that order.refunded would later
+ * can't be turned into a "purchase" that refund.succeeded would later
  * delete. The notification is deduped per order id. Throws on upsert
  * failure (webhook retries / sync surfaces the error); the notification
  * is best-effort — insertMissingNotifications never throws.

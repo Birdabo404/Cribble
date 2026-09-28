@@ -193,7 +193,7 @@ export async function GET(request: NextRequest) {
     }
 
     // House complimentary Pro / Team — never billed. Re-applies on every
-    // login if Polar, an admin action, or the tripwire knocked the row
+    // login if Dodo, an admin action, or the tripwire knocked the row
     // off. Never throws.
     await ensureHouseEntitlements(supabase, user)
 
