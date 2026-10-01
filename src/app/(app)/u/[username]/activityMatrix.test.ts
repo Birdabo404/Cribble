@@ -70,8 +70,8 @@ describe('future cells', () => {
     const grid = buildActivityGrid([day('2026-09-04', 9_999), day('2026-09-05', 9_999)], NOW)
     const [, , , , today, fri, sat] = grid.weeks[12]
     expect(today.future).toBe(false)
-    expect(fri).toEqual({ date: '2026-09-04', activeMs: 0, level: 0, future: true })
-    expect(sat).toEqual({ date: '2026-09-05', activeMs: 0, level: 0, future: true })
+    expect(fri).toEqual({ date: '2026-09-04', activeMs: 0, tokens: 0, level: 0, future: true })
+    expect(sat).toEqual({ date: '2026-09-05', activeMs: 0, tokens: 0, level: 0, future: true })
     expect(grid.activeDays).toBe(0)
     expect(grid.maxMs).toBe(0)
   })
@@ -179,6 +179,48 @@ describe('levels', () => {
     for (const cell of flattenChronological(buildActivityGrid(days, NOW))) {
       expect([0, 1, 2, 3, 4]).toContain(cell.level)
     }
+  })
+})
+
+describe('token activity', () => {
+  const levelOf = (grid: ReturnType<typeof buildActivityGrid>, date: string): GridLevel =>
+    flattenChronological(grid).find((c) => c.date === date)!.level
+
+  it('counts a token-only day as active, including streak', () => {
+    const grid = buildActivityGrid(
+      [{ date: '2026-09-03', activeMs: 0, tokens: 500 }],
+      NOW
+    )
+    const today = grid.weeks[12][4]
+    expect(today).toMatchObject({
+      date: '2026-09-03',
+      activeMs: 0,
+      tokens: 500,
+      future: false
+    })
+    expect(today.level).toBeGreaterThanOrEqual(1)
+    expect(grid.activeDays).toBe(1)
+    expect(grid.currentStreak).toBe(1)
+    expect(grid.maxMs).toBe(0)
+  })
+
+  it('uses the brighter of the focus-time and token levels', () => {
+    // ms scale (two distinct): 10 → 1, 100 → 4.
+    // token scale (three distinct, max 800): 50 → 1, 200 → 1, 800 → 4.
+    const grid = buildActivityGrid(
+      [
+        { date: '2026-09-01', activeMs: 10, tokens: 800 },
+        { date: '2026-09-02', activeMs: 100, tokens: 50 },
+        { date: '2026-09-03', activeMs: 0, tokens: 200 }
+      ],
+      NOW
+    )
+    expect(levelOf(grid, '2026-09-01')).toBe(4)
+    expect(levelOf(grid, '2026-09-02')).toBe(4)
+    expect(levelOf(grid, '2026-09-03')).toBe(1)
+    expect(grid.activeDays).toBe(3)
+    expect(grid.currentStreak).toBe(3)
+    expect(grid.maxMs).toBe(100)
   })
 })
 

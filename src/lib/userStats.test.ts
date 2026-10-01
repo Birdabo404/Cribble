@@ -22,6 +22,7 @@ import {
   buildRollupWriteColumns,
   computeUserStatsRollup,
   ensureUserStatsRollup,
+  mergeTokenActivity,
   parseStoredActivityDays,
   type ActivityDay,
   type UserStatsRollupColumns
@@ -240,12 +241,125 @@ describe('parseStoredActivityDays', () => {
       ]).map((d) => d.date)
     ).toEqual(['2026-09-01', '2026-09-02', '2026-09-03'])
   })
+
+  it('round-trips a token-only day and still drops an all-zero day', () => {
+    expect(
+      parseStoredActivityDays([
+        { date: '2026-09-01', activeMs: 0, tokens: 1_200 },
+        { date: '2026-09-02', activeMs: 0, tokens: 0 },
+        { date: '2026-09-02', activeMs: 0 },
+        { date: '2026-09-03', tokens: 40.6 },
+        { date: '2026-09-04', activeMs: 10, tokens: '5' },
+        { date: '2026-09-05', activeMs: -5, tokens: 'abc' }
+      ])
+    ).toEqual([
+      { date: '2026-09-01', activeMs: 0, tokens: 1_200 },
+      { date: '2026-09-03', activeMs: 0, tokens: 41 },
+      { date: '2026-09-04', activeMs: 10, tokens: 5 }
+    ])
+  })
+
+  it('omits a zero tokens key so a pure extension day stays unchanged', () => {
+    expect(parseStoredActivityDays([{ date: '2026-09-01', activeMs: 8, tokens: 0 }])).toEqual([
+      { date: '2026-09-01', activeMs: 8 }
+    ])
+  })
+})
+
+describe('mergeTokenActivity', () => {
+  it('keeps a token day inside the window and drops one outside', () => {
+    const inside = keyOf(daysAgo(1))
+    const outside = keyOf(daysAgo(ACTIVITY_WINDOW_DAYS))
+    expect(
+      mergeTokenActivity(
+        [],
+        [
+          { date: inside, tokens: 10 },
+          { date: outside, tokens: 99 },
+          { date: 'not-a-date', tokens: 5 }
+        ],
+        NOW
+      )
+    ).toEqual([{ date: inside, activeMs: 0, tokens: 10 }])
+  })
+
+  it('sums same-date token rows from multiple clients', () => {
+    const date = keyOf(daysAgo(0))
+    expect(
+      mergeTokenActivity(
+        [],
+        [
+          { date, tokens: 10 },
+          { date, tokens: 15 },
+          { date, tokens: 0 }
+        ],
+        NOW
+      )
+    ).toEqual([{ date, activeMs: 0, tokens: 25 }])
+  })
+
+  it('keeps extension activeMs when both exist and attaches the token sum', () => {
+    const date = keyOf(daysAgo(2))
+    // The 999 already stored on the day is replaced by the fresh sum
+    // (30 + 50), not added to it — tokenDays is a full aggregate.
+    expect(
+      mergeTokenActivity(
+        [{ date, activeMs: 4_000, tokens: 999 }],
+        [
+          { date, tokens: 30 },
+          { date, tokens: 50 }
+        ],
+        NOW
+      )
+    ).toEqual([{ date, activeMs: 4_000, tokens: 80 }])
+  })
+
+  it('drops a day where both signals are 0 and sorts ascending', () => {
+    const older = keyOf(daysAgo(3))
+    const newer = keyOf(daysAgo(1))
+    expect(
+      mergeTokenActivity(
+        [
+          { date: newer, activeMs: 0 },
+          { date: older, activeMs: 20 }
+        ],
+        [{ date: newer, tokens: 0 }],
+        NOW
+      )
+    ).toEqual([{ date: older, activeMs: 20 }])
+  })
 })
 
 describe('ensureUserStatsRollup backfill gate', () => {
   const upserts: Array<Record<string, unknown>> = []
+  let tokenRows: Array<{ date: string; total_tokens: number }> = []
+  let tokenError: { message: string } | null = null
+
+  interface TokenQuery {
+    select: () => TokenQuery
+    eq: () => TokenQuery
+    gte: () => TokenQuery
+    then: (
+      resolve: (value: unknown) => unknown,
+      reject?: (reason: unknown) => unknown
+    ) => Promise<unknown>
+  }
+
   const client = {
     from: (table: string) => {
+      if (table === 'agent_usage_daily') {
+        const query: TokenQuery = {
+          select: () => query,
+          eq: () => query,
+          gte: () => query,
+          then: (resolve, reject) =>
+            Promise.resolve({
+              data: tokenError ? null : tokenRows,
+              error: tokenError
+            }).then(resolve, reject)
+        }
+        return query
+      }
       expect(table).toBe('user_scores')
       return {
         upsert: async (row: Record<string, unknown>) => {
@@ -266,6 +380,8 @@ describe('ensureUserStatsRollup backfill gate', () => {
 
   beforeEach(() => {
     upserts.length = 0
+    tokenRows = []
+    tokenError = null
     fetchAllUserEventsMock.mockReset()
     fetchAllUserEventsMock.mockResolvedValue({
       events: [heartbeat('2026-09-02T10:00:00.000Z', 4_000)],
@@ -319,5 +435,49 @@ describe('ensureUserStatsRollup backfill gate', () => {
     const rollup = await ensureUserStatsRollup(client, 7, { ...backfilled, activity_days: null })
     expect(rollup).toBeNull()
     expect(upserts).toEqual([])
+  })
+
+  it('merges token days into the backfilled activity list', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    tokenRows = [
+      { date: '2026-09-01', total_tokens: 40 },
+      { date: '2026-09-01', total_tokens: 60 },
+      { date: keyOf(daysAgo(ACTIVITY_WINDOW_DAYS)), total_tokens: 999 }
+    ]
+    try {
+      const rollup = await ensureUserStatsRollup(client, 7, { ...backfilled, activity_days: null })
+      expect(rollup?.activeDays).toBe(1)
+      expect(rollup?.totalActiveMs).toBe(4_000)
+      expect(rollup?.activityDays).toEqual([
+        { date: '2026-09-01', activeMs: 0, tokens: 100 },
+        { date: '2026-09-02', activeMs: 4_000 }
+      ])
+      expect(upserts[0]).toMatchObject({
+        user_id: 7,
+        active_days: 1,
+        total_active_ms: 4_000,
+        activity_days: rollup?.activityDays
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('skips the token merge when the token read fails', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    tokenError = { message: 'boom' }
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const rollup = await ensureUserStatsRollup(client, 7, { ...backfilled, activity_days: null })
+      expect(rollup?.activityDays).toEqual([{ date: '2026-09-02', activeMs: 4_000 }])
+      expect(upserts[0]).toMatchObject({
+        activity_days: [{ date: '2026-09-02', activeMs: 4_000 }]
+      })
+    } finally {
+      errorSpy.mockRestore()
+      vi.useRealTimers()
+    }
   })
 })

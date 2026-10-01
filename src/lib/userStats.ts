@@ -9,7 +9,11 @@
 //
 // Migration 069 adds activity_days — per-UTC-day active ms for the last
 // ACTIVITY_WINDOW_DAYS — to the same rollup, with the same write path and
-// the same NULL-means-backfill contract.
+// the same NULL-means-backfill contract. Those days also carry summed
+// agent token totals (optional `tokens`) so the profile grid lights up
+// when either the extension or the CLI was active. Focus time stays
+// extension milliseconds: tokens are never turned into activeMs, and
+// active_days / longest_streak / total_active_ms stay extension-only.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { longestStreakFromDayKeys } from './achievements'
@@ -31,11 +35,30 @@ export const ACTIVITY_WINDOW_DAYS = 91
 
 const DAY_MS = 86_400_000
 
-/** One UTC day with verified active time. */
+/** One UTC day on the profile activity grid. Present when the extension
+ *  recorded focus time, the CLI recorded token usage, or both. */
 export interface ActivityDay {
   /** UTC date key, 'YYYY-MM-DD'. */
   date: string
+  /** Verified extension focus time. 0 on a token-only day — never
+   *  derived from tokens. */
   activeMs: number
+  /** Summed agent_usage_daily.total_tokens for this date key. The CLI
+   *  reports its local calendar day (agent_usage_daily.timezone), so a
+   *  session near midnight can sit one cell off the UTC extension
+   *  bucket; the grid treats both as the same day key. Omitted (not
+   *  stored as 0) when the day has no token usage, so a pure extension
+   *  rollup keeps the pre-token JSON shape. */
+  tokens?: number
+}
+
+/** One UTC date of CLI token usage, before it is merged onto an
+ *  ActivityDay. `tokens` is total_tokens, already summed across clients
+ *  or still split per client (mergeTokenActivity sums the splits). */
+export interface TokenActivityDay {
+  /** UTC date key, 'YYYY-MM-DD'. */
+  date: string
+  tokens: number
 }
 
 export interface UserStatsRollup {
@@ -44,8 +67,10 @@ export interface UserStatsRollup {
   activeDays: number
   longestStreak: number
   totalActiveMs: number
-  /** Days with activeMs > 0 inside the last ACTIVITY_WINDOW_DAYS UTC
-   *  days, ascending by date. */
+  /** Days inside the last ACTIVITY_WINDOW_DAYS UTC days with extension
+   *  focus time and/or agent token usage, ascending by date.
+   *  computeUserStatsRollup fills only the extension days;
+   *  mergeTokenActivity attaches tokens. */
   activityDays: ActivityDay[]
 }
 
@@ -63,6 +88,17 @@ export const USER_STATS_ROLLUP_SELECT =
   'top_tools, active_days, longest_streak, total_active_ms, stats_updated_at, activity_days'
 
 const utcDayKey = (ms: number): string => new Date(ms).toISOString().split('T')[0]
+
+/** Inclusive UTC date keys for the rollup window: today and the
+ *  preceding ACTIVITY_WINDOW_DAYS - 1 days. Lexical compare works
+ *  because the keys are zero-padded ISO dates. Shared so the token
+ *  merge clamps to the same window as the extension rollup. */
+function activityWindowKeys(now: Date): { firstKey: string; todayKey: string } {
+  return {
+    todayKey: utcDayKey(now.getTime()),
+    firstKey: utcDayKey(now.getTime() - (ACTIVITY_WINDOW_DAYS - 1) * DAY_MS)
+  }
+}
 
 /**
  * Compute the rollup from a user's full event history — the exact
@@ -91,10 +127,7 @@ export function computeUserStatsRollup(
     }
   }
 
-  // Window: [today - (N-1), today] as UTC date keys. Keys compare
-  // lexically because they are zero-padded ISO dates.
-  const todayKey = utcDayKey(now.getTime())
-  const firstKey = utcDayKey(now.getTime() - (ACTIVITY_WINDOW_DAYS - 1) * DAY_MS)
+  const { firstKey, todayKey } = activityWindowKeys(now)
   const activityDays: ActivityDay[] = []
   for (const [date, ms] of dayActiveMs) {
     if (date >= firstKey && date <= todayKey) activityDays.push({ date, activeMs: ms })
@@ -154,10 +187,30 @@ export function parseStoredTopTools(value: unknown): RankedTool[] {
 
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/
 
+/** Non-negative integer, same guard the rollup uses for activeMs:
+ *  non-finite becomes 0, then rounded. Negatives clamp to 0 so a
+ *  token-only day can still be stored with activeMs 0. */
+function roundedNonNegative(value: unknown): number {
+  return Math.max(0, Math.round(toFiniteNumber(value)))
+}
+
+function sortActivityDays(days: ActivityDay[]): ActivityDay[] {
+  days.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  return days
+}
+
+function inActivityWindow(date: string, now: Date): boolean {
+  if (!DATE_KEY_RE.test(date)) return false
+  const { firstKey, todayKey } = activityWindowKeys(now)
+  return date >= firstKey && date <= todayKey
+}
+
 /** Parse a stored activity_days jsonb value back into ActivityDay[].
- *  Malformed entries are skipped, zero/negative days dropped, and the
- *  result re-sorted ascending; null (row not backfilled yet) reads as
- *  an empty list. */
+ *  A day is kept when activeMs > 0 or tokens > 0; a token-only day
+ *  comes back as activeMs 0 plus tokens. Malformed entries are skipped,
+ *  the tokens key is omitted when absent or not positive (so a pure
+ *  extension day round-trips unchanged), and the result is re-sorted
+ *  ascending. null (row not backfilled yet) reads as an empty list. */
 export function parseStoredActivityDays(value: unknown): ActivityDay[] {
   if (!Array.isArray(value)) return []
   const days: ActivityDay[] = []
@@ -166,12 +219,113 @@ export function parseStoredActivityDays(value: unknown): ActivityDay[] {
     const raw = entry as Record<string, unknown>
     const date = typeof raw.date === 'string' ? raw.date : ''
     if (!DATE_KEY_RE.test(date)) continue
-    const activeMs = Math.round(toFiniteNumber(raw.activeMs))
-    if (activeMs <= 0) continue
-    days.push({ date, activeMs })
+    const activeMs = roundedNonNegative(raw.activeMs)
+    const tokens = roundedNonNegative(raw.tokens)
+    if (activeMs <= 0 && tokens <= 0) continue
+    const day: ActivityDay = { date, activeMs }
+    if (tokens > 0) day.tokens = tokens
+    days.push(day)
   }
-  days.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
-  return days
+  return sortActivityDays(days)
+}
+
+/**
+ * Union extension focus days with CLI token days, clamped to the same
+ * ACTIVITY_WINDOW_DAYS window as computeUserStatsRollup.
+ *
+ * `tokenDays` is the window's token total: one row per date, or several
+ * client rows for the same date (those are summed). Tokens already on
+ * `activityDays` are not added on top — callers pass a fresh aggregate
+ * from agent_usage_daily, and adding it to a previously merged total
+ * would double. Extension activeMs wins on days that have both. Days
+ * where both signals are 0, days outside the window, and invalid date
+ * keys are dropped. Result is ascending by date; the tokens key is
+ * omitted when the date has none.
+ */
+export function mergeTokenActivity(
+  activityDays: ActivityDay[],
+  tokenDays: TokenActivityDay[],
+  now: Date = new Date()
+): ActivityDay[] {
+  const activeMsByDate = new Map<string, number>()
+  for (const day of activityDays) {
+    if (!inActivityWindow(day.date, now)) continue
+    const activeMs = roundedNonNegative(day.activeMs)
+    if (activeMs <= 0) continue
+    // Last positive row wins. The rollup already aggregates per day;
+    // summing here would double a day that was listed twice.
+    activeMsByDate.set(day.date, activeMs)
+  }
+
+  const tokensByDate = new Map<string, number>()
+  for (const row of tokenDays) {
+    if (!inActivityWindow(row.date, now)) continue
+    const tokens = roundedNonNegative(row.tokens)
+    if (tokens <= 0) continue
+    tokensByDate.set(row.date, (tokensByDate.get(row.date) ?? 0) + tokens)
+  }
+
+  const dates = new Set<string>([...activeMsByDate.keys(), ...tokensByDate.keys()])
+  const merged: ActivityDay[] = []
+  for (const date of dates) {
+    const activeMs = activeMsByDate.get(date) ?? 0
+    const tokens = tokensByDate.get(date) ?? 0
+    if (activeMs <= 0 && tokens <= 0) continue
+    const day: ActivityDay = { date, activeMs }
+    if (tokens > 0) day.tokens = tokens
+    merged.push(day)
+  }
+  return sortActivityDays(merged)
+}
+
+function readDateKey(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  const date = value.length >= 10 ? value.slice(0, 10) : value
+  return DATE_KEY_RE.test(date) ? date : ''
+}
+
+/** agent_usage_daily rows for this user inside the activity window,
+ *  summed per UTC date. null on error so callers keep the extension-only
+ *  rollup; an empty list means the user simply has no token days. */
+export async function fetchTokenActivityDays(
+  supabase: SupabaseClient,
+  userId: number,
+  now: Date = new Date()
+): Promise<TokenActivityDay[] | null> {
+  try {
+    const { firstKey } = activityWindowKeys(now)
+    const { data, error } = await supabase
+      .from('agent_usage_daily')
+      .select('date, total_tokens')
+      .eq('user_id', userId)
+      .gte('date', firstKey)
+
+    if (error) {
+      console.error(
+        `[UserStats] Token activity read failed (user ${userId}):`,
+        error.message
+      )
+      return null
+    }
+
+    const totals = new Map<string, number>()
+    const rows = Array.isArray(data) ? data : []
+    for (const row of rows) {
+      const raw = row as { date?: unknown; total_tokens?: unknown }
+      const date = readDateKey(raw.date)
+      if (!date) continue
+      const tokens = roundedNonNegative(raw.total_tokens)
+      if (tokens <= 0) continue
+      totals.set(date, (totals.get(date) ?? 0) + tokens)
+    }
+
+    const days: TokenActivityDay[] = []
+    for (const [date, tokens] of totals) days.push({ date, tokens })
+    return days
+  } catch (err) {
+    console.error(`[UserStats] Token activity read failed (user ${userId}):`, err)
+    return null
+  }
 }
 
 function rollupFromColumns(row: UserStatsRollupColumns): UserStatsRollup {
@@ -196,6 +350,11 @@ function rollupFromColumns(row: UserStatsRollupColumns): UserStatsRollup {
  * fetched ONCE, the rollup is computed and persisted, and the fresh
  * values are returned, so the backfill cost is paid a single time per
  * user instead of on every read.
+ *
+ * The backfill merges CLI token days into activityDays before it
+ * persists. A failed token read skips that merge and still writes the
+ * extension rollup; active_days, longest_streak, and total_active_ms
+ * are never touched by tokens.
  *
  * Returns null only when the rollup could not be determined at all
  * (row read failed, or backfill needed but the events fetch failed) —
@@ -251,8 +410,13 @@ export async function ensureUserStatsRollup(
   }
   if (events === null) return null
 
-  const rollup = computeUserStatsRollup(events)
-  const nowIso = new Date().toISOString()
+  const now = new Date()
+  const rollup = computeUserStatsRollup(events, now)
+  const tokenDays = await fetchTokenActivityDays(supabase, userId, now)
+  if (tokenDays !== null) {
+    rollup.activityDays = mergeTokenActivity(rollup.activityDays, tokenDays, now)
+  }
+  const nowIso = now.toISOString()
   const { error: upsertError } = await supabase.from('user_scores').upsert(
     {
       user_id: userId,
@@ -272,4 +436,70 @@ export async function ensureUserStatsRollup(
   }
 
   return rollup
+}
+
+/**
+ * Fold the user's current agent_usage_daily totals into the stored
+ * activity_days array and upsert only that column (plus updated_at).
+ * Called after a CLI ingest, which does not replay events_raw.
+ *
+ * A missing row or NULL activity_days is left alone — the next profile
+ * read's lazy backfill merges tokens itself, and inserting a partial
+ * user_scores row here would publish a zero score. A non-array value
+ * is left alone too. A failed token read does not write, so a stored
+ * token total is not wiped by a transient error. Failures are logged
+ * and swallowed; the ingest that called this must still succeed.
+ */
+export async function refreshTokenActivityDays(
+  supabase: SupabaseClient,
+  userId: number,
+  now: Date = new Date()
+): Promise<void> {
+  try {
+    const { data, error } = await supabase
+      .from('user_scores')
+      .select('activity_days')
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (error) {
+      console.error(
+        `[UserStats] Activity days read failed (user ${userId}):`,
+        error.message
+      )
+      return
+    }
+
+    const stored = (data as { activity_days?: unknown } | null)?.activity_days
+    if (!Array.isArray(stored)) return
+
+    const tokenDays = await fetchTokenActivityDays(supabase, userId, now)
+    if (tokenDays === null) return
+
+    const activityDays = mergeTokenActivity(
+      parseStoredActivityDays(stored),
+      tokenDays,
+      now
+    )
+    const nowIso = now.toISOString()
+    const { error: upsertError } = await supabase.from('user_scores').upsert(
+      {
+        user_id: userId,
+        activity_days: activityDays,
+        updated_at: nowIso
+      },
+      { onConflict: 'user_id' }
+    )
+    if (upsertError) {
+      console.error(
+        `[UserStats] Activity days token refresh failed (user ${userId}):`,
+        upsertError.message
+      )
+    }
+  } catch (err) {
+    console.error(
+      `[UserStats] Activity days token refresh failed (user ${userId}):`,
+      err
+    )
+  }
 }

@@ -8,7 +8,12 @@
 //
 // Days are UTC because the rollup (lib/userStats computeUserStatsRollup)
 // buckets by UTC date key — local-midnight math would shift every dot a
-// day for anyone east of UTC.
+// day for anyone east of UTC. A cell is active when the extension
+// recorded focus time or the CLI recorded token usage. The 1–4 scale is
+// computed separately for each signal (same quartile function) and the
+// cell takes the brighter of the two, so a token-only day lights up
+// and a busy focus day keeps the level its focus time earned. Focus
+// milliseconds stay the extension total.
 
 import type { ActivityDay } from '@/lib/userStats'
 
@@ -23,8 +28,10 @@ export type GridLevel = 0 | 1 | 2 | 3 | 4
 export interface GridCell {
   /** UTC date key, 'YYYY-MM-DD'. */
   date: string
-  /** 0 for future cells regardless of input. */
+  /** 0 for future cells and for days with no extension focus time. */
   activeMs: number
+  /** 0 for future cells and for days with no CLI token usage. */
+  tokens: number
   level: GridLevel
   /** After today (UTC) — rendered as a vacant slot, never counted. */
   future: boolean
@@ -35,9 +42,9 @@ export interface ActivityGrid {
   weeks: GridCell[][]
   /** Busiest non-future day in the window; 0 when idle. */
   maxMs: number
-  /** Consecutive active UTC days ending today or yesterday. */
+  /** Consecutive UTC days with either signal, ending today or yesterday. */
   currentStreak: number
-  /** Non-future days in the window with activity. */
+  /** Non-future days in the window with focus time or token usage. */
   activeDays: number
 }
 
@@ -114,23 +121,39 @@ export function buildActivityGrid(days: ActivityDay[], now: Date): ActivityGrid 
   const lastWeekStart = todayMs - new Date(todayMs).getUTCDay() * DAY_MS
   const firstMs = lastWeekStart - (GRID_WEEKS - 1) * GRID_DAYS * DAY_MS
 
-  const byDate = new Map<string, number>()
+  const msByDate = new Map<string, number>()
+  const tokensByDate = new Map<string, number>()
   for (const day of days) {
-    if (!(day.activeMs > 0)) continue
-    byDate.set(day.date, (byDate.get(day.date) ?? 0) + day.activeMs)
+    if (day.activeMs > 0) {
+      msByDate.set(day.date, (msByDate.get(day.date) ?? 0) + day.activeMs)
+    }
+    const tokens = day.tokens ?? 0
+    if (tokens > 0) {
+      tokensByDate.set(day.date, (tokensByDate.get(day.date) ?? 0) + tokens)
+    }
   }
 
-  // Window values feed the buckets; the streak sees every day handed in
-  // (the rollup already caps the list, and a streak older than the grid
-  // is still a streak).
-  const windowValues: number[] = []
+  // Window values feed the two level scales; the streak sees every day
+  // handed in (the rollup already caps the list, and a streak older than
+  // the grid is still a streak). activeDays counts either signal.
+  const windowMs: number[] = []
+  const windowTokens: number[] = []
+  let activeDays = 0
   for (let i = 0; i < GRID_WEEKS * GRID_DAYS; i++) {
     const key = dateKey(firstMs + i * DAY_MS)
     if (key > todayKey) break
-    const ms = byDate.get(key)
-    if (ms) windowValues.push(ms)
+    const ms = msByDate.get(key) ?? 0
+    const tokens = tokensByDate.get(key) ?? 0
+    if (ms > 0) windowMs.push(ms)
+    if (tokens > 0) windowTokens.push(tokens)
+    if (ms > 0 || tokens > 0) activeDays += 1
   }
-  const level = levelScale(windowValues)
+  const msLevel = levelScale(windowMs)
+  const tokenLevel = levelScale(windowTokens)
+
+  const active = new Set<string>()
+  for (const [date, ms] of msByDate) if (ms > 0) active.add(date)
+  for (const [date, tokens] of tokensByDate) if (tokens > 0) active.add(date)
 
   const weeks: GridCell[][] = []
   for (let w = 0; w < GRID_WEEKS; w++) {
@@ -139,17 +162,21 @@ export function buildActivityGrid(days: ActivityDay[], now: Date): ActivityGrid 
       const ms = firstMs + (w * GRID_DAYS + d) * DAY_MS
       const date = dateKey(ms)
       const future = date > todayKey
-      const activeMs = future ? 0 : byDate.get(date) ?? 0
-      week.push({ date, activeMs, level: level(activeMs), future })
+      const activeMs = future ? 0 : msByDate.get(date) ?? 0
+      const tokens = future ? 0 : tokensByDate.get(date) ?? 0
+      const level = (
+        future ? 0 : Math.max(msLevel(activeMs), tokenLevel(tokens))
+      ) as GridLevel
+      week.push({ date, activeMs, tokens, level, future })
     }
     weeks.push(week)
   }
 
   return {
     weeks,
-    maxMs: windowValues.length ? Math.max(...windowValues) : 0,
-    currentStreak: streakEnding(new Set(byDate.keys()), todayMs),
-    activeDays: windowValues.length
+    maxMs: windowMs.length ? Math.max(...windowMs) : 0,
+    currentStreak: streakEnding(active, todayMs),
+    activeDays
   }
 }
 

@@ -6,7 +6,10 @@
 // file on purpose: activityGrid.ts + ActivityGrid.tsx collide on a
 // case-insensitive filesystem — tsc drops the .tsx from the include set
 // and './ActivityGrid' resolves to the .ts). This file is only the
-// markup. Dots are <data> elements in chronological DOM order (oldest
+// markup. A lit dot is extension focus time, CLI token usage, or both.
+// The tooltip names the duration when there is focus time, and AGENT
+// ACTIVITY when the day is tokens only — raw token counts stay off the
+// public profile. Dots are <data> elements in chronological DOM order (oldest
 // first, column-major) because the boot stagger walks them as a
 // [7, 13] grid from 'start'. Month ticks live in an eighth row of the
 // same grid so they share the dot columns; every column gets a tick cell
@@ -55,9 +58,16 @@ const tickStyle: CSSProperties = {
 
 const hiddenStyle: CSSProperties = { visibility: 'hidden' }
 
-const cellTitle = (date: string, activeMs: number, future: boolean): string => {
+const cellTitle = (
+  date: string,
+  activeMs: number,
+  tokens: number,
+  future: boolean
+): string => {
   if (future) return date
-  return `${date} · ${activeMs > 0 ? formatDuration(activeMs) : 'NO ACTIVITY'}`
+  if (activeMs > 0) return `${date} · ${formatDuration(activeMs)}`
+  if (tokens > 0) return `${date} · AGENT ACTIVITY`
+  return `${date} · NO ACTIVITY`
 }
 
 export function ActivityGrid({
@@ -103,7 +113,7 @@ export function ActivityGrid({
               className="pf-grid-dot"
               data-level={cell.level}
               data-future={cell.future || undefined}
-              title={cellTitle(cell.date, cell.activeMs, cell.future)}
+              title={cellTitle(cell.date, cell.activeMs, cell.tokens, cell.future)}
               style={cell.future ? hiddenStyle : undefined}
             />
           ))}

@@ -20,6 +20,7 @@ import {
   normalizeIanaTimeZone
 } from '@/lib/timeZone'
 import { exactDecimal } from '@/lib/tokenLeaderboard'
+import { refreshTokenActivityDays } from '@/lib/userStats'
 
 export const dynamic = 'force-dynamic'
 
@@ -516,6 +517,20 @@ export async function POST(request: NextRequest) {
         }
       })
     }
+
+    // The profile ACTIVITY GRID reads user_scores.activity_days, which
+    // extension sync fills with focus time. This ingest is the other
+    // signal: fold the user's token days into that array so a CLI-only
+    // day lights up. Off the response path, same deferral as the burn
+    // pass — the grid update must never fail or delay the sync. Profile
+    // payloads stay on the existing 60s cache, the same as a score sync.
+    after(async () => {
+      try {
+        await refreshTokenActivityDays(supabase, userId)
+      } catch (err) {
+        console.warn('[AgentUsage] Activity grid token refresh failed:', err)
+      }
+    })
 
     return NextResponse.json({
       success: true,

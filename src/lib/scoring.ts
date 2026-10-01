@@ -2,7 +2,12 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getEventsIdentityColumn } from './eventsIdentity'
 import { fetchAllEventPages } from './eventsFetch'
 import { fetchActiveSeasonWindow, type SeasonWindowMs } from './seasonServer'
-import { buildRollupWriteColumns, computeUserStatsRollup } from './userStats'
+import {
+  buildRollupWriteColumns,
+  computeUserStatsRollup,
+  fetchTokenActivityDays,
+  mergeTokenActivity
+} from './userStats'
 import type { RankedTool } from './topTools'
 
 // ============================================================================
@@ -477,11 +482,17 @@ async function recalculateUserScoreFallback(supabase: SupabaseClient, userId: nu
   // Stats rollup (migration 036) rides the same upsert: this path already
   // holds the full event list, so refreshing top_tools / active_days /
   // longest_streak / total_active_ms here is what lets every read path
-  // skip events_raw entirely.
-  const rollupColumns = buildRollupWriteColumns(
-    computeUserStatsRollup(events),
-    nowIso
-  )
+  // skip events_raw entirely. activity_days also folds in CLI token days
+  // so the profile grid lights up on either signal. A failed token read
+  // leaves the extension days as they are; focus time stays extension
+  // milliseconds. The PGRST204 retry below still writes scores alone
+  // when the rollup columns are missing.
+  const rollup = computeUserStatsRollup(events, now)
+  const tokenDays = await fetchTokenActivityDays(supabase, userId, now)
+  if (tokenDays !== null) {
+    rollup.activityDays = mergeTokenActivity(rollup.activityDays, tokenDays, now)
+  }
+  const rollupColumns = buildRollupWriteColumns(rollup, nowIso)
 
   let { error: upsertError } = await supabase
     .from('user_scores')

@@ -51,7 +51,10 @@ const { state, rateLimitMock, distributedLimitMock, supabaseMock } = vi.hoisted(
       filters: Array<[string, unknown]>
     }>,
     upsertBatches: [] as UsageRow[][],
-    touchError: null as { message: string } | null
+    touchError: null as { message: string } | null,
+    scoreRows: [] as Array<{ user_id: number; activity_days: unknown }>,
+    activityWrites: [] as Array<Record<string, unknown>>,
+    pendingAfter: [] as Array<Promise<unknown>>
   }
 
   interface QueryContext {
@@ -60,6 +63,7 @@ const { state, rateLimitMock, distributedLimitMock, supabaseMock } = vi.hoisted(
     columns?: string
     filters: Array<[string, unknown]>
     inFilters: Array<[string, unknown[]]>
+    gteFilters: Array<[string, unknown]>
     values?: Record<string, unknown> | UsageRow[]
   }
 
@@ -79,6 +83,17 @@ const { state, rateLimitMock, distributedLimitMock, supabaseMock } = vi.hoisted(
       }
 
       const rows = state.keys.filter((row) =>
+        matches(row as unknown as Record<string, unknown>, ctx.filters)
+      )
+      return { data: rows, error: null }
+    }
+
+    if (ctx.table === 'user_scores') {
+      if (ctx.op === 'upsert') {
+        state.activityWrites.push({ ...(ctx.values as Record<string, unknown>) })
+        return { data: null, error: null }
+      }
+      const rows = state.scoreRows.filter((row) =>
         matches(row as unknown as Record<string, unknown>, ctx.filters)
       )
       return { data: rows, error: null }
@@ -110,6 +125,20 @@ const { state, rateLimitMock, distributedLimitMock, supabaseMock } = vi.hoisted(
       if (ctx.columns === 'client_id') {
         return { data: rows.map((row) => ({ client_id: row.client_id })), error: null }
       }
+      if (ctx.columns?.includes('total_tokens')) {
+        let tokenRows = rows
+        for (const [column, value] of ctx.gteFilters) {
+          if (column === 'date') {
+            tokenRows = tokenRows.filter((row) => String(row.date) >= String(value))
+          }
+        }
+        return {
+          data: tokenRows
+            .filter((row) => row.total_tokens > 0)
+            .map((row) => ({ date: row.date, total_tokens: row.total_tokens })),
+          error: null
+        }
+      }
       return {
         data: rows.map((row) => ({ date: row.date, generated_at: row.generated_at })),
         error: null
@@ -124,7 +153,8 @@ const { state, rateLimitMock, distributedLimitMock, supabaseMock } = vi.hoisted(
       table,
       op: 'select',
       filters: [],
-      inFilters: []
+      inFilters: [],
+      gteFilters: []
     }
     /* eslint-disable @typescript-eslint/no-explicit-any */
     const builder: any = {
@@ -144,6 +174,10 @@ const { state, rateLimitMock, distributedLimitMock, supabaseMock } = vi.hoisted(
       },
       eq: (column: string, value: unknown) => {
         ctx.filters.push([column, value])
+        return builder
+      },
+      gte: (column: string, value: unknown) => {
+        ctx.gteFilters.push([column, value])
         return builder
       },
       in: (column: string, values: unknown[]) => {
@@ -286,6 +320,21 @@ vi.mock('@/lib/rateLimit', () => ({
   createRateLimitResponse: () => new Headers()
 }))
 
+// The route defers the activity-grid refresh via after(), which requires
+// a Next request scope vitest doesn't provide (the real one throws
+// without it). Run the task immediately instead, same shim as the
+// extension sync test; NextRequest/NextResponse stay real.
+vi.mock('next/server', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('next/server')>()
+  return {
+    ...actual,
+    after: (task: Promise<unknown> | (() => unknown)) => {
+      const pending = typeof task === 'function' ? Promise.resolve().then(task) : Promise.resolve(task)
+      state.pendingAfter.push(pending)
+    }
+  }
+})
+
 import { POST } from './route'
 
 const USER_A = 42
@@ -424,13 +473,17 @@ beforeEach(() => {
   state.keyTouches = []
   state.upsertBatches = []
   state.touchError = null
+  state.scoreRows = []
+  state.activityWrites = []
+  state.pendingAfter = []
   rateLimitMock.mockReset()
   rateLimitMock.mockReturnValue(successLimit())
   distributedLimitMock.mockReset()
   distributedLimitMock.mockResolvedValue(successLimit())
 })
 
-afterEach(() => {
+afterEach(async () => {
+  await Promise.all(state.pendingAfter)
   vi.useRealTimers()
 })
 
@@ -708,6 +761,37 @@ describe('POST /api/agent/usage — strict validation', () => {
 
     expect(badZone.status).toBe(400)
     expect(badDate.status).toBe(400)
+  })
+
+  it('folds token usage into a stored activity grid after ingest', async () => {
+    addKey()
+    state.scoreRows.push({
+      user_id: USER_A,
+      activity_days: [{ date: '2026-08-21', activeMs: 1_000 }]
+    })
+    addUsage({ date: '2026-05-01', inputTokens: 7 })
+
+    const response = await POST(request(payload()))
+    expect(response.status).toBe(200)
+    await Promise.all(state.pendingAfter)
+
+    expect(state.activityWrites).toHaveLength(1)
+    expect(state.activityWrites[0]).toMatchObject({
+      user_id: USER_A,
+      activity_days: [{ date: '2026-08-21', activeMs: 1_000, tokens: 100 }]
+    })
+    expect(state.activityWrites[0].updated_at).toEqual(expect.any(String))
+  })
+
+  it('leaves a null activity_days row for the lazy backfill', async () => {
+    addKey()
+    state.scoreRows.push({ user_id: USER_A, activity_days: null })
+
+    const response = await POST(request(payload()))
+    expect(response.status).toBe(200)
+    await Promise.all(state.pendingAfter)
+
+    expect(state.activityWrites).toEqual([])
   })
 
   it('continues when the best-effort last-used update fails', async () => {

@@ -163,8 +163,9 @@ export interface PublicProfile {
    *  deduplicated by the aggregate RPC. Never a ranking input. */
   topAgents: PublicProfileAgent[]
   badges: PublicProfileBadge[]
-  /** ACTIVITY GRID feed: per-UTC-day active ms for the last windowDays
-   *  days (only days with activity, ascending), straight off the
+  /** ACTIVITY GRID feed: per-UTC-day extension focus ms, plus agent
+   *  token totals on days the CLI synced, for the last windowDays
+   *  (only days with either signal, ascending). Straight off the
    *  user_scores rollup. Gated like topTools/badges. */
   activity: { windowDays: typeof ACTIVITY_WINDOW_DAYS; days: ActivityDay[] }
   /** Account is in private mode (owner opted in via profile settings). */
