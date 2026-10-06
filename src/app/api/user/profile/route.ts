@@ -6,6 +6,11 @@ import { getOwnedPlateIds, isProTier } from '@/lib/entitlements'
 import { refreshStaleCards } from '@/lib/hangar/cards'
 import { cleanPins, PIN_URL_MAX } from '@/lib/hangar/normalize'
 import { detectAnimatedImage } from '@/lib/imageAnimation'
+import { LEADERBOARD_BOARD_CACHE_TAG } from '@/lib/leaderboardCache'
+import {
+  LEADERBOARD_COUNTRY_KEY,
+  parseLeaderboardCountry
+} from '@/lib/leaderboardCountry'
 import { cleanHttpUrl, stripControl } from '@/lib/profileText'
 import { publicProfileCacheTag } from '@/lib/publicProfile'
 import { isRoleId } from '@/lib/roles'
@@ -106,11 +111,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: session.error }, { status: session.status })
     }
 
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('id, twitter_username, user_type, metadata')
-      .eq('id', session.userId)
-      .single()
+    const [{ data: user, error }, { data: devices }] = await Promise.all([
+      supabase
+        .from('users')
+        .select('id, twitter_username, user_type, metadata')
+        .eq('id', session.userId)
+        .single(),
+      supabase
+        .from('user_devices')
+        .select('country_code, last_sync_at')
+        .eq('user_id', session.userId)
+        .not('country_code', 'is', null)
+        .order('last_sync_at', { ascending: false, nullsFirst: false })
+        .limit(1)
+    ])
 
     if (error || !user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
@@ -136,6 +150,9 @@ export async function GET(request: NextRequest) {
         role: isRoleId(user.user_type) ? user.user_type : null,
         is_private: meta.is_private === true,
         insights_opt_out: meta.insights_opt_out === true,
+        leaderboard_country: parseLeaderboardCountry(meta[LEADERBOARD_COUNTRY_KEY]),
+        // A suggestion for the picker only — never published.
+        device_country: parseLeaderboardCountry(devices?.[0]?.country_code),
         socials: {
           x: str(socials.x),
           github: str(socials.github),
@@ -163,6 +180,7 @@ interface ProfilePatchPayload {
   role?: unknown
   is_private?: unknown
   insights_opt_out?: unknown
+  leaderboard_country?: unknown
   socials?: Record<string, unknown>
 }
 
@@ -287,6 +305,23 @@ export async function PATCH(request: NextRequest) {
     // excludes the account from anonymized trend rollups.
     if ('insights_opt_out' in body) merged.insights_opt_out = body.insights_opt_out === true
 
+    // Country board opt-in: a known ISO code joins, null or empty leaves.
+    // Anything else is a bad request — silently dropping it would read as
+    // "saved" while quietly taking the player off their board.
+    const countryChanged = 'leaderboard_country' in body
+    if (countryChanged) {
+      const raw = body.leaderboard_country
+      if (raw === null || raw === '') {
+        merged[LEADERBOARD_COUNTRY_KEY] = null
+      } else {
+        const code = parseLeaderboardCountry(raw)
+        if (!code) {
+          return NextResponse.json({ error: 'Unknown country' }, { status: 400 })
+        }
+        merged[LEADERBOARD_COUNTRY_KEY] = code
+      }
+    }
+
     if (body.socials && typeof body.socials === 'object') {
       const nextSocials: Record<string, unknown> = { ...currentSocials }
       for (const key of SOCIAL_KEYS) {
@@ -338,6 +373,7 @@ export async function PATCH(request: NextRequest) {
     // the save silently failed).
     const handle = (existing?.twitter_username as string | null | undefined)?.trim()
     if (handle) revalidateTag(publicProfileCacheTag(handle))
+    if (countryChanged) revalidateTag(LEADERBOARD_BOARD_CACHE_TAG)
 
     // Echo what the hangar fields were stored as: cleanPins drops an
     // unusable link silently (one bad paste must not fail the save), so

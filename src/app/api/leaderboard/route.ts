@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { parseBannerFrame, type BannerFrame } from '@/lib/bannerFrame'
 import { getOwnedPlateIdsBatch, isProTier, resolveEquippedPlate } from '@/lib/entitlements'
+import { LEADERBOARD_BOARD_CACHE_TAG } from '@/lib/leaderboardCache'
+import { LEADERBOARD_COUNTRY_KEY, parseLeaderboardCountry } from '@/lib/leaderboardCountry'
 import { BOARD_LIMIT } from '@/lib/leaderboardEngine'
 import { readRankMovements } from '@/lib/leaderboardSnapshot'
 import { isMissingFollowsTable, readAccountIsPrivate } from '@/lib/publicProfile'
@@ -164,6 +166,8 @@ interface BoardRow {
     linkedin: string | null
   }
   role: string | null
+  /** Opt-in country board (ISO code), or null. Never the device country. */
+  country: string | null
   rank: number
   rankDelta: number
   movedAt: string | null
@@ -444,6 +448,7 @@ async function assembleBoard(
       plate,
       socials,
       role: user.user_type || null,
+      country: parseLeaderboardCountry(meta[LEADERBOARD_COUNTRY_KEY]),
       rank: user.canonicalRank
     }
   })
@@ -479,7 +484,7 @@ const loadBoardCached = unstable_cache(
   async (board: BoardKind, seasonState: SeasonState) =>
     assembleBoard(board, seasonState),
   ['leaderboard-board'],
-  { revalidate: BOARD_REVALIDATE_SECONDS }
+  { revalidate: BOARD_REVALIDATE_SECONDS, tags: [LEADERBOARD_BOARD_CACHE_TAG] }
 )
 
 export async function GET(request: NextRequest) {

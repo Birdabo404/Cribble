@@ -318,6 +318,9 @@ export function BurnStyles() {
         left: 0;
         z-index: 40;
         min-width: 220px;
+        max-height: min(440px, 70vh);
+        overflow-y: auto;
+        overscroll-behavior: contain;
         padding: 6px 0 8px;
         border: 1px solid var(--bb-edge);
         background: rgb(var(--lb-panel-bg));

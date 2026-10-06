@@ -1,10 +1,11 @@
 'use client'
 
 // The GLOBAL toolbar's one scope control. SEASON / ALL-TIME used to be
-// two cells; they are now the first group in this menu, with the camp
-// cut (Everyone, then whichever majors have a #1 pilot) underneath.
-// The closed button names the camp once one is on, and keeps ALL-TIME
-// in the label so the window never disappears.
+// two cells; they are now the first group in this menu, with the cuts
+// underneath: Everyone, the majors that have a #1 pilot, then the
+// countries that have an opted-in pilot. One cut at a time. The closed
+// button names the cut once one is on, and keeps ALL-TIME in the label
+// so the window never disappears.
 
 import {
   useEffect,
@@ -17,9 +18,12 @@ import {
 import { IconChevronDown } from '@/components/leaderboard/icons'
 import {
   campLabel,
+  EVERYONE,
+  sameCut,
   scopeButtonLabel,
-  type CampFilter,
   type CampOption,
+  type CountryOption,
+  type StandingsCut,
   type StandingsWindowId
 } from '@/components/leaderboard/standingsScope'
 
@@ -30,25 +34,27 @@ const WINDOWS: { id: StandingsWindowId; label: string }[] = [
 
 export function StandingsScopeMenu({
   windowId,
-  camp,
+  cut,
   camps,
+  countries,
   pilotCount,
   onWindow,
-  onCamp
+  onCut
 }: {
   windowId: StandingsWindowId
-  camp: CampFilter
+  cut: StandingsCut
   camps: readonly CampOption[]
+  countries: readonly CountryOption[]
   pilotCount: number
   onWindow: (windowId: StandingsWindowId) => void
-  onCamp: (camp: CampFilter) => void
+  onCut: (cut: StandingsCut) => void
 }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const menuId = useId()
-  const label = scopeButtonLabel(windowId, camp)
+  const label = scopeButtonLabel(windowId, cut)
 
   useEffect(() => {
     if (!open) return
@@ -76,6 +82,23 @@ export function StandingsScopeMenu({
   }, [open])
 
   const close = () => setOpen(false)
+  const pick = (next: StandingsCut) => {
+    onCut(next)
+    close()
+  }
+
+  const everyoneItem = (
+    <button
+      type="button"
+      role="menuitemradio"
+      aria-checked={cut.kind === 'everyone'}
+      className="bb-scope-item"
+      onClick={() => pick(EVERYONE)}
+    >
+      Everyone
+      <span className="bb-scope-count">{pilotCount}</span>
+    </button>
+  )
 
   const onMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const items = menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')
@@ -153,35 +176,47 @@ export function StandingsScopeMenu({
               <div className="bb-scope-label bb-scope-label-rule" role="presentation">
                 Camp
               </div>
-              <button
-                type="button"
-                role="menuitemradio"
-                aria-checked={camp === 'everyone'}
-                className="bb-scope-item"
-                onClick={() => {
-                  onCamp('everyone')
-                  close()
-                }}
-              >
-                Everyone
-                <span className="bb-scope-count">{pilotCount}</span>
-              </button>
-              {camps.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={camp === item.id}
-                  className="bb-scope-item"
-                  onClick={() => {
-                    onCamp(item.id)
-                    close()
-                  }}
-                >
-                  {campLabel(item.id)}
-                  <span className="bb-scope-count">{item.count}</span>
-                </button>
-              ))}
+              {everyoneItem}
+              {camps.map((item) => {
+                const itemCut: StandingsCut = { kind: 'camp', camp: item.id }
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={sameCut(cut, itemCut)}
+                    className="bb-scope-item"
+                    onClick={() => pick(itemCut)}
+                  >
+                    {campLabel(item.id)}
+                    <span className="bb-scope-count">{item.count}</span>
+                  </button>
+                )
+              })}
+            </>
+          )}
+          {countries.length > 0 && (
+            <>
+              <div className="bb-scope-label bb-scope-label-rule" role="presentation">
+                Country
+              </div>
+              {camps.length === 0 && everyoneItem}
+              {countries.map((item) => {
+                const itemCut: StandingsCut = { kind: 'country', code: item.code }
+                return (
+                  <button
+                    key={item.code}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={sameCut(cut, itemCut)}
+                    className="bb-scope-item"
+                    onClick={() => pick(itemCut)}
+                  >
+                    {item.name}
+                    <span className="bb-scope-count">{item.count}</span>
+                  </button>
+                )
+              })}
             </>
           )}
         </div>

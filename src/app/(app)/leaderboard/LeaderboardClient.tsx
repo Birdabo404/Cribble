@@ -21,7 +21,8 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
-  useState
+  useState,
+  type ReactNode
 } from 'react'
 import { fetchMe as requestMe } from '@/lib/client/fetchMe'
 import { prefersReducedMotion } from '@/lib/motion'
@@ -50,10 +51,14 @@ import { BurnSeg } from '@/components/leaderboard/burn/BurnSeg'
 import { BurnStyles } from '@/components/leaderboard/burn/BurnStyles'
 import { StandingsScopeMenu } from '@/components/leaderboard/StandingsScopeMenu'
 import {
-  campLabel,
   campsOnBoard,
-  rowsInCamp,
-  type CampFilter
+  countriesOnBoard,
+  countryLabel,
+  cutIsAvailable,
+  cutLabel,
+  EVERYONE,
+  rowsInCut,
+  type StandingsCut
 } from '@/components/leaderboard/standingsScope'
 import { CrtAttract, HeroTitle } from '@/components/leaderboard/CrtAttract'
 import { CursorClaimPrompt } from '@/components/leaderboard/CursorClaimPrompt'
@@ -63,6 +68,7 @@ import { RankAvatar } from '@/components/leaderboard/RankRegalia'
 import { TeamBoard } from '@/components/leaderboard/TeamBoard'
 import { TokenBoard, type BurnSource } from '@/components/leaderboard/TokenBoard'
 import { VisitorTicker } from '@/components/leaderboard/VisitorTicker'
+import { useSettingsModal } from '@/components/settings/SettingsModalContext'
 import { medalA, medalFor, medalGlow, type LeaderRow } from '@/components/leaderboard/types'
 import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
@@ -133,9 +139,10 @@ function LeaderboardArena() {
     if (requested === 'global') return 'season'
     return isBoardView(requested) ? requested : 'season'
   })
-  // Camp cut of the player race. Everyone is the full window. A major
-  // keeps the window and re-ranks the pilots whose #1 tool is that machine.
-  const [camp, setCamp] = useState<CampFilter>('everyone')
+  // One cut of the player race. Everyone is the full window. A major
+  // keeps the window and re-ranks the pilots whose #1 tool is that
+  // machine; a country re-ranks the pilots who opted into it.
+  const [cut, setCut] = useState<StandingsCut>(EVERYONE)
   const [seasonMeta, setSeasonMeta] = useState<SeasonState | null>(null)
 
   // COIN-UP wiring: the auto-surfaced opt-in prompt lives at page level
@@ -281,17 +288,17 @@ function LeaderboardArena() {
   const topScore = leader?.score ?? 0
 
   // The hero and the stat bar stay on the full window. The table, the
-  // chase, and an open card follow the camp: #1 is the top pilot of
-  // that machine, and global movement is cleared so it can't sit next
-  // to a renumbered rank.
+  // chase, and an open card follow the cut: #1 is the top pilot of that
+  // machine or country, and global movement is cleared so it can't sit
+  // next to a renumbered rank.
   const camps = useMemo(() => campsOnBoard(rows), [rows])
-  const scoped = useMemo(() => rowsInCamp(rows, camp), [rows, camp])
+  const countries = useMemo(() => countriesOnBoard(rows), [rows])
+  const scoped = useMemo(() => rowsInCut(rows, cut), [rows, cut])
+  const isCut = cut.kind !== 'everyone'
 
   useEffect(() => {
-    if (camp !== 'everyone' && !camps.some((item) => item.id === camp)) {
-      setCamp('everyone')
-    }
-  }, [camp, camps])
+    if (!cutIsAvailable(cut, camps, countries)) setCut(EVERYONE)
+  }, [cut, camps, countries])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -307,7 +314,7 @@ function LeaderboardArena() {
 
   useEffect(() => {
     setPage(1)
-  }, [query, camp])
+  }, [query, cut])
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages)
@@ -332,7 +339,7 @@ function LeaderboardArena() {
   // (As a plain useEffect it ran after FLIP had already animated the jump.)
   useLayoutEffect(() => {
     skipFlip.current = true
-  }, [page, query, camp])
+  }, [page, query, cut])
 
   useLayoutEffect(() => {
     const refs = rowRefs.current
@@ -382,7 +389,7 @@ function LeaderboardArena() {
 
   const chaseFor = useCallback(
     (row: LeaderRow): ChaseInfo | null => {
-      // A camp row chases inside the camp. A hero opened from the full
+      // A row on the cut chases inside the cut. A hero opened from the full
       // window — not on this cut — still chases the full board.
       const board = scoped.some((u) => u.userId === row.userId) ? scoped : rows
       if (row.rank === 1) {
@@ -405,7 +412,7 @@ function LeaderboardArena() {
   // mounted below for it), rendered in the page's toolbar row on every
   // view except TOKENS, where TokenBoard seats it in its own row under
   // the burn CRT. The GLOBAL tab fronts both standings windows; the
-  // scope menu on its right picks the window and the camp.
+  // scope menu on its right picks the window and the cut.
   const boardTabs = (
     <BurnSeg
       items={BOARD_TABS}
@@ -484,7 +491,7 @@ function LeaderboardArena() {
 
           {/* ---------- view controls: the one toolbar row ---------- */}
           {/* Board tabs on the left; on the standings views the scope menu
-              (window + camp) and the search ride the right side of the
+              (window + cut) and the search ride the right side of the
               same row (wrapping below on mobile, search full-width). TOKENS
               owns its own row: the burn CRT mounts inside TokenBoard, so
               the tabs are handed down to sit between its stat strip and
@@ -500,11 +507,12 @@ function LeaderboardArena() {
               <div className="bb-bar-tools">
                 <StandingsScopeMenu
                   windowId={isStandingsView(view) ? view : 'season'}
-                  camp={camp}
+                  cut={cut}
                   camps={camps}
+                  countries={countries}
                   pilotCount={rows.length}
                   onWindow={handleViewChange}
-                  onCamp={setCamp}
+                  onCut={setCut}
                 />
                 <SearchBar value={query} onChange={setQuery} />
               </div>
@@ -551,7 +559,7 @@ function LeaderboardArena() {
               {/* header strip folded into the panel's top edge */}
               <div className="flex items-baseline justify-between gap-3 border-b border-[rgb(var(--lb-panel-edge)/0.08)] px-4 py-3 md:px-5">
                 <h2 className="font-display text-[11px] font-semibold tracking-[0.45em] text-zinc-300">
-                  {camp === 'everyone' ? 'STANDINGS' : campLabel(camp)}
+                  {cutLabel(cut) ?? 'STANDINGS'}
                 </h2>
                 {!loading && filtered.length > 0 && (
                   <span className="text-[10px] tracking-[0.2em] text-zinc-500 tabular-nums">
@@ -567,8 +575,8 @@ function LeaderboardArena() {
                   <li className="py-14 text-center text-xs tracking-[0.15em] text-zinc-500">
                     {query
                       ? 'No players match that callsign.'
-                      : camp !== 'everyone'
-                        ? `No ${camp} pilots on this board.`
+                      : isCut
+                        ? 'No pilots on this cut yet.'
                         : 'Standings appear once players start syncing.'}
                   </li>
                 )}
@@ -581,7 +589,7 @@ function LeaderboardArena() {
                       topScore={scoped[0]?.score ?? 0}
                       isYou={u.userId === currentUserId}
                       flash={flashes.get(u.userId) ?? null}
-                      showMovement={camp === 'everyone'}
+                      showMovement={!isCut}
                       onSelect={handleSelect}
                       setRef={setRowRef}
                     />
@@ -606,11 +614,11 @@ function LeaderboardArena() {
                   <YouBar
                     me={meScoped}
                     chase={chaseFor(meScoped)}
-                    showMovement={camp === 'everyone'}
+                    showMovement={!isCut}
                     onSelect={handleSelect}
                   />
                 ) : (
-                  <CampNote tool={me.topTools?.[0]?.name ?? null} />
+                  <CutNote cut={cut} me={me} />
                 )}
               </div>
             )}
@@ -1783,11 +1791,39 @@ function YouBar({
   )
 }
 
-/* ================= camp dock ================= */
-/* The viewer is on the full board, but their #1 tool is a different
-   machine. The ranked YOU bar would invent a place in this camp. */
+/* ================= cut dock ================= */
+/* The viewer is on the full board, but outside this cut: their #1 tool
+   is a different machine, or they rank under another country (or none).
+   The ranked YOU bar would invent a place here. */
 
-function CampNote({ tool }: { tool: string | null }) {
+function CutNote({ cut, me }: { cut: StandingsCut; me: LeaderRow }) {
+  const { openSettings } = useSettingsModal()
+  const tool = me.topTools?.[0]?.name ?? null
+  let note: ReactNode
+  switch (cut.kind) {
+    case 'everyone':
+      return null
+    case 'camp':
+      note = tool ? `YOUR MACHINE IS ${tool.toUpperCase()}` : 'NO MACHINE ON YOUR ROW'
+      break
+    case 'country':
+      note = me.country ? (
+        `YOU RANK ON THE ${countryLabel(me.country)} BOARD`
+      ) : (
+        <button
+          type="button"
+          onClick={() => openSettings('profile')}
+          className="tracking-[0.22em] text-zinc-400 transition-colors hover:text-[rgb(var(--accent-rgb))]"
+        >
+          PICK YOUR COUNTRY IN SETTINGS →
+        </button>
+      )
+      break
+    default: {
+      const exhaustive: never = cut
+      return exhaustive
+    }
+  }
   return (
     <div
       className="px-4 py-3 text-[10px] tracking-[0.22em] text-zinc-400 backdrop-blur-md md:px-5"
@@ -1798,7 +1834,7 @@ function CampNote({ tool }: { tool: string | null }) {
         boxShadow: 'inset 2px 0 0 rgb(var(--accent-rgb)), 0 16px 36px -20px rgb(0 0 0 / 0.5)'
       }}
     >
-      {tool ? `YOUR MACHINE IS ${tool.toUpperCase()}` : 'NO MACHINE ON YOUR ROW'}
+      {note}
     </div>
   )
 }

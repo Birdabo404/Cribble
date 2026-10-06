@@ -140,4 +140,24 @@ describe('GET /api/leaderboard', () => {
     // The weakest player is no longer pushed off the board by the 101st.
     expect(body.data.at(-1)).toMatchObject({ userId: 100, rank: 101 })
   })
+
+  it('publishes only an opted-in, known country on each row', async () => {
+    const rows = [
+      { ...scoreRow(1, 300), rank: 1, metadata: { leaderboardCountry: 'ph' } },
+      { ...scoreRow(2, 200), rank: 2, metadata: { leaderboardCountry: 'XX' } },
+      { ...scoreRow(3, 100), rank: 3, metadata: { location: 'Japan' } }
+    ]
+    rpcMock.mockResolvedValue({ data: rows, error: null })
+
+    const response = await GET(
+      new NextRequest('https://cribble.dev/api/leaderboard?board=season')
+    )
+    const body = await response.json()
+
+    expect(body.data.map((row: { country: string | null }) => row.country)).toEqual([
+      'PH',
+      null,
+      null
+    ])
+  })
 })
