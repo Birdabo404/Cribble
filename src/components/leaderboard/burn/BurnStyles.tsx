@@ -27,7 +27,8 @@ export function BurnStyles() {
       /* .bb-seg carries the tokens too: the page's board tabs travel
          outside any .bb root. */
       .bb,
-      .bb-seg {
+      .bb-seg,
+      .bb-scope {
         --bb-ink: var(--z100);
         --bb-ink-2: var(--z400);
         --bb-ember: var(--lb-ember);
@@ -48,7 +49,8 @@ export function BurnStyles() {
          here, where it carries 10px titles and 15px indices (2.9:1 →
          5.8:1). Silver and bronze already clear 4.5:1 on white. */
       html.light .bb,
-      html.light .bb-seg {
+      html.light .bb-seg,
+      html.light .bb-scope {
         --bb-hair: rgb(var(--lb-panel-edge) / 0.14);
         --bb-rule: rgb(var(--lb-ember) / 0.55);
         --bb-band: rgb(var(--lb-ember) / 0.09);
@@ -277,6 +279,120 @@ export function BurnStyles() {
       }
       .bb-search > .bb-segbtn {
         border-left: 1px solid var(--bb-edge);
+      }
+      /* GLOBAL's scope menu: one cell where SEASON / ALL-TIME used to
+         sit, opening a window group and a camp group. Same hairline
+         register as the tabs; the menu grows left on desktop so it
+         stays inside the right-aligned tool cluster. */
+      .bb-scope {
+        position: relative;
+      }
+      .bb-scope-trigger {
+        align-items: center;
+        height: 30px;
+        padding: 0 12px;
+        gap: 8px;
+        border: 1px solid var(--bb-edge);
+        background: rgb(var(--lb-panel-bg));
+        font-family: var(--bb-mono);
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: rgb(var(--bb-ember));
+        white-space: nowrap;
+        cursor: pointer;
+        box-shadow: inset 0 -2px 0 rgb(var(--bb-ember));
+      }
+      .bb-scope-trigger:hover {
+        color: rgb(var(--bb-ember));
+      }
+      .bb-scope-chev {
+        transition: transform 120ms;
+      }
+      .bb-scope-chev.is-open {
+        transform: rotate(180deg);
+      }
+      .bb-scope-menu {
+        position: absolute;
+        top: calc(100% + 6px);
+        left: 0;
+        z-index: 40;
+        min-width: 220px;
+        padding: 6px 0 8px;
+        border: 1px solid var(--bb-edge);
+        background: rgb(var(--lb-panel-bg));
+        box-shadow: 0 18px 40px -24px rgb(0 0 0 / 0.7);
+        animation: bb-scope-in 140ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      @media (min-width: 640px) {
+        .bb-scope-menu {
+          left: auto;
+          right: 0;
+        }
+      }
+      @keyframes bb-scope-in {
+        from {
+          opacity: 0;
+          transform: translateY(-4px);
+        }
+      }
+      .bb-scope-label {
+        padding: 8px 12px 4px;
+        font-family: var(--bb-mono);
+        font-size: 9px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: rgb(var(--bb-ink-2));
+      }
+      .bb-scope-label-rule {
+        margin-top: 4px;
+        border-top: 1px solid var(--bb-hair);
+        padding-top: 10px;
+      }
+      .bb-scope-item {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        height: 30px;
+        padding: 0 12px;
+        border: 0;
+        background: none;
+        font-family: var(--bb-mono);
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: rgb(var(--bb-ink-2));
+        text-align: left;
+        cursor: pointer;
+      }
+      .bb-scope-item:hover {
+        background: var(--bb-band);
+        color: rgb(var(--bb-ink));
+      }
+      .bb-scope-item[aria-checked='true'] {
+        color: rgb(var(--bb-ember));
+        box-shadow: inset 2px 0 0 rgb(var(--bb-ember));
+      }
+      .bb-scope-item:focus-visible {
+        outline: 1px solid rgb(var(--bb-ember));
+        outline-offset: -1px;
+      }
+      .bb-scope-count {
+        letter-spacing: 0;
+        font-variant-numeric: tabular-nums;
+        color: rgb(var(--bb-ink-2));
+      }
+      .bb-scope-item[aria-checked='true'] .bb-scope-count {
+        color: rgb(var(--bb-ember));
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .bb-scope-chev,
+        .bb-scope-menu {
+          transition: none;
+          animation: none;
+        }
       }
 
       /* ================= title bar ================= */

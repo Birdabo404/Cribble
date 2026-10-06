@@ -48,6 +48,13 @@ import { PlateLayer } from '@/components/cosmetics/PlateLayer'
 import { AiBoard } from '@/components/leaderboard/AiBoard'
 import { BurnSeg } from '@/components/leaderboard/burn/BurnSeg'
 import { BurnStyles } from '@/components/leaderboard/burn/BurnStyles'
+import { StandingsScopeMenu } from '@/components/leaderboard/StandingsScopeMenu'
+import {
+  campLabel,
+  campsOnBoard,
+  rowsInCamp,
+  type CampFilter
+} from '@/components/leaderboard/standingsScope'
 import { CrtAttract, HeroTitle } from '@/components/leaderboard/CrtAttract'
 import { CursorClaimPrompt } from '@/components/leaderboard/CursorClaimPrompt'
 import { LeaderboardScrollRuntime } from '@/components/leaderboard/LeaderboardScrollRuntime'
@@ -70,21 +77,17 @@ const FLASH_MS = 2_400
  *  token burn, the machines (ai), or the companies (teams). */
 type BoardView = 'season' | 'alltime' | 'tokens' | 'ai' | 'teams'
 
-/** The two standings windows nested under the SEASON top tab. */
+/** The two standings windows. They live in the scope menu with the camp
+ *  cut, so the word "season" keeps a single meaning on the tab row. */
 type StandingsWindow = Extract<BoardView, 'season' | 'alltime'>
 
 const BOARD_TABS: { id: BoardView; label: string }[] = [
-  // The standings tab reads GLOBAL; SEASON/ALL-TIME live on the nested
-  // scope pills only, so the word "season" keeps a single meaning.
+  // The standings tab reads GLOBAL; SEASON/ALL-TIME and the camp cut
+  // live in the scope menu, so the word "season" keeps a single meaning.
   { id: 'season', label: 'GLOBAL' },
   { id: 'tokens', label: 'TOKENS' },
   { id: 'ai', label: 'AI' },
   { id: 'teams', label: 'TEAMS' }
-]
-
-const STANDINGS_WINDOWS: { id: StandingsWindow; label: string }[] = [
-  { id: 'season', label: 'SEASON' },
-  { id: 'alltime', label: 'ALL-TIME' }
 ]
 
 /** The two pilot standings views — the only ones that own the pilot
@@ -130,6 +133,9 @@ function LeaderboardArena() {
     if (requested === 'global') return 'season'
     return isBoardView(requested) ? requested : 'season'
   })
+  // Camp cut of the player race. Everyone is the full window. A major
+  // keeps the window and re-ranks the pilots whose #1 tool is that machine.
+  const [camp, setCamp] = useState<CampFilter>('everyone')
   const [seasonMeta, setSeasonMeta] = useState<SeasonState | null>(null)
 
   // COIN-UP wiring: the auto-surfaced opt-in prompt lives at page level
@@ -274,21 +280,34 @@ function LeaderboardArena() {
   const leader = rows[0] ?? null
   const topScore = leader?.score ?? 0
 
+  // The hero and the stat bar stay on the full window. The table, the
+  // chase, and an open card follow the camp: #1 is the top pilot of
+  // that machine, and global movement is cleared so it can't sit next
+  // to a renumbered rank.
+  const camps = useMemo(() => campsOnBoard(rows), [rows])
+  const scoped = useMemo(() => rowsInCamp(rows, camp), [rows, camp])
+
+  useEffect(() => {
+    if (camp !== 'everyone' && !camps.some((item) => item.id === camp)) {
+      setCamp('everyone')
+    }
+  }, [camp, camps])
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter(
+    if (!q) return scoped
+    return scoped.filter(
       (u) =>
         u.username.toLowerCase().includes(q) ||
         (u.display_name || '').toLowerCase().includes(q)
     )
-  }, [rows, query])
+  }, [scoped, query])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
 
   useEffect(() => {
     setPage(1)
-  }, [query])
+  }, [query, camp])
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages)
@@ -313,7 +332,7 @@ function LeaderboardArena() {
   // (As a plain useEffect it ran after FLIP had already animated the jump.)
   useLayoutEffect(() => {
     skipFlip.current = true
-  }, [page, query])
+  }, [page, query, camp])
 
   useLayoutEffect(() => {
     const refs = rowRefs.current
@@ -350,23 +369,35 @@ function LeaderboardArena() {
   // The card row is derived from the freshest poll data, so an open card
   // live-updates (score, rank, movement) instead of freezing the stale
   // object captured at click time.
-  const selected = useMemo(
-    () => (selectedId === null ? null : rows.find((u) => u.userId === selectedId) ?? null),
-    [rows, selectedId]
-  )
+  const selected = useMemo(() => {
+    if (selectedId === null) return null
+    return (
+      scoped.find((u) => u.userId === selectedId) ??
+      rows.find((u) => u.userId === selectedId) ??
+      null
+    )
+  }, [scoped, rows, selectedId])
   const handleSelect = useCallback((u: LeaderRow) => setSelectedId(u.userId), [])
   const handleCardClose = useCallback(() => setSelectedId(null), [])
 
   const chaseFor = useCallback(
     (row: LeaderRow): ChaseInfo | null => {
+      // A camp row chases inside the camp. A hero opened from the full
+      // window — not on this cut — still chases the full board.
+      const board = scoped.some((u) => u.userId === row.userId) ? scoped : rows
       if (row.rank === 1) {
-        const second = rows.find((u) => u.rank === 2)
+        const second = board.find((u) => u.rank === 2)
         return second ? { gap: row.score - second.score, username: second.username } : null
       }
-      const above = rows.find((u) => u.rank === row.rank - 1)
+      const above = board.find((u) => u.rank === row.rank - 1)
       return above ? { gap: Math.max(1, above.score - row.score), username: above.username } : null
     },
-    [rows]
+    [rows, scoped]
+  )
+
+  const meScoped = useMemo(
+    () => (currentUserId == null ? null : scoped.find((u) => u.userId === currentUserId) ?? null),
+    [scoped, currentUserId]
   )
 
   // Board switch — pilots, the burn, the machines, or the teams. One
@@ -374,7 +405,7 @@ function LeaderboardArena() {
   // mounted below for it), rendered in the page's toolbar row on every
   // view except TOKENS, where TokenBoard seats it in its own row under
   // the burn CRT. The GLOBAL tab fronts both standings windows; the
-  // nested SEASON / ALL-TIME toggle on its right picks between them.
+  // scope menu on its right picks the window and the camp.
   const boardTabs = (
     <BurnSeg
       items={BOARD_TABS}
@@ -452,8 +483,8 @@ function LeaderboardArena() {
           )}
 
           {/* ---------- view controls: the one toolbar row ---------- */}
-          {/* Board tabs on the left; on the standings views the SEASON /
-              ALL-TIME scope pills and the search ride the right side of the
+          {/* Board tabs on the left; on the standings views the scope menu
+              (window + camp) and the search ride the right side of the
               same row (wrapping below on mobile, search full-width). TOKENS
               owns its own row: the burn CRT mounts inside TokenBoard, so
               the tabs are handed down to sit between its stat strip and
@@ -467,11 +498,13 @@ function LeaderboardArena() {
 
             {isStandings && (
               <div className="bb-bar-tools">
-                <BurnSeg
-                  items={STANDINGS_WINDOWS}
-                  value={view}
-                  onChange={handleViewChange}
-                  ariaLabel="Standings window"
+                <StandingsScopeMenu
+                  windowId={isStandingsView(view) ? view : 'season'}
+                  camp={camp}
+                  camps={camps}
+                  pilotCount={rows.length}
+                  onWindow={handleViewChange}
+                  onCamp={setCamp}
                 />
                 <SearchBar value={query} onChange={setQuery} />
               </div>
@@ -518,7 +551,7 @@ function LeaderboardArena() {
               {/* header strip folded into the panel's top edge */}
               <div className="flex items-baseline justify-between gap-3 border-b border-[rgb(var(--lb-panel-edge)/0.08)] px-4 py-3 md:px-5">
                 <h2 className="font-display text-[11px] font-semibold tracking-[0.45em] text-zinc-300">
-                  STANDINGS
+                  {camp === 'everyone' ? 'STANDINGS' : campLabel(camp)}
                 </h2>
                 {!loading && filtered.length > 0 && (
                   <span className="text-[10px] tracking-[0.2em] text-zinc-500 tabular-nums">
@@ -534,7 +567,9 @@ function LeaderboardArena() {
                   <li className="py-14 text-center text-xs tracking-[0.15em] text-zinc-500">
                     {query
                       ? 'No players match that callsign.'
-                      : 'Standings appear once players start syncing.'}
+                      : camp !== 'everyone'
+                        ? `No ${camp} pilots on this board.`
+                        : 'Standings appear once players start syncing.'}
                   </li>
                 )}
                 {!loading &&
@@ -543,9 +578,10 @@ function LeaderboardArena() {
                       key={u.userId}
                       user={u}
                       index={i}
-                      topScore={topScore}
+                      topScore={scoped[0]?.score ?? 0}
                       isYou={u.userId === currentUserId}
                       flash={flashes.get(u.userId) ?? null}
+                      showMovement={camp === 'everyone'}
                       onSelect={handleSelect}
                       setRef={setRowRef}
                     />
@@ -566,7 +602,16 @@ function LeaderboardArena() {
                 data-lb-dock
                 className="sticky bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 mt-4"
               >
-                <YouBar me={me} chase={chaseFor(me)} onSelect={handleSelect} />
+                {meScoped ? (
+                  <YouBar
+                    me={meScoped}
+                    chase={chaseFor(meScoped)}
+                    showMovement={camp === 'everyone'}
+                    onSelect={handleSelect}
+                  />
+                ) : (
+                  <CampNote tool={me.topTools?.[0]?.name ?? null} />
+                )}
               </div>
             )}
           </section>
@@ -1273,6 +1318,7 @@ function Row({
   topScore,
   isYou,
   flash,
+  showMovement,
   onSelect,
   setRef
 }: {
@@ -1281,6 +1327,8 @@ function Row({
   topScore: number
   isYou: boolean
   flash: ScoreFlash | null
+  /** Global climb/drop. Off on a camp cut, where the rank was renumbered. */
+  showMovement: boolean
   onSelect: (u: LeaderRow) => void
   setRef: (id: number, el: HTMLLIElement | null) => void
 }) {
@@ -1422,7 +1470,7 @@ function Row({
               {user.rank}
             </span>
           )}
-          <MovementChip user={user} />
+          {showMovement && <MovementChip user={user} />}
         </div>
 
         {/* pilot — top three wear rank regalia; companies (tier TEAM) get
@@ -1625,10 +1673,12 @@ function SkeletonRow({ index }: { index: number }) {
 function YouBar({
   me,
   chase,
+  showMovement,
   onSelect
 }: {
   me: LeaderRow
   chase: ChaseInfo | null
+  showMovement: boolean
   onSelect: (u: LeaderRow) => void
 }) {
   const medal = medalFor(me.rank)
@@ -1673,7 +1723,7 @@ function YouBar({
               {me.rank}
             </span>
           )}
-          {(me.rankDelta !== 0 || me.isNew) && <MovementChip user={me} />}
+          {showMovement && (me.rankDelta !== 0 || me.isNew) && <MovementChip user={me} />}
         </div>
 
         <RankAvatar user={me} />
@@ -1730,6 +1780,26 @@ function YouBar({
         </div>
       </div>
     </button>
+  )
+}
+
+/* ================= camp dock ================= */
+/* The viewer is on the full board, but their #1 tool is a different
+   machine. The ranked YOU bar would invent a place in this camp. */
+
+function CampNote({ tool }: { tool: string | null }) {
+  return (
+    <div
+      className="px-4 py-3 text-[10px] tracking-[0.22em] text-zinc-400 backdrop-blur-md md:px-5"
+      style={{
+        background:
+          'linear-gradient(0deg, rgb(var(--accent-rgb) / 0.045), rgb(var(--accent-rgb) / 0.045)), rgb(var(--lb-panel-bg) / 0.88)',
+        border: '1px solid rgb(var(--accent-rgb) / 0.18)',
+        boxShadow: 'inset 2px 0 0 rgb(var(--accent-rgb)), 0 16px 36px -20px rgb(0 0 0 / 0.5)'
+      }}
+    >
+      {tool ? `YOUR MACHINE IS ${tool.toUpperCase()}` : 'NO MACHINE ON YOUR ROW'}
+    </div>
   )
 }
 
