@@ -16,13 +16,12 @@ import {
   SettingsRow,
   SettingsSection,
   SkeletonRow,
+  Switch,
   TextArea,
   TextField
 } from '@/components/settings'
-import { countryName, countryOptions } from '@/lib/leaderboardCountry'
+import { countryName } from '@/lib/leaderboardCountry'
 import { ROLE_OPTIONS } from '@/lib/roles'
-
-const COUNTRY_OPTIONS = countryOptions()
 
 // Server-enforced limits (see src/app/api/user/profile/route.ts).
 const BIO_MAX = 160
@@ -42,8 +41,8 @@ interface ProfileFormValues {
   bio: string
   role: string | null
   location: string
-  /** ISO code for the opt-in country board; '' = off. */
-  country: string
+  /** Country board follows the latest sync unless the player turns it off. */
+  countryBoard: boolean
   website: string
   projectName: string
   projectUrl: string
@@ -60,7 +59,7 @@ interface ProfileResponse {
     project_name: string | null
     project_url: string | null
     role: string | null
-    leaderboard_country?: string | null
+    leaderboard_country_enabled?: boolean
     device_country?: string | null
     socials?: Partial<Record<keyof SocialValues, string | null>> | null
   }
@@ -78,7 +77,7 @@ function toFormValues(profile: NonNullable<ProfileResponse['profile']>): Profile
     bio: profile.bio ?? '',
     role: profile.role ?? null,
     location: profile.location ?? '',
-    country: profile.leaderboard_country ?? '',
+    countryBoard: profile.leaderboard_country_enabled !== false,
     website: profile.website ?? '',
     projectName: profile.project_name ?? '',
     projectUrl: profile.project_url ?? '',
@@ -96,7 +95,7 @@ function valuesEqual(a: ProfileFormValues, b: ProfileFormValues): boolean {
     a.bio === b.bio &&
     a.role === b.role &&
     a.location === b.location &&
-    a.country === b.country &&
+    a.countryBoard === b.countryBoard &&
     a.website === b.website &&
     a.projectName === b.projectName &&
     a.projectUrl === b.projectUrl &&
@@ -223,7 +222,9 @@ export function ProfileSection() {
       if (form.bio !== baseline.bio) patch.bio = form.bio
       if (form.role !== baseline.role) patch.role = form.role
       if (form.location !== baseline.location) patch.location = form.location
-      if (form.country !== baseline.country) patch.leaderboard_country = form.country || null
+      if (form.countryBoard !== baseline.countryBoard) {
+        patch.leaderboard_country_enabled = form.countryBoard
+      }
       if (form.website !== baseline.website) patch.website = form.website
       if (form.projectName !== baseline.projectName) patch.project_name = form.projectName
       if (form.projectUrl !== baseline.projectUrl) patch.project_url = form.projectUrl
@@ -340,52 +341,21 @@ export function ProfileSection() {
               </span>
             </SettingsRow>
 
-            {/* Opt-in only. The last-sync country is listed first as a
-                suggestion; nothing publishes until the player picks it
-                and saves. */}
             <SettingsRow
               label="Country board"
               description={
-                form.country
-                  ? `You rank on the ${countryName(form.country) ?? form.country} board.`
-                  : 'Off. Pick a country to rank among its players.'
+                !form.countryBoard
+                  ? "Off. You don't appear on a country board."
+                  : deviceCountry && countryName(deviceCountry)
+                    ? `You rank on the ${countryName(deviceCountry)} board, from your last sync.`
+                    : 'On. A country shows up after your next sync.'
               }
-              stack
             >
-              <span className="relative block sm:inline-block">
-                <select
-                  value={form.country}
-                  onChange={(e) => setField('country', e.target.value)}
-                  aria-label="Country board"
-                  className="st-input h-11 w-full appearance-none rounded-lg pl-3 pr-8 text-[16px] sm:w-56 md:h-8 md:text-[13px]"
-                >
-                  <option value="">Off</option>
-                  {deviceCountry && countryName(deviceCountry) && (
-                    <optgroup label="Last sync">
-                      <option value={deviceCountry}>{countryName(deviceCountry)}</option>
-                    </optgroup>
-                  )}
-                  <optgroup label="All countries">
-                    {COUNTRY_OPTIONS.map((c) => (
-                      <option key={c.code} value={c.code}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                </select>
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden
-                  className="pointer-events-none absolute right-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-[color:var(--st-text-faint)]"
-                >
-                  <path d="m4 6 4 4 4-4" />
-                </svg>
-              </span>
+              <Switch
+                checked={form.countryBoard}
+                onChange={(checked) => setField('countryBoard', checked)}
+                aria-label="Country board"
+              />
             </SettingsRow>
 
             <div className="grid gap-4 px-4 py-4 sm:grid-cols-2 sm:px-5">

@@ -48,7 +48,8 @@ export interface LeaderRow {
   plate?: string | null
   socials?: Socials
   role?: string | null
-  /** Opt-in country board (ISO 3166-1 alpha-2), or null when not opted in. */
+  /** Country from the latest sync (ISO 3166-1 alpha-2), or null when the
+   *  country board is off or no sync has reported one. */
   country?: string | null
   /** prev rank − current rank at the last movement. Positive = climbed. */
   rankDelta: number

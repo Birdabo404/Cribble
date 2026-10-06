@@ -1,11 +1,10 @@
 'use client'
 
 // GLOBAL's second filter, beside the scope menu: Everywhere, then the
-// countries that have an opted-in pilot. It stacks with the camp. The
-// button stays dim while no country is picked, so an idle filter never
+// countries that have a pilot on the country board. It stacks with the
+// camp. The button stays dim while no country is picked, so an idle filter never
 // reads as an applied one. For a signed-in viewer the last row opens
-// profile settings, because a country board only exists once people
-// claim it.
+// profile settings, where the country board can be turned off.
 
 import { IconChevronDown } from '@/components/leaderboard/icons'
 import {
@@ -97,7 +96,7 @@ export function StandingsCountryMenu({
                 openSettings('profile')
               }}
             >
-              Set your country →
+              Country board settings →
             </button>
           )}
         </div>

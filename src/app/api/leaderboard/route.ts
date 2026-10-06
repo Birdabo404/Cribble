@@ -5,7 +5,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { parseBannerFrame, type BannerFrame } from '@/lib/bannerFrame'
 import { getOwnedPlateIdsBatch, isProTier, resolveEquippedPlate } from '@/lib/entitlements'
 import { LEADERBOARD_BOARD_CACHE_TAG } from '@/lib/leaderboardCache'
-import { LEADERBOARD_COUNTRY_KEY, parseLeaderboardCountry } from '@/lib/leaderboardCountry'
+import {
+  publishedBoardCountry,
+  type DeviceCountryRow
+} from '@/lib/leaderboardCountry'
 import { BOARD_LIMIT } from '@/lib/leaderboardEngine'
 import { readRankMovements } from '@/lib/leaderboardSnapshot'
 import { isMissingFollowsTable, readAccountIsPrivate } from '@/lib/publicProfile'
@@ -166,7 +169,8 @@ interface BoardRow {
     linkedin: string | null
   }
   role: string | null
-  /** Opt-in country board (ISO code), or null. Never the device country. */
+  /** Country from the latest sync, or null when the player turned it off
+   *  or no sync has reported a known country. */
   country: string | null
   rank: number
   rankDelta: number
@@ -333,9 +337,10 @@ async function assembleBoard(
   // Owned plates and team affiliations for the whole board — one
   // user_cosmetics query and one team_affiliations join for every
   // ranked user.
-  const [ownedPlatesByUser, teamsByUser] = await Promise.all([
+  const [ownedPlatesByUser, teamsByUser, countriesByUser] = await Promise.all([
     getOwnedPlateIdsBatch(supabase, userIds),
-    getAffiliatedTeamsBatch(supabase, userIds)
+    getAffiliatedTeamsBatch(supabase, userIds),
+    loadDeviceCountries(supabase, userIds)
   ])
 
   const now = new Date()
@@ -448,7 +453,7 @@ async function assembleBoard(
       plate,
       socials,
       role: user.user_type || null,
-      country: parseLeaderboardCountry(meta[LEADERBOARD_COUNTRY_KEY]),
+      country: publishedBoardCountry(meta, countriesByUser.get(user.id) ?? []),
       rank: user.canonicalRank
     }
   })
@@ -475,6 +480,40 @@ async function assembleBoard(
       isNew: movement?.isNew ?? false
     }
   })
+}
+
+/** Latest known device country per player. A failed lookup leaves the
+ *  board up with no countries rather than failing the standings. */
+async function loadDeviceCountries(
+  supabase: SupabaseClient,
+  userIds: number[]
+): Promise<Map<number, DeviceCountryRow[]>> {
+  const grouped = new Map<number, DeviceCountryRow[]>()
+  if (userIds.length === 0) return grouped
+
+  const { data, error } = await supabase
+    .from('user_devices')
+    .select('user_id, country_code, last_sync_at')
+    .in('user_id', userIds)
+    .not('country_code', 'is', null)
+    .limit(5000)
+
+  if (error || !data) {
+    console.error('[Leaderboard] Device country query error:', error)
+    return grouped
+  }
+
+  for (const row of data as {
+    user_id: number | string
+    country_code: string | null
+    last_sync_at: string | null
+  }[]) {
+    const id = Number(row.user_id)
+    const list = grouped.get(id) ?? []
+    list.push({ country_code: row.country_code, last_sync_at: row.last_sync_at })
+    grouped.set(id, list)
+  }
+  return grouped
 }
 
 // The cache key includes the serialized arguments, so each board kind and

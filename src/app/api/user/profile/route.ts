@@ -8,8 +8,9 @@ import { cleanPins, PIN_URL_MAX } from '@/lib/hangar/normalize'
 import { detectAnimatedImage } from '@/lib/imageAnimation'
 import { LEADERBOARD_BOARD_CACHE_TAG } from '@/lib/leaderboardCache'
 import {
-  LEADERBOARD_COUNTRY_KEY,
-  parseLeaderboardCountry
+  countryBoardEnabled,
+  latestDeviceCountry,
+  LEADERBOARD_COUNTRY_OFF_KEY
 } from '@/lib/leaderboardCountry'
 import { cleanHttpUrl, stripControl } from '@/lib/profileText'
 import { publicProfileCacheTag } from '@/lib/publicProfile'
@@ -150,9 +151,8 @@ export async function GET(request: NextRequest) {
         role: isRoleId(user.user_type) ? user.user_type : null,
         is_private: meta.is_private === true,
         insights_opt_out: meta.insights_opt_out === true,
-        leaderboard_country: parseLeaderboardCountry(meta[LEADERBOARD_COUNTRY_KEY]),
-        // A suggestion for the picker only — never published.
-        device_country: parseLeaderboardCountry(devices?.[0]?.country_code),
+        leaderboard_country_enabled: countryBoardEnabled(meta),
+        device_country: latestDeviceCountry(devices ?? []),
         socials: {
           x: str(socials.x),
           github: str(socials.github),
@@ -180,7 +180,7 @@ interface ProfilePatchPayload {
   role?: unknown
   is_private?: unknown
   insights_opt_out?: unknown
-  leaderboard_country?: unknown
+  leaderboard_country_enabled?: unknown
   socials?: Record<string, unknown>
 }
 
@@ -305,21 +305,14 @@ export async function PATCH(request: NextRequest) {
     // excludes the account from anonymized trend rollups.
     if ('insights_opt_out' in body) merged.insights_opt_out = body.insights_opt_out === true
 
-    // Country board opt-in: a known ISO code joins, null or empty leaves.
-    // Anything else is a bad request — silently dropping it would read as
-    // "saved" while quietly taking the player off their board.
-    const countryChanged = 'leaderboard_country' in body
+    // Country board: on unless the player turns it off. The country
+    // itself comes from the latest device sync, not from this payload.
+    const countryChanged = 'leaderboard_country_enabled' in body
     if (countryChanged) {
-      const raw = body.leaderboard_country
-      if (raw === null || raw === '') {
-        merged[LEADERBOARD_COUNTRY_KEY] = null
-      } else {
-        const code = parseLeaderboardCountry(raw)
-        if (!code) {
-          return NextResponse.json({ error: 'Unknown country' }, { status: 400 })
-        }
-        merged[LEADERBOARD_COUNTRY_KEY] = code
+      if (typeof body.leaderboard_country_enabled !== 'boolean') {
+        return NextResponse.json({ error: 'Invalid country board setting' }, { status: 400 })
       }
+      merged[LEADERBOARD_COUNTRY_OFF_KEY] = !body.leaderboard_country_enabled
     }
 
     if (body.socials && typeof body.socials === 'object') {

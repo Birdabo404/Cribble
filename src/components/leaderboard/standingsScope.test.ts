@@ -49,7 +49,7 @@ describe('campsOnBoard', () => {
 })
 
 describe('countriesOnBoard', () => {
-  it('lists opted-in countries biggest first, then by name', () => {
+  it('lists countries with pilots biggest first, then by name', () => {
     const countries = countriesOnBoard([
       row(1, null, 'JP'),
       row(2, null, 'PH'),
@@ -83,7 +83,7 @@ describe('rowsInCut', () => {
     expect(claude.every((r) => r.rankDelta === 0 && r.isNew === false)).toBe(true)
   })
 
-  it('re-ranks a country from 1 and leaves non-opted rows out', () => {
+  it('re-ranks a country from 1 and leaves rows without that country out', () => {
     const ph = rowsInCut(rows, { camp: null, country: 'PH' })
     expect(ph.map((r) => [r.topTools[0]?.name, r.rank])).toEqual([
       ['Cursor', 1],

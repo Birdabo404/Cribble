@@ -1,8 +1,9 @@
 // The GLOBAL board's two filters. The scope menu picks a time window
 // (season / all-time) and a camp: the pilots whose #1 tool is that
-// machine. The country menu beside it picks the pilots who opted into
-// ranking under a country. The two stack — CLAUDE + JAPAN is Japan's
-// Claude pilots. Private rows arrive with an empty topTools list, so
+// machine. The country menu beside it picks the pilots whose latest
+// sync is that country and who left the country board on. The two
+// stack. CLAUDE + JAPAN is Japan's Claude pilots. Private rows arrive
+// with an empty topTools list, so
 // they never join a camp.
 
 import { countryName } from '@/lib/leaderboardCountry'
@@ -69,7 +70,7 @@ export function campsOnBoard(rows: readonly CutRow[]): CampOption[] {
   })
 }
 
-/** Countries with at least one opted-in pilot, biggest first. */
+/** Countries with at least one pilot still on the country board, biggest first. */
 export function countriesOnBoard(rows: readonly CutRow[]): CountryOption[] {
   const counts = new Map<string, number>()
   for (const row of rows) {

@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { rpcMock, movementMock } = vi.hoisted(() => ({
+const { rpcMock, movementMock, devicesMock } = vi.hoisted(() => ({
   rpcMock: vi.fn(),
-  movementMock: vi.fn()
+  movementMock: vi.fn(),
+  devicesMock: vi.fn()
 }))
 
 vi.mock('next/cache', () => ({
@@ -14,7 +15,18 @@ vi.mock('next/cache', () => ({
 }))
 
 vi.mock('@/lib/supabaseServer', () => ({
-  createServiceClient: () => ({ rpc: rpcMock })
+  createServiceClient: () => ({
+    rpc: rpcMock,
+    from: () => ({
+      select: () => ({
+        in: () => ({
+          not: () => ({
+            limit: () => devicesMock()
+          })
+        })
+      })
+    })
+  })
 }))
 
 vi.mock('@/lib/seasonServer', () => ({
@@ -93,6 +105,8 @@ beforeEach(() => {
   rpcMock.mockReset()
   movementMock.mockReset()
   movementMock.mockResolvedValue(new Map())
+  devicesMock.mockReset()
+  devicesMock.mockResolvedValue({ data: [], error: null })
 })
 
 describe('GET /api/leaderboard', () => {
@@ -141,13 +155,24 @@ describe('GET /api/leaderboard', () => {
     expect(body.data.at(-1)).toMatchObject({ userId: 100, rank: 101 })
   })
 
-  it('publishes only an opted-in, known country on each row', async () => {
+  it('publishes the latest device country unless the player turned the board off', async () => {
     const rows = [
-      { ...scoreRow(1, 300), rank: 1, metadata: { leaderboardCountry: 'ph' } },
-      { ...scoreRow(2, 200), rank: 2, metadata: { leaderboardCountry: 'XX' } },
-      { ...scoreRow(3, 100), rank: 3, metadata: { location: 'Japan' } }
+      { ...scoreRow(1, 400), rank: 1, metadata: {} },
+      { ...scoreRow(2, 300), rank: 2, metadata: { leaderboardCountry: 'US' } },
+      { ...scoreRow(3, 200), rank: 3, metadata: { leaderboardCountryOff: true } },
+      { ...scoreRow(4, 100), rank: 4, metadata: { leaderboardCountry: null } }
     ]
     rpcMock.mockResolvedValue({ data: rows, error: null })
+    devicesMock.mockResolvedValue({
+      data: [
+        { user_id: 1, country_code: 'us', last_sync_at: '2026-08-01T00:00:00.000Z' },
+        { user_id: 1, country_code: 'PH', last_sync_at: '2026-09-01T00:00:00.000Z' },
+        { user_id: 2, country_code: 'DE', last_sync_at: '2026-09-01T00:00:00.000Z' },
+        { user_id: 3, country_code: 'JP', last_sync_at: '2026-09-01T00:00:00.000Z' },
+        { user_id: 4, country_code: 'JP', last_sync_at: '2026-09-01T00:00:00.000Z' }
+      ],
+      error: null
+    })
 
     const response = await GET(
       new NextRequest('https://cribble.dev/api/leaderboard?board=season')
@@ -156,6 +181,7 @@ describe('GET /api/leaderboard', () => {
 
     expect(body.data.map((row: { country: string | null }) => row.country)).toEqual([
       'PH',
+      'DE',
       null,
       null
     ])

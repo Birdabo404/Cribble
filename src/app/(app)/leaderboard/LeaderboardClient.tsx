@@ -142,7 +142,7 @@ function LeaderboardArena() {
   })
   // Two stacking filters on the player race. Null is the full window. A
   // camp re-ranks the pilots whose #1 tool is that machine; a country
-  // re-ranks the pilots who opted into it.
+  // re-ranks the pilots whose latest sync is that country.
   const [camp, setCamp] = useState<CampId | null>(null)
   const [country, setCountry] = useState<string | null>(null)
   const cut = useMemo<StandingsCut>(() => ({ camp, country }), [camp, country])
@@ -1826,7 +1826,7 @@ function CutNote({ cut, me }: { cut: StandingsCut; me: LeaderRow }) {
         onClick={() => openSettings('profile')}
         className="tracking-[0.22em] text-zinc-400 transition-colors hover:text-[rgb(var(--accent-rgb))]"
       >
-        PICK YOUR COUNTRY IN SETTINGS →
+        {"YOU'RE NOT ON A COUNTRY BOARD →"}
       </button>
     )
   } else {
