@@ -1,8 +1,9 @@
-// The GLOBAL board's scope menu: a time window (season / all-time) and
-// one cut of the same player race. A camp is the pilots whose #1 tool
-// is that machine; a country is the pilots who opted into ranking there.
-// Camp and country never stack — picking one clears the other. Private
-// rows arrive with an empty topTools list, so they never join a camp.
+// The GLOBAL board's two filters. The scope menu picks a time window
+// (season / all-time) and a camp: the pilots whose #1 tool is that
+// machine. The country menu beside it picks the pilots who opted into
+// ranking under a country. The two stack — CLAUDE + JAPAN is Japan's
+// Claude pilots. Private rows arrive with an empty topTools list, so
+// they never join a camp.
 
 import { countryName } from '@/lib/leaderboardCountry'
 
@@ -11,12 +12,11 @@ export const STANDINGS_CAMPS = ['ChatGPT', 'Claude', 'Gemini', 'Grok', 'Cursor']
 export type CampId = (typeof STANDINGS_CAMPS)[number]
 export type StandingsWindowId = 'season' | 'alltime'
 
-export type StandingsCut =
-  | { kind: 'everyone' }
-  | { kind: 'camp'; camp: CampId }
-  | { kind: 'country'; code: string }
-
-export const EVERYONE: StandingsCut = { kind: 'everyone' }
+/** Null on either side means that filter is off. */
+export interface StandingsCut {
+  camp: CampId | null
+  country: string | null
+}
 
 const CAMP_LABEL: Record<CampId, string> = {
   ChatGPT: 'CHATGPT',
@@ -92,46 +92,25 @@ export function countryLabel(code: string): string {
   return (countryName(code) ?? code).toUpperCase()
 }
 
-/** The cut's own name, or null for everyone. */
+/** The table heading for the filters that are on, or null for none. */
 export function cutLabel(cut: StandingsCut): string | null {
-  switch (cut.kind) {
-    case 'everyone':
-      return null
-    case 'camp':
-      return campLabel(cut.camp)
-    case 'country':
-      return countryLabel(cut.code)
-    default: {
-      const exhaustive: never = cut
-      return exhaustive
-    }
-  }
+  const parts = [
+    cut.camp ? campLabel(cut.camp) : null,
+    cut.country ? countryLabel(cut.country) : null
+  ].filter((part): part is string => part !== null)
+  return parts.length > 0 ? parts.join(' · ') : null
 }
 
-export function sameCut(a: StandingsCut, b: StandingsCut): boolean {
-  switch (a.kind) {
-    case 'everyone':
-      return b.kind === 'everyone'
-    case 'camp':
-      return b.kind === 'camp' && b.camp === a.camp
-    case 'country':
-      return b.kind === 'country' && b.code === a.code
-    default: {
-      const exhaustive: never = a
-      return exhaustive
-    }
-  }
-}
-
-/** Closed-button text. Season + everyone stays SEASON. A cut replaces
- *  that word. All-time stays visible, because it is the other axis. */
-export function scopeButtonLabel(window: StandingsWindowId, cut: StandingsCut): string {
-  const cutText = cutLabel(cut)
+/** Closed scope-button text. Season + no camp stays SEASON. A camp
+ *  replaces that word. All-time stays visible, because it is the other
+ *  axis. */
+export function scopeButtonLabel(window: StandingsWindowId, camp: CampId | null): string {
+  const campText = camp ? campLabel(camp) : null
   switch (window) {
     case 'season':
-      return cutText ?? 'SEASON'
+      return campText ?? 'SEASON'
     case 'alltime':
-      return cutText ? `${cutText} · ALL-TIME` : 'ALL-TIME'
+      return campText ? `${campText} · ALL-TIME` : 'ALL-TIME'
     default: {
       const exhaustive: never = window
       return exhaustive
@@ -139,48 +118,22 @@ export function scopeButtonLabel(window: StandingsWindowId, cut: StandingsCut): 
   }
 }
 
-function inCut(row: CutRow, cut: StandingsCut): boolean {
-  switch (cut.kind) {
-    case 'everyone':
-      return true
-    case 'camp':
-      return primaryToolName(row) === cut.camp
-    case 'country':
-      return row.country === cut.code
-    default: {
-      const exhaustive: never = cut
-      return exhaustive
-    }
-  }
+/** Closed country-button text: the picked country, or the filter's name. */
+export function countryButtonLabel(country: string | null): string {
+  return country ? countryLabel(country) : 'COUNTRY'
 }
 
-/** True while the cut still has pilots on this board. */
-export function cutIsAvailable(
-  cut: StandingsCut,
-  camps: readonly CampOption[],
-  countries: readonly CountryOption[]
-): boolean {
-  switch (cut.kind) {
-    case 'everyone':
-      return true
-    case 'camp':
-      return camps.some((item) => item.id === cut.camp)
-    case 'country':
-      return countries.some((item) => item.code === cut.code)
-    default: {
-      const exhaustive: never = cut
-      return exhaustive
-    }
-  }
-}
-
-/** The rows the table ranks. Everyone keeps official ranks. A cut keeps
+/** The rows the table ranks. No filter keeps official ranks. A cut keeps
  *  score order, renumbers from 1, and clears global movement — that
  *  delta belongs to the full board, not to this slice. */
 export function rowsInCut<T extends CutRow>(rows: readonly T[], cut: StandingsCut): T[] {
-  if (cut.kind === 'everyone') return [...rows]
+  if (!cut.camp && !cut.country) return [...rows]
   return rows
-    .filter((row) => inCut(row, cut))
+    .filter(
+      (row) =>
+        (!cut.camp || primaryToolName(row) === cut.camp) &&
+        (!cut.country || row.country === cut.country)
+    )
     .sort((a, b) => a.rank - b.rank)
     .map((row, index) => ({ ...row, rank: index + 1, rankDelta: 0, isNew: false }))
 }

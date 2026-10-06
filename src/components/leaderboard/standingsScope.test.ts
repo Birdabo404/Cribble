@@ -2,11 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   campsOnBoard,
   countriesOnBoard,
-  cutIsAvailable,
-  EVERYONE,
+  countryButtonLabel,
+  cutLabel,
   primaryToolName,
   rowsInCut,
-  sameCut,
   scopeButtonLabel
 } from './standingsScope'
 
@@ -19,6 +18,8 @@ function row(rank: number, tool: string | null, country: string | null = null, r
     country
   }
 }
+
+const NONE = { camp: null, country: null }
 
 describe('campsOnBoard', () => {
   it("lists only majors that are someone's #1 tool, in catalog order", () => {
@@ -72,48 +73,47 @@ describe('rowsInCut', () => {
     row(3, null, null, 0)
   ]
 
-  it('keeps official ranks for everyone', () => {
-    expect(rowsInCut(rows, EVERYONE).map((r) => r.rank)).toEqual([1, 2, 4, 3])
+  it('keeps official ranks with no filter on', () => {
+    expect(rowsInCut(rows, NONE).map((r) => r.rank)).toEqual([1, 2, 4, 3])
   })
 
   it('re-ranks a camp in score order and drops hidden tools', () => {
-    const claude = rowsInCut(rows, { kind: 'camp', camp: 'Claude' })
+    const claude = rowsInCut(rows, { camp: 'Claude', country: null })
     expect(claude.map((r) => r.rank)).toEqual([1, 2])
     expect(claude.every((r) => r.rankDelta === 0 && r.isNew === false)).toBe(true)
   })
 
   it('re-ranks a country from 1 and leaves non-opted rows out', () => {
-    const ph = rowsInCut(rows, { kind: 'country', code: 'PH' })
+    const ph = rowsInCut(rows, { camp: null, country: 'PH' })
     expect(ph.map((r) => [r.topTools[0]?.name, r.rank])).toEqual([
       ['Cursor', 1],
       ['Claude', 2]
     ])
     expect(ph.every((r) => r.rankDelta === 0)).toBe(true)
   })
-})
 
-describe('scopeButtonLabel', () => {
-  it('reads SEASON until a cut is on', () => {
-    expect(scopeButtonLabel('season', EVERYONE)).toBe('SEASON')
-    expect(scopeButtonLabel('alltime', EVERYONE)).toBe('ALL-TIME')
-    expect(scopeButtonLabel('season', { kind: 'camp', camp: 'Claude' })).toBe('CLAUDE')
-    expect(scopeButtonLabel('alltime', { kind: 'camp', camp: 'ChatGPT' })).toBe(
-      'CHATGPT · ALL-TIME'
-    )
-    expect(scopeButtonLabel('season', { kind: 'country', code: 'JP' })).toBe('JAPAN')
-    expect(scopeButtonLabel('alltime', { kind: 'country', code: 'US' })).toBe(
-      'UNITED STATES · ALL-TIME'
-    )
+  it('stacks a camp and a country', () => {
+    const claudePh = rowsInCut(rows, { camp: 'Claude', country: 'PH' })
+    expect(claudePh.map((r) => [r.topTools[0]?.name, r.country, r.rank])).toEqual([
+      ['Claude', 'PH', 1]
+    ])
   })
 })
 
-describe('cut identity', () => {
-  it('compares cuts and checks they still have pilots', () => {
-    const japan = { kind: 'country', code: 'JP' } as const
-    expect(sameCut(japan, { kind: 'country', code: 'JP' })).toBe(true)
-    expect(sameCut(japan, { kind: 'camp', camp: 'Claude' })).toBe(false)
-    expect(cutIsAvailable(japan, [], [{ code: 'JP', name: 'Japan', count: 1 }])).toBe(true)
-    expect(cutIsAvailable(japan, [], [])).toBe(false)
-    expect(cutIsAvailable(EVERYONE, [], [])).toBe(true)
+describe('labels', () => {
+  it('reads SEASON until a camp is on', () => {
+    expect(scopeButtonLabel('season', null)).toBe('SEASON')
+    expect(scopeButtonLabel('alltime', null)).toBe('ALL-TIME')
+    expect(scopeButtonLabel('season', 'Claude')).toBe('CLAUDE')
+    expect(scopeButtonLabel('alltime', 'ChatGPT')).toBe('CHATGPT · ALL-TIME')
+  })
+
+  it('names the country button and the combined heading', () => {
+    expect(countryButtonLabel(null)).toBe('COUNTRY')
+    expect(countryButtonLabel('US')).toBe('UNITED STATES')
+    expect(cutLabel(NONE)).toBeNull()
+    expect(cutLabel({ camp: 'Claude', country: null })).toBe('CLAUDE')
+    expect(cutLabel({ camp: null, country: 'JP' })).toBe('JAPAN')
+    expect(cutLabel({ camp: 'Claude', country: 'JP' })).toBe('CLAUDE · JAPAN')
   })
 })

@@ -50,14 +50,15 @@ import { AiBoard } from '@/components/leaderboard/AiBoard'
 import { BurnSeg } from '@/components/leaderboard/burn/BurnSeg'
 import { BurnStyles } from '@/components/leaderboard/burn/BurnStyles'
 import { StandingsScopeMenu } from '@/components/leaderboard/StandingsScopeMenu'
+import { StandingsCountryMenu } from '@/components/leaderboard/StandingsCountryMenu'
 import {
   campsOnBoard,
   countriesOnBoard,
   countryLabel,
-  cutIsAvailable,
   cutLabel,
-  EVERYONE,
+  primaryToolName,
   rowsInCut,
+  type CampId,
   type StandingsCut
 } from '@/components/leaderboard/standingsScope'
 import { CrtAttract, HeroTitle } from '@/components/leaderboard/CrtAttract'
@@ -139,10 +140,12 @@ function LeaderboardArena() {
     if (requested === 'global') return 'season'
     return isBoardView(requested) ? requested : 'season'
   })
-  // One cut of the player race. Everyone is the full window. A major
-  // keeps the window and re-ranks the pilots whose #1 tool is that
-  // machine; a country re-ranks the pilots who opted into it.
-  const [cut, setCut] = useState<StandingsCut>(EVERYONE)
+  // Two stacking filters on the player race. Null is the full window. A
+  // camp re-ranks the pilots whose #1 tool is that machine; a country
+  // re-ranks the pilots who opted into it.
+  const [camp, setCamp] = useState<CampId | null>(null)
+  const [country, setCountry] = useState<string | null>(null)
+  const cut = useMemo<StandingsCut>(() => ({ camp, country }), [camp, country])
   const [seasonMeta, setSeasonMeta] = useState<SeasonState | null>(null)
 
   // COIN-UP wiring: the auto-surfaced opt-in prompt lives at page level
@@ -294,11 +297,15 @@ function LeaderboardArena() {
   const camps = useMemo(() => campsOnBoard(rows), [rows])
   const countries = useMemo(() => countriesOnBoard(rows), [rows])
   const scoped = useMemo(() => rowsInCut(rows, cut), [rows, cut])
-  const isCut = cut.kind !== 'everyone'
+  const isCut = camp !== null || country !== null
 
   useEffect(() => {
-    if (!cutIsAvailable(cut, camps, countries)) setCut(EVERYONE)
-  }, [cut, camps, countries])
+    if (camp && !camps.some((item) => item.id === camp)) setCamp(null)
+  }, [camp, camps])
+
+  useEffect(() => {
+    if (country && !countries.some((item) => item.code === country)) setCountry(null)
+  }, [country, countries])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -412,7 +419,8 @@ function LeaderboardArena() {
   // mounted below for it), rendered in the page's toolbar row on every
   // view except TOKENS, where TokenBoard seats it in its own row under
   // the burn CRT. The GLOBAL tab fronts both standings windows; the
-  // scope menu on its right picks the window and the cut.
+  // scope menu on its right picks the window and the camp, and the
+  // country menu beside it narrows to one country.
   const boardTabs = (
     <BurnSeg
       items={BOARD_TABS}
@@ -491,7 +499,7 @@ function LeaderboardArena() {
 
           {/* ---------- view controls: the one toolbar row ---------- */}
           {/* Board tabs on the left; on the standings views the scope menu
-              (window + cut) and the search ride the right side of the
+              (window + camp), the country menu, and the search ride the right side of the
               same row (wrapping below on mobile, search full-width). TOKENS
               owns its own row: the burn CRT mounts inside TokenBoard, so
               the tabs are handed down to sit between its stat strip and
@@ -507,12 +515,18 @@ function LeaderboardArena() {
               <div className="bb-bar-tools">
                 <StandingsScopeMenu
                   windowId={isStandingsView(view) ? view : 'season'}
-                  cut={cut}
+                  camp={camp}
                   camps={camps}
-                  countries={countries}
                   pilotCount={rows.length}
                   onWindow={handleViewChange}
-                  onCut={setCut}
+                  onCamp={setCamp}
+                />
+                <StandingsCountryMenu
+                  country={country}
+                  countries={countries}
+                  pilotCount={rows.length}
+                  signedIn={currentUserId != null}
+                  onCountry={setCountry}
                 />
                 <SearchBar value={query} onChange={setQuery} />
               </div>
@@ -576,7 +590,7 @@ function LeaderboardArena() {
                     {query
                       ? 'No players match that callsign.'
                       : isCut
-                        ? 'No pilots on this cut yet.'
+                        ? 'No pilots match these filters yet.'
                         : 'Standings appear once players start syncing.'}
                   </li>
                 )}
@@ -1794,35 +1808,29 @@ function YouBar({
 /* ================= cut dock ================= */
 /* The viewer is on the full board, but outside this cut: their #1 tool
    is a different machine, or they rank under another country (or none).
-   The ranked YOU bar would invent a place here. */
+   The ranked YOU bar would invent a place here. The camp reason wins
+   when both filters miss. */
 
 function CutNote({ cut, me }: { cut: StandingsCut; me: LeaderRow }) {
   const { openSettings } = useSettingsModal()
-  const tool = me.topTools?.[0]?.name ?? null
+  const tool = primaryToolName(me)
   let note: ReactNode
-  switch (cut.kind) {
-    case 'everyone':
-      return null
-    case 'camp':
-      note = tool ? `YOUR MACHINE IS ${tool.toUpperCase()}` : 'NO MACHINE ON YOUR ROW'
-      break
-    case 'country':
-      note = me.country ? (
-        `YOU RANK ON THE ${countryLabel(me.country)} BOARD`
-      ) : (
-        <button
-          type="button"
-          onClick={() => openSettings('profile')}
-          className="tracking-[0.22em] text-zinc-400 transition-colors hover:text-[rgb(var(--accent-rgb))]"
-        >
-          PICK YOUR COUNTRY IN SETTINGS →
-        </button>
-      )
-      break
-    default: {
-      const exhaustive: never = cut
-      return exhaustive
-    }
+  if (cut.camp && tool !== cut.camp) {
+    note = tool ? `YOUR MACHINE IS ${tool.toUpperCase()}` : 'NO MACHINE ON YOUR ROW'
+  } else if (cut.country && me.country !== cut.country) {
+    note = me.country ? (
+      `YOU RANK ON THE ${countryLabel(me.country)} BOARD`
+    ) : (
+      <button
+        type="button"
+        onClick={() => openSettings('profile')}
+        className="tracking-[0.22em] text-zinc-400 transition-colors hover:text-[rgb(var(--accent-rgb))]"
+      >
+        PICK YOUR COUNTRY IN SETTINGS →
+      </button>
+    )
+  } else {
+    return null
   }
   return (
     <div

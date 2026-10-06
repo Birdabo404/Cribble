@@ -306,6 +306,14 @@ export function BurnStyles() {
       .bb-scope-trigger:hover {
         color: rgb(var(--bb-ember));
       }
+      .bb-scope-trigger.is-idle {
+        color: rgb(var(--bb-ink-2));
+        box-shadow: none;
+      }
+      .bb-scope-trigger.is-idle:hover,
+      .bb-scope-trigger.is-idle[aria-expanded='true'] {
+        color: rgb(var(--bb-ink));
+      }
       .bb-scope-chev {
         transition: transform 120ms;
       }
@@ -395,6 +403,13 @@ export function BurnStyles() {
       }
       .bb-scope-item[aria-checked='true'] .bb-scope-count {
         color: rgb(var(--bb-ember));
+      }
+      .bb-scope-action {
+        height: 40px;
+        margin-top: 4px;
+        border-top: 1px solid var(--bb-hair);
+        padding-top: 10px;
+        color: rgb(var(--bb-ink-2));
       }
       @media (prefers-reduced-motion: reduce) {
         .bb-scope-chev,
