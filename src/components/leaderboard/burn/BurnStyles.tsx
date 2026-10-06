@@ -330,6 +330,12 @@ export function BurnStyles() {
           right: 0;
         }
       }
+      /* Three short windows (SEASON / 7D / ALL) — no group label, so the
+         panel hugs the words instead of the camp menu's width. */
+      .bb-scope-menu-compact {
+        min-width: 132px;
+        padding: 4px 0;
+      }
       @keyframes bb-scope-in {
         from {
           opacity: 0;

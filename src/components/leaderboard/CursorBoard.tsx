@@ -24,7 +24,7 @@ import { BurnCrown } from '@/components/leaderboard/burn/BurnCrown'
 import { BurnEmpty } from '@/components/leaderboard/burn/BurnEmpty'
 import { BurnIndex } from '@/components/leaderboard/burn/BurnIndex'
 import { BurnPager, type BurnPagerYou } from '@/components/leaderboard/burn/BurnPager'
-import { BurnSeg } from '@/components/leaderboard/burn/BurnSeg'
+import { WindowMenu } from '@/components/leaderboard/WindowMenu'
 import {
   BurnSlab,
   type BurnColumn,
@@ -477,7 +477,7 @@ export function CursorBoard({
           <div className="bb-bar-tools">
             {sourceToggle}
 
-            <BurnSeg
+            <WindowMenu
               items={WINDOWS}
               value={windowId}
               onChange={(next) => {

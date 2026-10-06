@@ -14,6 +14,7 @@ import { BurnEmpty } from '@/components/leaderboard/burn/BurnEmpty'
 import { BurnIndex } from '@/components/leaderboard/burn/BurnIndex'
 import { BurnPager } from '@/components/leaderboard/burn/BurnPager'
 import { BurnSeg } from '@/components/leaderboard/burn/BurnSeg'
+import { WindowMenu } from '@/components/leaderboard/WindowMenu'
 import {
   BurnSlab,
   type BurnColumn,
@@ -212,7 +213,7 @@ export function TokenBoard({
   sourceRef.current = source
 
   // Re-tune: every path that changes what the tube is tuned to (source
-  // toggle, window pill, page override) drops the feed and the card in
+  // toggle, window menu, page override) drops the feed and the card in
   // the same commit as the new feed identity, so the tube renders an
   // empty rotation under the new id — clean AWAITING → glitch-in, never
   // a stale rank 1 from the previous feed.
@@ -594,7 +595,7 @@ function CliTokenBoard({
           <div className="bb-bar-tools">
             {sourceToggle}
 
-            <BurnSeg
+            <WindowMenu
               items={WINDOWS}
               value={windowId}
               onChange={(next) => {
