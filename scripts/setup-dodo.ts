@@ -374,6 +374,17 @@ async function main() {
     }
   }
 
+  // Retired plates are never (re)created but keep their mapping, so late
+  // webhooks and refunds for them still resolve the plate. Production's map
+  // is a sensitive (write-only) env var: this printed map replaces it whole.
+  for (const plate of PLATES.filter((p) => p.retired)) {
+    const matched = matchProduct(products, false, 'plate_id', plate.id, `${plate.name} — Leaderboard Plate`)
+    if (matched) {
+      plateMap[plate.id] = matched.product_id
+      record('PLATES', plate.id, 'ok', `retired, kept in map → ${matched.product_id}`)
+    }
+  }
+
   const plateMapJson = JSON.stringify(plateMap)
   if (plateProductIds.length === PURCHASABLE_PLATES.length) {
     envEntries.push(['DODO_PLATE_PRODUCT_MAP', plateMapJson])

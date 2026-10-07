@@ -35,9 +35,12 @@ import {
   SAKURA_PETAL_FRONT_DEEP,
   SAKURA_PETAL_FRONT_PALE,
   getPlate,
+  plateTint,
   type PlateFx,
-  type PlateImageRender
+  type PlateImageRender,
+  type PlateRender
 } from '@/lib/cosmetics/plates'
+import { PlateScene } from './PlateScene'
 
 export interface PlateLayerProps {
   plateId: string
@@ -85,32 +88,7 @@ export function PlateLayer({ plateId, fade = 'left', className = '' }: PlateLaye
       className={`pointer-events-none absolute inset-0 overflow-hidden ${className}`}
       style={{ borderRadius: 'inherit', ...mask }}
     >
-      {plate.render.kind === 'image' ? (
-        <PlateImage render={plate.render} />
-      ) : (
-        <>
-          <div className="absolute inset-0" style={{ background: plate.render.base.join(', ') }} />
-          <FxOverlay fx={plate.render.fx} />
-          {/* film finish: grain + glass top edge + grounded bottom shade —
-              breaks the flat-gradient look so the art reads printed */}
-          <div
-            className="absolute inset-0"
-            style={{
-              backgroundImage: GRAIN_TILE,
-              backgroundSize: '120px 120px',
-              opacity: 0.05,
-              mixBlendMode: 'overlay'
-            }}
-          />
-          <div
-            className="absolute inset-0"
-            style={{
-              background:
-                'linear-gradient(180deg, rgb(255 255 255 / 0.06), transparent 24%, transparent 74%, rgb(0 0 0 / 0.28))'
-            }}
-          />
-        </>
-      )}
+      <PlateBody render={plate.render} />
       <style jsx global>{`
         .plx-beam {
           animation: plx-beam-sweep 8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
@@ -2431,7 +2409,45 @@ export function PlateLayer({ plateId, fade = 'left', className = '' }: PlateLaye
   )
 }
 
-/** Future final-art pathway: animated WebP with the SafeBannerImg-style
+function PlateBody({ render }: { render: PlateRender }) {
+  switch (render.kind) {
+    case 'image':
+      return <PlateImage render={render} />
+    case 'scene':
+      return <PlateScene scene={render.scene} />
+    case 'css':
+      return (
+        <>
+          <div className="absolute inset-0" style={{ background: render.base.join(', ') }} />
+          <FxOverlay fx={render.fx} />
+          {/* film finish: grain + glass top edge + grounded bottom shade —
+              breaks the flat-gradient look so the art reads printed */}
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: GRAIN_TILE,
+              backgroundSize: '120px 120px',
+              opacity: 0.05,
+              mixBlendMode: 'overlay'
+            }}
+          />
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                'linear-gradient(180deg, rgb(255 255 255 / 0.06), transparent 24%, transparent 74%, rgb(0 0 0 / 0.28))'
+            }}
+          />
+        </>
+      )
+    default: {
+      const exhaustive: never = render
+      return exhaustive
+    }
+  }
+}
+
+/** Single-file art pathway: animated WebP with the SafeBannerImg-style
  * degradation ladder (animated → static → nothing). The <picture> source
  * swaps in the static frame for prefers-reduced-motion users — the browser
  * then never even downloads the animated file. */
@@ -6374,7 +6390,7 @@ export function PlatePreview({ plateId, className = '' }: PlatePreviewProps) {
   if (!plate) return null
 
   // image-kind renders carry no accent in the catalog — neutral fallback
-  const accent = plate.render.kind === 'css' ? plate.render.accent : '161 161 170'
+  const accent = plateTint(plate.render)?.accent ?? '161 161 170'
 
   return (
     <div

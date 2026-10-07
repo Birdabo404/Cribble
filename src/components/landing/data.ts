@@ -278,8 +278,8 @@ export function heatLevel(week: number, day: number): number {
 /* ------------------------------------------------------------------ */
 
 export const SHOWCASE_PLATES = [
-  'synthwave-grid',
-  'terminal-rain',
+  'always-open',
+  'touch-grass',
   'koi-pond',
   'champions-gold'
 ] as const

@@ -11,9 +11,11 @@
 // Launch plates are procedural (`kind: 'css'`): each `base` is a full painted
 // scene — gradient skies plus inline-SVG scenery (silhouettes, engravings,
 // props) as data-URI layers — and `fx` names the PlateLayer animation scene
-// that lives on top. Everything ships as text; no binary assets. Final art
-// later drops into /public/plates/ as animated WebP strips (~1000×120, plus
-// a static frame) using `kind: 'image'`.
+// that lives on top. Everything ships as text; no binary assets.
+// Season 01 plates are painted art (`kind: 'scene'`): each is cut into
+// layers under /public/plates/season-01/<scene>/ and composed per surface
+// by PlateScene. `kind: 'image'` (an animated WebP strip plus a static
+// frame) remains for single-file art.
 //
 // Colors are deliberately theme-independent literals (same precedent as
 // `Medal.plate` in components/leaderboard/types.ts): a plate is a product and
@@ -81,7 +83,35 @@ export interface PlateImageRender {
   staticSrc: string
 }
 
-export type PlateRender = PlateCssRender | PlateImageRender
+/** Layered-art scenes implemented by PlateScene. Adding one means adding a
+ * case to its exhaustive switch — the compiler enforces it. */
+export type PlateSceneId = 'always-open' | 'noodle-dragon' | 'touch-grass' | 'peer-review'
+
+export interface PlateSceneRender {
+  kind: 'scene'
+  scene: PlateSceneId
+  /** Same contracts as PlateCssRender's accent / bleed. */
+  accent: string
+  bleed: string
+}
+
+export type PlateRender = PlateCssRender | PlateImageRender | PlateSceneRender
+
+/** The `R G B` hues surfaces tint around a plate (accent glow and ring, the
+ * light-mode bleed), or null for image plates, which carry none. */
+export function plateTint(render: PlateRender): { accent: string; bleed: string } | null {
+  switch (render.kind) {
+    case 'css':
+    case 'scene':
+      return { accent: render.accent, bleed: render.bleed }
+    case 'image':
+      return null
+    default: {
+      const exhaustive: never = render
+      return exhaustive
+    }
+  }
+}
 
 export interface PlateDef {
   id: string
@@ -102,6 +132,9 @@ export interface PlateDef {
   betaExclusive?: boolean
   /** Limited drop — retired when the season ends. */
   seasonal?: { label: string }
+  /** Sold in an earlier drop and off sale now (priceUsd null); owners keep
+   * it and can still equip it. */
+  retired?: boolean
   render: PlateRender
 }
 
@@ -969,16 +1002,18 @@ const FOUNDER_GUILLOCHE = svg(
     '</svg>'
 )
 
-/** Launch catalog. Order here is the default shop order: purchasable drops
- * first, then the Pro collection, then the Founder vault drop (sold from
- * its own band, not the grid) and the never-sold Beta tester gift. */
+/** The catalog: the launch drop (retired from sale), the Reserve, the Pro
+ * collection, the Founder vault drop (sold from its own band, not the
+ * grid), the never-sold Beta tester gift, then Season 01. The shop sorts
+ * its own shelves; this order is the bag serial. */
 export const PLATES: PlateDef[] = [
   {
     id: 'synthwave-grid',
     name: 'Synthwave Grid',
     tagline: 'Ride the horizon straight into the grid.',
     rarity: 'rare',
-    priceUsd: 3.99,
+    priceUsd: null,
+    retired: true,
     render: {
       kind: 'css',
       base: [
@@ -999,7 +1034,8 @@ export const PLATES: PlateDef[] = [
     name: 'Deep Space',
     tagline: 'Silent running past the last beacon.',
     rarity: 'common',
-    priceUsd: 1.99,
+    priceUsd: null,
+    retired: true,
     render: {
       kind: 'css',
       base: [
@@ -1019,7 +1055,8 @@ export const PLATES: PlateDef[] = [
     name: 'Terminal Rain',
     tagline: 'The feed never stops falling.',
     rarity: 'rare',
-    priceUsd: 3.99,
+    priceUsd: null,
+    retired: true,
     render: {
       kind: 'css',
       base: [
@@ -1038,7 +1075,8 @@ export const PLATES: PlateDef[] = [
     name: 'Cherry Blossom',
     tagline: "Petals fall. Rank doesn't.",
     rarity: 'epic',
-    priceUsd: 5.99,
+    priceUsd: null,
+    retired: true,
       render: {
       kind: 'css',
       base: [
@@ -1070,7 +1108,8 @@ export const PLATES: PlateDef[] = [
     name: 'Keyboard Cat',
     tagline: 'Paws on keys, eyes on the crown.',
     rarity: 'common',
-    priceUsd: 1.99,
+    priceUsd: null,
+    retired: true,
     render: {
       kind: 'css',
       base: [
@@ -1112,7 +1151,8 @@ export const PLATES: PlateDef[] = [
     name: 'Season 01: Ignition',
     tagline: 'First season. Full throttle.',
     rarity: 'legendary',
-    priceUsd: 7.99,
+    priceUsd: null,
+    retired: true,
     seasonal: { label: 'SEASON 01' },
     render: {
       kind: 'css',
@@ -1340,6 +1380,46 @@ export const PLATES: PlateDef[] = [
       accent: '125 211 252',
       bleed: '16 62 118'
     }
+  },
+
+  // ---- Season 01 — painted scene plates. Appended, not slotted by rarity:
+  // catalog position is the bag serial (PLT-NN), so earlier plates keep
+  // theirs. --------------------------------------------------------------
+  {
+    id: 'always-open',
+    name: 'Always Open',
+    tagline: 'Open all night. Like you.',
+    rarity: 'epic',
+    priceUsd: 5.99,
+    seasonal: { label: 'SEASON 01' },
+    render: { kind: 'scene', scene: 'always-open', accent: '244 114 182', bleed: '58 48 140' }
+  },
+  {
+    id: 'noodle-dragon',
+    name: 'Noodle Dragon',
+    tagline: 'Long body. Longer streak.',
+    rarity: 'epic',
+    priceUsd: 5.99,
+    seasonal: { label: 'SEASON 01' },
+    render: { kind: 'scene', scene: 'noodle-dragon', accent: '243 103 48', bleed: '12 34 104' }
+  },
+  {
+    id: 'touch-grass',
+    name: 'Touch Grass',
+    tagline: 'Logged off. Briefly.',
+    rarity: 'epic',
+    priceUsd: 5.99,
+    seasonal: { label: 'SEASON 01' },
+    render: { kind: 'scene', scene: 'touch-grass', accent: '56 189 248', bleed: '10 74 110' }
+  },
+  {
+    id: 'peer-review',
+    name: 'Peer Review',
+    tagline: 'Three frogs. Zero approvals.',
+    rarity: 'epic',
+    priceUsd: 5.99,
+    seasonal: { label: 'SEASON 01' },
+    render: { kind: 'scene', scene: 'peer-review', accent: '132 204 22', bleed: '20 70 140' }
   }
 ]
 

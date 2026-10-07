@@ -34,6 +34,21 @@ export const SHOP_PLATES: ShopPlate[] = PLATES.filter(
     RARITY_ORDER[a.rarity] - RARITY_ORDER[b.rarity]
 )
 
+/** Season 01 plates whose art isn't finished. The 04 grid closes on them as
+ * sealed, unbuyable cards so the drop reads complete. They are not catalog
+ * plates, so nothing can sell, grant or equip them. */
+export interface UnavailablePlate {
+  id: string
+  name: string
+  rarity: PlateRarity
+  seasonal: { label: string }
+}
+
+export const UNAVAILABLE_PLATES: readonly UnavailablePlate[] = [
+  { id: 'screen-time', name: 'Screen Time', rarity: 'epic', seasonal: { label: 'SEASON 01' } },
+  { id: 'cooldown', name: 'Cooldown', rarity: 'epic', seasonal: { label: 'SEASON 01' } }
+]
+
 /** The Reserve — the mythic class, sold from its own shelf above the grid,
  * cheapest first so the shelf reads as a ladder up to the flagship. */
 export const RESERVE_PLATES: ShopPlate[] = PLATES.filter(
@@ -89,7 +104,7 @@ export const FEATURED_PLATE_IDS: string[] = [
   'prime-anomaly',
   'event-horizon',
   'koi-pond',
-  'season-01-ignition',
+  'always-open',
   'founder'
 ]
 
@@ -145,7 +160,8 @@ export const JP = {
   season01: 'シーズン01',
   rankEarned: '順位は実力で',
   champion: '王者',
-  founder: '創設者'
+  founder: '創設者',
+  unavailable: '準備中'
 } as const
 
 /** Ticker strip segments, in loop order — English and Japanese interleaved.

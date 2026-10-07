@@ -46,8 +46,8 @@ const rowsUnlocking = (unlockedIds: string[]): AchievementRow[] =>
   )
 
 describe('catalog fixtures the bag relies on', () => {
-  it('ships fifteen plates with three Pro exclusives and thirty-two badges', () => {
-    expect(PLATES).toHaveLength(15)
+  it('ships nineteen plates with three Pro exclusives and thirty-two badges', () => {
+    expect(PLATES).toHaveLength(19)
     expect(PRO_PLATE_IDS).toEqual(['pro-circuit', 'aurora-drift', 'midnight-ops'])
     expect(NEUTRAL_BADGES).toHaveLength(32)
     expect(NEUTRAL_BADGES.every((row) => row.unlockedAt === null && row.current === 0)).toBe(true)
@@ -156,6 +156,10 @@ describe('filterPlates', () => {
       'pro-circuit',
       'aurora-drift',
       'beta-tester',
+      'always-open',
+      'noodle-dragon',
+      'touch-grass',
+      'peer-review',
       'synthwave-grid',
       'terminal-rain',
       'keyboard-cat'
@@ -293,8 +297,12 @@ describe('revStamp', () => {
 
 describe('acquisitionLine', () => {
   it('quotes the shop price for purchasable plates', () => {
-    expect(acquisitionLine(plate('synthwave-grid'))).toBe('SHOP · $3.99')
+    expect(acquisitionLine(plate('always-open'))).toBe('SHOP · $5.99')
     expect(acquisitionLine(plate('koi-pond'))).toBe('SHOP · $15.00')
+  })
+
+  it('marks plates taken off sale as retired', () => {
+    expect(acquisitionLine(plate('synthwave-grid'))).toBe('SHOP — retired')
   })
 
   it('names the source for the never-sold plates', () => {
