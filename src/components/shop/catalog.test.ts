@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PLATES } from '@/lib/cosmetics/plates'
+import { PLATES, getPlate, plateTint } from '@/lib/cosmetics/plates'
 import {
   FEATURED_PLATES,
   FEATURED_PLATE_IDS,
@@ -11,6 +11,7 @@ import {
   SHOP_SECTIONS,
   TICKER_SEGMENTS,
   TICKER_SENTENCE,
+  UNAVAILABLE_PLATES,
   plateIndex,
   plateKicker,
   proPrice,
@@ -27,7 +28,7 @@ describe('FEATURED_PLATES', () => {
       'prime-anomaly',
       'event-horizon',
       'koi-pond',
-      'season-01-ignition',
+      'always-open',
       'founder'
     ])
     expect(FEATURED_PLATES.map((plate) => plate.id)).toEqual(FEATURED_PLATE_IDS)
@@ -35,6 +36,52 @@ describe('FEATURED_PLATES', () => {
 
   it('leads with the flagship so it is the default stage plate', () => {
     expect(FEATURED_PLATES[0]?.id).toBe('prime-anomaly')
+  })
+})
+
+describe('SHOP_PLATES', () => {
+  it('sells the Season 01 drop, every plate epic at $5.99', () => {
+    expect(SHOP_PLATES.map((plate) => plate.id)).toEqual([
+      'always-open',
+      'noodle-dragon',
+      'touch-grass',
+      'peer-review'
+    ])
+    for (const plate of SHOP_PLATES) {
+      expect(plate).toMatchObject({ rarity: 'epic', priceUsd: 5.99, seasonal: { label: 'SEASON 01' } })
+    }
+  })
+
+  it('never sells a retired plate', () => {
+    for (const plate of PLATES.filter((p) => p.retired)) {
+      expect(plate.priceUsd).toBeNull()
+      expect(plateIndex(plate.id)).toBe('--')
+    }
+  })
+})
+
+describe('UNAVAILABLE_PLATES', () => {
+  it('stays out of the catalog, so nothing can sell or equip them', () => {
+    expect(UNAVAILABLE_PLATES.map((plate) => plate.id)).toEqual(['screen-time', 'cooldown'])
+    for (const plate of UNAVAILABLE_PLATES) {
+      expect(getPlate(plate.id)).toBeNull()
+    }
+  })
+})
+
+describe('plateTint', () => {
+  it('carries accent and bleed for css and scene plates', () => {
+    expect(plateTint({ kind: 'scene', scene: 'touch-grass', accent: '1 2 3', bleed: '4 5 6' })).toEqual({
+      accent: '1 2 3',
+      bleed: '4 5 6'
+    })
+    for (const plate of PLATES.filter((p) => p.render.kind !== 'image')) {
+      expect(plateTint(plate.render)).not.toBeNull()
+    }
+  })
+
+  it('has no hues for image plates', () => {
+    expect(plateTint({ kind: 'image', animatedSrc: '/a.webp', staticSrc: '/s.webp' })).toBeNull()
   })
 })
 

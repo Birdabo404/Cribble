@@ -54,7 +54,7 @@ vi.mock('@/lib/dodo', () => ({
   getDodoClient: getDodoClientMock,
   isDodoConfigured: () => true,
   getProPlateDiscountCode: () => discountCode.value,
-  resolvePlateProductId: (id: string) => (id === 'deep-space' ? 'pdt_plate_deep_space' : null),
+  resolvePlateProductId: (id: string) => (id === 'always-open' ? 'pdt_plate_always_open' : null),
   resolveProProductId: (key: string) => (key === 'pro_monthly' ? 'pdt_monthly' : null),
   resolveTeamProductId: (key: string) => (key === 'team_monthly' ? 'pdt_team_monthly' : null)
 }))
@@ -102,9 +102,9 @@ describe('GET /api/checkout', () => {
   })
 
   it('refuses an already-owned plate: bounces to the shop, never reaches Dodo', async () => {
-    getOwnedPlateIdsMock.mockResolvedValue(['deep-space'])
+    getOwnedPlateIdsMock.mockResolvedValue(['always-open'])
 
-    const response = await GET(plateCheckoutRequest('deep-space'))
+    const response = await GET(plateCheckoutRequest('always-open'))
 
     expect(response.status).toBe(307)
     expect(response.headers.get('location')).toBe('http://cribble.dev/shop?checkout=owned')
@@ -114,13 +114,13 @@ describe('GET /api/checkout', () => {
   it('sends a not-yet-owned plate to the Dodo hosted checkout with the buyer stamped in metadata', async () => {
     getOwnedPlateIdsMock.mockResolvedValue(['koi-pond'])
 
-    const response = await GET(plateCheckoutRequest('deep-space'))
+    const response = await GET(plateCheckoutRequest('always-open'))
 
     expect(getOwnedPlateIdsMock).toHaveBeenCalledWith(expect.anything(), 9)
     expect(checkoutSessionsCreateMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        product_cart: [{ product_id: 'pdt_plate_deep_space', quantity: 1 }],
-        metadata: { userId: 9, plateId: 'deep-space' },
+        product_cart: [{ product_id: 'pdt_plate_always_open', quantity: 1 }],
+        metadata: { userId: 9, plateId: 'always-open' },
         return_url: 'http://cribble.dev/shop?checkout=success',
         // Plate checkouts hide the code field so the Pro perk stays a perk;
         // a first purchase must mint a fresh Dodo customer rather than
@@ -140,7 +140,7 @@ describe('GET /api/checkout', () => {
   it('checks out as the linked Dodo customer when the account has one (no fresh customer)', async () => {
     readDodoCustomerIdMock.mockResolvedValue('cus_linked')
 
-    await GET(plateCheckoutRequest('deep-space'))
+    await GET(plateCheckoutRequest('always-open'))
 
     expect(checkoutSessionsCreateMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -153,7 +153,7 @@ describe('GET /api/checkout', () => {
   it('attaches the Pro plate discount code for a Pro buyer', async () => {
     discountCode.value = 'PROPLATES'
 
-    await GET(plateCheckoutRequest('deep-space'))
+    await GET(plateCheckoutRequest('always-open'))
 
     expect(checkoutSessionsCreateMock).toHaveBeenCalledWith(
       expect.objectContaining({

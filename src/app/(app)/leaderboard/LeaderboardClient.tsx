@@ -73,7 +73,7 @@ import { useSettingsModal } from '@/components/settings/SettingsModalContext'
 import { medalA, medalFor, medalGlow, type LeaderRow } from '@/components/leaderboard/types'
 import { TeamMiniLogo } from '@/components/premium/TeamMiniLogo'
 import { VerifiedBadge } from '@/components/premium/VerifiedBadge'
-import { getPlate } from '@/lib/cosmetics/plates'
+import { getPlate, plateTint } from '@/lib/cosmetics/plates'
 import { isProTier } from '@/lib/entitlements'
 
 const PAGE_SIZE = 25
@@ -1368,13 +1368,12 @@ function Row({
   // Per-plate hues driving the light-mode runway dissolve: --pa (signature
   // accent) opens the ramp as a pastel blush, --pb (deep scene hue) carries
   // the descent into the art. image-kind renders carry neither in the
-  // catalog and unknown/retired ids resolve to null — both fall back to
+  // catalog and ids no longer in it resolve to null — both fall back to
   // neutrals so the gradient stays valid.
   const plateDef = user.plate ? getPlate(user.plate) : null
-  const plateBleed =
-    plateDef?.render.kind === 'css' ? plateDef.render.bleed : '24 24 27'
-  const plateAccent =
-    plateDef?.render.kind === 'css' ? plateDef.render.accent : '124 118 140'
+  const plateHues = plateDef ? plateTint(plateDef.render) : null
+  const plateBleed = plateHues?.bleed ?? '24 24 27'
+  const plateAccent = plateHues?.accent ?? '124 118 140'
 
   return (
     <li

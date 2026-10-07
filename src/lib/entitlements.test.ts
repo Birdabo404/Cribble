@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { resolveEquippedPlate } from './entitlements'
 
 // Catalog fixtures (real launch-catalog ids, stable within the repo):
-//   'synthwave-grid' — purchasable, no exclusivity flags
+//   'synthwave-grid' — a shop plate, no exclusivity flags
 //   'pro-circuit'    — proExclusive, never sold
 //   'founder'        — one-run vault drop, owned via a user_cosmetics row
 //   'champions-gold' — championExclusive, minted when APEX (#1) unlocks

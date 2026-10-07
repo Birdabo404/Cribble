@@ -40,6 +40,7 @@ import { ReserveCard } from '@/components/shop/ReserveCard'
 import { ShopNoticeBanner } from '@/components/shop/ShopNotice'
 import { SpecDrawer } from '@/components/shop/SpecDrawer'
 import { Ticker } from '@/components/shop/Ticker'
+import { UnavailableCard } from '@/components/shop/UnavailableCard'
 import {
   CHAMPION_PLATE,
   FEATURED_PLATES,
@@ -49,6 +50,7 @@ import {
   RESERVE_PLATES,
   SHOP_PLATES,
   SHOP_SECTIONS,
+  UNAVAILABLE_PLATES,
   type ShopSection,
   type ShopSectionId
 } from '@/components/shop/catalog'
@@ -81,8 +83,9 @@ const PLATE_COUNT = SHOP_PLATES.length + RESERVE_PLATES.length + (FOUNDER_PLATE 
 /** 04 PLATES is a gap-px grid over the line colour, so a trailing empty
  * cell would paint as a solid line-coloured block. Fillers complete the
  * last row per breakpoint (paper, aria-hidden); both are 0 today. */
-const PLATES_FILL_LG = (3 - (SHOP_PLATES.length % 3)) % 3
-const PLATES_FILL_SM = (2 - (SHOP_PLATES.length % 2)) % 2
+const PLATES_CELLS = SHOP_PLATES.length + UNAVAILABLE_PLATES.length
+const PLATES_FILL_LG = (3 - (PLATES_CELLS % 3)) % 3
+const PLATES_FILL_SM = (2 - (PLATES_CELLS % 2)) % 2
 
 /* ================= entrance guard ================= */
 
@@ -165,7 +168,9 @@ function sectionCount(id: ShopSectionId): string {
     case 'mythic':
       return `${RESERVE_PLATES.length} PLATES`
     case 'plates':
-      return `${SHOP_PLATES.length} PLATES`
+      return UNAVAILABLE_PLATES.length > 0
+        ? `${SHOP_PLATES.length} PLATES · ${UNAVAILABLE_PLATES.length} UNAVAILABLE`
+        : `${SHOP_PLATES.length} PLATES`
     case 'vault':
       return `${(FOUNDER_PLATE ? 1 : 0) + (CHAMPION_PLATE ? 1 : 0)} PLATES`
     default: {
@@ -257,6 +262,13 @@ function SectionBody({
                   owned={owned.has(plate.id)}
                   onInspect={onInspect}
                 />
+              </div>
+            </div>
+          ))}
+          {UNAVAILABLE_PLATES.map((plate) => (
+            <div key={plate.id} className={PAPER_BG}>
+              <div className="shop-reveal h-full">
+                <UnavailableCard plate={plate} />
               </div>
             </div>
           ))}

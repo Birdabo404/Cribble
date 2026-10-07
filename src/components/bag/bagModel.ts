@@ -159,6 +159,7 @@ export const usd = (n: number) => `$${n.toFixed(2)}`
 /** How a plate is obtained, straight from catalog flags. */
 export function acquisitionLine(plate: PlateDef): string {
   if (plate.priceUsd !== null) return `SHOP · ${usd(plate.priceUsd)}`
+  if (plate.retired) return 'SHOP — retired'
   if (plate.proExclusive) return 'CRIBBLE PRO — active subscription'
   if (plate.championExclusive) return 'AWARDED TO RANK #1 (APEX)'
   if (plate.betaExclusive) return 'BETA TESTER GIFT — retired'

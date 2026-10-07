@@ -1,0 +1,186 @@
+/* Season 01 scene plates (PlateScene).
+ *
+ * A plate is a size container. Its scene picks one of three art-directed
+ * layouts by aspect ratio, so a subject is placed for the surface instead
+ * of cover-cropped out of one 16:9 frame:
+ *   stage   aspect < 2.6   (shop featured stage 16:7, spec drawer)
+ *   banner  2.6 – 8        (4:1 shop/bag cards, 112px podium, mobile rows)
+ *   strip   ≥ 8            (desktop leaderboard rows, ~15:1)
+ * Subjects live in a "rig": a box with the sprite's aspect ratio that is
+ * itself a size container, so FX anchor in the sprite's own coordinates
+ * (cqw/cqh of the rig) and stay glued to the art at every scale.
+ * Keyframes touch transform/opacity only.
+ *
+ * Strip placements are px from the right edge: the standings grid's fixed
+ * columns sit at fixed distances from it at every md+ width — STATUS text
+ * ~20–74px, SCORE digits ~136–224px, 24H ~316–360px — so focal points
+ * (faces, fire, sign) land in the 74–136 and 224–316 gutters. Mobile rows
+ * (aspect 5–8, a banner by ratio) put the score ~14–85px from the right
+ * instead, so there the focal points sit ~110–160px in. */
+
+.plate { position: absolute; inset: 0; overflow: hidden; container: s1plate / size; border-radius: inherit; }
+.scene { position: absolute; inset: 0; }
+.scene > * { position: absolute; }
+.rig { container-type: size; }
+.rig > img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.rig > * { position: absolute; }
+.px { image-rendering: pixelated; }
+
+/* ---------------------------------------------------------------- always open */
+/* one native pixel = --px; the diorama spans native rows 30–180 and each
+   surface drops --cut rows of it below the frame (stage: the whole street;
+   rows: pole tip to the sign band) */
+.ao { --px: calc(105cqw / 320); --cut: 0; }
+@container s1plate (aspect-ratio >= 2.6) { .ao { --px: calc(100cqh / 104); --cut: 32; } }
+@container s1plate (aspect-ratio >= 8) { .ao { --px: calc(100cqh / 94); --cut: 42; } }
+.ao .sky {
+  inset: 0; background: rgb(65 75 156) url(/plates/season-01/always-open/sky.webp) repeat-x;
+  background-size: auto calc(var(--px) * 180);
+  background-position: left 0 bottom calc(var(--px) * var(--cut) * -1);
+}
+.ao .dio { right: 0; bottom: calc(var(--px) * var(--cut) * -1); height: calc(var(--px) * 150); aspect-ratio: 320 / 150; }
+/* wires run solid to the frame on the stage; where the diorama ends
+   mid-plate they ease out instead of stopping dead */
+@container s1plate (aspect-ratio >= 2.6) {
+  .ao .wires { -webkit-mask-image: linear-gradient(90deg, transparent, #000 30%); mask-image: linear-gradient(90deg, transparent, #000 30%); }
+}
+/* the street's cut right edge melts into the sky once it's pulled in */
+@container s1plate (5 <= aspect-ratio < 8) {
+  .ao .dio { right: 84px; -webkit-mask-image: linear-gradient(270deg, transparent, #000 10%); mask-image: linear-gradient(270deg, transparent, #000 10%); }
+}
+.ao .neon {
+  left: 44.06%; top: 57.33%; width: 48.1%; height: 0.667%; background: #3dff3a;
+  box-shadow: 0 0 1.4cqh #02fe01, 0 0 4cqh rgb(2 254 1 / 0.55); mix-blend-mode: screen;
+  animation: ao-flicker 7s steps(1) infinite;
+}
+.ao .signglow {
+  left: 54%; top: 45.5%; width: 21%; height: 18%;
+  background: radial-gradient(closest-side, rgb(255 130 40 / 0.55), transparent); mix-blend-mode: screen;
+  animation: ao-breathe 3.5s ease-in-out infinite;
+}
+.ao .win {
+  left: 44%; top: 59.3%; width: 48.2%; height: 12%;
+  background: linear-gradient(180deg, rgb(255 214 150 / 0.04), rgb(255 196 120 / 0.24)); mix-blend-mode: screen;
+  animation: ao-breathe 6s ease-in-out infinite reverse;
+}
+.ao .snow { left: 0; right: 0; top: calc(var(--px) * -64); bottom: 0; background-size: calc(var(--px) * 64) calc(var(--px) * 64); }
+.ao .far { opacity: 0.55; background-image: var(--snow-far); animation: ao-fall 9s steps(64) infinite; }
+.ao .near { background-image: var(--snow-near); background-size: calc(var(--px) * 96) calc(var(--px) * 64); animation: ao-fall 5s steps(64) infinite; }
+.ao .twk { width: calc(var(--px) * 3); height: calc(var(--px) * 3); background: var(--spark) center / 100% 100%; animation: ao-twinkle 4s steps(1) infinite; }
+@keyframes ao-flicker { 0%, 100% { opacity: 0.95 } 38% { opacity: 0.95 } 39% { opacity: 0.25 } 40% { opacity: 0.9 } 41% { opacity: 0.35 } 43% { opacity: 1 } 78% { opacity: 0.92 } 79% { opacity: 0.55 } 80% { opacity: 0.95 } }
+@keyframes ao-breathe { 0%, 100% { opacity: 0.55 } 50% { opacity: 1 } }
+@keyframes ao-fall { from { transform: translate3d(0, 0, 0) } to { transform: translate3d(calc(var(--px) * -8), calc(var(--px) * 64), 0) } }
+@keyframes ao-twinkle { 0%, 100% { opacity: 0 } 10% { opacity: 1 } 20% { opacity: 0.4 } 30% { opacity: 0 } }
+
+/* ---------------------------------------------------------------- noodle dragon */
+.nd { --hh: 66cqh; --hr: 9cqw; --hb: 4cqh; --moon: 34cqh; --star: 12cqh; }
+@container s1plate (aspect-ratio >= 2.6) { .nd { --hh: 100cqh; --hr: 6cqw; --hb: -4cqh; --moon: 52cqh; --star: 20cqh; } }
+@container s1plate (5 <= aspect-ratio < 8) { .nd { --hr: 100px; } }
+@container s1plate (aspect-ratio >= 8) { .nd { --hh: 104cqh; --hr: 228px; --hb: -6cqh; --moon: 62cqh; --star: 24cqh; } }
+.nd .sky { inset: 0; background: url(/plates/season-01/noodle-dragon/sky.webp) center 40% / cover no-repeat; }
+.nd .moon { left: 6.5%; top: 9%; height: var(--moon); aspect-ratio: 458 / 504; transform-origin: 50% 50%; animation: nd-sway 9s ease-in-out infinite; }
+@container s1plate (aspect-ratio >= 2.6) { .nd .moon { left: 50%; top: 8%; } }
+@container s1plate (5 <= aspect-ratio < 8) { .nd .moon { left: 38%; } }
+@container s1plate (aspect-ratio >= 8) { .nd .moon { left: auto; right: 86px; } }
+.nd .moon img, .nd .star img { width: 100%; height: 100%; display: block; }
+.nd .star { height: var(--star); aspect-ratio: 103 / 98; animation: nd-twinkle 2.8s ease-in-out infinite; }
+.nd .head { right: var(--hr); bottom: var(--hb); height: var(--hh); aspect-ratio: 1034 / 823; transform-origin: 8% 83%; animation: nd-bob 3.6s ease-in-out infinite; }
+.nd .body {
+  --bh: calc(var(--hh) * 0.58);
+  left: 0; height: var(--bh); bottom: calc(var(--hb) - var(--hh) * 0.145);
+  right: calc(var(--hr) + var(--hh) * 1.2564 * 0.9); overflow: hidden;
+}
+.nd .body i {
+  position: absolute; top: 0; bottom: 0; left: 0; width: calc(100% + var(--bh) * 3.055);
+  background: url(/plates/season-01/noodle-dragon/body.webp) right 0 top 0 / auto 100% repeat-x;
+  animation: nd-slither 2.4s linear infinite;
+}
+.nd .eye { width: 0; height: 0; }
+.nd .eye i { position: absolute; left: -3.3cqw; top: -0.4cqw; width: 6.6cqw; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle at 34% 30%, #fff 0 14%, #151515 17%); }
+.nd .eyeA { left: 56.2%; top: 26%; animation: nd-googly 3.6s cubic-bezier(.3,.7,.4,1) infinite; }
+.nd .eyeB { left: 71.2%; top: 23.9%; animation: nd-googly 3.6s cubic-bezier(.3,.7,.4,1) infinite -0.12s; }
+.nd .eyeB i { width: 5.8cqw; left: -2.9cqw; }
+.nd .fire { left: 90%; top: 40%; height: 40cqh; aspect-ratio: 232 / 184; transform-origin: 0 50%; animation: nd-puff 3.6s ease-out infinite; }
+.nd .fire img { width: 100%; height: 100%; display: block; }
+@keyframes nd-slither { from { transform: translateX(0) } to { transform: translateX(calc(var(--bh) * -3.055)) } }
+@keyframes nd-bob { 0%, 100% { transform: rotate(0) translateY(0) } 30% { transform: rotate(-3deg) translateY(-1.5%) } 65% { transform: rotate(2deg) translateY(1%) } }
+@keyframes nd-googly { 0%, 100% { transform: rotate(0) } 14% { transform: rotate(48deg) } 26% { transform: rotate(-32deg) } 36% { transform: rotate(18deg) } 46% { transform: rotate(-8deg) } 56% { transform: rotate(3deg) } 64% { transform: rotate(0) } }
+@keyframes nd-puff {
+  0%, 52% { opacity: 0; transform: scale(0.1) }
+  58% { opacity: 1; transform: scale(0.6) }
+  74% { opacity: 1; transform: translateX(8%) scale(1.05) }
+  90%, 100% { opacity: 0; transform: translateX(22%) scale(1.15) }
+}
+@keyframes nd-twinkle { 0%, 100% { transform: scale(0.82) rotate(-8deg); opacity: 0.75 } 50% { transform: scale(1.08) rotate(8deg); opacity: 1 } }
+@keyframes nd-sway { 0%, 100% { transform: rotate(-4deg) } 50% { transform: rotate(4deg) } }
+
+/* ---------------------------------------------------------------- touch grass */
+.tg .bg { inset: -2%; background: url(/plates/season-01/touch-grass/bg.webp) 50% 60% / cover no-repeat; animation: tg-breathe 12s ease-in-out infinite; }
+.tg .tv { right: 9cqw; bottom: -6cqh; height: 92cqh; aspect-ratio: 751 / 771; }
+@container s1plate (aspect-ratio >= 2.6) { .tg .bg { background-position: 50% 72%; } .tg .tv { right: 5cqw; bottom: -22cqh; height: 128cqh; } }
+@container s1plate (5 <= aspect-ratio < 8) { .tg .tv { right: 80px; } }
+@container s1plate (aspect-ratio >= 8) { .tg .bg { background-position: 50% 78%; } .tg .tv { right: 228px; bottom: -24cqh; height: 130cqh; } }
+.tg .screen { left: 18.9%; top: 37.4%; width: 32.6%; height: 33.6%; border-radius: 14% / 16%; overflow: hidden; container-type: size; }
+.tg .screen > * { position: absolute; }
+.tg .phosphor { inset: 0; background: radial-gradient(ellipse at 50% 46%, rgb(110 255 210 / 0.42), rgb(40 120 100 / 0.12) 62%, transparent 80%); mix-blend-mode: screen; animation: tg-flicker 2.7s steps(1) infinite; }
+.tg .face { inset: 0; animation: tg-look 6s ease-in-out infinite; }
+.tg .face > * { position: absolute; background: #a6ffe2; box-shadow: 0 0 3cqh rgb(120 255 210 / 0.9); }
+.tg .eye { top: 30%; width: 10cqw; height: 24cqh; border-radius: 40%; animation: tg-blink 4s ease-in-out infinite; }
+.tg .eyeL { left: 31%; }
+.tg .eyeR { left: 59%; }
+.tg .mouth { left: 38%; top: 62%; width: 24cqw; height: 11cqh; background: none; box-shadow: none; border: 2.6cqh solid #a6ffe2; border-top: 0; border-radius: 0 0 50% 50% / 0 0 100% 100%; filter: drop-shadow(0 0 1.5cqh rgb(120 255 210 / 0.9)); }
+.tg .scan { inset: 0; background: repeating-linear-gradient(180deg, rgb(0 0 0 / 0.28) 0 1px, transparent 1px 3px); }
+.tg .roll { left: 0; right: 0; top: -40%; height: 40%; background: linear-gradient(180deg, transparent, rgb(170 255 230 / 0.16), transparent); animation: tg-roll 3.2s linear infinite; }
+.tg .bfly { left: 6%; top: 20%; width: 10cqw; aspect-ratio: 100 / 64; animation: tg-path 9s ease-in-out infinite; }
+.tg .bfly i { position: absolute; top: 0; left: 50%; width: 50%; height: 100%; background: url(/plates/season-01/touch-grass/wing.svg) 0 0 / 100% 100% no-repeat; transform-origin: 0 50%; animation: tg-flap 0.24s ease-in-out infinite alternate; }
+.tg .bfly i + i { transform: scaleX(-1); }
+.tg .bfly b { position: absolute; left: 47%; top: 22%; width: 6%; height: 62%; border-radius: 40%; background: #3a1f12; }
+.tg .mote { width: 0.9cqh; min-width: 2px; aspect-ratio: 1; border-radius: 50%; background: #fffbe6; box-shadow: 0 0 6px 2px rgb(255 252 230 / 0.6); animation: tg-float 11s linear infinite; }
+@keyframes tg-breathe { 0%, 100% { transform: scale(1) } 50% { transform: scale(1.035) } }
+@keyframes tg-flicker { 0%, 100% { opacity: 1 } 47% { opacity: 0.82 } 49% { opacity: 1 } 83% { opacity: 0.9 } }
+@keyframes tg-look { 0%, 18%, 100% { transform: translateX(0) } 26%, 44% { transform: translateX(-9%) } 52%, 70% { transform: translateX(8%) } 78% { transform: translateX(0) } }
+@keyframes tg-blink { 0%, 88%, 100% { transform: scaleY(1) } 92% { transform: scaleY(0.1) } 96% { transform: scaleY(1) } }
+@keyframes tg-roll { to { transform: translateY(350%) } }
+@keyframes tg-flap { from { scale: 1 1 } to { scale: 0.3 1 } }
+@keyframes tg-path {
+  0%, 100% { transform: translate(0, 0) rotate(-8deg) }
+  25% { transform: translate(38cqw, -14cqh) rotate(10deg) }
+  50% { transform: translate(80cqw, 4cqh) rotate(-6deg) }
+  75% { transform: translate(40cqw, 16cqh) rotate(8deg) }
+}
+@keyframes tg-float {
+  0% { transform: translate(0, 0); opacity: 0 }
+  10%, 85% { opacity: 0.9 }
+  50% { transform: translate(14cqw, -18cqh) }
+  100% { transform: translate(28cqw, -6cqh); opacity: 0 }
+}
+
+/* ---------------------------------------------------------------- peer review */
+.pr .sky { top: 0; bottom: 0; left: 0; width: 200cqw; background: url(/plates/season-01/peer-review/sky.webp) 0 88% / 100cqw auto repeat-x; animation: pr-drift 80s linear infinite; }
+.pr .frogs { right: -2cqw; bottom: 0; height: 84cqh; aspect-ratio: 1280 / 500; }
+@container s1plate (aspect-ratio >= 2.6) { .pr .frogs { height: 112cqh; bottom: -12cqh; } }
+@container s1plate (5 <= aspect-ratio < 8) {
+  .pr .frogs { right: 92px; height: 104cqh; bottom: -8cqh; -webkit-mask-image: linear-gradient(270deg, transparent, #000 9%); mask-image: linear-gradient(270deg, transparent, #000 9%); }
+}
+@container s1plate (aspect-ratio >= 8) { .pr .frogs { height: 112cqh; bottom: -12cqh; right: 0; } }
+.pr .frogs > img { transform-origin: 50% 100%; animation: pr-breathe 3.2s ease-in-out infinite; }
+.pr .lens { width: 4.2cqw; aspect-ratio: 1; translate: -50% -50%; border-radius: 50%; overflow: hidden; }
+.pr .lens i { position: absolute; inset: -20%; background: linear-gradient(115deg, transparent 40%, rgb(255 255 255 / 0.85) 47%, transparent 54%); animation: pr-glint 5s ease-in-out infinite; }
+.pr .fly { left: 30%; top: 8%; width: 2.6cqw; aspect-ratio: 1; animation: pr-buzz 6s ease-in-out infinite; }
+.pr .fly b { position: absolute; left: 30%; top: 30%; width: 40%; height: 40%; border-radius: 50%; background: #1d1b22; }
+.pr .fly i { position: absolute; top: 0; width: 46%; height: 46%; border-radius: 50%; background: rgb(230 240 255 / 0.75); animation: pr-wing 0.06s linear infinite alternate; }
+.pr .fly i:first-of-type { left: 4%; }
+.pr .fly i:last-of-type { right: 4%; }
+@keyframes pr-drift { to { transform: translateX(-100cqw) } }
+@keyframes pr-breathe { 0%, 100% { transform: scaleY(1) } 50% { transform: scaleY(1.018) } }
+@keyframes pr-glint { 0%, 70% { transform: translateX(-80%) } 84%, 100% { transform: translateX(80%) } }
+@keyframes pr-wing { from { opacity: 0.9 } to { opacity: 0.25 } }
+@keyframes pr-buzz {
+  0%, 100% { transform: translate(0, 0) }
+  15% { transform: translate(14cqw, -4cqh) }
+  30% { transform: translate(30cqw, 6cqh) }
+  45% { transform: translate(44cqw, -2cqh) }
+  60% { transform: translate(30cqw, -6cqh) }
+  75% { transform: translate(14cqw, 8cqh) }
+  90% { transform: translate(4cqw, 2cqh) }
+}
